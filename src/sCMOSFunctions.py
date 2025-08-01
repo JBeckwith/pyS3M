@@ -13,6 +13,7 @@ from scipy.ndimage import uniform_filter
 from skimage.filters import gaussian, median
 from skimage.measure import block_reduce
 from skimage.transform import resize
+from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
@@ -30,9 +31,37 @@ class sCMOS_Functions:
         """
         return
 
+    def bayer_demosaic_stack(self, image):
+        """
+        Apply colour demosaicking across an entire image stack.
+
+        Args:
+            image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
+                                where H is height, W is width, and C is the number of channels.
+
+        Returns:
+            RGB_image (np.ndarray): binned image
+        """
+
+        image = image.astype(np.float32)
+        if len(image.shape) > 2:
+            RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
+            for i in np.arange(image.shape[0]):
+                BGR_image = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
+                RGB_image[i, :, :, 0] = BGR_image[:, :, -1]
+                RGB_image[i, :, :, 1] = BGR_image[:, :, 1]
+                RGB_image[i, :, :, 2] = BGR_image[:, :, 0]
+        else:
+            BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
+            RGB_image = np.zeros_like(BGR_image)
+            RGB_image[:, :, 0] = BGR_image[:, :, -1]
+            RGB_image[:, :, 1] = BGR_image[:, :, 1]
+            RGB_image[:, :, 2] = BGR_image[:, :, 0]
+        return RGB_image
+
     def bayer_bin_stack(self, image, bin_width=2):
         """
-        Apply binning of the nosie across the four pixels of the bayer mask.
+        Apply binning of the noise across the four pixels of the bayer mask.
 
         Args:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)

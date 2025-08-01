@@ -23,6 +23,7 @@ from matplotlib.colors import hsv_to_rgb, rgb_to_hsv
 
 _DRAW_MAX_SIGMA = 3
 
+
 def render(
     locs,
     info=None,

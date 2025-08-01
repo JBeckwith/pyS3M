@@ -26,7 +26,7 @@ sys.path.append(module_dir)
 import IOFunctions
 
 # Connect to database
-spectra_folder = os.path.join(os.path.split(module_dir)[0], 'Spectra')
+spectra_folder = os.path.join(os.path.split(module_dir)[0], "Spectra")
 
 IO = IOFunctions.IO_Functions()
 
@@ -34,9 +34,15 @@ IO = IOFunctions.IO_Functions()
 class Spectral_Funcs:
     def __init__(self):
         self = self
-        conn = duckdb.connect(os.path.join(spectra_folder, 'spectral_data.duckdb'), read_only=True)
-        self.dye_names = list(conn.sql("SELECT dye_name FROM dye_summary").df()['dye_name'])
-        self.filter_names = list(conn.sql("""SELECT filter_name FROM filter_summary""").df()['filter_name'])
+        conn = duckdb.connect(
+            os.path.join(spectra_folder, "spectral_data.duckdb"), read_only=True
+        )
+        self.dye_names = list(
+            conn.sql("SELECT dye_name FROM dye_summary").df()["dye_name"]
+        )
+        self.filter_names = list(
+            conn.sql("""SELECT filter_name FROM filter_summary""").df()["filter_name"]
+        )
         conn.close()
         return
 
@@ -400,17 +406,19 @@ class Spectral_Funcs:
         Returns:
             spectra (np.ndarray): area-normalised fluorescence spectra or filter spectrum
         """
-        conn = duckdb.connect(os.path.join(spectra_folder, 'spectral_data.duckdb'), read_only=True)
+        conn = duckdb.connect(
+            os.path.join(spectra_folder, "spectral_data.duckdb"), read_only=True
+        )
         if not isinstance(names, list):
             names = [names]
         try:
             for name in names:
                 if dye_or_filter == True:
                     if name not in self.dye_names:
-                        raise Exception(str(name)+" dye not in the database.")
+                        raise Exception(str(name) + " dye not in the database.")
                 else:
                     if name not in self.filter_names:
-                        raise Exception(str(name)+" filter not in the database.")
+                        raise Exception(str(name) + " filter not in the database.")
         except Exception as error:
             conn.close()
             print("Caught this error: " + repr(error))
@@ -420,12 +428,16 @@ class Spectral_Funcs:
         if dye_or_filter == True:
             for i, dye_name in enumerate(names):
                 try:
-                    spectrum = conn.sql("""SELECT * FROM dyes 
-                                            WHERE dye_name = '"""+dye_name+"""'
+                    spectrum = conn.sql(
+                        """SELECT * FROM dyes 
+                                            WHERE dye_name = '"""
+                        + dye_name
+                        + """'
                                             ORDER BY wavelength_nm
-                                            """).df()
-                    spectrum_wl = spectrum['wavelength_nm'].to_numpy()
-                    spectrum_fl = spectrum['emission_intensity'].to_numpy()
+                                            """
+                    ).df()
+                    spectrum_wl = spectrum["wavelength_nm"].to_numpy()
+                    spectrum_fl = spectrum["emission_intensity"].to_numpy()
                     spectrum_fl[spectrum_fl < 0.0] = 0.0
                     dye_rescaled = np.interp(
                         x=wavelength,
@@ -440,12 +452,16 @@ class Spectral_Funcs:
         else:
             for i, filter_name in enumerate(names):
                 try:
-                    spectrum = conn.sql("""SELECT * FROM filters 
-                                            WHERE filter_name = '"""+filter_name+"""'
+                    spectrum = conn.sql(
+                        """SELECT * FROM filters 
+                                            WHERE filter_name = '"""
+                        + filter_name
+                        + """'
                                             ORDER BY wavelength_nm
-                                            """).df()
-                    spectrum_wl = spectrum['wavelength_nm'].to_numpy()
-                    spectrum_tm = spectrum['transmission_pct'].to_numpy()
+                                            """
+                    ).df()
+                    spectrum_wl = spectrum["wavelength_nm"].to_numpy()
+                    spectrum_tm = spectrum["transmission_pct"].to_numpy()
                     spectrum_tm[spectrum_tm < 0.0] = 0.0
                     filter_rescaled = np.interp(
                         x=wavelength,

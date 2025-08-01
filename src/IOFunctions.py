@@ -177,6 +177,7 @@ class IO_Functions:
         rqe=1.0,
         read_noise=1.0,
         frame=None,
+        hot_pixel_threshold=20,
     ):
         """
         Read a TIFF file using the skimage library.
@@ -246,6 +247,11 @@ class IO_Functions:
         else:
             error_map = np.add(error_data, np.square(read_noise))
         weights_map = np.power(error_map, -1)
+        if type(read_noise) is not float:
+            hot_pixels = read_noise > hot_pixel_threshold
+            if len(data.shape) > 2:
+                hot_pixels = np.tile(hot_pixels, (data.shape[0], 1, 1))
+            weights_map[hot_pixels] = 1e-8
         return data, smoothed_data, weights_map
 
     def write_tiff(self, volume, file_path, bit="double", pixel_size=0.11):
