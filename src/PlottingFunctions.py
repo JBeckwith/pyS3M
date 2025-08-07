@@ -785,7 +785,7 @@ class Plotter:
         vmax=None,
         cmap="gist_gray",
         cbar="on",
-        cbarlabel="photons",
+        cbarlabel="photoelectrons",
         label="",
         labelcolor="white",
         pixelsize=69,

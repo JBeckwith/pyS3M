@@ -47,16 +47,11 @@ class sCMOS_Functions:
         if len(image.shape) > 2:
             RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
             for i in np.arange(image.shape[0]):
-                BGR_image = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
-                RGB_image[i, :, :, 0] = BGR_image[:, :, -1]
-                RGB_image[i, :, :, 1] = BGR_image[:, :, 1]
-                RGB_image[i, :, :, 2] = BGR_image[:, :, 0]
+                RGB_image[i, :, :, :] = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
         else:
             BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
             RGB_image = np.zeros_like(BGR_image)
-            RGB_image[:, :, 0] = BGR_image[:, :, -1]
-            RGB_image[:, :, 1] = BGR_image[:, :, 1]
-            RGB_image[:, :, 2] = BGR_image[:, :, 0]
+            RGB_image = BGR_image
         return RGB_image
 
     def bayer_bin_stack(self, image, bin_width=2):

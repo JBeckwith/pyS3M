@@ -720,12 +720,14 @@ class MultiC_Sim_Funcs:
         starting_flag="simulation_",
         n_bootstrap=10000,
         background_photons=5.0,
+        background_colour=[1, 1, 1],
         NA=1.49,
         pixel_size=69,
         cpu_fraction=0.9,
         single_dye_spectrum=None,
         save_raw_results=False,
         subtractx0y0=False,
+        saverawimages=False
     ):
         """test_single_dye_fit_method function
             generates images of a single dye molecule
@@ -868,6 +870,18 @@ class MultiC_Sim_Funcs:
                 + "_fittesting_input_parameters.csv",
             )
         )
+        X0Y0 = {}
+        X0Y0['x0'] = x0
+        X0Y0['y0'] = y0
+        pl.DataFrame(X0Y0).write_csv(os.path.join(
+            save_folder,
+            starting_flag
+            + "LM_method"
+            + "_"
+            + dyestr
+            + "_fittesting_input_groundtruthpositions.csv",
+        ))
+        
         start = time.time()
         masks_3d = np.dstack(
             [camera_parameters["masks"][x] for x in camera_parameters["masks"].keys()]
@@ -885,10 +899,22 @@ class MultiC_Sim_Funcs:
                 x0y0,
                 smoothing_function=smoothing_function,
                 background_photons=background_photons,
+                background_colour=background_colour,
                 NA=NA,
                 pixel_size=pixel_size,
                 return_normal_image=False,
             )
+            if saverawimages == True:
+                IO.write_tiff(bayer_image, os.path.join(
+                    save_folder,
+                    starting_flag
+                    + "LM_method"
+                    + "_"
+                    + dyestr
+                    + "_"
+                    + str(np.around(n_photon, 2)).replace(".", "p").zfill(10)
+                    + "_rawbayerimage.tiff",
+                ))
 
             photoelectron_data = np.divide(
                 np.divide(
