@@ -8,6 +8,8 @@
     :copyright: Copyright (c) 2016-2018 Jungmann Lab, MPI of Biochemistry
 """
 
+import os
+import sys
 import numpy as _np
 import dask.array as _da
 import numba as _numba
@@ -17,7 +19,9 @@ from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import threading as _threading
 from itertools import chain as _chain
 import matplotlib.pyplot as _plt
-from . import postprocess as _postprocess
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+import postprocess as _postprocess
 import os
 from datetime import datetime
 import pandas as pd
