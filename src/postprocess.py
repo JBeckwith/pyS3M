@@ -8,6 +8,8 @@
     :copyright: Copyright (c) 2015-2018 Jungmann Lab, MPI Biochemistry
 """
 
+import os
+import sys
 import numpy as _np
 import numba as _numba
 

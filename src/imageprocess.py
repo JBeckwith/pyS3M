@@ -10,16 +10,19 @@
     :author: Joerg Schnitzbauer, 2016
     :copyright: Copyright (c) MIT License
 """
-
+import os
+import sys
 import matplotlib.pyplot as _plt
 import numpy as _np
 from numpy import fft as _fft
 import lmfit as _lmfit
 from tqdm import tqdm as _tqdm
-from . import lib as _lib
-from . import render as _render
-from . import localize as _localize
-from . import postprocess as _postprocess
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+import lib as _lib
+import render as _render
+import localize as _localize
+import postprocess as _postprocess
 
 
 def xcorr(imageA, imageB):
