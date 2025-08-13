@@ -21,9 +21,11 @@ import matplotlib.pyplot as _plt
 import itertools as _itertools
 import lmfit as _lmfit
 from collections import OrderedDict as _OrderedDict
-from . import lib as _lib
-from . import render as _render
-from . import imageprocess as _imageprocess
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+import lib as _lib
+import render as _render
+import imageprocess as _imageprocess
 from threading import Thread as _Thread
 from tqdm import tqdm as _tqdm
 from tqdm import trange as _trange
