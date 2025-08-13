@@ -40,6 +40,43 @@ def gaussian_unscaled_model(
             array_tofill[i, j] = xg[i] * yg[j]
     return array_tofill
 
+@jit(nopython=True, nogil=True)
+def WLS_justcolour_model_nobounds(
+    params,
+    x,
+    gauss_2d,
+    locparams,
+):
+    """
+    Calculate a coloured gaussian based on input params.
+
+
+    Args:
+        params (numpy.ndarray): Input parameters.
+        data (numpy.ndarray): Data to fit.
+        masks (np.3darray): 3d array of colour masks
+
+    Returns:
+        gauss_2d (numpy.ndarray): 2d bayer filtered gaussian.
+    """
+
+    gauss_2d[:, :] = (
+        np.multiply(
+            params[0] ** 2,
+            gaussian_unscaled_model(
+                gauss_2d[:, :],
+                x,
+                len(x),
+                locparams[0],
+                locparams[1],
+                locparams[2],
+                locparams[3],
+            ),
+        )
+        + params[1] ** 2
+    )
+    return gauss_2d
+
 
 @jit(nopython=True, nogil=True)
 def WLS_nocolour_model_nobounds(
@@ -78,6 +115,52 @@ def WLS_nocolour_model_nobounds(
     )
     return gauss_2d
 
+@jit(nopython=True, nogil=True)
+def WLS_rawcolour_model_nobounds(
+    params,
+    data,
+    masks,
+    background_bayer_matrix,
+    bayer_matrix,
+    x,
+    gauss_2d,
+    locparams,
+):
+    """
+    Calculate a coloured gaussian based on input params.
+
+
+    Args:
+        params (numpy.ndarray): Input parameters.
+        data (numpy.ndarray): Data to fit.
+        masks (np.3darray): 3d array of colour masks
+
+    Returns:
+        gauss_2d (numpy.ndarray): 2d bayer filtered gaussian.
+    """
+
+    for i in np.arange(masks.shape[-1]):
+        pixels = masks[:, :, i].ravel()
+        bayer_matrix[pixels] = params[-3 + i] ** 2
+        background_bayer_matrix[pixels] = params[-6 + i] ** 2
+    bayer_matrix = bayer_matrix.reshape(len(x), len(x))
+    background_bayer_matrix = background_bayer_matrix.reshape(len(x), len(x))
+    gauss_2d[:, :] = (
+        np.multiply(
+            bayer_matrix,
+            gaussian_unscaled_model(
+                gauss_2d[:, :],
+                x,
+                len(x),
+                locparams[0],
+                locparams[1],
+                locparams[2],
+                locparams[3],
+            ),
+        )
+        + background_bayer_matrix
+    )
+    return gauss_2d
 
 @jit(nopython=True, nogil=True)
 def WLS_model_nobounds(
@@ -172,6 +255,50 @@ def WLS_chi_nocolour_nobounds(params, data, weights, size, ravelsize):
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
 
+@jit(nopython=True, nogil=True)
+def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
+    """
+    Calculate the chi vector for the weighted least squares model.
+
+    Args:
+        params (numpy.ndarray): Input parameters.
+        data (numpy.ndarray): Data to fit.
+        weights (np.ndarray): weights for the chi
+
+    Returns:
+        chi (numpy.ndarray): Vector of chi.
+    """
+    x = np.arange(size)
+    gauss_2d = np.zeros((size, size), dtype=np.float32)
+    chi = np.zeros((size, size), dtype=np.float32)
+    gauss_2d[:, :] = WLS_justcolour_model_nobounds(params, x, gauss_2d, locparams)
+    chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
+    return np.sqrt(chi.ravel())
+
+@jit(nopython=True, nogil=True)
+def WLS_rawcolour_chi_nobounds(params, data, masks, weights, size, ravelsize, locparams):
+    """
+    Calculate the chi vector for the weighted least squares model.
+
+    Args:
+        params (numpy.ndarray): Input parameters.
+        data (numpy.ndarray): Data to fit.
+        masks (np.3darray): 3d array of colour masks
+        weights (np.ndarray): weights for the chi
+
+    Returns:
+        chi (numpy.ndarray): Vector of chi.
+    """
+    x = np.arange(size)
+    background_bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
+    bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
+    gauss_2d = np.zeros((size, size), dtype=np.float32)
+    chi = np.zeros((size, size), dtype=np.float32)
+    gauss_2d[:, :] = WLS_rawcolour_model_nobounds(
+        params, data, masks, background_bayer_matrix, bayer_matrix, x, gauss_2d, locparams
+    )
+    chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
+    return np.sqrt(chi.ravel())
 
 @jit(nopython=True, nogil=True)
 def _sum_and_center_of_mass(smoothed_data, size):
@@ -227,6 +354,52 @@ def initial_nocolour_guess(smoothed_data, raw_data):
     A, x_ig, y_ig = _sum_and_center_of_mass(bs_data, size)
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
     return x_ig, y_ig, sigma_y, sigma_x, b, A
+
+@jit(nopython=True)
+def initial_justcolour_guess(smoothed_data, raw_data):
+    """
+    initial_guess of gaussian input parameters.
+
+    Args:
+        smoothed_data (np.2darray): smoothed photoelectron data matrix.
+        raw_data (np.2darray): raw photoelectron data matrix
+
+    Returns:
+        b (float): background guess
+        A_ig (float): amplitude guess
+    """
+    flattened_rawdata = raw_data.ravel()
+    b = np.min(np.abs(flattened_rawdata))
+    ig_data = np.abs(smoothed_data)
+    bs_data = ig_data - np.abs(np.min(ig_data))
+    A = np.sum(bs_data)
+    return A, b
+
+@jit(nopython=True)
+def initial_rawcolour_guess(smoothed_data, raw_data, masks):
+    """
+    initial_guess of gaussian input parameters.
+
+    Args:
+        smoothed_data (np.2darray): smoothed photoelectron data matrix.
+        raw_data (np.2darray): raw photoelectron data matrix
+
+    Returns:
+        b (float): background guess
+        A_ig (float): amplitude guess
+    """
+    BG_matrix = np.zeros(masks.shape[-1])
+    flattened_rawdata = raw_data.ravel()
+    for i in np.arange(masks.shape[-1]):
+        pixels = masks[:, :, i].ravel()
+        BG_matrix[i] = np.min(np.abs(flattened_rawdata[pixels]))
+    bB, bG, bR = BG_matrix
+    ig_data = np.abs(smoothed_data)
+    bs_data = ig_data - np.abs(np.min(ig_data))
+    size = bs_data.shape[0]
+    A = np.sum(bs_data)
+    A_ig = A / 3.0
+    return bB, bG, bR, A_ig, A_ig, A_ig
 
 
 @jit(nopython=True)

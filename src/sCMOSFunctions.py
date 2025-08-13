@@ -31,7 +31,7 @@ class sCMOS_Functions:
         """
         return
 
-    def bayer_demosaic_stack(self, image):
+    def bayer_demosaic_stack(self, image, grayscale=False):
         """
         Apply colour demosaicking across an entire image stack.
 
@@ -52,7 +52,12 @@ class sCMOS_Functions:
             BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
             RGB_image = np.zeros_like(BGR_image)
             RGB_image = BGR_image
-        return RGB_image
+        if grayscale:
+            # Convert to grayscale by summing the RGB channels
+            grayscale_image = np.sum(RGB_image, axis=-1)
+            return RGB_image, grayscale_image
+        else:
+            return RGB_image, None
 
     def bayer_bin_stack(self, image, bin_width=2):
         """
