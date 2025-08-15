@@ -21,7 +21,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import lib as _lib
 import render as _render
-import localize as _localize
+import localise as _localise  # Changed from localize to localise
 import postprocess as _postprocess
 
 
@@ -145,7 +145,7 @@ def find_fiducials(locs, info):
     """Finds the xy coordinates of regions with high density of
     localizations, likely originating from fiducial markers.
 
-    Uses picasso.localize.identify_in_image with threshold set to 99th
+    Uses picasso.localise.identify_in_image with threshold set to 99th
     percentile of the image histogram. The image is rendered using
     one-pixel-blur, see picasso.render.render.
 
@@ -187,7 +187,7 @@ def find_fiducials(locs, info):
     box = box + 1 if box % 2 == 0 else box
 
     # find the local maxima and translate to pick coordinates
-    y, x, _ = _localize.identify_in_image(image, threshold, box=box)
+    y, x, _ = _localise.identify_in_image(image, threshold, box=box)  # Changed from _localize to _localise
     picks = [(xi, yi) for xi, yi in zip(x, y)]
 
     # select the picks with appropriate number of localizations

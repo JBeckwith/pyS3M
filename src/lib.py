@@ -164,8 +164,8 @@ def ensure_sanity(locs, info):
     locs = locs[locs.yc > 0]
     locs = locs[locs.xc < info[0]["Width"]]
     locs = locs[locs.yc < info[0]["Height"]]
-    locs = locs[locs.xc_error > 0]
-    locs = locs[locs.yc_error > 0]
+    locs = locs[locs.xc_err > 0]
+    locs = locs[locs.yc_err > 0]
     return locs
 
 

@@ -1,11 +1,11 @@
 """
-    picasso.localize
+    picasso.localise
     ~~~~~~~~~~~~~~~~
 
-    Identify and localize fluorescent single molecules in a frame sequence
+    Identify and localise fluorescent single molecules in a frame sequence
 
-    :authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2016-2018
-    :copyright: Copyright (c) 2016-2018 Jungmann Lab, MPI of Biochemistry
+    :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2016-2018
+    Updated by jsb92, 2025/08/18
 """
 
 import os
@@ -31,14 +31,14 @@ MAX_LOCS = int(1e6)
 _C_FLOAT_POINTER = _ctypes.POINTER(_ctypes.c_float)
 LOCS_DTYPE = [
     ("frame", "u4"),
-    ("x", "f4"),
-    ("y", "f4"),
+    ("xc", "f4"),  # Changed from "x" to "xc" for consistency
+    ("yc", "f4"),  # Changed from "y" to "yc" for consistency
     ("photons", "f4"),
     ("sx", "f4"),
     ("sy", "f4"),
     ("bg", "f4"),
-    ("lpx", "f4"),
-    ("lpy", "f4"),
+    ("xc_err", "f4"),  # Changed from "lpx" to "xc_err" for consistency with SR_Functions.py
+    ("yc_err", "f4"),  # Changed from "lpy" to "yc_err" for consistency with SR_Functions.py
     ("net_gradient", "f4"),
     ("likelihood", "f4"),
     ("iterations", "i4"),
@@ -46,14 +46,14 @@ LOCS_DTYPE = [
 
 MEAN_COLS = [
     "frame",
-    "x",
-    "y",
+    "xc",  # Changed from "x" to "xc" for consistency
+    "yc",  # Changed from "y" to "yc" for consistency
     "photons",
     "sx",
     "sy",
     "bg",
-    "lpx",
-    "lpy",
+    "xc_err",  # Changed from "lpx" to "xc_err" for consistency with SR_Functions.py
+    "yc_err",  # Changed from "lpy" to "yc_err" for consistency with SR_Functions.py
     "ellipticity",
     "net_gradient",
     "z",
@@ -141,7 +141,7 @@ def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=N
     frame = frame_number * _np.ones(len(x))
     result = _np.rec.array(
         (frame, x, y, net_gradient),
-        dtype=[("frame", "i"), ("x", "i"), ("y", "i"), ("net_gradient", "f4")],
+        dtype=[("frame", "i"), ("xc", "i"), ("yc", "i"), ("net_gradient", "f4")],  # Changed to "xc", "yc"
     )
     if resultqueue is not None:
         resultqueue.put(result)
@@ -158,7 +158,7 @@ def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None, loc
     frame = frame_number * _np.ones(len(x))
     return _np.rec.array(
         (frame, x, y, net_gradient),
-        dtype=[("frame", "i"), ("x", "i"), ("y", "i"), ("net_gradient", "f4")],
+        dtype=[("frame", "i"), ("xc", "i"), ("yc", "i"), ("net_gradient", "f4")],  # Changed to "xc", "yc"
     )
 
 
@@ -285,13 +285,13 @@ def _cut_spots_framebyframe(movie, ids_frame, ids_x, ids_y, box, spots):
 def _cut_spots(movie, ids, box):
     N = len(ids.frame)
     if isinstance(movie, _np.ndarray):
-        return _cut_spots_numba(movie, ids.frame, ids.x, ids.y, box)
+        return _cut_spots_numba(movie, ids.frame, ids.xc, ids.yc, box)  # Changed from .x, .y to .xc, .yc
     else:
         """Assumes that identifications are in order of frames!"""
 
         N = len(ids.frame)
         spots = _np.zeros((N, box, box), dtype=movie.dtype)
-        spots = _cut_spots_framebyframe(movie, ids.frame, ids.x, ids.y, box, spots)
+        spots = _cut_spots_framebyframe(movie, ids.frame, ids.xc, ids.yc, box, spots)  # Changed from .x, .y to .xc, .yc
         return spots
 
 
@@ -312,10 +312,10 @@ def get_spots(movie, identifications, box, camera_info):
 
 def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
     box_offset = int(box / 2)
-    y = theta[:, 0] + identifications.y - box_offset
-    x = theta[:, 1] + identifications.x - box_offset
-    lpy = _np.sqrt(CRLBs[:, 0])
-    lpx = _np.sqrt(CRLBs[:, 1])
+    y = theta[:, 0] + identifications.yc - box_offset  # Changed from .y to .yc
+    x = theta[:, 1] + identifications.xc - box_offset  # Changed from .x to .xc
+    yc_err = _np.sqrt(CRLBs[:, 0])  # Changed from lpy to yc_err
+    xc_err = _np.sqrt(CRLBs[:, 1])  # Changed from lpx to xc_err
     locs = _np.rec.array(
         (
             identifications.frame,
@@ -325,8 +325,8 @@ def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
             theta[:, 5],
             theta[:, 4],
             theta[:, 3],
-            lpx,
-            lpy,
+            xc_err,  # Changed from lpx to xc_err
+            yc_err,  # Changed from lpy to yc_err
             identifications.net_gradient,
             likelihoods,
             iterations,

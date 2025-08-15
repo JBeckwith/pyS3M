@@ -654,8 +654,8 @@ def aim(
     locs: _np.recarray, 
     info: list[dict],
     segmentation: int = 100, 
-    intersect_d: float = 20/130, 
-    roi_r: float = 60/130,
+    intersect_d: float = 20/69, 
+    roi_r: float = 60/69,
     progress: Callable[[int], None] | None = None,
 ) -> tuple[_np.recarray, list[dict], _np.recarray]:
     """Apply AIM undrifting to the localizations.
@@ -716,13 +716,13 @@ def aim(
     ))
 
     # get the reference localizations (first interval)
-    ref_x = locs["x"][frame <= segmentation]
-    ref_y = locs["y"][frame <= segmentation]
+    ref_x = locs["xc"][frame <= segmentation]  # Changed from "x" to "xc"
+    ref_y = locs["yc"][frame <= segmentation]  # Changed from "y" to "yc"
 
     ### RUN AIM TWICE ###
     # the first run is with the first interval as reference
     x_pdc, y_pdc, drift_x1, drift_y1 = intersection_max(
-        locs.x, locs.y, ref_x, ref_y,
+        locs.xc, locs.yc, ref_x, ref_y,  # Changed from .x, .y to .xc, .yc
         frame, seg_bounds, intersect_d, roi_r, width, 
         aim_round=1, progress=progress,
     )
@@ -775,12 +775,12 @@ def aim(
         z_pdc += shift_z
         drift = _np.rec.array(
             (drift_x, drift_y, drift_z), 
-            dtype=[("x", "f"), ("y", "f"), ("z", "f")]
+            dtype=[("xc", "f"), ("yc", "f"), ("z", "f")]  # Updated to use consistent column names
         )
     
     # apply the drift to localizations
-    locs["x"] = x_pdc
-    locs["y"] = y_pdc
+    locs["xc"] = x_pdc  # Changed from "x" to "xc"
+    locs["yc"] = y_pdc  # Changed from "y" to "yc"
     if hasattr(locs, "z"):
         locs["z"] = z_pdc
 

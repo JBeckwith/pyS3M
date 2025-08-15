@@ -483,7 +483,7 @@ def nena(locs, info, callback=None):
     pdf_model = _lmfit.Model(func)
     params = _lmfit.Parameters()
     area = _np.trapz(dnfl_, bin_centers)
-    median_lp = _np.mean([_np.median(locs.xc_error), _np.median(locs.yc_error)])
+    median_lp = _np.mean([_np.median(locs.xc_err), _np.median(locs.yc_err)])  # Changed to _err convention
     params.add("delta_a", value=0.8 * area, min=0)
     params.add("s", value=median_lp, min=0)
     params.add("ac", value=0.1 * area, min=0)
@@ -707,8 +707,8 @@ def weighted_variance(locs):
     y = locs.yc
     xWbarx = _np.average(locs.xc, weights=w)
     xWbary = _np.average(locs.yc, weights=w)
-    wbarx = _np.mean(locs.xc_error)
-    wbary = _np.mean(locs.yc_error)
+    wbarx = _np.mean(locs.xc_err)  # Changed to _err convention
+    wbary = _np.mean(locs.yc_err)  # Changed to _err convention
     variance_x = (
         n
         / ((n - 1) * sum(w) ** 2)
@@ -772,11 +772,11 @@ def cluster_combine(locs):
                 ("group", group.dtype),
                 ("cluster", cluster.dtype),
                 ("mean_frame", "f4"),
-                ("x", "f4"),
-                ("y", "f4"),
+                ("xc", "f4"),  # Changed from "x" to "xc"
+                ("yc", "f4"),  # Changed from "y" to "yc" 
                 ("std_frame", "f4"),
-                ("lpx", "f4"),
-                ("lpy", "f4"),
+                ("xc_err", "f4"),  # Changed from "lpx" to "xc_err"
+                ("yc_err", "f4"),  # Changed from "lpy" to "yc_err"
                 ("n", "i4"),
             ],
         )
@@ -797,10 +797,10 @@ def cluster_combine_dist(locs):
         n_cluster = len(cluster)
         mean_frame = temp["mean_frame"]
         std_frame = temp["std_frame"]
-        com_x = temp["x"]
-        com_y = temp["y"]
-        std_x = temp["lpx"]
-        std_y = temp["lpy"]
+        com_x = temp["xc"]  # Changed from "x" to "xc"
+        com_y = temp["yc"]  # Changed from "y" to "yc"
+        std_x = temp["xc_err"]  # Changed from "lpx" to "xc_err"
+        std_y = temp["yc_err"]  # Changed from "lpy" to "yc_err"
         group_id = temp["group"]
         n = temp["n"]
         min_dist = _np.zeros(n_cluster)
@@ -833,11 +833,11 @@ def cluster_combine_dist(locs):
                 ("group", group.dtype),
                 ("cluster", cluster.dtype),
                 ("mean_frame", "f4"),
-                ("x", "f4"),
-                ("y", "f4"),
+                ("xc", "f4"),  # Changed from "x" to "xc"
+                ("yc", "f4"),  # Changed from "y" to "yc"
                 ("std_frame", "f4"),
-                ("lpx", "f4"),
-                ("lpy", "f4"),
+                ("xc_err", "f4"),  # Changed from "lpx" to "xc_err"
+                ("yc_err", "f4"),  # Changed from "lpy" to "yc_err"
                 ("n", "i4"),
                 ("min_dist", "f4"),
             ],
@@ -996,12 +996,12 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
         )
         columns["frame"] = first_frame_
     if hasattr(locs, "xc"):
-        weights_x = 1 / locs.xc_error**2
+        weights_x = 1 / locs.xc_err**2  # Changed to _err convention
         columns["xc"], sum_weights_x_ = _link_group_weighted_mean(
             locs.xc, weights_x, link_group, n_locs, n_groups, n_
         )
     if hasattr(locs, "yc"):
-        weights_y = 1 / locs.yc_error**2
+        weights_y = 1 / locs.yc_err**2  # Changed to _err convention
         columns["yc"], sum_weights_y_ = _link_group_weighted_mean(
             locs.yc, weights_y, link_group, n_locs, n_groups, n_
         )
@@ -1013,10 +1013,10 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
         columns["s_y"] = _link_group_mean(locs.s_y, link_group, n_locs, n_groups, n_)
     if hasattr(locs, "bg"):
         columns["bg"] = _link_group_sum(locs.bg, link_group, n_locs, n_groups)
-    if hasattr(locs, "x"):
-        columns["lpx"] = _np.sqrt(1 / sum_weights_x_)
-    if hasattr(locs, "y"):
-        columns["lpy"] = _np.sqrt(1 / sum_weights_y_)
+    if hasattr(locs, "xc"):  # Changed from "x" to "xc"
+        columns["xc_err"] = _np.sqrt(1 / sum_weights_x_)  # Changed from "lpx" to "xc_err"
+    if hasattr(locs, "yc"):  # Changed from "y" to "yc"
+        columns["yc_err"] = _np.sqrt(1 / sum_weights_y_)  # Changed from "lpy" to "yc_err"
     if hasattr(locs, "ellipticity"):
         columns["ellipticity"] = _link_group_mean(
             locs.ellipticity, link_group, n_locs, n_groups, n_
