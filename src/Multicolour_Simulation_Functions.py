@@ -22,6 +22,7 @@ import IOFunctions
 import PSFFunctions
 import sCMOSFunctions
 import ImageAnalysisFunctions
+from ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
 
 IO = IOFunctions.IO_Functions()
 PSF = PSFFunctions.PSF_Functions()
@@ -521,9 +522,9 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
         
         # Perform fitting
-        fit_results, _ = I_AF.fit_puncta_parallel(
-            puncta_tofit, smoothed_puncta_tofit, masks_tofit, 
-            weights_tofit, relative_coords, planes
+        fit_results, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, 
+            relative_coords, planes, IAF_FittingStrategy.STANDARD, masks_tofit
         )
         
         columns = ["xc", "yc", "s_x", "s_y", "bg_B", "bg_G", "bg_R", 
@@ -575,8 +576,9 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
         
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_nocolour_puncta_parallel(
-            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes
+        fit_results, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes,
+            IAF_FittingStrategy.NOCOLOUR
         )
         fit_results = pd.DataFrame(fit_results, columns=default_params).sort_values(by=["frame"])
         
@@ -597,9 +599,9 @@ class MultiC_Sim_Funcs_Refactored:
         del photoelectron_data, smoothed_data, weights_map
         gc.collect()
         
-        fit_results_colour, _ = I_AF.fit_rawcolour_puncta_parallel(
+        fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
             puncta_tofit, smoothed_puncta_tofit, weights_tofit, 
-            masks_tofit, locparams, planes
+            relative_coords, planes, IAF_FittingStrategy.RAWCOLOUR, masks_tofit
         )
         
         colour_columns = ['bg_B', 'bg_G', 'bg_R', 'A_B', 'A_G', 'A_R', 'chi_sqr', 'frame']
@@ -658,19 +660,22 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
         
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_nocolour_puncta_parallel(
-            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes
+        fit_results, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes,
+            IAF_FittingStrategy.NOCOLOUR
         )
         fit_results = pd.DataFrame(fit_results, columns=default_params).sort_values(by=["frame"])
         
         # Fast color fitting
         puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
-        locparams, planes = [], []
+        locparams, planes, masks_tofit = [], [], []
+        masks_3d = np.dstack([camera_params.masks[x] for x in camera_params.masks.keys()])
         
         for frame in range(config.n_bootstrap * 3):
             puncta_tofit.append(photoelectron_data[frame, :, :])
             smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
             weights_tofit.append(weights_map[frame, :, :])
+            masks_tofit.append(masks_3d)
             idx = frame // 3
             locparams.append((fit_results['xc'][idx], fit_results['yc'][idx], 
                             fit_results['s_x'][idx], fit_results['s_y'][idx]))
@@ -679,8 +684,9 @@ class MultiC_Sim_Funcs_Refactored:
         del photoelectron_data, smoothed_data, weights_map
         gc.collect()
         
-        fit_results_colour, _ = I_AF.fit_justcolour_puncta_parallel(
-            puncta_tofit, smoothed_puncta_tofit, weights_tofit, locparams, planes
+        fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes,
+            IAF_FittingStrategy.JUSTCOLOUR, masks_tofit
         )
         
         colour_columns = ['A', 'b', 'chi_sqr', 'frame']
@@ -720,8 +726,9 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
         
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_nocolour_puncta_parallel(
-            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes
+        fit_results, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes,
+            IAF_FittingStrategy.NOCOLOUR
         )
         
         fit_results = pd.DataFrame(fit_results, columns=default_params).sort_values(by=["frame"])

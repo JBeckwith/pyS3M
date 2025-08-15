@@ -33,6 +33,7 @@ from src import MaskFunctions
 M_F = MaskFunctions.Mask_Functions()
 
 from src import ImageAnalysisFunctions
+from src.ImageAnalysisFunctions import FittingStrategy
 
 I_AF = ImageAnalysisFunctions.Image_Analysis_Functions()
 
@@ -226,13 +227,14 @@ class SuperRes_Functions:
         del photoelectron_data, smoothed_data, weights, detected_puncta
         gc.collect()
 
-        fit_results, fit_errors = I_AF.fit_puncta_parallel(
+        fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
-            masks_tofit,
             weights_tofit,
             relative_coords,
             planes,
+            FittingStrategy.STANDARD,
+            masks_tofit
         )
         fit_tosave = np.hstack([fit_results, fit_errors])
         fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -379,13 +381,14 @@ class SuperRes_Functions:
             del photoelectron_data, smoothed_data, weights, detected_puncta
             gc.collect()
 
-            fit_results, fit_errors = I_AF.fit_puncta_parallel(
+            fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
-                masks_tofit,
                 weights_tofit,
                 relative_coords,
                 planes,
+                FittingStrategy.STANDARD,
+                masks_tofit
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -538,13 +541,14 @@ class SuperRes_Functions:
             del photoelectron_data, smoothed_data, weights, detected_puncta
             gc.collect()
 
-            fit_results, fit_errors = I_AF.fit_puncta_parallel(
+            fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
-                masks_tofit,
                 weights_tofit,
                 relative_coords,
                 planes,
+                FittingStrategy.STANDARD,
+                masks_tofit
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
