@@ -14,9 +14,15 @@ sys.path.append(module_dir)
 
 
 class Mask_Functions:
+    """Spatial masking operations for Bayer filter pattern analysis.
+    
+    Provides functionality for creating and optimizing Bayer-type patterns,
+    spatial filtering, and mask operations for multicolour SMLM.
+    """
+    
     def __init__(self):
-        self = self
-        return
+        """Initialize Mask_Functions class."""
+        pass
 
     def optimize_matrix_symmetry(self, numbers, N):
         """

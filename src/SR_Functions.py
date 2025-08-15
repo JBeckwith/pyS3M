@@ -46,10 +46,20 @@ plotter = PlottingFunctions.Plotter()
 
 
 class SuperRes_Functions:
+    """Super-resolution microscopy analysis functions.
+    
+    Provides functionality for super-resolution image reconstruction,
+    localization processing, and analysis for Bayer filter SMLM systems.
+    """
+    
     def __init__(self, mosaic_unit=np.array([["B", "G"], ["G", "R"]])):
-        self = self
+        """Initialize SuperRes_Functions class.
+        
+        Args:
+            mosaic_unit: Bayer mosaic pattern array. Defaults to standard 
+                        [["B", "G"], ["G", "R"]] pattern.
+        """
         self.mosaic_unit = mosaic_unit
-        return
 
     def _filter_fit_results(self, fit_results, width, height):
         fit_results = fit_results[~np.isnan(fit_results)]

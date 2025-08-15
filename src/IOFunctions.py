@@ -18,9 +18,15 @@ sys.path.append(module_dir)
 
 
 class IO_Functions:
+    """File I/O operations for microscopy data and analysis results.
+    
+    Provides functionality for reading and writing various file formats
+    used in single-molecule localization microscopy analysis.
+    """
+    
     def __init__(self):
-        self = self
-        return
+        """Initialize IO_Functions class."""
+        pass
 
     def _write_h5_database(self, df, filepath, append=False):
         if df.shape[0] > 0:

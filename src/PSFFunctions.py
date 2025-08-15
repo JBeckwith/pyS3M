@@ -22,9 +22,15 @@ cpu_number = int(pathos.helpers.cpu_count() * 0.9)
 
 
 class PSF_Functions:
+    """Point spread function modeling and photon simulation functions.
+    
+    Provides functionality for generating camera images, calculating PSF parameters,
+    and simulating photon distributions for single-molecule localization microscopy.
+    """
+    
     def __init__(self):
-        self = self
-        return
+        """Initialize PSF_Functions class."""
+        pass
 
     @staticmethod
     @jit(

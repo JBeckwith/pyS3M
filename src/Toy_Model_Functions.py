@@ -38,9 +38,15 @@ S_F = SpectralFunctions.Spectral_Funcs()
 
 
 class ToyModel_Functions:
+    """Toy model functions for testing and demonstration purposes.
+    
+    Provides simplified implementations and test functions for validating
+    multicolour SMLM analysis pipelines and algorithms.
+    """
+    
     def __init__(self):
-        self = self
-        return
+        """Initialize ToyModel_Functions class."""
+        pass
 
     def simulate_npixel_ndye_toymodel(
         self,

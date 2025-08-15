@@ -26,9 +26,19 @@ PSF = PSFFunctions.PSF_Functions()
 
 
 class SpotDetection_Functions:
+    """Fluorescent spot identification and detection functions.
+    
+    Provides advanced spot detection algorithms for single-molecule localization
+    microscopy with controlled false positive rates.
+    
+    Based on methods from Hekrdla, M. et al. Optimized molecule detection in
+    localization microscopy with selected false positive probability.
+    Nat Commun 16, 601 (2025).
+    """
+    
     def __init__(self):
-        self = self
-        return
+        """Initialize SpotDetection_Functions class."""
+        pass
 
     def detect_puncta_in_stack_parallel(
         self,
