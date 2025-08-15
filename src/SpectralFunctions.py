@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+"""This module contains functions for spectral analysis relating to the bayerSMLM concept.
+
+This class provides functionality for:
+- Spectral data analysis and fitting
+- Camera quantum efficiency calculations
+- Fluorophore and filter data management
+- Database-driven spectral data retrieval
+
 Created on Tue Dec 10 08:59:38 2024
-
 @author: jbeckwith
-"""
-
-# -*- coding: utf-8 -*-
-"""
-This class contains functions pertaining to analysis of images,
-relating to the bayerSMLM concept.
 jsb92, 2024/01/02
 """
+
+from typing import Optional, List, Tuple, Union, Dict, Any
+from enum import Enum
+from abc import ABC, abstractmethod
 import numpy as np
 import os
 import sys
 import duckdb
 import polars as pl
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, OptimizeResult
 from scipy.constants import electron_volt, Planck, c
 from scipy.special import erf
 
@@ -25,285 +29,552 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
 
-# Connect to database
-spectra_folder = os.path.join(os.path.split(module_dir)[0], "Spectra")
 
-IO = IOFunctions.IO_Functions()
+class SpectralDataType(Enum):
+    """Enumeration for spectral data types."""
+    DYE = "dye"
+    FILTER = "filter"
+
+
+class SpectralConstants:
+    """Constants for spectral analysis."""
+    
+    # File paths
+    DEFAULT_CAMERA_QE_FILE = os.path.abspath("../Spectra/Camera_QE/CS505CU_QE.csv")
+    DEFAULT_OBJECTIVE_FILE = os.path.abspath("../Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv")
+    
+    # Physical constants
+    FWHM_TO_SIGMA_FACTOR = 2 * np.sqrt(2 * np.log(2))
+    
+    # Gaussian normalization
+    GAUSSIAN_NORM_FACTOR = 1 / np.sqrt(2 * np.pi)
+
+
+class DatabaseQueryHandler:
+    """Handles database queries for spectral data."""
+    
+    def __init__(self, db_path: str):
+        """Initialize database query handler.
+        
+        Args:
+            db_path: Path to the spectral database.
+        """
+        self.db_path = db_path
+    
+    def get_available_names(self, data_type: SpectralDataType) -> List[str]:
+        """Get list of available dye or filter names from database.
+        
+        Args:
+            data_type: Type of spectral data to query.
+            
+        Returns:
+            List of available names.
+        """
+        table_map = {
+            SpectralDataType.DYE: "dye_summary",
+            SpectralDataType.FILTER: "filter_summary"
+        }
+        
+        column_map = {
+            SpectralDataType.DYE: "dye_name",
+            SpectralDataType.FILTER: "filter_name"
+        }
+        
+        with duckdb.connect(self.db_path, read_only=True) as conn:
+            query = f"SELECT {column_map[data_type]} FROM {table_map[data_type]}"
+            return list(conn.sql(query).df()[column_map[data_type]])
+    
+    def query_spectral_data(self, names: List[str], data_type: SpectralDataType) -> pl.DataFrame:
+        """Query spectral data from database.
+        
+        Args:
+            names: List of names to query.
+            data_type: Type of spectral data.
+            
+        Returns:
+            DataFrame containing spectral data.
+        """
+        table_map = {
+            SpectralDataType.DYE: "dyes",
+            SpectralDataType.FILTER: "filters"
+        }
+        
+        name_column_map = {
+            SpectralDataType.DYE: "dye_name",
+            SpectralDataType.FILTER: "filter_name"
+        }
+        
+        with duckdb.connect(self.db_path, read_only=True) as conn:
+            # Build safe IN clause with proper parameter binding
+            if len(names) == 1:
+                query = f"""
+                    SELECT * FROM {table_map[data_type]} 
+                    WHERE {name_column_map[data_type]} = ?
+                    ORDER BY wavelength_nm
+                """
+                return conn.execute(query, names).df()
+            else:
+                # For multiple names, create placeholders
+                placeholders = ','.join(['?' for _ in names])
+                query = f"""
+                    SELECT * FROM {table_map[data_type]} 
+                    WHERE {name_column_map[data_type]} IN ({placeholders})
+                    ORDER BY wavelength_nm
+                """
+                return conn.execute(query, names).df()
+
+
+class SpectrumProcessor(ABC):
+    """Abstract base class for spectrum processing strategies."""
+    
+    @abstractmethod
+    def process_spectrum(self, spectrum_data: pl.DataFrame, wavelength: np.ndarray) -> np.ndarray:
+        """Process spectrum data.
+        
+        Args:
+            spectrum_data: Raw spectrum data from database.
+            wavelength: Target wavelength array.
+            
+        Returns:
+            Processed spectrum data.
+        """
+        pass
+
+
+class DyeSpectrumProcessor(SpectrumProcessor):
+    """Processor for dye spectrum data."""
+    
+    def process_spectrum(self, spectrum_data: pl.DataFrame, wavelength: np.ndarray) -> np.ndarray:
+        """Process dye emission spectrum.
+        
+        Args:
+            spectrum_data: Raw dye data with wavelength_nm and emission_intensity columns.
+            wavelength: Target wavelength array for interpolation.
+            
+        Returns:
+            Normalized emission spectrum interpolated to target wavelengths.
+        """
+        spectrum_wl = spectrum_data["wavelength_nm"].to_numpy()
+        spectrum_fl = spectrum_data["emission_intensity"].to_numpy()
+        
+        # Remove negative values
+        spectrum_fl = np.maximum(spectrum_fl, 0.0)
+        
+        # Interpolate to target wavelengths
+        dye_rescaled = np.interp(
+            x=wavelength,
+            xp=spectrum_wl,
+            fp=spectrum_fl,
+            left=0,
+            right=0,
+        )
+        
+        # Normalize by total intensity
+        total_intensity = np.nansum(dye_rescaled)
+        return dye_rescaled / total_intensity if total_intensity > 0 else dye_rescaled
+
+
+class FilterSpectrumProcessor(SpectrumProcessor):
+    """Processor for filter spectrum data."""
+    
+    def process_spectrum(self, spectrum_data: pl.DataFrame, wavelength: np.ndarray) -> np.ndarray:
+        """Process filter transmission spectrum.
+        
+        Args:
+            spectrum_data: Raw filter data with wavelength_nm and transmission_pct columns.
+            wavelength: Target wavelength array for interpolation.
+            
+        Returns:
+            Transmission spectrum interpolated to target wavelengths.
+        """
+        spectrum_wl = spectrum_data["wavelength_nm"].to_numpy()
+        spectrum_tm = spectrum_data["transmission_pct"].to_numpy()
+        
+        # Remove negative values
+        spectrum_tm = np.maximum(spectrum_tm, 0.0)
+        
+        # Interpolate to target wavelengths
+        return np.interp(
+            x=wavelength,
+            xp=spectrum_wl,
+            fp=spectrum_tm,
+            left=0,
+            right=0,
+        )
 
 
 class Spectral_Funcs:
+    """A class for spectral analysis and fluorophore calculations.
+    
+    This class provides comprehensive functionality for:
+    - Camera quantum efficiency analysis
+    - Spectral fitting with Gaussian and skewed Gaussian models
+    - Database-driven fluorophore and filter data management
+    - Pixel efficiency calculations for Bayer filter cameras
+    
+    The class uses a strategy pattern for handling different types of spectral data
+    (dyes vs filters) and provides optimized database query handling.
+    """
+
     def __init__(self):
-        self = self
-        conn = duckdb.connect(
-            os.path.join(spectra_folder, "spectral_data.duckdb"), read_only=True
-        )
-        self.dye_names = list(
-            conn.sql("SELECT dye_name FROM dye_summary").df()["dye_name"]
-        )
-        self.filter_names = list(
-            conn.sql("""SELECT filter_name FROM filter_summary""").df()["filter_name"]
-        )
-        conn.close()
-        return
+        """Initialize the Spectral_Funcs class.
+        
+        Sets up database connection and loads available dye and filter names.
+        """
+        # Set up database path
+        spectra_folder = os.path.join(os.path.split(module_dir)[0], "Spectra")
+        db_path = os.path.join(spectra_folder, "spectral_data.duckdb")
+        
+        # Initialize database handler
+        self.db_handler = DatabaseQueryHandler(db_path)
+        
+        # Load available names
+        self.dye_names = self.db_handler.get_available_names(SpectralDataType.DYE)
+        self.filter_names = self.db_handler.get_available_names(SpectralDataType.FILTER)
+        
+        # Initialize spectrum processors
+        self.processors = {
+            SpectralDataType.DYE: DyeSpectrumProcessor(),
+            SpectralDataType.FILTER: FilterSpectrumProcessor()
+        }
+        
+        # Initialize IO functions
+        self.io = IOFunctions.IO_Functions()
 
     @staticmethod
     def getpixelefficiency(
-        filename=os.path.abspath("../Spectra/Camera_QE/CS505CU_QE.csv"),
-    ):
-        """
-        Gets pixel efficiency for a camera from a .csv file
+        filename: str = SpectralConstants.DEFAULT_CAMERA_QE_FILE,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Get pixel quantum efficiency for a camera from CSV file.
 
         Args:
-            filename (str): The name of the JSON file to load.
+            filename: Path to the CSV file containing camera QE data.
+                     Expected columns: wavelength, R, G, B.
 
         Returns:
-            R: red pixel QE
-            G: green pixel QE
-            B: blue pixel QE
+            Tuple containing:
+                - R: Red pixel quantum efficiency array
+                - G: Green pixel quantum efficiency array  
+                - B: Blue pixel quantum efficiency array
+                - wavelength: Wavelength array (nm)
+                
+        Raises:
+            FileNotFoundError: If the QE file cannot be found.
+            ValueError: If the CSV file has incorrect format.
         """
-        data = pl.read_csv(filename)  # read data
-        wavelength_coarse = data["wavelength"].to_numpy()  # read wavelength
-        R_coarse = data["R"].to_numpy()  # read red
-        G_coarse = data["G"].to_numpy()  # read green
-        B_coarse = data["B"].to_numpy()  # read blue
+        try:
+            data = pl.read_csv(filename)
+        except Exception as e:
+            raise FileNotFoundError(f"Could not read camera QE file {filename}: {e}")
+        
+        required_columns = ["wavelength", "R", "G", "B"]
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns in QE file: {missing_columns}")
+        
+        # Extract data
+        wavelength_coarse = data["wavelength"].to_numpy()
+        R_coarse = data["R"].to_numpy()
+        G_coarse = data["G"].to_numpy()
+        B_coarse = data["B"].to_numpy()
+        
+        # Create fine wavelength grid
         wavelength = np.arange(np.min(wavelength_coarse), np.max(wavelength_coarse))
+        
+        # Interpolate to fine grid
         R = np.interp(x=wavelength, xp=wavelength_coarse, fp=R_coarse)
         G = np.interp(x=wavelength, xp=wavelength_coarse, fp=G_coarse)
         B = np.interp(x=wavelength, xp=wavelength_coarse, fp=B_coarse)
+        
         return R, G, B, wavelength
 
     @staticmethod
     def getobjectiveefficiency(
-        wavelength,
-        filename=os.path.abspath(
-            "../Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
-        ),
-    ):
-        """
-        Gets pixel efficiency for our objective from a .csv file
+        wavelength: np.ndarray,
+        filename: str = SpectralConstants.DEFAULT_OBJECTIVE_FILE,
+    ) -> np.ndarray:
+        """Get objective transmission efficiency from CSV file.
 
         Args:
-            wavelength (np.1darray): wavlelengths to interpolate at
-            filename (str): The name of the JSON file to load.
+            wavelength: Wavelength array to interpolate transmission values at.
+            filename: Path to CSV file containing objective transmission data.
+                     Expected columns: wavelength, transmission.
 
         Returns:
-            T (transmission at wavelength)
+            Transmission efficiency array at specified wavelengths.
+            
+        Raises:
+            FileNotFoundError: If the transmission file cannot be found.
+            ValueError: If the CSV file has incorrect format.
         """
-        data = pl.read_csv(filename)  # read data
-        wavelength_coarse = data["wavelength"].to_numpy()  # read wavelength
+        try:
+            data = pl.read_csv(filename)
+        except Exception as e:
+            raise FileNotFoundError(f"Could not read objective file {filename}: {e}")
+        
+        required_columns = ["wavelength", "transmission"]
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns in transmission file: {missing_columns}")
+        
+        wavelength_coarse = data["wavelength"].to_numpy()
         transmission_coarse = np.array(data["transmission"].to_numpy(), dtype=float)
-        T = np.interp(wavelength, wavelength_coarse, transmission_coarse)
-        return T
+        
+        return np.interp(wavelength, wavelength_coarse, transmission_coarse)
 
-    def FHWM_sigma_conversion(self, x, sigma_given=True):
-        """
-        Converts between FWHM and sigma. If given a True for sigma_given,
-        converts to FWHM and vice versa
+    def fwhm_sigma_conversion(self, x: float, sigma_given: bool = True) -> float:
+        """Convert between Full Width at Half Maximum (FWHM) and sigma.
 
         Args:
-            x (float): parameter to convert
-            sigma_given (boolean): if True, converts to FWHM and vice versa
+            x: Parameter value to convert.
+            sigma_given: If True, converts sigma to FWHM. If False, converts FWHM to sigma.
 
         Returns:
-            y (float): converted parameter
+            Converted parameter value.
         """
-        if sigma_given == True:
-            return np.multiply(np.multiply(2, np.sqrt(np.multiply(2, np.log(2)))), x)
+        if sigma_given:
+            return SpectralConstants.FWHM_TO_SIGMA_FACTOR * x
         else:
-            return np.divide(x, 2 * np.sqrt(2 * np.log(2)))
+            return x / SpectralConstants.FWHM_TO_SIGMA_FACTOR
 
-    def moment_calculations(self, x, fx, order=3):
-        """
-        returns moments. See Bultmann, T. & Ernsting, N. P
-                         J. Phys. Chem. 100, 19417–19424 (1996).
+    def moment_calculations(self, x: np.ndarray, fx: np.ndarray, order: int = 3) -> np.ndarray:
+        """Calculate statistical moments of a spectrum.
+        
+        Implements moment calculations as described in:
+        Bultmann, T. & Ernsting, N. P. J. Phys. Chem. 100, 19417–19424 (1996).
 
         Args:
-            x (np.1darray): x data
-            fx (np.1darray): fx data
-            order (int): order of moments to return
+            x: Wavelength or energy array.
+            fx: Spectrum intensity array.
+            order: Number of moments to calculate (1-4).
 
         Returns:
-            moments (list): list of moments
+            Array of calculated moments [m0, m1, m2, m3][:order].
+            - m0: Zeroth moment (total intensity)
+            - m1: First moment (mean position)  
+            - m2: Second moment (standard deviation)
+            - m3: Third moment (skewness)
         """
-
+        # Zeroth moment (total area)
         m0 = np.trapz(x=x, y=fx)
-        m1 = np.divide(np.trapz(x=x, y=np.multiply(fx, x)), m0)
-        m2 = np.sqrt(np.trapz(y=np.multiply(np.power(x - m1, 2), fx), x=x) / m0)
-        m3 = np.power(
-            np.trapz(y=np.multiply(np.power(x - m1, 3), fx), x=x) / m0, 1.0 / 3
-        )
+        
+        if order >= 1:
+            # First moment (mean)
+            m1 = np.trapz(x=x, y=fx * x) / m0
+        else:
+            return np.array([m0])
+        
+        if order >= 2:
+            # Second moment (standard deviation)
+            m2 = np.sqrt(np.trapz(y=(x - m1)**2 * fx, x=x) / m0)
+        else:
+            return np.array([m0, m1])
+        
+        if order >= 3:
+            # Third moment (skewness)
+            m3 = np.power(np.trapz(y=(x - m1)**3 * fx, x=x) / m0, 1.0 / 3)
+        else:
+            return np.array([m0, m1, m2])
+        
         moments = np.array([m0, m1, m2, m3])
         return moments[:order]
 
-    def spectral_initial_guess(self, spectrum, wavelength, model_length=3):
-        """
-        returns an initial guess for fitting functions.
+    def spectral_initial_guess(self, spectrum: np.ndarray, wavelength: np.ndarray, 
+                             model_length: int = 3) -> np.ndarray:
+        """Generate initial parameter guess for spectral fitting.
 
         Args:
-            spectrum (np.1darray): spectral data
-            wavelength (np.1darray): wavelength data
-            model_length (int): if 3, returns first 3 moments.
-                                for models with skew, can return skew with 4
+            spectrum: Spectral intensity data.
+            wavelength: Wavelength array.
+            model_length: Number of parameters for initial guess (3 for Gaussian, 4 for skewed).
 
         Returns:
-            initial_guess (list): list of initial guess parameters
+            Initial parameter guess array with NaN values replaced by zeros.
         """
+        # Convert to energy domain for better fitting properties
         energy = self.wavelength_to_energy(wavelength)
-        weighting_factor = np.multiply(np.power(energy, -3), np.square(wavelength))
-        spectrum_forguess = np.multiply(spectrum, weighting_factor)
-        sort_E = np.argsort(energy)
-        energy = energy[sort_E]
-        spectrum_forguess = spectrum_forguess[sort_E]
-        initial_guess = self.moment_calculations(
-            energy, spectrum_forguess, model_length
-        )
+        
+        # Apply weighting factor for dipole moment representation
+        weighting_factor = energy**(-3) * wavelength**2
+        spectrum_weighted = spectrum * weighting_factor
+        
+        # Sort by energy for proper integration
+        sort_indices = np.argsort(energy)
+        energy_sorted = energy[sort_indices]
+        spectrum_sorted = spectrum_weighted[sort_indices]
+        
+        # Calculate moments for initial guess
+        initial_guess = self.moment_calculations(energy_sorted, spectrum_sorted, model_length)
+        
         return np.nan_to_num(initial_guess)
 
-    def wavelength_to_energy(self, wavelength):
-        """
-        wavelength_to_energy for fitting spectra.
-        Returns energy in units of electron volt.
+    def wavelength_to_energy(self, wavelength: np.ndarray) -> np.ndarray:
+        """Convert wavelength to photon energy.
 
         Args:
-            wavelength (np.1darray): wavelength
+            wavelength: Wavelength array in nanometers.
 
         Returns:
-            energy (np.1darray): energy in eV
+            Energy array in electron volts (eV).
         """
-        return np.divide(
-            np.divide(np.multiply(Planck, c), np.multiply(wavelength, 1e-9)),
-            electron_volt,
-        )
+        # Convert nm to m, then calculate energy in eV
+        wavelength_m = wavelength * 1e-9
+        energy_j = Planck * c / wavelength_m
+        energy_ev = energy_j / electron_volt
+        
+        return energy_ev
 
-    def skew_gaussian_model(self, params, x):
-        """
-        skew_gaussian_model for fitting spectra.
-        See equations 16--18 of Beckwith, J. S., Rumble, C. A. & Vauthey, E.
-                                Int. Rev. Phys. Chem. 39, 135–216 (2020).
+    def gaussian_model(self, params: np.ndarray, x: np.ndarray) -> np.ndarray:
+        """Calculate Gaussian model for spectral fitting.
 
         Args:
-            params (np.1darray): parameters for fit
+            params: Parameters [amplitude, mean, sigma].
+            x: Independent variable array (energy).
 
         Returns:
-            skew_gaussian (np.1darray): 1d array of intensities at x
+            Gaussian function values at x positions.
         """
-        mu = params[0]
-        sigma = params[1]
-        alpha = params[2]
+        amplitude, mu, sigma = params[:3]
+        
+        # Avoid division by zero
+        if sigma <= 0:
+            return np.zeros_like(x)
+        
+        # Gaussian function
+        exponent = -0.5 * ((x - mu) / sigma)**2
+        normalization = SpectralConstants.GAUSSIAN_NORM_FACTOR / sigma
+        
+        return amplitude * normalization * np.exp(exponent)
 
+    def skew_gaussian_model(self, params: np.ndarray, x: np.ndarray) -> np.ndarray:
+        """Calculate skewed Gaussian model for spectral fitting.
+        
+        Implements equations 16-18 from:
+        Beckwith, J. S., Rumble, C. A. & Vauthey, E. Int. Rev. Phys. Chem. 39, 135–216 (2020).
+
+        Args:
+            params: Parameters [amplitude, mean, sigma, skewness].
+            x: Independent variable array (energy).
+
+        Returns:
+            Skewed Gaussian function values at x positions.
+        """
+        amplitude, mu, sigma, alpha = params[:4]
+        
+        # Calculate base Gaussian
         gaussian = self.gaussian_model(params, x)
-        skew = 1 + erf(np.multiply(alpha, np.divide(np.subtract(x, mu), sigma)))
-        skew_gaussian = np.multiply(gaussian, skew)
-        return skew_gaussian
-
-    def gaussian_model(self, params, x):
-        """
-        gaussian_model for fitting spectra.
-
-        Args:
-            params (np.1darray): parameters for fit
-
-        Returns:
-            gaussian (np.1darray): 1d array of intensities at x
-        """
-        mu = params[0]
-        sigma = params[1]
-        gaussian = np.multiply(
-            np.divide(
-                1, np.sqrt(np.multiply(2.0, np.multiply(np.pi, np.square(sigma))))
-            ),
-            np.exp(
-                -np.divide(
-                    np.square(np.subtract(x, mu)), np.multiply(2.0, np.square(sigma))
-                )
-            ),
-        )
-        return gaussian
+        
+        # Calculate skewness factor
+        if sigma <= 0:
+            return np.zeros_like(x)
+        
+        skew_arg = alpha * (x - mu) / sigma
+        skew_factor = 1 + erf(skew_arg)
+        
+        return gaussian * skew_factor
 
     def chi2_spectrum(
         self,
-        params,
-        wavelength,
-        spectrum,
-        model="gaussian",
-        weights=None,
-        return_fit=False,
-    ):
-        """
-        generate chi2 for fitting spectra.
-        Takes the dipole moment representation (Angulo, G., Grampp, G. &
-                                                Rosspeintner, A. Spectrochim.
-                                                Acta. A. Mol. Biomol. Spectrosc.
-                                                65, 727–731 (2006).)
-        into account when fitting the spectra; thus weights fit by nu^-3 then
-        by wavelength^-2
+        params: np.ndarray,
+        wavelength: np.ndarray,
+        spectrum: np.ndarray,
+        model: str = "gaussian",
+        weights: Optional[np.ndarray] = None,
+        return_fit: bool = False,
+    ) -> Union[np.ndarray, np.ndarray]:
+        """Calculate chi-squared residuals for spectral fitting.
+        
+        Implements dipole moment representation weighting as described in:
+        Angulo, G., Grampp, G. & Rosspeintner, A. Spectrochim. Acta. A. Mol. Biomol. 
+        Spectrosc. 65, 727–731 (2006).
 
         Args:
-            params (np.1darray): parameters for fit
+            params: Fitting parameters.
+            wavelength: Wavelength array.
+            spectrum: Experimental spectrum data.
+            model: Model type ("gaussian" or "skew-gaussian").
+            weights: Optional weighting array for fitting.
+            return_fit: If True, return fitted spectrum instead of residuals.
 
         Returns:
-            gaussian (np.1darray): 1d array of intensities at x
+            Chi-squared residuals array or fitted spectrum if return_fit=True.
+            
+        Raises:
+            ValueError: If model type is not supported.
         """
-
+        # Convert to energy domain
         energy = self.wavelength_to_energy(wavelength)
-        weighting_factor = np.divide(np.power(energy, -3), np.square(wavelength))
+        
+        # Apply dipole moment weighting: nu^-3 / wavelength^2
+        weighting_factor = energy**(-3) / wavelength**2
+        
+        # Calculate model spectrum
         if model == "gaussian":
-            spectrum_1d = np.multiply(
-                self.gaussian_model(params, energy), weighting_factor
-            )
+            spectrum_model = self.gaussian_model(params, energy) * weighting_factor
         elif model == "skew-gaussian":
-            spectrum_1d = np.multiply(
-                self.skew_gaussian_model(params, energy), weighting_factor
-            )
-        spectrum_1d = np.multiply(
-            params[0], np.divide(spectrum_1d, np.trapz(x=wavelength, y=spectrum_1d))
-        )
-        if weights is None:
-            chi = np.subtract(spectrum, spectrum_1d)
+            spectrum_model = self.skew_gaussian_model(params, energy) * weighting_factor
         else:
-            chi = np.sqrt(
-                np.multiply(weights, np.square(np.subtract(spectrum, spectrum_1d)))
-            )
-        if return_fit == False:
-            return chi.ravel()
+            raise ValueError(f"Unsupported model type: {model}")
+        
+        # Normalize by area and scale by amplitude
+        spectrum_area = np.trapz(x=wavelength, y=spectrum_model)
+        if spectrum_area > 0:
+            spectrum_normalized = params[0] * spectrum_model / spectrum_area
         else:
-            return spectrum_1d
+            spectrum_normalized = np.zeros_like(spectrum_model)
+        
+        if return_fit:
+            return spectrum_normalized
+        
+        # Calculate residuals
+        residuals = spectrum - spectrum_normalized
+        
+        # Apply optional weighting
+        if weights is not None:
+            residuals = np.sqrt(weights * residuals**2)
+        
+        return residuals.ravel()
 
     def spectral_fit_dye(
         self,
-        spectrum,
-        wavelength,
-        initial_guess,
-        model="gaussian",
-        weights=None,
-        display=False,
-    ):
-        """
-        Returns a 2D gaussian colour fit to data.
-
+        spectrum: np.ndarray,
+        wavelength: np.ndarray,
+        initial_guess: np.ndarray,
+        model: str = "gaussian",
+        weights: Optional[np.ndarray] = None,
+        display: bool = False,
+    ) -> Union[OptimizeResult, Tuple[OptimizeResult, np.ndarray]]:
+        """Fit spectral data with Gaussian or skewed Gaussian model.
 
         Args:
-            spectrum (numpy.1darray): Data to fit.
-            wavelength (np.1darray): wavelength to fit
-            initial_guess (numpy.ndarray): Initial guess for the fitter.
-            model (str): model string; takes 'gaussian', 'skew-gaussian', and 'DHO'
-            weights (np.ndarray): weights for the fitter
-            display (bool): display fit result
+            spectrum: Experimental spectrum data.
+            wavelength: Wavelength array.
+            initial_guess: Initial parameter guess.
+            model: Model type ("gaussian" or "skew-gaussian").
+            weights: Optional weighting array for fitting.
+            display: If True, return both fit result and fitted spectrum.
 
         Returns:
-            result (OptimizeResult): fit parameters
+            Optimization result, or tuple of (result, fitted_spectrum) if display=True.
+            
+        Raises:
+            ValueError: If model type is not supported or initial guess has wrong length.
         """
+        # Validate inputs
+        if model == "gaussian" and len(initial_guess) < 3:
+            raise ValueError("Gaussian model requires at least 3 parameters")
+        elif model == "skew-gaussian" and len(initial_guess) < 4:
+            raise ValueError("Skewed Gaussian model requires at least 4 parameters")
+        
+        # Set parameter bounds
         if model == "gaussian":
-            bounds = [
-                (0, 0, 0),
-                (np.inf, np.inf, np.inf),
-            ]
+            bounds = ([0, 0, 0], [np.inf, np.inf, np.inf])
         elif model == "skew-gaussian":
-            bounds = [
-                (0, 0, 0, -np.inf),
-                (np.inf, np.inf, np.inf, np.inf),
-            ]
+            bounds = ([0, 0, 0, -np.inf], [np.inf, np.inf, np.inf, np.inf])
+        else:
+            raise ValueError(f"Unsupported model type: {model}")
 
+        # Perform fitting
         result = least_squares(
             self.chi2_spectrum,
             x0=initial_guess,
@@ -311,167 +582,152 @@ class Spectral_Funcs:
             bounds=bounds,
             args=(wavelength, spectrum, model, weights),
         )
-        if display == False:
+        
+        if not display:
             return result
+        
+        # Generate fitted spectrum for display
+        fitted_spectrum = self.chi2_spectrum(
+            result.x,
+            wavelength,
+            spectrum,
+            model=model,
+            weights=weights,
+            return_fit=True,
+        )
+        
+        return result, fitted_spectrum
+
+    def get_pixel_fractions_rawspectra(self, spectra: np.ndarray, wavelength: np.ndarray, 
+                                     pixel_QYs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate pixel efficiencies for raw spectral data.
+
+        Args:
+            spectra: Raw spectrum array (n_spectra x n_wavelengths).
+            wavelength: Wavelength array.
+            pixel_QYs: Pixel quantum yield array (n_wavelengths x n_pixels).
+
+        Returns:
+            Tuple containing:
+                - Average emission wavelengths for each spectrum
+                - Pixel efficiencies for each spectrum and pixel type
+        """
+        # Normalize spectra
+        spectra_normalized = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
+        
+        # Calculate average emission wavelengths
+        weighted_wavelengths = wavelength * spectra_normalized
+        average_wavelengths = np.trapz(y=weighted_wavelengths, x=wavelength, axis=0)
+        
+        # Calculate pixel efficiencies
+        pixel_efficiencies = np.dot(spectra, pixel_QYs.T)
+        
+        return np.squeeze(average_wavelengths), np.squeeze(pixel_efficiencies)
+
+    def get_pixel_fractions_dye_and_filters(self, dyes: List[str], 
+                                          filters: Optional[List[str]], 
+                                          wavelength: np.ndarray, 
+                                          pixel_QYs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate pixel efficiencies for dyes with optional filters.
+
+        Args:
+            dyes: List of dye names to analyze.
+            filters: List of filter names to apply (None for no filtering).
+            wavelength: Wavelength array.
+            pixel_QYs: Pixel quantum yield array (n_wavelengths x n_pixels).
+
+        Returns:
+            Tuple containing:
+                - Average emission wavelengths for each dye
+                - Pixel efficiencies for each dye and pixel type
+        """
+        # Get filter transmission (unity if no filters)
+        if filters is None:
+            filter_transmission = np.ones_like(wavelength)
         else:
-            fit = self.chi2_spectrum(
-                result.x,
-                wavelength,
-                spectrum,
-                model=model,
-                weights=weights,
-                return_fit=True,
-            )
-            return result, fit
+            filter_spectra = self.get_spectral_data(filters, wavelength, SpectralDataType.FILTER)
+            filter_transmission = np.prod(filter_spectra, axis=0)
+        
+        # Get dye emission spectra
+        dye_spectra = self.get_spectral_data(dyes, wavelength, SpectralDataType.DYE)
+        
+        # Apply filter transmission
+        dye_filtered_spectra = dye_spectra * filter_transmission
+        
+        # Normalize by total intensity for each dye
+        total_intensities = np.sum(dye_filtered_spectra, axis=1, keepdims=True)
+        total_intensities = np.where(total_intensities > 0, total_intensities, 1)  # Avoid division by zero
+        dye_normalized_spectra = dye_filtered_spectra / total_intensities
+        
+        # Calculate average emission wavelengths
+        weighted_wavelengths = wavelength * dye_normalized_spectra
+        average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
+        
+        # Calculate pixel efficiencies
+        pixel_efficiencies = np.dot(dye_normalized_spectra, pixel_QYs.T)
+        
+        return np.squeeze(average_wavelengths), np.squeeze(pixel_efficiencies)
 
-    def get_pixel_fractions_rawspectra(self, spectra, wavelength, pixel_QYs):
-        """
-        Gets dye or filter data for raw spectrum specified.
-
-        Args:
-            spectra (np.ndarray): The spectra provided.
-            wavelength (np.1darray): wavelength array to read out the dye data at
-            pixel_QYs (np.2darray): pixel QYs for camera in question (same length as wavelength)
-
-        Returns:
-            average_emission_wavelengths (np.1darray): average emission wavelengths of dyes
-            dye_pixel_efficiency (np.ndarray): pixel efficiencies per dye
-
-        """
-        average_emission_wavelengths = np.trapz(
-            y=wavelength * (spectra.T / np.trapz(x=wavelength, y=spectra)).T,
-            x=wavelength,
-        )
-        dye_pixel_efficiency = np.dot(spectra, pixel_QYs.T)
-
-        return (
-            np.squeeze(average_emission_wavelengths),
-            np.squeeze(dye_pixel_efficiency),
-        )
-
-    def get_pixel_fractions_dye_and_filters(self, dyes, filters, wavelength, pixel_QYs):
-        """
-        Gets dye or filter data for dye/filter specified.
+    def get_spectral_data(self, names: Union[str, List[str]], wavelength: np.ndarray, 
+                         data_type: SpectralDataType) -> np.ndarray:
+        """Get spectral data for specified dyes or filters.
 
         Args:
-            dyes (list): The name of the dyes.
-            filters (list): The name of the filters in the microscope.
-            wavelength (np.1darray): wavelength array to read out the dye data at
-            pixel_QYs (np.2darray): pixel QYs for camera in question (same length as wavelength)
+            names: Name(s) of dyes or filters to retrieve.
+            wavelength: Wavelength array for interpolation.
+            data_type: Type of spectral data (DYE or FILTER).
 
         Returns:
-            average_emission_wavelengths (np.1darray): average emission wavelengths of dyes
-            dye_pixel_efficiency (np.ndarray): pixel efficiencies per dye
-
+            Spectral data array (n_items x n_wavelengths).
+            
+        Raises:
+            ValueError: If requested names are not found in database.
         """
-        if filters == None:
-            filter_spectra = np.ones_like(wavelength)
-        else:
-            filter_spectra = np.prod(
-                self.get_dye_or_filter_data(
-                    filters, wavelength=wavelength, dye_or_filter=False
-                ),
-                axis=0,
-            )
-
-        dye_spectra = self.get_dye_or_filter_data(dyes, wavelength=wavelength)
-        dye_at_detector_spectra = np.array(
-            np.multiply(dye_spectra, filter_spectra).T
-            / np.sum(np.multiply(dye_spectra, filter_spectra), axis=1)
-        ).T
-        average_emission_wavelengths = np.trapz(
-            y=wavelength
-            * (
-                dye_at_detector_spectra.T
-                / np.trapz(x=wavelength, y=dye_at_detector_spectra)
-            ).T,
-            x=wavelength,
-        )
-        dye_pixel_efficiency = np.dot(dye_at_detector_spectra, pixel_QYs.T)
-
-        return (
-            np.squeeze(average_emission_wavelengths),
-            np.squeeze(dye_pixel_efficiency),
-        )
-
-    def get_dye_or_filter_data(self, names, wavelength, dye_or_filter=True):
-        """
-        Gets dye  or filter data for dye/filter specified.
-
-        Args:
-            names (list): The name of the dye in question.
-            wavelength (np.1darray): wavelength array to read out the dye data at
-            dye_or_filter (boolean): if true, looks up dyes. If false, looks up filters
-
-        Returns:
-            spectra (np.ndarray): area-normalised fluorescence spectra or filter spectrum
-        """
-        conn = duckdb.connect(
-            os.path.join(spectra_folder, "spectral_data.duckdb"), read_only=True
-        )
-        if not isinstance(names, list):
+        # Ensure names is a list
+        if isinstance(names, str):
             names = [names]
-        try:
-            for name in names:
-                if dye_or_filter == True:
-                    if name not in self.dye_names:
-                        raise Exception(str(name) + " dye not in the database.")
-                else:
-                    if name not in self.filter_names:
-                        raise Exception(str(name) + " filter not in the database.")
-        except Exception as error:
-            conn.close()
-            print("Caught this error: " + repr(error))
-            return
-
-        spectra = np.zeros([len(names), len(wavelength)])
-        if dye_or_filter == True:
-            for i, dye_name in enumerate(names):
-                try:
-                    spectrum = conn.sql(
-                        """SELECT * FROM dyes 
-                                            WHERE dye_name = '"""
-                        + dye_name
-                        + """'
-                                            ORDER BY wavelength_nm
-                                            """
-                    ).df()
-                    spectrum_wl = spectrum["wavelength_nm"].to_numpy()
-                    spectrum_fl = spectrum["emission_intensity"].to_numpy()
-                    spectrum_fl[spectrum_fl < 0.0] = 0.0
-                    dye_rescaled = np.interp(
-                        x=wavelength,
-                        xp=spectrum_wl,
-                        fp=spectrum_fl,
-                        left=0,
-                        right=0,
-                    )
-                    spectra[i, :] = dye_rescaled / np.nansum(dye_rescaled)
-                except:
-                    continue
-        else:
-            for i, filter_name in enumerate(names):
-                try:
-                    spectrum = conn.sql(
-                        """SELECT * FROM filters 
-                                            WHERE filter_name = '"""
-                        + filter_name
-                        + """'
-                                            ORDER BY wavelength_nm
-                                            """
-                    ).df()
-                    spectrum_wl = spectrum["wavelength_nm"].to_numpy()
-                    spectrum_tm = spectrum["transmission_pct"].to_numpy()
-                    spectrum_tm[spectrum_tm < 0.0] = 0.0
-                    filter_rescaled = np.interp(
-                        x=wavelength,
-                        xp=spectrum_wl,
-                        fp=spectrum_tm,
-                        left=0,
-                        right=0,
-                    )
-                    spectra[i, :] = filter_rescaled
-                except:
-                    continue
-        conn.close()
+        
+        # Validate names exist in database
+        available_names = (self.dye_names if data_type == SpectralDataType.DYE 
+                          else self.filter_names)
+        
+        invalid_names = [name for name in names if name not in available_names]
+        if invalid_names:
+            data_type_str = data_type.value
+            raise ValueError(f"{data_type_str.capitalize()} names not in database: {invalid_names}")
+        
+        # Query database for each name
+        spectra = np.zeros((len(names), len(wavelength)))
+        processor = self.processors[data_type]
+        
+        for i, name in enumerate(names):
+            try:
+                # Query single item to reduce memory usage
+                spectrum_data = self.db_handler.query_spectral_data([name], data_type)
+                
+                if not spectrum_data.empty:
+                    # Process spectrum using appropriate strategy
+                    spectra[i, :] = processor.process_spectrum(spectrum_data, wavelength)
+                    
+            except Exception as e:
+                # Log warning but continue processing other items
+                print(f"Warning: Failed to process {data_type.value} '{name}': {e}")
+                continue
+        
         return spectra
+
+    # Backward compatibility methods
+    def get_dye_or_filter_data(self, names: Union[str, List[str]], wavelength: np.ndarray, 
+                              dye_or_filter: bool = True) -> np.ndarray:
+        """Get dye or filter data (legacy interface for backward compatibility).
+
+        Args:
+            names: Name(s) of dyes or filters to retrieve.
+            wavelength: Wavelength array for interpolation.
+            dye_or_filter: If True, looks up dyes. If False, looks up filters.
+
+        Returns:
+            Spectral data array.
+        """
+        data_type = SpectralDataType.DYE if dye_or_filter else SpectralDataType.FILTER
+        return self.get_spectral_data(names, wavelength, data_type)
