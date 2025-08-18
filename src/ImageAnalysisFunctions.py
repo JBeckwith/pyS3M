@@ -1115,9 +1115,7 @@ class Image_Analysis_Functions:
             return fs
         
         # Wait for completion and combine results
-        results = self.fits_from_futures(fs, strategy)
-        print(results)
-        return results
+        return self.fits_from_futures(fs, strategy)
 
     def fits_from_futures(
         self, 

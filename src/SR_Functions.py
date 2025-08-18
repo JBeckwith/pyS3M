@@ -191,6 +191,9 @@ class SuperRes_Functions:
             FittingStrategy.STANDARD,
             masks=masks_tofit
         )
+        columns = ["xc", "yc", "s_x", "s_y", "bg_B", "bg_G", "bg_R", 
+                  "A_B", "A_G", "A_R", "chi_sqr", "frame"]
+        fit_results = pd.DataFrame(fit_results, columns=columns)
 
         fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
         axs[0] = plotter.image_scatter_plot(
