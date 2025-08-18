@@ -195,22 +195,47 @@ class SuperRes_Functions:
                   "A_B", "A_G", "A_R", "chi_sqr", "frame"]
         fit_results = pd.DataFrame(fit_results, columns=columns)
 
-        fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
-        axs[0] = plotter.image_scatter_plot(
-            axs=axs[0],
+        fig, axs = plotter.two_column_plot(ncolumns=2, nrows=2, widthratio=[1,1], heightratio=[1,1])
+        axs[0,0] = plotter.image_scatter_plot(
+            axs=axs[0,0],
             data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s,
         )
 
-        axs[1] = plotter.image_scatter_plot(
-            axs=axs[1],
+        axs[1,0] = plotter.image_scatter_plot(
+            axs=axs[1,0],
             data=photoelectron_data,
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s,
         )
+        density_values, xedges, yedges = np.histogram2d(x=fit_results['xc'].to_numpy(), y=fit_results['yc'].to_numpy(), bins=50)
+        max_density = np.argmax(density_values)
+        max_x = int(xedges[max_density]) + 50
+        min_x = max_x - 100
+        max_y = int(yedges[max_density]) + 50
+        min_y = max_y - 100
+        
+        axs[0,1] = plotter.image_scatter_plot(
+            axs=axs[0,1],
+            data=photoelectron_data[min_x:max_x, min_y:max_y],
+            xdata=detected_puncta[:, 0] - min_x,
+            ydata=detected_puncta[:, 1] - min_y,
+            s=s,
+        )
+        axs[0,1].set_ylim([min_y, max_y])
+        axs[0,1].set_xlim([min_x, max_x])
+        axs[1,1] = plotter.image_scatter_plot(
+            axs=axs[1,1],
+            data=photoelectron_data[min_x:max_x, min_y:max_y],
+            xdata=fit_results['xc'].to_numpy() - min_x,
+            ydata=fit_results['yc'].to_numpy() - min_y,
+            s=s,
+        )
+        axs[1,1].set_ylim([min_y, max_y])
+        axs[1,1].set_xlim([min_x, max_x])
         return fig, axs
 
     def fit_FRET_data(
