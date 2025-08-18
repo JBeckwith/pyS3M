@@ -179,7 +179,7 @@ class SuperRes_Functions:
             masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
             weights_tofit.append(weights[xmin:xmax, ymin:ymax])
             relative_coords.append((xmin, ymin))
-        del weights
+        del smoothed_data, weights
         gc.collect()
 
         fit_results, _ = I_AF.fit_puncta_parallel_method(
@@ -198,7 +198,7 @@ class SuperRes_Functions:
         fig, axs = plotter.two_column_plot(ncolumns=2, nrows=2, widthratio=[1,1], heightratio=[1,1])
         axs[0,0] = plotter.image_scatter_plot(
             axs=axs[0,0],
-            data=smoothed_data,
+            data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s,
@@ -206,7 +206,7 @@ class SuperRes_Functions:
 
         axs[0,1] = plotter.image_scatter_plot(
             axs=axs[0,1],
-            data=smoothed_data,
+            data=photoelectron_data,
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s,
@@ -226,9 +226,9 @@ class SuperRes_Functions:
         
         axs[1,0] = plotter.image_scatter_plot(
             axs=axs[1,0],
-            data=smoothed_data,
-            vmin=np.percentile(smoothed_data, 1),
-            vmax=np.percentile(smoothed_data, 99),
+            data=photoelectron_data,
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s*5,
@@ -237,9 +237,9 @@ class SuperRes_Functions:
         axs[1,0].set_xlim([min_x, max_x])
         axs[1,1] = plotter.image_scatter_plot(
             axs=axs[1,1],
-            data=smoothed_data,
-            vmin=np.percentile(smoothed_data, 1),
-            vmax=np.percentile(smoothed_data, 99),
+            data=photoelectron_data,
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s*5,
