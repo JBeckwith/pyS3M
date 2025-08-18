@@ -185,6 +185,7 @@ class FittingResultProcessor:
     def process_fit_results(
         pfit: np.ndarray, 
         pcov: np.ndarray, 
+        size: int,
         relative_coords: List[float],
         strategy: FittingStrategy,
         chisqr: float = 1.0
@@ -195,7 +196,9 @@ class FittingResultProcessor:
             pfit: Raw fitting parameters.
             pcov: Parameter covariance matrix.
             relative_coords: Coordinate offsets to add.
+            size: Image size in fitting.
             strategy: Fitting strategy used.
+            chisqr: Chi-squared value from fitting (default 1.0).
             
         Returns:
             Tuple of (processed_parameters, parameter_errors).
@@ -221,6 +224,12 @@ class FittingResultProcessor:
             # For other strategies, use as-is for now
             pfit_processed = pfit.copy()
         
+        if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
+            logging.warning(
+                f"Fitting parameters out of bounds: {pfit_processed[:4]} for size {size}"
+            )
+            return (np.full(len(pfit_processed), np.nan), np.full(len(pfit_processed), np.nan))
+
         # Add relative coordinates to position parameters (first two elements)
         if relative_coords is not None and hasattr(relative_coords, '__len__') and len(relative_coords) >= 2:
             pfit_processed[:2] += relative_coords[:2]
@@ -386,7 +395,7 @@ class StandardFittingProcessor(FittingProcessor):
                 pcov = np.inf
             
             return FittingResultProcessor.process_fit_results(
-                pfit, pcov, relative_coords, FittingStrategy.STANDARD, chisqr
+                pfit, pcov, size, relative_coords, FittingStrategy.STANDARD, chisqr
             )
             
         except Exception as e:
@@ -502,7 +511,7 @@ class NoColourFittingProcessor(FittingProcessor):
                 pcov = np.inf
             
             return FittingResultProcessor.process_fit_results(
-                pfit, pcov, relative_coords, FittingStrategy.NOCOLOUR, chisqr
+                pfit, pcov, int(data.shape[0]), relative_coords, FittingStrategy.NOCOLOUR, chisqr
             )
             
         except Exception as e:
@@ -604,7 +613,7 @@ class JustColourFittingProcessor(FittingProcessor):
                 pcov = np.inf
             
             return FittingResultProcessor.process_fit_results(
-                pfit, pcov, relative_coords, FittingStrategy.JUSTCOLOUR, chisqr
+                pfit, pcov, size, relative_coords, FittingStrategy.JUSTCOLOUR, chisqr
             )
             
         except Exception as e:
@@ -694,7 +703,7 @@ class RawColourFittingProcessor(FittingProcessor):
                 pcov = np.inf
             
             return FittingResultProcessor.process_fit_results(
-                pfit, pcov, relative_coords, FittingStrategy.RAWCOLOUR, chisqr
+                pfit, pcov, size, relative_coords, FittingStrategy.RAWCOLOUR, chisqr
             )
             
         except Exception as e:

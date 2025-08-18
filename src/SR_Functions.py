@@ -87,7 +87,13 @@ class SuperRes_Functions:
 
     def example_spots_singleframe(
         self,
-        image,
+        image_folder,
+        image_type=".tif",
+        smoothing_function=None,
+        gain_map=None,
+        offset_map=None,
+        rqe=None,
+        read_noise=None,
         pfa=1e-3,
         ROI_size=12,
         peak_wavelength=0.638,
@@ -116,19 +122,93 @@ class SuperRes_Functions:
         Returns:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
-        detected_puncta = SD_F.detect_puncta_in_image(
-            image,
+        image_files = H_F.file_search(image_folder, image_type, "")
+        metadatafiles = H_F.file_search(image_folder, "metadata", "")
+        start_x, start_y, width, height = IO.metadata_reader_imageJ(metadatafiles[0])
+
+        masks = M_F.get_ROI_mask(
+            ROI_x_start=start_x,
+            ROI_y_start=start_y,
+            width=width,
+            height=height,
+            mosaic_unit=self.mosaic_unit,
+        )
+        masks = np.dstack([masks[x] for x in masks.keys()])
+        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
+        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
+        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
+        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
+
+        file = image_files[0]
+        puncta_tofit = []
+        smoothed_puncta_tofit = []
+        masks_tofit = []
+        weights_tofit = []
+        relative_coords = []
+        planes = []
+
+        photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
+            file,
+            smoothing_function,
+            dtype=np.float32,
+            frame=1,
+            gain_map=gain_map,
+            offset_map=offset_map,
+            read_noise=read_noise,
+            rqe=rqe,
+        )
+        detected_puncta = SD_F.detect_puncta_in_stack_parallel(
+            photoelectron_data,
             pfa=pfa,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
         )
-        fig, axs = plotter.two_column_plot()
-        axs = plotter.image_scatter_plot(
-            axs=axs,
-            data=image,
+        for i in np.arange(len(detected_puncta)):
+            xcentre = detected_puncta[i, 0]
+            ycentre = detected_puncta[i, 1]
+            frame = detected_puncta[i, 2]
+            xmin = np.max([0, int(xcentre - ROI_size / 2)])
+            xmax = np.min([int(xcentre + ROI_size / 2), width])
+            ymin = np.max([0, int(ycentre - ROI_size / 2)])
+            ymax = np.min([int(ycentre + ROI_size / 2), height])
+
+            if xmax - xmin != ymax - ymin:
+                continue
+            puncta_tofit.append(photoelectron_data[frame, xmin:xmax, ymin:ymax])
+            smoothed_puncta_tofit.append(smoothed_data[frame, xmin:xmax, ymin:ymax])
+            masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
+            weights_tofit.append(weights[frame, xmin:xmax, ymin:ymax])
+            relative_coords.append((xmin, ymin))
+            planes.append(frame)
+        del smoothed_data, weights
+        gc.collect()
+
+        fit_results, _ = I_AF.fit_puncta_parallel_method(
+            puncta_tofit,
+            smoothed_puncta_tofit,
+            weights_tofit,
+            relative_coords,
+            planes,
+            FittingStrategy.STANDARD,
+            masks=masks_tofit
+        )
+
+        
+        fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
+        axs[0] = plotter.image_scatter_plot(
+            axs=axs[0],
+            data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
+            s=s,
+        )
+
+        axs[1] = plotter.image_scatter_plot(
+            axs=axs[1],
+            data=photoelectron_data,
+            xdata=fit_results['xc'].to_numpy(),
+            ydata=fit_results['yc'].to_numpy(),
             s=s,
         )
         return fig, axs
