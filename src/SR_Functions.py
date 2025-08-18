@@ -145,7 +145,6 @@ class SuperRes_Functions:
         masks_tofit = []
         weights_tofit = []
         relative_coords = []
-        planes = []
 
         photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
             file,
@@ -164,17 +163,6 @@ class SuperRes_Functions:
             pixel_size=pixel_size,
             NA=NA,
         )
-
-        fig, axs = plotter.two_column_plot()
-        axs = plotter.image_scatter_plot(
-            axs=axs,
-            data=photoelectron_data,
-            xdata=detected_puncta[:, 0],
-            ydata=detected_puncta[:, 1],
-            s=s,
-        )
-        plt.show()
-
 
         for i in np.arange(len(detected_puncta)):
             xcentre = detected_puncta[i, 0]
