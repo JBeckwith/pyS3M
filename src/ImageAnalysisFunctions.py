@@ -1147,7 +1147,6 @@ class Image_Analysis_Functions:
                 logging.warning(f"Future failed: {e}")
                 continue
         
-        print(all_fits)
         # Concatenate results
         if all_fits:
             combined_fits = np.vstack(all_fits)
@@ -1156,5 +1155,5 @@ class Image_Analysis_Functions:
             # No successful results
             combined_fits = np.empty((0, dims["fit"]), dtype=np.float32)
             combined_errors = np.empty((0, dims["error"]), dtype=np.float32)
-        
+        print(combined_fits)
         return combined_fits, combined_errors
