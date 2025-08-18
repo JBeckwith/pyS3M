@@ -164,6 +164,18 @@ class SuperRes_Functions:
             pixel_size=pixel_size,
             NA=NA,
         )
+
+        fig, axs = plotter.two_column_plot()
+        axs = plotter.image_scatter_plot(
+            axs=axs,
+            data=photoelectron_data,
+            xdata=detected_puncta[:, 0],
+            ydata=detected_puncta[:, 1],
+            s=s,
+        )
+        plt.show()
+
+
         for i in np.arange(len(detected_puncta)):
             xcentre = detected_puncta[i, 0]
             ycentre = detected_puncta[i, 1]
@@ -181,7 +193,7 @@ class SuperRes_Functions:
             relative_coords.append((xmin, ymin))
         del smoothed_data, weights
         gc.collect()
-        print(puncta_tofit)
+
         fit_results, _ = I_AF.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
@@ -191,7 +203,7 @@ class SuperRes_Functions:
             FittingStrategy.STANDARD,
             masks=masks_tofit
         )
-        
+
         fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
         axs[0] = plotter.image_scatter_plot(
             axs=axs[0],
