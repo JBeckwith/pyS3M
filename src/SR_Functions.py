@@ -227,6 +227,8 @@ class SuperRes_Functions:
         axs[1,0] = plotter.image_scatter_plot(
             axs=axs[1,0],
             data=photoelectron_data,
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s*5,
@@ -236,6 +238,8 @@ class SuperRes_Functions:
         axs[1,1] = plotter.image_scatter_plot(
             axs=axs[1,1],
             data=photoelectron_data,
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s*5,
