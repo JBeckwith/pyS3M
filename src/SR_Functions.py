@@ -226,18 +226,18 @@ class SuperRes_Functions:
         
         axs[1,0] = plotter.image_scatter_plot(
             axs=axs[1,0],
-            data=photoelectron_data[min_x:max_x, min_y:max_y],
-            xdata=detected_puncta[:, 0] - min_x,
-            ydata=detected_puncta[:, 1] - min_y,
+            data=photoelectron_data,
+            xdata=detected_puncta[:, 0],
+            ydata=detected_puncta[:, 1],
             s=s,
         )
         axs[1,0].set_ylim([min_y, max_y])
         axs[1,0].set_xlim([min_x, max_x])
         axs[1,1] = plotter.image_scatter_plot(
             axs=axs[1,1],
-            data=photoelectron_data[min_x:max_x, min_y:max_y],
-            xdata=fit_results['xc'].to_numpy() - min_x,
-            ydata=fit_results['yc'].to_numpy() - min_y,
+            data=photoelectron_data,
+            xdata=fit_results['xc'].to_numpy(),
+            ydata=fit_results['yc'].to_numpy(),
             s=s,
             scattercolor='#32cd32'
         )
