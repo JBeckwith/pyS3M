@@ -238,7 +238,7 @@ class SuperRes_Functions:
             data=photoelectron_data,
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
-            s=s,
+            s=s*5,
             scattercolor='#32cd32'
         )
         axs[1,1].set_ylim([min_y, max_y])
