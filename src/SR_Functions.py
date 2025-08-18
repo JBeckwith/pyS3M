@@ -218,7 +218,7 @@ class SuperRes_Functions:
         x = x[filter]
         y = y[filter]
         density_values, xedges, yedges = np.histogram2d(x=x, y=y, bins=50)
-        max_density = np.unravel_index(np.argmax(density_values), size=density_values.shape)
+        max_density = np.unravel_index(np.argmax(density_values), shape=density_values.shape)
         max_x = int(xedges[max_density[0]]) + 50
         min_x = max_x - 100
         max_y = int(yedges[max_density[1]]) + 50
