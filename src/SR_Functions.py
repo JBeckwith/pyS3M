@@ -219,10 +219,10 @@ class SuperRes_Functions:
         y = y[filter]
         density_values, xedges, yedges = np.histogram2d(x=x, y=y, bins=50)
         max_density = np.unravel_index(np.argmax(density_values), shape=density_values.shape)
-        max_y = int(xedges[max_density[0]]) + 50
-        min_y = max_y - 100
-        max_x = int(yedges[max_density[1]]) + 50
-        min_x = max_x - 100
+        max_y = int(xedges[max_density[0]]) + 100
+        min_y = max_y - 200
+        max_x = int(yedges[max_density[1]]) + 100
+        min_x = max_x - 200
         
         axs[1,0] = plotter.image_scatter_plot(
             axs=axs[1,0],
