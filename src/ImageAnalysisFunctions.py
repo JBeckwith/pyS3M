@@ -1115,7 +1115,9 @@ class Image_Analysis_Functions:
             return fs
         
         # Wait for completion and combine results
-        return self.fits_from_futures(fs, strategy)
+        results = self.fits_from_futures(fs, strategy)
+        print(results)
+        return results
 
     def fits_from_futures(
         self, 
@@ -1155,5 +1157,5 @@ class Image_Analysis_Functions:
             # No successful results
             combined_fits = np.empty((0, dims["fit"]), dtype=np.float32)
             combined_errors = np.empty((0, dims["error"]), dtype=np.float32)
-        print(combined_fits)
+
         return combined_fits, combined_errors
