@@ -229,7 +229,7 @@ class SuperRes_Functions:
             data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
-            s=s,
+            s=s*5,
         )
         axs[1,0].set_ylim([min_y, max_y])
         axs[1,0].set_xlim([min_x, max_x])
