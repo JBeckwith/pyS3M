@@ -204,22 +204,27 @@ class SuperRes_Functions:
             s=s,
         )
 
-        axs[1,0] = plotter.image_scatter_plot(
-            axs=axs[1,0],
+        axs[0,1] = plotter.image_scatter_plot(
+            axs=axs[0,1],
             data=photoelectron_data,
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s,
         )
-        density_values, xedges, yedges = np.histogram2d(x=fit_results['xc'].to_numpy(), y=fit_results['yc'].to_numpy(), bins=50)
+        x = fit_results['xc'].to_numpy()
+        y = fit_results['yc'].to_numpy()
+        filter = ~np.isnan(x) & ~np.isnan(y)
+        x = x[filter]
+        y = y[filter]
+        density_values, xedges, yedges = np.histogram2d(x=x, y=y, bins=50)
         max_density = np.argmax(density_values)
         max_x = int(xedges[max_density]) + 50
         min_x = max_x - 100
         max_y = int(yedges[max_density]) + 50
         min_y = max_y - 100
         
-        axs[0,1] = plotter.image_scatter_plot(
-            axs=axs[0,1],
+        axs[1,0] = plotter.image_scatter_plot(
+            axs=axs[1,0],
             data=photoelectron_data[min_x:max_x, min_y:max_y],
             xdata=detected_puncta[:, 0] - min_x,
             ydata=detected_puncta[:, 1] - min_y,
