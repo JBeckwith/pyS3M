@@ -234,7 +234,7 @@ class SuperRes_Functions:
             relative_coords,
             planes,
             FittingStrategy.STANDARD,
-            masks_tofit
+            masks=masks_tofit
         )
         fit_tosave = np.hstack([fit_results, fit_errors])
         fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -388,7 +388,7 @@ class SuperRes_Functions:
                 relative_coords,
                 planes,
                 FittingStrategy.STANDARD,
-                masks_tofit
+                masks=masks_tofit
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -548,7 +548,7 @@ class SuperRes_Functions:
                 relative_coords,
                 planes,
                 FittingStrategy.STANDARD,
-                masks_tofit
+                masks=masks_tofit
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)

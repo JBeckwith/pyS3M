@@ -524,7 +524,7 @@ class MultiC_Sim_Funcs_Refactored:
         # Perform fitting
         fit_results, _ = I_AF.fit_puncta_parallel_method(
             puncta_tofit, smoothed_puncta_tofit, weights_tofit, 
-            relative_coords, planes, IAF_FittingStrategy.STANDARD, masks_tofit
+            relative_coords, planes, IAF_FittingStrategy.STANDARD, masks=masks_tofit
         )
         
         columns = ["xc", "yc", "s_x", "s_y", "bg_B", "bg_G", "bg_R", 
@@ -601,7 +601,7 @@ class MultiC_Sim_Funcs_Refactored:
         
         fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
             puncta_tofit, smoothed_puncta_tofit, weights_tofit, 
-            relative_coords, planes, IAF_FittingStrategy.RAWCOLOUR, masks_tofit
+            relative_coords, planes, IAF_FittingStrategy.RAWCOLOUR, masks=masks_tofit
         )
         
         colour_columns = ['bg_B', 'bg_G', 'bg_R', 'A_B', 'A_G', 'A_R', 'chi_sqr', 'frame']
@@ -685,8 +685,8 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
         
         fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
-            puncta_tofit, smoothed_puncta_tofit, weights_tofit, relative_coords, planes,
-            IAF_FittingStrategy.JUSTCOLOUR, masks_tofit
+            puncta_tofit, smoothed_puncta_tofit, weights_tofit, 
+            relative_coords, planes, IAF_FittingStrategy.JUSTCOLOUR, masks=masks_tofit
         )
         
         colour_columns = ['A', 'b', 'chi_sqr', 'frame']
@@ -832,6 +832,9 @@ class MultiC_Sim_Funcs_Refactored:
         background_photons_perdye = background_photons / len(dye_names)
         background_photons_matrix = np.zeros([w, h, len(dye_names)])
         
+        # Normalize background_colour to ensure total background = background_photons
+        background_colour_normalized = np.array(background_colour) / np.sum(background_colour)
+        
         for j, dye in enumerate(dye_names):
             for i, colour in enumerate(pixel_colours):
                 try:
@@ -841,7 +844,7 @@ class MultiC_Sim_Funcs_Refactored:
                     
                 if dpe != 0:
                     background_photons_matrix[:, :, j] += (
-                        masks[colour] * (background_colour[i] / dpe) * background_photons_perdye
+                        masks[colour] * (background_colour_normalized[i] / dpe) * background_photons_perdye
                     )
         
         bayer_image = np.zeros([s, w, h])

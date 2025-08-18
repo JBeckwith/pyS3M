@@ -141,26 +141,46 @@ class FittingResultProcessor:
     """Handles processing and validation of fitting results."""
     
     @staticmethod
-    def calculate_errors(pcov: np.ndarray) -> List[float]:
+    def calculate_errors(pcov: np.ndarray, strategy: FittingStrategy) -> List[float]:
         """Calculate parameter errors from covariance matrix.
         
         Args:
             pcov: Parameter covariance matrix from fitting.
+            strategy: Fitting strategy to determine expected error array size.
             
         Returns:
             List of parameter errors (standard deviations).
         """
-        if pcov is None or np.any(np.isinf(pcov)):
-            return [0.0] * len(pcov) if pcov is not None else [0.0]
+        # Get expected error array size
+        expected_size = FittingConstants.PARAM_DIMENSIONS[strategy]["error"]
         
+        if pcov is None:
+            return [np.nan] * expected_size
+        
+        # Handle scalar pcov (e.g., np.inf from failed fits)
+        if np.isscalar(pcov) or pcov.ndim == 0:
+            return [np.nan] * expected_size
+            
+        # Handle inf values in matrix
+        if np.any(np.isinf(pcov)):
+            return [np.nan] * expected_size
+
         try:
             # Vectorized error calculation - more efficient than loops
             diagonal = np.diag(pcov)
             errors = np.where(diagonal >= 0, np.sqrt(np.abs(diagonal)), 0.0)
-            return errors.tolist()
+            error_list = errors.tolist()
+            
+            # Ensure we return the correct number of errors
+            if len(error_list) < expected_size:
+                error_list.extend([np.nan] * (expected_size - len(error_list)))
+            elif len(error_list) > expected_size:
+                error_list = error_list[:expected_size]
+                
+            return error_list
         except (IndexError, ValueError):
-            return [0.0] * len(pcov) if pcov is not None else [0.0]
-    
+            return [np.nan] * expected_size
+
     @staticmethod
     def process_fit_results(
         pfit: np.ndarray, 
@@ -180,30 +200,48 @@ class FittingResultProcessor:
         Returns:
             Tuple of (processed_parameters, parameter_errors).
         """
-        if pfit is None or len(pfit) == 0:
+        if pfit is None or not hasattr(pfit, '__len__') or len(pfit) == 0:
             dims = FittingConstants.PARAM_DIMENSIONS[strategy]
             return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
         
         # Chi-squared is now passed as parameter from the fitting processor
         
         # Process parameters based on strategy
-        pfit_processed = pfit.copy()
+        # For STANDARD: pfit has [x, y, sy, sx, bg_B, bg_G, bg_R, A_B, A_G, A_R] (10 parameters from gaussoptfuncs)
+        # But output needs [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R] (sx/sy order corrected)
+        
+        if strategy == FittingStrategy.STANDARD:
+            # Reorder sx/sy and keep everything else: [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R]
+            pfit_processed = np.array([
+                pfit[0], pfit[1], pfit[3], pfit[2],  # x, y, sx, sy (note: sx/sy swapped)
+                pfit[4], pfit[5], pfit[6],           # bg_B, bg_G, bg_R  
+                pfit[7], pfit[8], pfit[9]            # A_B, A_G, A_R
+            ])
+        else:
+            # For other strategies, use as-is for now
+            pfit_processed = pfit.copy()
         
         # Add relative coordinates to position parameters (first two elements)
-        if len(relative_coords) >= 2:
+        if relative_coords is not None and hasattr(relative_coords, '__len__') and len(relative_coords) >= 2:
             pfit_processed[:2] += relative_coords[:2]
         
-        # Square certain parameters for specific strategies
-        if strategy in [FittingStrategy.STANDARD, FittingStrategy.JUSTCOLOUR, 
-                       FittingStrategy.RAWCOLOUR, FittingStrategy.POSTHENCOLOUR]:
+        # Square amplitude and background parameters for storage (after error calculation)
+        # leastsq returns optimized square-root values, but we store squared values as photon counts
+        if strategy == FittingStrategy.STANDARD:
+            # For STANDARD output: [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R]
+            # Square backgrounds (positions 4-6) and amplitudes (positions 7-9)
+            pfit_processed[4:10] = np.square(pfit_processed[4:10])
+        elif strategy == FittingStrategy.NOCOLOUR:
+            # For NOCOLOUR: [x, y, sx, sy, bg, A, ...]
+            # Square background and amplitude
             if len(pfit_processed) >= 6:
-                pfit_processed[-6:] = np.square(pfit_processed[-6:])
+                pfit_processed[4:6] = np.square(pfit_processed[4:6])
         
         # Append chi-squared
         pfit_final = np.append(pfit_processed, chisqr)
         
         # Calculate errors
-        errors = FittingResultProcessor.calculate_errors(pcov)
+        errors = FittingResultProcessor.calculate_errors(pcov, strategy)
         
         return pfit_final, np.array(errors)
 
@@ -266,8 +304,8 @@ class StandardFittingProcessor(FittingProcessor):
         if masks is None:
             raise FittingValidationError("Standard fitting requires masks")
         
-        # Get initial guess from smoothed data
-        initial_guess = self._generate_initial_guess(smoothed_punctum, masks)
+        # Get initial guess from smoothed and raw data
+        initial_guess = self._generate_initial_guess(smoothed_punctum, punctum, masks)
         
         # Perform weighted least squares fit
         return self._perform_wls_fit(
@@ -277,32 +315,22 @@ class StandardFittingProcessor(FittingProcessor):
     def _generate_initial_guess(
         self, 
         smoothed_punctum: np.ndarray, 
+        raw_punctum: np.ndarray,
         masks: np.ndarray
     ) -> np.ndarray:
-        """Generate initial parameter guess for fitting.
+        """Generate initial parameter guess for fitting using gaussoptfuncs.
         
         Args:
             smoothed_punctum: Smoothed punctum data.
+            raw_punctum: Raw punctum data.
             masks: Colour masks.
             
         Returns:
             Initial parameter guess array.
         """
-        # Use the gaussian model to generate initial guess
-        # This is a simplified version - the actual implementation would be more complex
-        center = np.array(smoothed_punctum.shape) // 2
-        max_val = np.max(smoothed_punctum)
-        
-        # Standard 12-parameter guess: [x, y, sx, sy, A_B, A_G, A_R, bg_B, bg_G, bg_R, theta, offset]
-        initial_guess = np.array([
-            center[1], center[0],  # x, y centers
-            1.0, 1.0,  # sigma_x, sigma_y
-            max_val * 0.3, max_val * 0.4, max_val * 0.3,  # Amplitudes B, G, R
-            np.min(smoothed_punctum), np.min(smoothed_punctum), np.min(smoothed_punctum),  # Backgrounds
-            0.0, 0.0  # theta, offset
-        ])
-        
-        return initial_guess
+        # Use the proper initial_guess function from gaussoptfuncs
+        # Returns: [x, y, sy, sx, bg_B, bg_G, bg_R, A_B, A_G, A_R]
+        return gaussoptfuncs.initial_guess(smoothed_punctum, raw_punctum, masks)
     
     def _perform_wls_fit(
         self,
@@ -952,10 +980,32 @@ class Image_Analysis_Functions:
                     masks=punctum_masks
                 )
                 
-                # Store results (excluding chi-squared for main parameters)
-                param_count = dims["fit"] - 1  # Exclude plane index
-                pfit_leastsq[i, :param_count] = fit_params[:param_count]
-                pfit_leastsq[i, -1] = planes[i]  # Store plane index
+                # Store results (fit_params includes chi-squared at the end)
+                # fit_params contains: [param1, param2, ..., paramN, chi_squared]
+                # We need: [param1, param2, ..., paramN, chi_squared, plane_index]
+                
+                # Store fit parameters including chi-squared, then add plane index
+                # fit_params contains: [fit_param1, ..., fit_paramN, chi_squared] (N+1 elements)
+                # Final array: [fit_param1, ..., fit_paramN, chi_squared, plane_index] (N+2 elements)
+                
+                # Store all fit parameters including chi-squared, then add plane index
+                # fit_params should contain [param1, ..., param10, chi_squared] = 11 elements
+                # Final array should be [param1, ..., param10, chi_squared, plane_index] = 12 elements
+                
+                # Store fit_params in positions 0 to len(fit_params)-1
+                fit_param_count = len(fit_params)
+                max_fit_params = dims["fit"] - 1  # Leave last position for plane index
+                
+                if fit_param_count <= max_fit_params:
+                    # Store all fit parameters including chi-squared
+                    pfit_leastsq[i, :fit_param_count] = fit_params
+                else:
+                    # fit_params is too long, store what fits but preserve chi-squared
+                    # This should not happen if dimensions are correct
+                    pfit_leastsq[i, :max_fit_params] = fit_params[:max_fit_params]
+                
+                # Store plane index in the last position (don't overwrite chi-squared!)
+                pfit_leastsq[i, -1] = planes[i]
                 perr_leastsq[i, :] = fit_errors[:dims["error"]]
                 
             except Exception as e:
