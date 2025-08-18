@@ -181,17 +181,16 @@ class SuperRes_Functions:
             relative_coords.append((xmin, ymin))
         del smoothed_data, weights
         gc.collect()
-
+        print(puncta_tofit)
         fit_results, _ = I_AF.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
             relative_coords,
-            np.zeros(len(puncta_tofit), dtype=int),
+            list(np.zeros(len(puncta_tofit), dtype=int)),
             FittingStrategy.STANDARD,
             masks=masks_tofit
         )
-        print(fit_results)
         
         fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
         axs[0] = plotter.image_scatter_plot(
