@@ -157,7 +157,7 @@ class SuperRes_Functions:
             read_noise=read_noise,
             rqe=rqe,
         )
-        detected_puncta = SD_F.detect_puncta_in_stack_parallel(
+        detected_puncta = SD_F.detect_puncta_in_image(
             photoelectron_data,
             pfa=pfa,
             wavelength=peak_wavelength,
@@ -167,7 +167,6 @@ class SuperRes_Functions:
         for i in np.arange(len(detected_puncta)):
             xcentre = detected_puncta[i, 0]
             ycentre = detected_puncta[i, 1]
-            frame = detected_puncta[i, 2]
             xmin = np.max([0, int(xcentre - ROI_size / 2)])
             xmax = np.min([int(xcentre + ROI_size / 2), width])
             ymin = np.max([0, int(ycentre - ROI_size / 2)])
@@ -175,12 +174,11 @@ class SuperRes_Functions:
 
             if xmax - xmin != ymax - ymin:
                 continue
-            puncta_tofit.append(photoelectron_data[frame, xmin:xmax, ymin:ymax])
-            smoothed_puncta_tofit.append(smoothed_data[frame, xmin:xmax, ymin:ymax])
+            puncta_tofit.append(photoelectron_data[xmin:xmax, ymin:ymax])
+            smoothed_puncta_tofit.append(smoothed_data[xmin:xmax, ymin:ymax])
             masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
-            weights_tofit.append(weights[frame, xmin:xmax, ymin:ymax])
+            weights_tofit.append(weights[xmin:xmax, ymin:ymax])
             relative_coords.append((xmin, ymin))
-            planes.append(frame)
         del smoothed_data, weights
         gc.collect()
 
@@ -189,7 +187,7 @@ class SuperRes_Functions:
             smoothed_puncta_tofit,
             weights_tofit,
             relative_coords,
-            planes,
+            np.zeros(len(puncta_tofit), dtype=int),
             FittingStrategy.STANDARD,
             masks=masks_tofit
         )
