@@ -225,9 +225,6 @@ class FittingResultProcessor:
             pfit_processed = pfit.copy()
         
         if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
-            logging.warning(
-                f"Fitting parameters out of bounds: {pfit_processed[:4]} for size {size}"
-            )
             return (np.full(len(pfit_processed), np.nan), np.full(len(pfit_processed), np.nan))
 
         # Add relative coordinates to position parameters (first two elements)
