@@ -191,7 +191,7 @@ class SuperRes_Functions:
             FittingStrategy.STANDARD,
             masks=masks_tofit
         )
-
+        print(fit_results)
         
         fig, axs = plotter.two_column_plot(ncolumns=2, widthratio=[1,1])
         axs[0] = plotter.image_scatter_plot(
