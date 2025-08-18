@@ -210,7 +210,7 @@ class SuperRes_Functions:
             xdata=fit_results['xc'].to_numpy(),
             ydata=fit_results['yc'].to_numpy(),
             s=s,
-            scattercolor='green'
+            scattercolor='#32cd32'
         )
         x = fit_results['xc'].to_numpy()
         y = fit_results['yc'].to_numpy()
@@ -239,7 +239,7 @@ class SuperRes_Functions:
             xdata=fit_results['xc'].to_numpy() - min_x,
             ydata=fit_results['yc'].to_numpy() - min_y,
             s=s,
-            scattercolor='green'
+            scattercolor='#32cd32'
         )
         axs[1,1].set_ylim([min_y, max_y])
         axs[1,1].set_xlim([min_x, max_x])
