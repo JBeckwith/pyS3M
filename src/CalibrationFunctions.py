@@ -24,16 +24,16 @@ import MaskFunctions
 
 class Calibration_Functions:
     """Camera calibration routines for sCMOS cameras and Bayer filter patterns.
-    
+
     Provides functionality for calibrating camera parameters, processing
     gain/offset/variance maps, and handling Bayer pattern configurations.
     """
-    
+
     def __init__(self, mosaic_unit=None, high_memory=False):
         """Initialize Calibration_Functions class.
-        
+
         Args:
-            mosaic_unit: Optional custom Bayer mosaic pattern. 
+            mosaic_unit: Optional custom Bayer mosaic pattern.
                         Defaults to standard [["B", "G"], ["G", "R"]] pattern.
             high_memory: Whether to use high-memory processing mode.
         """

@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import threading as _threading
 from itertools import chain as _chain
 import matplotlib.pyplot as _plt
+
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import postprocess as _postprocess
@@ -37,8 +38,14 @@ LOCS_DTYPE = [
     ("sx", "f4"),
     ("sy", "f4"),
     ("bg", "f4"),
-    ("xc_err", "f4"),  # Changed from "lpx" to "xc_err" for consistency with SR_Functions.py
-    ("yc_err", "f4"),  # Changed from "lpy" to "yc_err" for consistency with SR_Functions.py
+    (
+        "xc_err",
+        "f4",
+    ),  # Changed from "lpx" to "xc_err" for consistency with SR_Functions.py
+    (
+        "yc_err",
+        "f4",
+    ),  # Changed from "lpy" to "yc_err" for consistency with SR_Functions.py
     ("net_gradient", "f4"),
     ("likelihood", "f4"),
     ("iterations", "i4"),
@@ -141,7 +148,12 @@ def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=N
     frame = frame_number * _np.ones(len(x))
     result = _np.rec.array(
         (frame, x, y, net_gradient),
-        dtype=[("frame", "i"), ("xc", "i"), ("yc", "i"), ("net_gradient", "f4")],  # Changed to "xc", "yc"
+        dtype=[
+            ("frame", "i"),
+            ("xc", "i"),
+            ("yc", "i"),
+            ("net_gradient", "f4"),
+        ],  # Changed to "xc", "yc"
     )
     if resultqueue is not None:
         resultqueue.put(result)
@@ -158,7 +170,12 @@ def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None, loc
     frame = frame_number * _np.ones(len(x))
     return _np.rec.array(
         (frame, x, y, net_gradient),
-        dtype=[("frame", "i"), ("xc", "i"), ("yc", "i"), ("net_gradient", "f4")],  # Changed to "xc", "yc"
+        dtype=[
+            ("frame", "i"),
+            ("xc", "i"),
+            ("yc", "i"),
+            ("net_gradient", "f4"),
+        ],  # Changed to "xc", "yc"
     )
 
 
@@ -285,13 +302,17 @@ def _cut_spots_framebyframe(movie, ids_frame, ids_x, ids_y, box, spots):
 def _cut_spots(movie, ids, box):
     N = len(ids.frame)
     if isinstance(movie, _np.ndarray):
-        return _cut_spots_numba(movie, ids.frame, ids.xc, ids.yc, box)  # Changed from .x, .y to .xc, .yc
+        return _cut_spots_numba(
+            movie, ids.frame, ids.xc, ids.yc, box
+        )  # Changed from .x, .y to .xc, .yc
     else:
         """Assumes that identifications are in order of frames!"""
 
         N = len(ids.frame)
         spots = _np.zeros((N, box, box), dtype=movie.dtype)
-        spots = _cut_spots_framebyframe(movie, ids.frame, ids.xc, ids.yc, box, spots)  # Changed from .x, .y to .xc, .yc
+        spots = _cut_spots_framebyframe(
+            movie, ids.frame, ids.xc, ids.yc, box, spots
+        )  # Changed from .x, .y to .xc, .yc
         return spots
 
 

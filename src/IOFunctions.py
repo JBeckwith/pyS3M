@@ -19,11 +19,11 @@ sys.path.append(module_dir)
 
 class IO_Functions:
     """File I/O operations for microscopy data and analysis results.
-    
+
     Provides functionality for reading and writing various file formats
     used in single-molecule localization microscopy analysis.
     """
-    
+
     def __init__(self):
         """Initialize IO_Functions class."""
         pass
@@ -165,12 +165,33 @@ class IO_Functions:
             image (numpy.ndarray): The image data from the TIFF file.
         """
         if isinstance(frame, type(None)):
-            image = np.asarray(imread(file_path), dtype=dtype)
+            image = np.asarray(
+                imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
+                dtype=dtype,
+            )
         else:
             if hasattr(frame, "__len__"):
-                image = np.asarray(imread(file_path, key=frame), dtype=dtype)
+                image = np.asarray(
+                    imread(
+                        file_path,
+                        key=frame,
+                        is_ome=False,
+                        is_mmstack=False,
+                        is_imagej=False,
+                    ),
+                    dtype=dtype,
+                )
             else:
-                image = np.asarray(imread(file_path, key=int(frame)), dtype=dtype)
+                image = np.asarray(
+                    imread(
+                        file_path,
+                        key=int(frame),
+                        is_ome=False,
+                        is_mmstack=False,
+                        is_imagej=False,
+                    ),
+                    dtype=dtype,
+                )
         return image
 
     def read_tiff_tophotoelectrons(

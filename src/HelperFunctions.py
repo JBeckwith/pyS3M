@@ -12,12 +12,12 @@ import fnmatch
 
 class Helper_Functions:
     """Helper functions for image analysis and data processing.
-    
+
     Provides utility functions for database cleaning, file operations,
-    and radiality analysis related to the RASP (Radiality Analysis of 
+    and radiality analysis related to the RASP (Radiality Analysis of
     Single-molecule Positions) concept.
     """
-    
+
     def __init__(self):
         """Initialize Helper_Functions class."""
         pass

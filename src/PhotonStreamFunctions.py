@@ -12,11 +12,11 @@ sys.path.append(module_dir)
 
 class Photon_Stream_Functions:
     """Photon generation and streaming simulation functions.
-    
+
     Provides functionality for simulating photon streams, PAINT experiments,
     and time-resolved single-molecule behavior for SMLM applications.
     """
-    
+
     def __init__(self):
         """Initialize Photon_Stream_Functions class."""
         pass

@@ -23,6 +23,7 @@ import matplotlib.pyplot as _plt
 import itertools as _itertools
 import lmfit as _lmfit
 from collections import OrderedDict as _OrderedDict
+
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import lib as _lib
@@ -483,7 +484,9 @@ def nena(locs, info, callback=None):
     pdf_model = _lmfit.Model(func)
     params = _lmfit.Parameters()
     area = _np.trapz(dnfl_, bin_centers)
-    median_lp = _np.mean([_np.median(locs.xc_err), _np.median(locs.yc_err)])  # Changed to _err convention
+    median_lp = _np.mean(
+        [_np.median(locs.xc_err), _np.median(locs.yc_err)]
+    )  # Changed to _err convention
     params.add("delta_a", value=0.8 * area, min=0)
     params.add("s", value=median_lp, min=0)
     params.add("ac", value=0.1 * area, min=0)
@@ -773,7 +776,7 @@ def cluster_combine(locs):
                 ("cluster", cluster.dtype),
                 ("mean_frame", "f4"),
                 ("xc", "f4"),  # Changed from "x" to "xc"
-                ("yc", "f4"),  # Changed from "y" to "yc" 
+                ("yc", "f4"),  # Changed from "y" to "yc"
                 ("std_frame", "f4"),
                 ("xc_err", "f4"),  # Changed from "lpx" to "xc_err"
                 ("yc_err", "f4"),  # Changed from "lpy" to "yc_err"
@@ -1014,9 +1017,13 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
     if hasattr(locs, "bg"):
         columns["bg"] = _link_group_sum(locs.bg, link_group, n_locs, n_groups)
     if hasattr(locs, "xc"):  # Changed from "x" to "xc"
-        columns["xc_err"] = _np.sqrt(1 / sum_weights_x_)  # Changed from "lpx" to "xc_err"
+        columns["xc_err"] = _np.sqrt(
+            1 / sum_weights_x_
+        )  # Changed from "lpx" to "xc_err"
     if hasattr(locs, "yc"):  # Changed from "y" to "yc"
-        columns["yc_err"] = _np.sqrt(1 / sum_weights_y_)  # Changed from "lpy" to "yc_err"
+        columns["yc_err"] = _np.sqrt(
+            1 / sum_weights_y_
+        )  # Changed from "lpy" to "yc_err"
     if hasattr(locs, "ellipticity"):
         columns["ellipticity"] = _link_group_mean(
             locs.ellipticity, link_group, n_locs, n_groups, n_

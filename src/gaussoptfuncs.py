@@ -40,6 +40,7 @@ def gaussian_unscaled_model(
             array_tofill[i, j] = xg[i] * yg[j]
     return array_tofill
 
+
 @jit(nopython=True, nogil=True)
 def WLS_justcolour_model_nobounds(
     params,
@@ -115,6 +116,7 @@ def WLS_nocolour_model_nobounds(
     )
     return gauss_2d
 
+
 @jit(nopython=True, nogil=True)
 def WLS_rawcolour_model_nobounds(
     params,
@@ -161,6 +163,7 @@ def WLS_rawcolour_model_nobounds(
         + background_bayer_matrix
     )
     return gauss_2d
+
 
 @jit(nopython=True, nogil=True)
 def WLS_model_nobounds(
@@ -255,6 +258,7 @@ def WLS_chi_nocolour_nobounds(params, data, weights, size, ravelsize):
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
 
+
 @jit(nopython=True, nogil=True)
 def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
     """
@@ -275,8 +279,11 @@ def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
 
+
 @jit(nopython=True, nogil=True)
-def WLS_rawcolour_chi_nobounds(params, data, masks, weights, size, ravelsize, locparams):
+def WLS_rawcolour_chi_nobounds(
+    params, data, masks, weights, size, ravelsize, locparams
+):
     """
     Calculate the chi vector for the weighted least squares model.
 
@@ -295,10 +302,18 @@ def WLS_rawcolour_chi_nobounds(params, data, masks, weights, size, ravelsize, lo
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
     gauss_2d[:, :] = WLS_rawcolour_model_nobounds(
-        params, data, masks, background_bayer_matrix, bayer_matrix, x, gauss_2d, locparams
+        params,
+        data,
+        masks,
+        background_bayer_matrix,
+        bayer_matrix,
+        x,
+        gauss_2d,
+        locparams,
     )
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
+
 
 @jit(nopython=True, nogil=True)
 def _sum_and_center_of_mass(smoothed_data, size):
@@ -355,6 +370,7 @@ def initial_nocolour_guess(smoothed_data, raw_data):
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
     return x_ig, y_ig, sigma_y, sigma_x, b, A
 
+
 @jit(nopython=True)
 def initial_justcolour_guess(smoothed_data, raw_data):
     """
@@ -374,6 +390,7 @@ def initial_justcolour_guess(smoothed_data, raw_data):
     bs_data = ig_data - np.abs(np.min(ig_data))
     A = np.sum(bs_data)
     return A, b
+
 
 @jit(nopython=True)
 def initial_rawcolour_guess(smoothed_data, raw_data, masks):

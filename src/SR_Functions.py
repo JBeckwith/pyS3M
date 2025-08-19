@@ -48,16 +48,16 @@ plotter = PlottingFunctions.Plotter()
 
 class SuperRes_Functions:
     """Super-resolution microscopy analysis functions.
-    
+
     Provides functionality for super-resolution image reconstruction,
     localization processing, and analysis for Bayer filter SMLM systems.
     """
-    
+
     def __init__(self, mosaic_unit=np.array([["B", "G"], ["G", "R"]])):
         """Initialize SuperRes_Functions class.
-        
+
         Args:
-            mosaic_unit: Bayer mosaic pattern array. Defaults to standard 
+            mosaic_unit: Bayer mosaic pattern array. Defaults to standard
                         [["B", "G"], ["G", "R"]] pattern.
         """
         self.mosaic_unit = mosaic_unit
@@ -189,64 +189,80 @@ class SuperRes_Functions:
             relative_coords,
             list(np.zeros(len(puncta_tofit), dtype=int)),
             FittingStrategy.STANDARD,
-            masks=masks_tofit
+            masks=masks_tofit,
         )
-        columns = ["xc", "yc", "s_x", "s_y", "bg_B", "bg_G", "bg_R", 
-                  "A_B", "A_G", "A_R", "chi_sqr", "frame"]
+        columns = [
+            "xc",
+            "yc",
+            "s_x",
+            "s_y",
+            "bg_B",
+            "bg_G",
+            "bg_R",
+            "A_B",
+            "A_G",
+            "A_R",
+            "chi_sqr",
+            "frame",
+        ]
         fit_results = pd.DataFrame(fit_results, columns=columns)
 
-        fig, axs = plotter.two_column_plot(ncolumns=2, nrows=2, widthratio=[1,1], heightratio=[1,1])
-        axs[0,0] = plotter.image_scatter_plot(
-            axs=axs[0,0],
+        fig, axs = plotter.two_column_plot(
+            ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
+        )
+        axs[0, 0] = plotter.image_scatter_plot(
+            axs=axs[0, 0],
             data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s,
         )
 
-        axs[0,1] = plotter.image_scatter_plot(
-            axs=axs[0,1],
+        axs[0, 1] = plotter.image_scatter_plot(
+            axs=axs[0, 1],
             data=photoelectron_data,
-            xdata=fit_results['xc'].to_numpy(),
-            ydata=fit_results['yc'].to_numpy(),
+            xdata=fit_results["xc"].to_numpy(),
+            ydata=fit_results["yc"].to_numpy(),
             s=s,
-            scattercolor='#32cd32'
+            scattercolor="#32cd32",
         )
-        x = fit_results['xc'].to_numpy()
-        y = fit_results['yc'].to_numpy()
+        x = fit_results["xc"].to_numpy()
+        y = fit_results["yc"].to_numpy()
         filter = ~np.isnan(x) & ~np.isnan(y)
         x = x[filter]
         y = y[filter]
         density_values, xedges, yedges = np.histogram2d(x=x, y=y, bins=50)
-        max_density = np.unravel_index(np.argmax(density_values), shape=density_values.shape)
+        max_density = np.unravel_index(
+            np.argmax(density_values), shape=density_values.shape
+        )
         max_y = int(xedges[max_density[0]]) + 100
         min_y = max_y - 200
         max_x = int(yedges[max_density[1]]) + 100
         min_x = max_x - 200
-        
-        axs[1,0] = plotter.image_scatter_plot(
-            axs=axs[1,0],
+
+        axs[1, 0] = plotter.image_scatter_plot(
+            axs=axs[1, 0],
             data=photoelectron_data,
             vmin=np.percentile(photoelectron_data, 1),
             vmax=np.percentile(photoelectron_data, 99),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
-            s=s*5,
+            s=s * 5,
         )
-        axs[1,0].set_ylim([min_y, max_y])
-        axs[1,0].set_xlim([min_x, max_x])
-        axs[1,1] = plotter.image_scatter_plot(
-            axs=axs[1,1],
+        axs[1, 0].set_ylim([min_y, max_y])
+        axs[1, 0].set_xlim([min_x, max_x])
+        axs[1, 1] = plotter.image_scatter_plot(
+            axs=axs[1, 1],
             data=photoelectron_data,
             vmin=np.percentile(photoelectron_data, 1),
             vmax=np.percentile(photoelectron_data, 99),
-            xdata=fit_results['xc'].to_numpy(),
-            ydata=fit_results['yc'].to_numpy(),
-            s=s*5,
-            scattercolor='#32cd32'
+            xdata=fit_results["xc"].to_numpy(),
+            ydata=fit_results["yc"].to_numpy(),
+            s=s * 5,
+            scattercolor="#32cd32",
         )
-        axs[1,1].set_ylim([min_y, max_y])
-        axs[1,1].set_xlim([min_x, max_x])
+        axs[1, 1].set_ylim([min_y, max_y])
+        axs[1, 1].set_xlim([min_x, max_x])
         return fig, axs
 
     def fit_FRET_data(
@@ -350,7 +366,7 @@ class SuperRes_Functions:
             relative_coords,
             planes,
             FittingStrategy.STANDARD,
-            masks=masks_tofit
+            masks=masks_tofit,
         )
         fit_tosave = np.hstack([fit_results, fit_errors])
         fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -504,7 +520,7 @@ class SuperRes_Functions:
                 relative_coords,
                 planes,
                 FittingStrategy.STANDARD,
-                masks=masks_tofit
+                masks=masks_tofit,
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
@@ -664,7 +680,7 @@ class SuperRes_Functions:
                 relative_coords,
                 planes,
                 FittingStrategy.STANDARD,
-                masks=masks_tofit
+                masks=masks_tofit,
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)

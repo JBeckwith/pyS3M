@@ -10,6 +10,7 @@
     :author: Joerg Schnitzbauer, 2016
     :copyright: Copyright (c) MIT License
 """
+
 import os
 import sys
 import matplotlib.pyplot as _plt
@@ -17,6 +18,7 @@ import numpy as _np
 from numpy import fft as _fft
 import lmfit as _lmfit
 from tqdm import tqdm as _tqdm
+
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import lib as _lib
@@ -187,7 +189,9 @@ def find_fiducials(locs, info):
     box = box + 1 if box % 2 == 0 else box
 
     # find the local maxima and translate to pick coordinates
-    y, x, _ = _localise.identify_in_image(image, threshold, box=box)  # Changed from _localize to _localise
+    y, x, _ = _localise.identify_in_image(
+        image, threshold, box=box
+    )  # Changed from _localize to _localise
     picks = [(xi, yi) for xi, yi in zip(x, y)]
 
     # select the picks with appropriate number of localizations
