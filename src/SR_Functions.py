@@ -524,7 +524,7 @@ class SuperRes_Functions:
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
-            print(fit_results)
+
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
 
