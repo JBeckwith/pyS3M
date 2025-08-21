@@ -28,7 +28,7 @@ class IO_Functions:
         """Initialize IO_Functions class."""
         pass
 
-    def _write_h5_database(self, df, filepath, append=False, normalize_photons=False):
+    def _write_h5_database(self, df, filepath, append=False, normalize_photons=True):
         if df.shape[0] > 0:
             # Add photon columns if amplitude columns are present
             df = self._add_photon_columns(df, normalize=normalize_photons)
