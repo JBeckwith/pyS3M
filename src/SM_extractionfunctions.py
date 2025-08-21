@@ -186,7 +186,8 @@ class extract_SMs:
             "bg_B",
             "bg_G",
             "bg_R",
-            "background_photons" "A_B",
+            "background_photons",
+            "A_B",
             "A_G",
             "A_R",
             "photons",
@@ -237,11 +238,6 @@ class extract_SMs:
             df = self.average_parameters(loc_data_assigned, labels_assigned)
             df["molecular_index"] = df.index + molecular_index_offset
 
-            # Normalize photon fractions for assigned localizations using centralized IOFunctions method
-            loc_data_assigned = IO._add_photon_columns(
-                loc_data_assigned, normalize=True
-            )
-
             single_frame_database_list.append(loc_data_assigned)
             single_molecule_database_list.append(df)
 
@@ -256,31 +252,25 @@ class extract_SMs:
 
         return single_molecule_database, single_frame_database
 
-    def extract_single_molecule_traces(
+    def extract_single_molecules_DBSCAN(
         self,
-        localisation_file,
-        smoothing_function,
-        gain,
-        offset,
-        rqe,
-        readnoise,
+        localisation_files,
+        min_cluster_size=10,
         chi_val=None,
+        max_localization_error=1.0,
+        min_photons=500,
+        max_photons=None,
     ):
         """
-        Extract single molecule traces including intensity time series from image data.
+        Extract single molecules from multiple localization files by clustering.
 
         Args:
-            localisation_file (str): Path to HDF5 localization file
-            smoothing_function: Smoothing function object for image processing
-            gain (np.array): Camera gain map
-            offset (np.array): Camera offset map
-            rqe (np.array): Relative quantum efficiency map
-            readnoise (np.array): Read noise map
-            chi_val (float, optional): Chi-squared threshold. Defaults to median.
+            localisation_files (list): List of HDF5 localization file paths
+            chi_val (float, optional): Chi-squared threshold for filtering. Defaults to median.
 
         Returns:
-            tuple: (locations, trace_matrix, image_data) where locations are molecule positions,
-                   trace_matrix contains intensity traces, and image_data is the full stack
+            tuple: (single_molecule_database, single_frame_database) as DataFrames
+                   single_frame_database includes molecular_index column and excludes unassigned localizations
         """
         columns = [
             "xc",
@@ -290,7 +280,8 @@ class extract_SMs:
             "bg_B",
             "bg_G",
             "bg_R",
-            "background_photons" "A_B",
+            "background_photons",
+            "A_B",
             "A_G",
             "A_R",
             "photons",
@@ -308,28 +299,52 @@ class extract_SMs:
             "A_R_err",
         ]
 
-        image_file = localisation_file.split(".")[0] + ".ome.tif"
-        metadata = localisation_file.split(".")[0] + "_metadata.txt"
-        x_coord, y_coord, width, height = IO.metadata_reader_imageJ(metadata)
-        image_data, _, _ = IO.read_tiff_tophotoelectrons(
-            image_file,
-            smoothing_function,
-            gain_map=gain[x_coord : x_coord + width, y_coord : y_coord + height],
-            offset_map=offset[x_coord : x_coord + width, y_coord : y_coord + height],
-            rqe=rqe[x_coord : x_coord + width, y_coord : y_coord + height],
-            read_noise=readnoise[x_coord : x_coord + width, y_coord : y_coord + height],
-            frame=np.arange(750),
+        single_frame_database_list = []
+        single_molecule_database_list = []
+        molecular_index_offset = 0
+
+        for i, file in enumerate(localisation_files):
+            loc_data = pd.read_hdf(file, columns=columns)
+            loc_data = self.filter_quality_localizations(
+                loc_data, chi_val, max_localization_error, min_photons, max_photons
+            )
+            X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
+            loc_precision = 0.5 * (
+                np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
+            )
+            hdb = DBSCAN(
+                min_samples=min_cluster_size,
+                eps=loc_precision,
+            )
+            hdb.fit(X)
+
+            # Filter out unassigned localizations (label = -1)
+            assigned_mask = hdb.labels_ >= 0
+            loc_data_assigned = loc_data[assigned_mask].copy()
+            labels_assigned = hdb.labels_[assigned_mask]
+
+            # Add molecular index column (offset by previous files)
+            loc_data_assigned["molecular_index"] = (
+                labels_assigned + molecular_index_offset
+            )
+
+            # Create single molecule database for this file
+            df = self.average_parameters(loc_data_assigned, labels_assigned)
+            df["molecular_index"] = df.index + molecular_index_offset
+
+            single_frame_database_list.append(loc_data_assigned)
+            single_molecule_database_list.append(df)
+
+            # Update offset for next file
+            molecular_index_offset += len(df)
+
+        # Concatenate all data
+        single_frame_database = pd.concat(single_frame_database_list, ignore_index=True)
+        single_molecule_database = pd.concat(
+            single_molecule_database_list, ignore_index=True
         )
-        loc_data = pd.read_hdf(localisation_file, columns=columns)
-        loc_data = self.filter_quality_localizations(loc_data, chi_val)
-        X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
-        loc_precision = 0.5 * (
-            np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
-        )
-        hdb = DBSCAN(min_samples=10, eps=loc_precision)
-        hdb.fit(X)
-        locations, trace_matrix = self.collect_traces(loc_data, hdb.labels_, image_data)
-        return locations, trace_matrix, image_data
+
+        return single_molecule_database, single_frame_database
 
     def extract_single_molecules_linked(
         self,
@@ -368,9 +383,11 @@ class extract_SMs:
             "bg_B",
             "bg_G",
             "bg_R",
+            "background_photons",
             "A_B",
             "A_G",
             "A_R",
+            "photons",
             "chi_sqr",
             "frame",
             "xc_err",
@@ -426,9 +443,6 @@ class extract_SMs:
             # Create single molecule database for this file
             df = self.average_parameters(loc_data_linked, link_groups_linked)
             df["molecular_index"] = df.index + molecular_index_offset
-
-            # Normalize photon fractions for linked localizations using centralized IOFunctions method
-            loc_data_linked = IO._add_photon_columns(loc_data_linked, normalize=True)
 
             single_frame_database_list.append(loc_data_linked)
             single_molecule_database_list.append(df)
