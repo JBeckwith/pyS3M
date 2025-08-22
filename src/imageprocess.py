@@ -17,6 +17,7 @@ import matplotlib.pyplot as _plt
 import numpy as _np
 from numpy import fft as _fft
 import lmfit as _lmfit
+
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import ProgressUtils

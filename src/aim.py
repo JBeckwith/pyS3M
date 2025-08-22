@@ -22,9 +22,11 @@ from scipy.interpolate import (
 )
 import sys
 import os
+
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import ProgressUtils
+
 try:
     from . import __version__
 except ImportError:
@@ -471,8 +473,7 @@ def intersection_max(
         iterator = range(start_idx, n_segments)
     else:
         iterator = ProgressUtils.clean_progress_bar(
-            range(start_idx, n_segments),
-            desc=f"Undrifting ({aim_round}/2)"
+            range(start_idx, n_segments), desc=f"Undrifting ({aim_round}/2)"
         )
 
     # run across each segment
@@ -597,8 +598,7 @@ def intersection_max_z(
         iterator = range(start_idx, n_segments)
     else:
         iterator = ProgressUtils.clean_progress_bar(
-            range(start_idx, n_segments),
-            desc=f"Undrifting z ({aim_round}/2)"
+            range(start_idx, n_segments), desc=f"Undrifting z ({aim_round}/2)"
         )
 
     # run across each segment

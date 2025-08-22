@@ -17,6 +17,7 @@ import warnings
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
+
 # Local imports (will import from existing modules as needed)
 import sys
 import os
@@ -365,7 +366,9 @@ class RCCDriftCorrector(DriftCorrector):
         segments = np.zeros((n_segments, Y, X))
 
         if params.progress_callback is None:
-            it = ProgressUtils.clean_progress_bar(range(n_segments), desc="Generating segments")
+            it = ProgressUtils.clean_progress_bar(
+                range(n_segments), desc="Generating segments"
+            )
         else:
             it = range(n_segments)
             params.progress_callback(0)
@@ -721,8 +724,7 @@ class AIMDriftCorrector(DriftCorrector):
         start_idx = 1 if aim_round == 1 else 0
         if progress_callback is None:
             iterator = ProgressUtils.clean_progress_bar(
-                range(start_idx, n_segments),
-                desc=f"AIM Undrifting ({aim_round}/2)"
+                range(start_idx, n_segments), desc=f"AIM Undrifting ({aim_round}/2)"
             )
         else:
             iterator = range(start_idx, n_segments)
@@ -853,8 +855,7 @@ class AIMDriftCorrector(DriftCorrector):
         start_idx = 1 if aim_round == 1 else 0
         if progress_callback is None:
             iterator = ProgressUtils.clean_progress_bar(
-                range(start_idx, n_segments),
-                desc=f"AIM Undrifting z ({aim_round}/2)"
+                range(start_idx, n_segments), desc=f"AIM Undrifting z ({aim_round}/2)"
             )
         else:
             iterator = range(start_idx, n_segments)

@@ -1205,7 +1205,9 @@ class Image_Analysis_Functions:
         all_fits = []
         all_errors = []
 
-        with ProgressUtils.fitting_progress_bar(total=len(fs), desc="Collecting fitting results") as pbar:
+        with ProgressUtils.fitting_progress_bar(
+            total=len(fs), desc="Collecting fitting results"
+        ) as pbar:
             for f in fs:
                 try:
                     fit_params, fit_errors = f.result()

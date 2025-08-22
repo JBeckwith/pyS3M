@@ -162,7 +162,9 @@ def picked_locs(
         progress_bar_context = None
         progress = None
         if callback == "console":
-            progress_bar_context = ProgressUtils.analysis_progress_bar(total=len(picks), desc="Picking locs")
+            progress_bar_context = ProgressUtils.analysis_progress_bar(
+                total=len(picks), desc="Picking locs"
+            )
             progress = progress_bar_context.__enter__()
 
         if pick_shape == "Circle":
@@ -744,7 +746,9 @@ def cluster_combine(locs):
     print("Combining localisations...")
     combined_locs = []
     unique_groups = _np.unique(locs["group"])
-    with ProgressUtils.analysis_progress_bar(total=len(unique_groups), desc="Combining localisations") as pbar:
+    with ProgressUtils.analysis_progress_bar(
+        total=len(unique_groups), desc="Combining localisations"
+    ) as pbar:
         for group in unique_groups:
             temp = locs[locs["group"] == group]
         cluster = _np.unique(temp["cluster"])
@@ -802,7 +806,9 @@ def cluster_combine_dist(locs):
     print("Calculating distances...")
     print("XY")
     combined_locs = []
-    with ProgressUtils.analysis_progress_bar(total=len(_np.unique(locs["group"])), desc="Calculating distances") as pbar:
+    with ProgressUtils.analysis_progress_bar(
+        total=len(_np.unique(locs["group"])), desc="Calculating distances"
+    ) as pbar:
         for group in _np.unique(locs["group"]):
             temp = locs[locs["group"] == group]
             cluster = _np.unique(temp["cluster"])
@@ -1097,15 +1103,21 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
     bounds = _np.linspace(0, n_frames - 1, n_seg + 1, dtype=_np.uint32)
     segments = _np.zeros((n_seg, Y, X))
     if callback is None:
-        with ProgressUtils.analysis_progress_bar(total=n_seg, desc="Generating segments") as pbar:
+        with ProgressUtils.analysis_progress_bar(
+            total=n_seg, desc="Generating segments"
+        ) as pbar:
             for i in range(n_seg):
-                segment_locs = locs[(locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])]
+                segment_locs = locs[
+                    (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
+                ]
                 _, segments[i] = _render.render(segment_locs, info, **kwargs)
                 pbar.update(1)
     else:
         callback(0)
         for i in range(n_seg):
-            segment_locs = locs[(locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])]
+            segment_locs = locs[
+                (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
+            ]
             _, segments[i] = _render.render(segment_locs, info, **kwargs)
             callback(i + 1)
     return bounds, segments
@@ -1282,7 +1294,9 @@ def groupprops(locs, callback=None):
                 groups[name + "_std"][i] = _np.std(group_locs[name])
             callback(i + 1)
     else:
-        with ProgressUtils.analysis_progress_bar(total=len(group_ids), desc="Calculating group statistics") as pbar:
+        with ProgressUtils.analysis_progress_bar(
+            total=len(group_ids), desc="Calculating group statistics"
+        ) as pbar:
             for i, group_id in enumerate(group_ids):
                 group_locs = locs[locs.group == group_id]
                 groups["group"][i] = group_id
