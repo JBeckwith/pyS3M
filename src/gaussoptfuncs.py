@@ -316,7 +316,7 @@ def WLS_rawcolour_chi_nobounds(
 
 
 @jit(nopython=True, nogil=True)
-def _sum_and_center_of_mass(smoothed_data, size):
+def _sum_and_centre_of_mass(smoothed_data, size):
     x_ig = 0.0
     y_ig = 0.0
     A = 0.0
@@ -366,7 +366,7 @@ def initial_nocolour_guess(smoothed_data, raw_data):
     ig_data = np.abs(smoothed_data)
     bs_data = ig_data - np.abs(np.min(ig_data))
     size = bs_data.shape[0]
-    A, x_ig, y_ig = _sum_and_center_of_mass(bs_data, size)
+    A, x_ig, y_ig = _sum_and_centre_of_mass(bs_data, size)
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
     return x_ig, y_ig, sigma_y, sigma_x, b, A
 
@@ -447,7 +447,7 @@ def initial_guess(smoothed_data, raw_data, masks):
     ig_data = np.abs(smoothed_data)
     bs_data = ig_data - np.abs(np.min(ig_data))
     size = bs_data.shape[0]
-    A, x_ig, y_ig = _sum_and_center_of_mass(bs_data, size)
+    A, x_ig, y_ig = _sum_and_centre_of_mass(bs_data, size)
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
     A_ig = A / 3.0
     return x_ig, y_ig, sigma_y, sigma_x, bB, bG, bR, A_ig, A_ig, A_ig

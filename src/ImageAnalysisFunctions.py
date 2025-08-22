@@ -5,7 +5,7 @@
 This module provides comprehensive functionality for:
 - Gaussian fitting with various colour strategies  
 - Parallel processing for large datasets
-- Weighted least squares optimization
+- Weighted least squares optimisation
 - Multiple fitting strategies for different analysis needs
 
 The module uses a strategy pattern for handling different types of fitting approaches
@@ -260,7 +260,7 @@ class FittingResultProcessor:
             pfit_processed[:2] += relative_coords[:2]
 
         # Square amplitude and background parameters for storage (after error calculation)
-        # leastsq returns optimized square-root values, but we store squared values as photon counts
+        # leastsq returns optimised square-root values, but we store squared values as photon counts
         if strategy == FittingStrategy.STANDARD:
             # For STANDARD output: [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R]
             # Square backgrounds (positions 4-6) and amplitudes (positions 7-9)
@@ -468,14 +468,14 @@ class NoColourFittingProcessor(FittingProcessor):
         Returns:
             Initial parameter guess (8 parameters for no-colour).
         """
-        center = np.array(smoothed_punctum.shape) // 2
+        centre = np.array(smoothed_punctum.shape) // 2
         max_val = np.max(smoothed_punctum)
 
         # 8-parameter guess: [x, y, sx, sy, A, bg, theta, offset]
         initial_guess = np.array(
             [
-                center[1],
-                center[0],  # x, y centers
+                centre[1],
+                centre[0],  # x, y centres
                 1.0,
                 1.0,  # sigma_x, sigma_y
                 max_val,  # Amplitude
@@ -589,13 +589,13 @@ class JustColourFittingProcessor(FittingProcessor):
     ) -> np.ndarray:
         """Generate initial guess for just-colour fitting."""
         # 10-parameter guess for just-colour
-        center = np.array(smoothed_punctum.shape) // 2
+        centre = np.array(smoothed_punctum.shape) // 2
         max_val = np.max(smoothed_punctum)
 
         return np.array(
             [
-                center[1],
-                center[0],  # x, y
+                centre[1],
+                centre[0],  # x, y
                 1.0,
                 1.0,  # sigmas
                 max_val * 0.4,
@@ -683,13 +683,13 @@ class RawColourFittingProcessor(FittingProcessor):
         self, smoothed_punctum: np.ndarray, masks: np.ndarray
     ) -> np.ndarray:
         """Generate initial guess for raw-colour fitting."""
-        center = np.array(smoothed_punctum.shape) // 2
+        centre = np.array(smoothed_punctum.shape) // 2
         max_val = np.max(smoothed_punctum)
 
         return np.array(
             [
-                center[1],
-                center[0],  # x, y
+                centre[1],
+                centre[0],  # x, y
                 1.0,
                 1.0,  # sigmas
                 max_val * 0.3,
@@ -787,13 +787,13 @@ class PosthenColourFittingProcessor(FittingProcessor):
         self, smoothed_punctum: np.ndarray, masks: np.ndarray
     ) -> np.ndarray:
         """Generate initial guess for post-colour fitting."""
-        center = np.array(smoothed_punctum.shape) // 2
+        centre = np.array(smoothed_punctum.shape) // 2
         max_val = np.max(smoothed_punctum)
 
         return np.array(
             [
-                center[1],
-                center[0],  # x, y
+                centre[1],
+                centre[0],  # x, y
                 1.0,
                 1.0,  # sigmas
                 max_val * 0.4,
@@ -922,11 +922,11 @@ class Image_Analysis_Functions:
     This class provides comprehensive functionality for:
     - Multiple fitting strategies (colour, no-colour, just-colour, etc.)
     - Parallel processing for large datasets
-    - Weighted least squares optimization
+    - Weighted least squares optimisation
     - Unified interface for all fitting approaches
 
     The class uses a strategy pattern to handle different fitting approaches
-    while providing a consistent API and optimized performance.
+    while providing a consistent API and optimised performance.
 
     Example:
         ```python

@@ -64,7 +64,7 @@ class extract_SMs:
         filtered_data = filtered_data[filtered_data["yc_err"] < max_localization_error]
 
         # Add photons column using centralized method and apply photon count filters
-        filtered_data = IO._add_photon_columns(filtered_data, normalize=False)
+        filtered_data = IO._add_photon_columns(filtered_data, normalise=False)
         filtered_data = filtered_data[filtered_data["photons"] < max_photons]
         filtered_data = filtered_data[filtered_data["photons"] > min_photons]
 
@@ -117,8 +117,8 @@ class extract_SMs:
                     + np.sum(data["A_R"][dbscan_labels == label])
                 )
         df = pd.DataFrame.from_dict(dict_obj)
-        # Normalize photon fractions using centralized IOFunctions method
-        df = IO._add_photon_columns(df, normalize=True)
+        # Normalise photon fractions using centralised IOFunctions method
+        df = IO._add_photon_columns(df, normalise=True)
         return df
 
     def collect_traces(self, data, dbscan_labels, image_stack, image_size=12):

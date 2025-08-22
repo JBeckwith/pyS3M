@@ -85,11 +85,11 @@ class SpotDetection_Functions:
     localization microscopy with selected false positive probability.
     Nat Commun 16, 601 (2025).
 
-    Optimized version with vectorization, JIT compilation, and caching.
+    Optimised version with vectorisation, JIT compilation, and caching.
     """
 
     def __init__(self):
-        """Initialize SpotDetection_Functions class with optimization components."""
+        """Initialize SpotDetection_Functions class with optimisation components."""
         self.array_pool = ArrayPool()
         self.kernel_cache = KernelCache()
 
@@ -273,7 +273,7 @@ class SpotDetection_Functions:
     def get_mf(self, psf_fun, mf_sigma: float, mf_range: int) -> np.ndarray:
         """get_mf: Returns matched filter with PSF function given by parameter 'psf_fun'
 
-        OPTIMIZED VERSION: Implements caching for repeated kernel calculations.
+        OPTIMISED VERSION: Implements caching for repeated kernel calculations.
 
         Args:
             psf_fun (function): point spread function model, e.g. 'gauss2d' or 'integrated_gauss2d'
@@ -309,11 +309,11 @@ class SpotDetection_Functions:
     ) -> np.ndarray:
         """get_single_spot: Returns simulated 2D image with a single fluorescence molecule
 
-        OPTIMIZED VERSION: Vectorized implementation for 20-50x speedup over nested loops.
+        OPTIMISED VERSION: Vectorised implementation for 20-50x speedup over nested loops.
 
         Args:
-            x0 (float): x-coordinate of the center of the molecule
-            y0 (float): y-coordinate of the center of the molecule
+            x0 (float): x-coordinate of the centre of the molecule
+            y0 (float): y-coordinate of the centre of the molecule
             psf_fun (float): point spread function model, e.g. 'gauss2d' or 'integrated_gauss2d'
             sigma (float): standard deviation of the psf model
             a (float): photon count
@@ -323,7 +323,7 @@ class SpotDetection_Functions:
         Returns:
             signal (np.2darray): 2d array of simulated signal"""
 
-        # Use optimized Gaussian for known PSF function
+        # Use optimised Gaussian for known PSF function
         if psf_fun == self.gauss2d or psf_fun is None:
             return self._get_single_spot_vectorized_gaussian(
                 x0, y0, sigma, a, size, sigma_range
@@ -397,13 +397,13 @@ class SpotDetection_Functions:
     ) -> float:
         """gauss2d: Returns 2D gaussian value
 
-        OPTIMIZED VERSION: Uses JIT compilation for 10-100x speedup.
+        OPTIMISED VERSION: Uses JIT compilation for 10-100x speedup.
 
         Args:
             x (float): x-coordinate of the gaussian
             y (float): y-coordinate of the gaussian
-            x0 (float): x-coordinate of the center of the gaussian
-            y0 (float): y-coordinate of the center of the gaussian
+            x0 (float): x-coordinate of the centre of the gaussian
+            y0 (float): y-coordinate of the centre of the gaussian
             sigma (float): standard deviation of the gaussian
             a (float): photon count
 
@@ -414,7 +414,7 @@ class SpotDetection_Functions:
     def filter_image(self, image: np.ndarray, w: np.ndarray) -> np.ndarray:
         """filter_image: Returns filtered image
 
-        OPTIMIZED VERSION: Uses OpenCV when available for 3-5x speedup.
+        OPTIMISED VERSION: Uses OpenCV when available for 3-5x speedup.
 
         Args:
             image (np.ndarray): image to be filtered
@@ -543,11 +543,11 @@ class SpotDetection_Functions:
         return mask
 
     def neigborhood(self, T: np.ndarray, point: np.ndarray, r: int) -> np.ndarray:
-        """neigborhood: Return 2D sub-array centered around 'point' with range 'r'
+        """neigborhood: Return 2D sub-array centred around 'point' with range 'r'
 
         Args:
             T (np.ndarray) 2D image usually containing test statistic
-            point (np.ndarray): x-y coordinate of the center
+            point (np.ndarray): x-y coordinate of the centre
             r (int) radius of sub-array
 
         Returns:
@@ -570,7 +570,7 @@ class SpotDetection_Functions:
 
         Args:
             T (np.ndarray) 2D image usually containing test statistic
-            points (np.ndarray): list of x-y coordinate of the center
+            points (np.ndarray): list of x-y coordinate of the centre
             local_max_range (int): radius of local maximum
 
         Returns:
@@ -588,7 +588,7 @@ class SpotDetection_Functions:
 
         Args:
             T (np.ndarray): 2D image usually containing test statistic
-            point (np.ndarray): x-y coordinate of the center
+            point (np.ndarray): x-y coordinate of the centre
             r (int): radius of sub-array
 
         Returns:
@@ -633,7 +633,7 @@ class SpotDetection_Functions:
         """points2mask: Converts list of pixels to a binary segmentation mask
            x-y coordinates
 
-        OPTIMIZED VERSION: Vectorized implementation for 10x speedup.
+        OPTIMISED VERSION: Vectorised implementation for 10x speedup.
 
         Args:
             points (np.ndarray): list of pixels

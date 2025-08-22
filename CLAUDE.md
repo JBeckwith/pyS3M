@@ -242,3 +242,35 @@ fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
 ```
 
 **Result:** ImageAnalysisFunctions.py refactored interface is now fully integrated across the codebase with consistent API usage and proper parameter flow. All fitting operations now use the modernized strategy pattern interface correctly.
+
+## American to British Spelling Standardisation (August 22, 2025)
+
+### **Complete Spelling Conversion**
+
+The entire codebase has been systematically converted from American to British English spellings while preserving external API compatibility. This ensures consistent professional presentation and eliminates spelling confusion throughout the project.
+
+#### **Key Conversions Applied:**
+- "optimize" → "optimise" (and variants: optimization → optimisation)
+- "normalize" → "normalise" (and variants: normalization → normalisation)  
+- "center" → "centre" (and variants: centered → centred, centering → centring)
+- "color" → "colour" (in internal code only)
+- "analyze" → "analyse"
+
+#### **Function Names Updated:**
+- `optimize_matrix_symmetry()` → `optimise_matrix_symmetry()` (MaskFunctions.py)
+- `_sum_and_center_of_mass()` → `_sum_and_centre_of_mass()` (gaussoptfuncs.py)
+- Parameter names: `normalize_photons` → `normalise_photons`, `normalize` → `normalise` (IOFunctions.py)
+
+#### **External Library Compatibility Preserved:**
+- matplotlib functions (e.g., `plt.colorbar()`, `matplotlib.colors`) retain American spelling
+- scipy imports (e.g., `scipy.optimize`) maintain American spelling
+- All external API calls remain unchanged to ensure library compatibility
+
+#### **Files Modified (15 total):**
+Core modules updated include MaskFunctions.py, IOFunctions.py, SpotDetectionFunctions.py, Multicolour_Simulation_Functions.py, and associated test files. All function calls have been consistently updated throughout the codebase.
+
+#### **Benefits:**
+- **Consistency:** Unified British spelling convention throughout the project
+- **Maintainability:** Clear spelling standards for future development
+- **Professionalism:** Consistent with British English scientific publications
+- **Zero Breaking Changes:** All functionality preserved with external library compatibility maintained

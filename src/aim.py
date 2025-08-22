@@ -344,13 +344,13 @@ def get_fft_peak(roi_cc: _np.ndarray, roi_size: int) -> tuple[float, float]:
 
     fft_values = _np.fft.fft2(roi_cc.T)
     ang_x = _np.angle(fft_values[0, 1])
-    ang_x = ang_x - 2 * _np.pi * (ang_x > 0)  # normalize
+    ang_x = ang_x - 2 * _np.pi * (ang_x > 0)  # normalise
     px = (
         _np.abs(ang_x) / (2 * _np.pi / roi_cc.shape[0]) - (roi_cc.shape[0] - 1) / 2
     )  # peak in x
     px *= roi_size / roi_cc.shape[0]  # convert to intersect_d units
     ang_y = _np.angle(fft_values[1, 0])
-    ang_y = ang_y - 2 * _np.pi * (ang_y > 0)  # normalize
+    ang_y = ang_y - 2 * _np.pi * (ang_y > 0)  # normalise
     py = (
         _np.abs(ang_y) / (2 * _np.pi / roi_cc.shape[1]) - (roi_cc.shape[1] - 1) / 2
     )  # peak in y
@@ -377,7 +377,7 @@ def get_fft_peak_z(roi_cc: _np.ndarray, roi_size: int) -> float:
 
     fft_values = _np.fft.fft(roi_cc)
     ang_z = _np.angle(fft_values[1])
-    ang_z = ang_z - 2 * _np.pi * (ang_z > 0)  # normalize
+    ang_z = ang_z - 2 * _np.pi * (ang_z > 0)  # normalise
     pz = (
         _np.abs(ang_z) / (2 * _np.pi / roi_cc.size) - (roi_cc.size - 1) / 2
     )  # peak in z

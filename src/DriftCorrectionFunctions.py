@@ -622,7 +622,7 @@ class AIMDriftCorrector(DriftCorrector):
 
         # X peak estimation
         ang_x = np.angle(fft_values[0, 1])
-        ang_x = ang_x - 2 * np.pi * (ang_x > 0)  # normalize
+        ang_x = ang_x - 2 * np.pi * (ang_x > 0)  # normalise
         px = (
             np.abs(ang_x) / (2 * np.pi / roi_cc.shape[0]) - (roi_cc.shape[0] - 1) / 2
         )  # peak in x
@@ -630,7 +630,7 @@ class AIMDriftCorrector(DriftCorrector):
 
         # Y peak estimation
         ang_y = np.angle(fft_values[1, 0])
-        ang_y = ang_y - 2 * np.pi * (ang_y > 0)  # normalize
+        ang_y = ang_y - 2 * np.pi * (ang_y > 0)  # normalise
         py = (
             np.abs(ang_y) / (2 * np.pi / roi_cc.shape[1]) - (roi_cc.shape[1] - 1) / 2
         )  # peak in y
@@ -651,7 +651,7 @@ class AIMDriftCorrector(DriftCorrector):
         """
         fft_values = np.fft.fft(roi_cc)
         ang_z = np.angle(fft_values[1])
-        ang_z = ang_z - 2 * np.pi * (ang_z > 0)  # normalize
+        ang_z = ang_z - 2 * np.pi * (ang_z > 0)  # normalise
         pz = (
             np.abs(ang_z) / (2 * np.pi / roi_cc.size) - (roi_cc.size - 1) / 2
         )  # peak in z
@@ -1026,7 +1026,7 @@ class AIMDriftCorrector(DriftCorrector):
         drift_x = drift_x1 + drift_x2
         drift_y = drift_y1 + drift_y2
 
-        # Remove mean drift to center the correction
+        # Remove mean drift to centre the correction
         shift_x = np.mean(drift_x)
         shift_y = np.mean(drift_y)
         drift_x -= shift_x
@@ -1101,7 +1101,7 @@ class AIMDriftCorrector(DriftCorrector):
         # Combine drifts from both rounds
         drift_z = drift_z1 + drift_z2
 
-        # Remove mean drift to center the correction
+        # Remove mean drift to centre the correction
         shift_z = np.mean(drift_z)
         drift_z -= shift_z
         z_pdc += shift_z

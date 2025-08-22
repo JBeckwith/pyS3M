@@ -291,28 +291,28 @@ def is_progress_enabled() -> bool:
 
 # Convenience functions for common use cases
 def fitting_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimized for fitting operations."""
+    """Progress bar optimised for fitting operations."""
     kwargs.setdefault("desc", "Fitting puncta")
     kwargs.setdefault("colour", "green")
     return clean_progress_bar(total=total, **kwargs)
 
 
 def analysis_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimized for analysis operations."""
-    kwargs.setdefault("desc", "Analyzing data")
+    """Progress bar optimised for analysis operations."""
+    kwargs.setdefault("desc", "Analysing data")
     kwargs.setdefault("colour", "blue")
     return clean_progress_bar(total=total, **kwargs)
 
 
 def io_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimized for I/O operations."""
+    """Progress bar optimised for I/O operations."""
     kwargs.setdefault("desc", "Processing files")
     kwargs.setdefault("colour", "cyan")
     return clean_progress_bar(total=total, **kwargs)
 
 
 def simulation_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimized for simulation operations."""
+    """Progress bar optimised for simulation operations."""
     kwargs.setdefault("desc", "Running simulation")
     kwargs.setdefault("colour", "magenta")
     return clean_progress_bar(total=total, **kwargs)

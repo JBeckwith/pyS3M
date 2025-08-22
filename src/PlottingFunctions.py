@@ -100,7 +100,7 @@ class Plotter:
 
         Args:
             axs: Matplotlib axes object.
-            grid_color: Color for grid lines. If None, uses white for dark mode, gray otherwise.
+            grid_color: Colour for grid lines. If None, uses white for dark mode, gray otherwise.
         """
         if grid_color is None:
             grid_color = "white" if self.db else "gray"
@@ -1017,7 +1017,7 @@ class Plotter:
     def _create_camera_pattern_overlay(
         self, ax, xsize: float, n_pixels: int = 13
     ) -> None:
-        """Create camera pattern overlay with optimized drawing.
+        """Create camera pattern overlay with optimised drawing.
 
         Args:
             ax: Axes object.
@@ -1048,7 +1048,7 @@ class Plotter:
             ax.spines[axis].set_linewidth((2 / 13) * xsize)
             ax.spines[axis].set_color("white")
 
-        # Pattern lines - optimized version
+        # Pattern lines - optimised version
         ystart = np.arange(0, n_pixels)
         xstart = np.arange(0, n_pixels)
 

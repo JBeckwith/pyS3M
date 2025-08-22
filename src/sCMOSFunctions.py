@@ -131,7 +131,7 @@ class sCMOS_Functions:
 
     def var_weighted_uniform_filter(self, image, variance_map, kernel_size):
         """
-        Apply variance normalization to an image using a local kernel.
+        Apply variance normalisation to an image using a local kernel.
         This function is from Huang, F. et al. Nat. Meth. 10, 653–658 (2013).
 
         Args:
@@ -147,7 +147,7 @@ class sCMOS_Functions:
 
         Returns:
 
-            uniform_image (np.ndarray): Variance-normalized image of
+            uniform_image (np.ndarray): Variance-normalised image of
                                         the same shape as the input image.
         """
         image = image.astype(np.float32)
@@ -160,16 +160,16 @@ class sCMOS_Functions:
             )
 
         # Element-wise division of the image by the variance map
-        normalized_image = np.divide(image, variance_map)
+        normalised_image = np.divide(image, variance_map)
 
         # Create a kernel of ones with size (kernel_size, kernel_size)
 
-        # Perform 2D convolution on each channel of the normalized image
+        # Perform 2D convolution on each channel of the normalised image
         if image.ndim > 2:
             convolved_image = np.stack(
                 [
                     uniform_filter(
-                        normalized_image[i, :, :], kernel_size, mode="constant"
+                        normalised_image[i, :, :], kernel_size, mode="constant"
                     )
                     for i in range(image.shape[0])
                 ],
@@ -177,7 +177,7 @@ class sCMOS_Functions:
             )
         else:
             convolved_image = uniform_filter(
-                normalized_image, kernel_size, mode="constant"
+                normalised_image, kernel_size, mode="constant"
             )
         # Compute the weight map by convolving 1.0 / variance_map[:,:,0] with the kernel
         if image.ndim > 2:
@@ -195,7 +195,7 @@ class sCMOS_Functions:
                 weight_map[np.newaxis, :, :], convolved_image.shape[0], axis=0
             )
 
-        # Normalize the convolved image by dividing by the weight map
+        # Normalise the convolved image by dividing by the weight map
         uniform_image = np.divide(convolved_image, weight_map)
 
         return uniform_image

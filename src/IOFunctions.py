@@ -28,45 +28,47 @@ class IO_Functions:
         """Initialize IO_Functions class."""
         pass
 
-    def _write_h5_database(self, df, filepath, append=False, normalize_photons=True):
+    def _write_h5_database(self, df, filepath, append=False, normalise_photons=True):
         if df.shape[0] > 0:
+            # first, remove any columns that are all NaN
+            df = df.dropna(axis=1, how="all")
             # Add photon columns if amplitude columns are present
-            df = self._add_photon_columns(df, normalize=normalize_photons)
+            df = self._add_photon_columns(df, normalise=normalise_photons)
 
             if append and os.path.isfile(filepath):
                 df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
             else:
                 df.to_hdf(filepath, key="data", format="table")
 
-    def _add_photon_columns(self, df, normalize=True):
+    def _add_photon_columns(self, df, normalise=True):
         """
-        Automatically add photon columns and optionally normalize amplitude/background data.
+        Automatically add photon columns and optionally normalise amplitude/background data.
 
         Args:
             df (pd.DataFrame): Input dataframe
-            normalize (bool): Whether to normalize A_B/A_G/A_R and bg_B/bg_G/bg_R columns
+            normalise (bool): Whether to normalise A_B/A_G/A_R and bg_B/bg_G/bg_R columns
 
         Returns:
-            pd.DataFrame: Dataframe with photon columns added and optionally normalized
+            pd.DataFrame: Dataframe with photon columns added and optionally normalised
         """
         df = df.copy()  # Avoid modifying original dataframe
 
-        # Add total photons column and normalize A_B, A_G, A_R if they exist
+        # Add total photons column and normalise A_B, A_G, A_R if they exist
         if all(col in df.columns for col in ["A_B", "A_G", "A_R"]):
             df["photons"] = df["A_B"] + df["A_G"] + df["A_R"]
 
-            if normalize:
+            if normalise:
                 # Avoid division by zero
                 mask = df["photons"] > 0
                 df.loc[mask, "A_B"] = df.loc[mask, "A_B"] / df.loc[mask, "photons"]
                 df.loc[mask, "A_G"] = df.loc[mask, "A_G"] / df.loc[mask, "photons"]
                 df.loc[mask, "A_R"] = df.loc[mask, "A_R"] / df.loc[mask, "photons"]
 
-        # Add background photons column and normalize bg_B, bg_G, bg_R if they exist
+        # Add background photons column and normalise bg_B, bg_G, bg_R if they exist
         if all(col in df.columns for col in ["bg_B", "bg_G", "bg_R"]):
             df["background_photons"] = df["bg_B"] + df["bg_G"] + df["bg_R"]
 
-            if normalize:
+            if normalise:
                 # Avoid division by zero
                 mask = df["background_photons"] > 0
                 df.loc[mask, "bg_B"] = (
@@ -81,10 +83,10 @@ class IO_Functions:
 
         return df
 
-    def _write_csv_dataframe(self, df, filepath, append=False, normalize_photons=False):
+    def _write_csv_dataframe(self, df, filepath, append=False, normalise_photons=False):
         if df.shape[0] > 0:
             # Add photon columns if amplitude columns are present
-            df = self._add_photon_columns(df, normalize=normalize_photons)
+            df = self._add_photon_columns(df, normalise=normalise_photons)
 
             if append and os.path.isfile(filepath):
                 with open(filepath, mode="ab") as f:

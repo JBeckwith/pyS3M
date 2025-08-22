@@ -36,9 +36,9 @@ class FittingStrategy(Enum):
 
     Each strategy represents a different approach to fitting Bayer-filtered camera data:
     - STANDARD: Direct fitting with Bayer pattern masks
-    - DEMOSAIC: Full demosaic then fit color channels
-    - DEMOSAIC_FAST: Fast demosaic with optimized fitting
-    - DEMOSAIC_IG: Initial grayscale fit then color refinement
+    - DEMOSAIC: Full demosaic then fit colour channels
+    - DEMOSAIC_FAST: Fast demosaic with optimised fitting
+    - DEMOSAIC_IG: Initial grayscale fit then colour refinement
     """
 
     STANDARD = "standard"
@@ -58,10 +58,10 @@ class CameraParameters:
         variance (np.ndarray): Pixel-wise variance map for sCMOS camera
         readnoise (float): Camera read noise level
         rqe (np.ndarray): Relative quantum efficiency map
-        masks (Dict[str, np.ndarray]): Bayer filter masks by color channel
+        masks (Dict[str, np.ndarray]): Bayer filter masks by colour channel
         pixel_QYs (np.ndarray): Quantum yields vs wavelength for each pixel type
-        pixel_order (List[str]): Order of color channels (e.g. ['B', 'G', 'R'])
-        pixel_order_indices (Dict[str, int]): Mapping from color to channel index
+        pixel_order (List[str]): Order of colour channels (e.g. ['B', 'G', 'R'])
+        pixel_order_indices (Dict[str, int]): Mapping from colour to channel index
     """
 
     gain: np.ndarray
@@ -122,7 +122,7 @@ class SimulationConfig:
     Attributes:
         n_bootstrap (int): Number of bootstrap simulations to run (default: 100000)
         background_photons (float): Background photons per pixel (default: 40.0)
-        background_colour (List[float]): RGB background color weights (default: [1,1,1])
+        background_colour (List[float]): RGB background colour weights (default: [1,1,1])
         NA (float): Numerical aperture of objective lens (default: 1.49)
         pixel_size (float): Camera pixel size in nanometers (default: 69)
         cpu_fraction (float): Fraction of CPU cores to use for parallel processing (default: 0.9)
@@ -164,7 +164,7 @@ class FittingResultProcessor:
     """
     Handles processing and analysis of fitting results from multicolour localization.
 
-    Provides static methods for averaging and normalizing fitting results across color channels,
+    Provides static methods for averaging and normalising fitting results across colour channels,
     particularly for demosaicking-based fitting strategies where results need to be consolidated
     from individual RGB channel fits.
     """
@@ -174,7 +174,7 @@ class FittingResultProcessor:
         fit_results: pd.DataFrame, n_bootstrap: int
     ) -> pd.DataFrame:
         """
-        Average amplitude and background fits from demosaicking across RGB color channels.
+        Average amplitude and background fits from demosaicking across RGB colour channels.
 
         Args:
             fit_results (pd.DataFrame): Raw fitting results with 'A', 'b', 'chi_sqr' columns
@@ -182,7 +182,7 @@ class FittingResultProcessor:
             n_bootstrap (int): Number of bootstrap simulations run
 
         Returns:
-            pd.DataFrame: Averaged results with normalized A_B/G/R and bg_B/G/R columns
+            pd.DataFrame: Averaged results with normalised A_B/G/R and bg_B/G/R columns
         """
         b_toextract = fit_results["b"].to_numpy()
         A_toextract = fit_results["A"].to_numpy()
@@ -232,7 +232,7 @@ class FittingResultProcessor:
             n_bootstrap (int): Number of bootstrap simulations run
 
         Returns:
-            pd.DataFrame: Averaged results with mean positions/shapes and normalized colors
+            pd.DataFrame: Averaged results with mean positions/shapes and normalised colours
         """
         # Extract arrays
         arrays_to_extract = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr"]
@@ -465,7 +465,7 @@ class MultiC_Sim_Funcs_Refactored:
                 smoothed_data = sCMOS.bayer_demosaic_stack(smoothed_data)
                 grayscale_data = grayscale_smoothed = None
 
-            # Destack for color fitting
+            # Destack for colour fitting
             photoelectron_data = self._bayer_destacker(photoelectron_data)
             smoothed_data = self._bayer_destacker(smoothed_data)
             return (
@@ -479,14 +479,14 @@ class MultiC_Sim_Funcs_Refactored:
 
     def _bayer_destacker(self, RGB_image: np.ndarray) -> np.ndarray:
         """
-        Destack RGB image into separate color planes for individual channel fitting.
+        Destack RGB image into separate colour planes for individual channel fitting.
 
         Args:
             RGB_image (np.ndarray): RGB image stack with shape (frames, height, width, 3)
 
         Returns:
             np.ndarray: Destacked image with shape (frames*3, height, width) where
-                       each frame contains data from a single color channel
+                       each frame contains data from a single colour channel
         """
         destacked_image = np.zeros(
             [RGB_image.shape[0] * 3, RGB_image.shape[1], RGB_image.shape[2]]
@@ -609,7 +609,7 @@ class MultiC_Sim_Funcs_Refactored:
             config (SimulationConfig): Simulation configuration
 
         Returns:
-            pd.DataFrame: Fitting results with position, shape, and color information
+            pd.DataFrame: Fitting results with position, shape, and colour information
         """
         masks_3d = np.dstack(
             [camera_params.masks[x] for x in camera_params.masks.keys()]
@@ -682,7 +682,7 @@ class MultiC_Sim_Funcs_Refactored:
         Demosaic Initial Guess (IG) fitting approach with two-stage fitting.
 
         First fits grayscale demosaiced data to get positions and shapes, then
-        uses these as fixed parameters to fit color information from the original Bayer data.
+        uses these as fixed parameters to fit colour information from the original Bayer data.
 
         Args:
             photoelectron_data (np.ndarray): Original Bayer photoelectron data
@@ -727,7 +727,7 @@ class MultiC_Sim_Funcs_Refactored:
             by=["frame"]
         )
 
-        # Second fit for color using position information
+        # Second fit for colour using position information
         masks_3d = np.dstack(
             [camera_params.masks[x] for x in camera_params.masks.keys()]
         )
@@ -776,7 +776,7 @@ class MultiC_Sim_Funcs_Refactored:
             fit_results_colour, columns=colour_columns
         ).sort_values(by=["frame"])
 
-        # Normalize color results
+        # Normalise colour results
         fit_results_colour["photons"] = (
             fit_results_colour["A_B"]
             + fit_results_colour["A_G"]
@@ -809,9 +809,9 @@ class MultiC_Sim_Funcs_Refactored:
         config: SimulationConfig,
     ) -> pd.DataFrame:
         """
-        Fast demosaic fitting approach with optimized color channel processing.
+        Fast demosaic fitting approach with optimised colour channel processing.
 
-        Similar to IG method but uses optimized fitting for color channels to reduce
+        Similar to IG method but uses optimised fitting for colour channels to reduce
         computational time while maintaining reasonable accuracy.
 
         Args:
@@ -823,7 +823,7 @@ class MultiC_Sim_Funcs_Refactored:
             config (SimulationConfig): Simulation configuration
 
         Returns:
-            pd.DataFrame: Averaged fitting results across color channels
+            pd.DataFrame: Averaged fitting results across colour channels
         """
         grayscale_photoelectron_data, grayscale_smoothed_data = grayscale_data
         weights_grayscale_map = self._compute_error_maps(
@@ -857,7 +857,7 @@ class MultiC_Sim_Funcs_Refactored:
             by=["frame"]
         )
 
-        # Fast color fitting
+        # Fast colour fitting
         puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
         locparams, planes, masks_tofit = [], [], []
         masks_3d = np.dstack(
@@ -914,7 +914,7 @@ class MultiC_Sim_Funcs_Refactored:
         Standard demosaic fitting approach with full RGB channel fitting.
 
         Fits each RGB channel separately then averages results to get final
-        position, shape and color information.
+        position, shape and colour information.
 
         Args:
             photoelectron_data (np.ndarray): Demosaiced RGB photoelectron data (destacked)
@@ -1219,7 +1219,7 @@ class MultiC_Sim_Funcs_Refactored:
         - FittingStrategy.STANDARD: Direct fitting with Bayer patterns
         - FittingStrategy.DEMOSAIC: Demosaic then fit
         - FittingStrategy.DEMOSAIC_FAST: Fast demosaic fitting
-        - FittingStrategy.DEMOSAIC_IG: Initial grayscale fit then color refinement
+        - FittingStrategy.DEMOSAIC_IG: Initial grayscale fit then colour refinement
         """
         if config is None:
             config = SimulationConfig()
@@ -1499,7 +1499,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
     Key Features:
         - Unified simulation method supporting all 4 fitting strategies
         - Comprehensive error handling and input validation
-        - Memory-optimized processing with garbage collection
+        - Memory-optimised processing with garbage collection
         - Parallel fitting using multiprocessing
         - Detailed statistical analysis of fitting performance
         - Configurable simulation parameters via SimulationConfig

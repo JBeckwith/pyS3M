@@ -311,9 +311,9 @@ class TestIOFunctions:
     @pytest.mark.unit
     def test_add_photon_columns(self, io_functions, sample_dataframe):
         """Test adding photon columns to dataframe."""
-        # Test the _add_photon_columns method with normalization disabled
+        # Test the _add_photon_columns method with normalisation disabled
         df_with_photons = io_functions._add_photon_columns(
-            sample_dataframe.copy(), normalize=False
+            sample_dataframe.copy(), normalise=False
         )
 
         # Check that photon columns were added
@@ -337,7 +337,7 @@ class TestIOFunctions:
             df_with_photons["background_photons"], expected_bg_photons
         )
 
-        # Original amplitude and background columns should remain unchanged when normalize=False
+        # Original amplitude and background columns should remain unchanged when normalise=False
         for col in ["A_B", "A_G", "A_R", "bg_B", "bg_G", "bg_R"]:
             np.testing.assert_array_equal(df_with_photons[col], sample_dataframe[col])
 
@@ -355,7 +355,7 @@ class TestIOFunctions:
             }
         )
 
-        df_result = io_functions._add_photon_columns(df_no_amp, normalize=False)
+        df_result = io_functions._add_photon_columns(df_no_amp, normalise=False)
 
         # Should add background_photons but not total photons if amplitude columns are missing
         assert "photons" not in df_result.columns

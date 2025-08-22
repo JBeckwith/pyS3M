@@ -221,7 +221,7 @@ class Spectral_Funcs:
     - Pixel efficiency calculations for Bayer filter cameras
 
     The class uses a strategy pattern for handling different types of spectral data
-    (dyes vs filters) and provides optimized database query handling.
+    (dyes vs filters) and provides optimised database query handling.
     """
 
     def __init__(self):

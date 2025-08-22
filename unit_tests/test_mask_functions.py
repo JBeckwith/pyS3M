@@ -169,12 +169,12 @@ class TestMaskFunctions:
                     assert color in colours
 
     @pytest.mark.unit
-    def test_optimize_matrix_symmetry(self, mask_functions):
-        """Test matrix symmetry optimization."""
+    def test_optimise_matrix_symmetry(self, mask_functions):
+        """Test matrix symmetry optimisation."""
         numbers = [1, 2, 3, 4, 5, 6]
         N = 3  # 3x3 matrix
 
-        result = mask_functions.optimize_matrix_symmetry(numbers, N)
+        result = mask_functions.optimise_matrix_symmetry(numbers, N)
 
         # Should return some result (exact format depends on implementation)
         assert result is not None
