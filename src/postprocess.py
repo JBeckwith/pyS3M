@@ -30,8 +30,7 @@ import lib as _lib
 import render as _render
 import imageprocess as _imageprocess
 from threading import Thread as _Thread
-from tqdm import tqdm as _tqdm
-from tqdm import trange as _trange
+import ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
 from sklearn.neighbors import NearestNeighbors as NN
 
@@ -160,8 +159,11 @@ def picked_locs(
 
     if len(picks):
         picked_locs = []
+        progress_bar_context = None
+        progress = None
         if callback == "console":
-            progress = _tqdm(range(len(picks)), desc="Picking locs", unit="pick")
+            progress_bar_context = ProgressUtils.analysis_progress_bar(total=len(picks), desc="Picking locs")
+            progress = progress_bar_context.__enter__()
 
         if pick_shape == "Circle":
             index_blocks = get_index_blocks(locs, width, height, pick_size)
@@ -242,6 +244,10 @@ def picked_locs(
                 "Invalid pick shape. Please choose from 'Circle', 'Rectangle', "
                 "'Polygon'."
             )
+
+        # Clean up progress bar
+        if progress_bar_context is not None:
+            progress_bar_context.__exit__(None, None, None)
 
         return picked_locs
 
@@ -735,10 +741,12 @@ def weighted_variance(locs):
 
 # Combine localizations: calculate the properties of the group
 def cluster_combine(locs):
-    print("Combining localizations...")
+    print("Combining localisations...")
     combined_locs = []
-    for group in _tqdm(_np.unique(locs["group"])):
-        temp = locs[locs["group"] == group]
+    unique_groups = _np.unique(locs["group"])
+    with ProgressUtils.analysis_progress_bar(total=len(unique_groups), desc="Combining localisations") as pbar:
+        for group in unique_groups:
+            temp = locs[locs["group"] == group]
         cluster = _np.unique(temp["cluster"])
         n_cluster = len(cluster)
         mean_frame = _np.zeros(n_cluster)
@@ -794,58 +802,60 @@ def cluster_combine_dist(locs):
     print("Calculating distances...")
     print("XY")
     combined_locs = []
-    for group in _tqdm(_np.unique(locs["group"])):
-        temp = locs[locs["group"] == group]
-        cluster = _np.unique(temp["cluster"])
-        n_cluster = len(cluster)
-        mean_frame = temp["mean_frame"]
-        std_frame = temp["std_frame"]
-        com_x = temp["xc"]  # Changed from "x" to "xc"
-        com_y = temp["yc"]  # Changed from "y" to "yc"
-        std_x = temp["xc_err"]  # Changed from "lpx" to "xc_err"
-        std_y = temp["yc_err"]  # Changed from "lpy" to "yc_err"
-        group_id = temp["group"]
-        n = temp["n"]
-        min_dist = _np.zeros(n_cluster)
+    with ProgressUtils.analysis_progress_bar(total=len(_np.unique(locs["group"])), desc="Calculating distances") as pbar:
+        for group in _np.unique(locs["group"]):
+            temp = locs[locs["group"] == group]
+            cluster = _np.unique(temp["cluster"])
+            n_cluster = len(cluster)
+            mean_frame = temp["mean_frame"]
+            std_frame = temp["std_frame"]
+            com_x = temp["xc"]  # Changed from "x" to "xc"
+            com_y = temp["yc"]  # Changed from "y" to "yc"
+            std_x = temp["xc_err"]  # Changed from "lpx" to "xc_err"
+            std_y = temp["yc_err"]  # Changed from "lpy" to "yc_err"
+            group_id = temp["group"]
+            n = temp["n"]
+            min_dist = _np.zeros(n_cluster)
 
-        for i, clusterval in enumerate(cluster):
-            # find nearest neighbor in xyz
-            group_locs = temp[temp["cluster"] != clusterval]
-            cluster_locs = temp[temp["cluster"] == clusterval]
-            ref_point_xy = _np.array([cluster_locs.xc, cluster_locs.yc])
-            all_points_xy = _np.array([group_locs.xc, group_locs.yc])
-            distances_xy = distance.cdist(
-                ref_point_xy.transpose(), all_points_xy.transpose()
+            for i, clusterval in enumerate(cluster):
+                # find nearest neighbor in xyz
+                group_locs = temp[temp["cluster"] != clusterval]
+                cluster_locs = temp[temp["cluster"] == clusterval]
+                ref_point_xy = _np.array([cluster_locs.xc, cluster_locs.yc])
+                all_points_xy = _np.array([group_locs.xc, group_locs.yc])
+                distances_xy = distance.cdist(
+                    ref_point_xy.transpose(), all_points_xy.transpose()
+                )
+                min_dist[i] = _np.amin(distances_xy)
+
+            clusters = _np.rec.array(
+                (
+                    group_id,
+                    cluster,
+                    mean_frame,
+                    com_x,
+                    com_y,
+                    std_frame,
+                    std_x,
+                    std_y,
+                    n,
+                    min_dist,
+                ),
+                dtype=[
+                    ("group", group.dtype),
+                    ("cluster", cluster.dtype),
+                    ("mean_frame", "f4"),
+                    ("xc", "f4"),  # Changed from "x" to "xc"
+                    ("yc", "f4"),  # Changed from "y" to "yc"
+                    ("std_frame", "f4"),
+                    ("xc_err", "f4"),  # Changed from "lpx" to "xc_err"
+                    ("yc_err", "f4"),  # Changed from "lpy" to "yc_err"
+                    ("n", "i4"),
+                    ("min_dist", "f4"),
+                ],
             )
-            min_dist[i] = _np.amin(distances_xy)
-
-        clusters = _np.rec.array(
-            (
-                group_id,
-                cluster,
-                mean_frame,
-                com_x,
-                com_y,
-                std_frame,
-                std_x,
-                std_y,
-                n,
-                min_dist,
-            ),
-            dtype=[
-                ("group", group.dtype),
-                ("cluster", cluster.dtype),
-                ("mean_frame", "f4"),
-                ("xc", "f4"),  # Changed from "x" to "xc"
-                ("yc", "f4"),  # Changed from "y" to "yc"
-                ("std_frame", "f4"),
-                ("xc_err", "f4"),  # Changed from "lpx" to "xc_err"
-                ("yc_err", "f4"),  # Changed from "lpy" to "yc_err"
-                ("n", "i4"),
-                ("min_dist", "f4"),
-            ],
-        )
-        combined_locs.append(clusters)
+            combined_locs.append(clusters)
+            pbar.update(1)
 
     combined_locs = stack_arrays(combined_locs, asrecarray=True, usemask=False)
     return combined_locs
@@ -1087,14 +1097,16 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
     bounds = _np.linspace(0, n_frames - 1, n_seg + 1, dtype=_np.uint32)
     segments = _np.zeros((n_seg, Y, X))
     if callback is None:
-        it = _trange(n_seg, desc="Generating segments", unit="segments")
+        with ProgressUtils.analysis_progress_bar(total=n_seg, desc="Generating segments") as pbar:
+            for i in range(n_seg):
+                segment_locs = locs[(locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])]
+                _, segments[i] = _render.render(segment_locs, info, **kwargs)
+                pbar.update(1)
     else:
         callback(0)
-        it = range(n_seg)
-    for i in it:
-        segment_locs = locs[(locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])]
-        _, segments[i] = _render.render(segment_locs, info, **kwargs)
-        if callback is not None:
+        for i in range(n_seg):
+            segment_locs = locs[(locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])]
+            _, segments[i] = _render.render(segment_locs, info, **kwargs)
             callback(i + 1)
     return bounds, segments
 
@@ -1261,20 +1273,24 @@ def groupprops(locs, callback=None):
     groups = _np.recarray(n, formats=formats, names=names)
     if callback is not None:
         callback(0)
-        it = enumerate(group_ids)
-    else:
-        it = enumerate(
-            _tqdm(group_ids, desc="Calculating group statistics", unit="Groups")
-        )
-    for i, group_id in it:
-        group_locs = locs[locs.group == group_id]
-        groups["group"][i] = group_id
-        groups["n_events"][i] = len(group_locs)
-        for name in locs.dtype.names:
-            groups[name + "_mean"][i] = _np.mean(group_locs[name])
-            groups[name + "_std"][i] = _np.std(group_locs[name])
-        if callback is not None:
+        for i, group_id in enumerate(group_ids):
+            group_locs = locs[locs.group == group_id]
+            groups["group"][i] = group_id
+            groups["n_events"][i] = len(group_locs)
+            for name in locs.dtype.names:
+                groups[name + "_mean"][i] = _np.mean(group_locs[name])
+                groups[name + "_std"][i] = _np.std(group_locs[name])
             callback(i + 1)
+    else:
+        with ProgressUtils.analysis_progress_bar(total=len(group_ids), desc="Calculating group statistics") as pbar:
+            for i, group_id in enumerate(group_ids):
+                group_locs = locs[locs.group == group_id]
+                groups["group"][i] = group_id
+                groups["n_events"][i] = len(group_locs)
+                for name in locs.dtype.names:
+                    groups[name + "_mean"][i] = _np.mean(group_locs[name])
+                    groups[name + "_std"][i] = _np.std(group_locs[name])
+                pbar.update(1)
     return groups
 
 

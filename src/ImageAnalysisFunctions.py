@@ -28,6 +28,7 @@ from numba import jit
 import multiprocessing
 from concurrent import futures
 from tqdm import tqdm
+import ProgressUtils
 import logging
 
 # Set up module paths
@@ -1204,14 +1205,16 @@ class Image_Analysis_Functions:
         all_fits = []
         all_errors = []
 
-        for f in tqdm(fs, desc="Collecting fitting results"):
-            try:
-                fit_params, fit_errors = f.result()
-                all_fits.append(fit_params)
-                all_errors.append(fit_errors)
-            except Exception as e:
-                logging.warning(f"Future failed: {e}")
-                continue
+        with ProgressUtils.fitting_progress_bar(total=len(fs), desc="Collecting fitting results") as pbar:
+            for f in fs:
+                try:
+                    fit_params, fit_errors = f.result()
+                    all_fits.append(fit_params)
+                    all_errors.append(fit_errors)
+                except Exception as e:
+                    logging.warning(f"Future failed: {e}")
+                finally:
+                    pbar.update(1)
 
         # Concatenate results
         if all_fits:

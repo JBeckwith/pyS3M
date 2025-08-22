@@ -17,14 +17,14 @@ import warnings
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-
 # Local imports (will import from existing modules as needed)
 import sys
 import os
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+
+import ProgressUtils
 
 try:
     import render as _render
@@ -365,7 +365,7 @@ class RCCDriftCorrector(DriftCorrector):
         segments = np.zeros((n_segments, Y, X))
 
         if params.progress_callback is None:
-            it = tqdm(range(n_segments), desc="Generating segments", unit="segments")
+            it = ProgressUtils.clean_progress_bar(range(n_segments), desc="Generating segments")
         else:
             it = range(n_segments)
             params.progress_callback(0)
@@ -720,10 +720,9 @@ class AIMDriftCorrector(DriftCorrector):
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
         if progress_callback is None:
-            iterator = tqdm(
+            iterator = ProgressUtils.clean_progress_bar(
                 range(start_idx, n_segments),
-                desc=f"AIM Undrifting ({aim_round}/2)",
-                unit="segment",
+                desc=f"AIM Undrifting ({aim_round}/2)"
             )
         else:
             iterator = range(start_idx, n_segments)
@@ -853,10 +852,9 @@ class AIMDriftCorrector(DriftCorrector):
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
         if progress_callback is None:
-            iterator = tqdm(
+            iterator = ProgressUtils.clean_progress_bar(
                 range(start_idx, n_segments),
-                desc=f"AIM Undrifting z ({aim_round}/2)",
-                unit="segment",
+                desc=f"AIM Undrifting z ({aim_round}/2)"
             )
         else:
             iterator = range(start_idx, n_segments)

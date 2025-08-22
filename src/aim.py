@@ -20,8 +20,16 @@ import numpy as _np
 from scipy.interpolate import (
     InterpolatedUnivariateSpline as _InterpolatedUnivariateSpline,
 )
-from tqdm import tqdm as _tqdm
-from . import __version__
+import sys
+import os
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+import ProgressUtils
+try:
+    from . import __version__
+except ImportError:
+    # Handle case where this is run directly
+    __version__ = "unknown"
 
 
 def intersect1d(
@@ -457,15 +465,14 @@ def intersection_max(
     l0 = _np.int32(x0_units + y0_units * width_units)  # 1d list
     l0_coords, l0_counts = _np.unique(l0, return_counts=True)
 
-    # initialize progress such that if GUI is used, tqdm is omitted
+    # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
     if progress is not None:
         iterator = range(start_idx, n_segments)
     else:
-        iterator = _tqdm(
+        iterator = ProgressUtils.clean_progress_bar(
             range(start_idx, n_segments),
-            desc=f"Undrifting ({aim_round}/2)",
-            unit="segment",
+            desc=f"Undrifting ({aim_round}/2)"
         )
 
     # run across each segment
@@ -584,15 +591,14 @@ def intersection_max_z(
     )  # 1d list
     l0_coords, l0_counts = _np.unique(l0, return_counts=True)
 
-    # initialize progress such that if GUI is used, tqdm is omitted
+    # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
     if progress is not None:
         iterator = range(start_idx, n_segments)
     else:
-        iterator = _tqdm(
+        iterator = ProgressUtils.clean_progress_bar(
             range(start_idx, n_segments),
-            desc=f"Undrifting z ({aim_round}/2)",
-            unit="segment",
+            desc=f"Undrifting z ({aim_round}/2)"
         )
 
     # run across each segment
