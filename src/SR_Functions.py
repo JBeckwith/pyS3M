@@ -148,15 +148,17 @@ class SuperRes_Functions:
         weights_tofit = []
         relative_coords = []
 
-        raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
-            file,
-            smoothing_function,
-            dtype=np.float32,
-            frame=1,
-            gain_map=gain_map,
-            offset_map=offset_map,
-            read_noise=read_noise,
-            rqe=rqe,
+        raw_data, photoelectron_data, smoothed_data, weights = (
+            IO.read_tiff_tophotoelectrons(
+                file,
+                smoothing_function,
+                dtype=np.float32,
+                frame=1,
+                gain_map=gain_map,
+                offset_map=offset_map,
+                read_noise=read_noise,
+                rqe=rqe,
+            )
         )
         detected_puncta = SD_F.detect_puncta_in_image(
             raw_data,
@@ -481,15 +483,17 @@ class SuperRes_Functions:
 
             fit_savename = file.split(".")[0] + ".h5"
             n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
-            raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
-                file,
-                smoothing_function,
-                dtype=np.float32,
-                frame=n_frames,
-                gain_map=gain_map,
-                offset_map=offset_map,
-                read_noise=read_noise,
-                rqe=rqe,
+            raw_data, photoelectron_data, smoothed_data, weights = (
+                IO.read_tiff_tophotoelectrons(
+                    file,
+                    smoothing_function,
+                    dtype=np.float32,
+                    frame=n_frames,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    read_noise=read_noise,
+                    rqe=rqe,
+                )
             )
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
                 raw_data,
@@ -643,15 +647,17 @@ class SuperRes_Functions:
             planes = []
 
             n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
-            raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
-                file,
-                smoothing_function,
-                dtype=np.float32,
-                frame=n_frames,
-                gain_map=gain_map,
-                offset_map=offset_map,
-                read_noise=read_noise,
-                rqe=rqe,
+            raw_data, photoelectron_data, smoothed_data, weights = (
+                IO.read_tiff_tophotoelectrons(
+                    file,
+                    smoothing_function,
+                    dtype=np.float32,
+                    frame=n_frames,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    read_noise=read_noise,
+                    rqe=rqe,
+                )
             )
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
                 raw_data,

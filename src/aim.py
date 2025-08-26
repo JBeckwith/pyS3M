@@ -469,7 +469,7 @@ def intersection_max(
 
     # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
-    
+
     def _process_segment(s):
         # get the target localizations within the current segment
         min_frame_idx = frame > seg_bounds[s]
@@ -594,7 +594,7 @@ def intersection_max_z(
 
     # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
-    
+
     def _process_segment_z(s):
         # get the target localizations within the current segment
         min_frame_idx = frame > seg_bounds[s]

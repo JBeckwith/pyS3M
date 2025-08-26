@@ -227,7 +227,7 @@ class CoordinateProcessor:
         """
         # Create a copy to avoid modifying original data
         corrected_locs = locs.copy()
-        
+
         # Apply x,y drift (ensure frame indices are within bounds)
         frame_indices = np.clip(corrected_locs.frame, 0, len(drift_result.drift_x) - 1)
         corrected_locs.xc -= drift_result.drift_x[frame_indices]
@@ -732,10 +732,10 @@ class AIMDriftCorrector(DriftCorrector):
 
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
-        
+
         def _process_segment(s):
             nonlocal rel_drift_x, rel_drift_y
-            
+
             # get the target localizations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
@@ -866,10 +866,10 @@ class AIMDriftCorrector(DriftCorrector):
 
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
-        
+
         def _process_segment_z(s):
             nonlocal rel_drift_z
-            
+
             # get the target localizations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
@@ -1127,14 +1127,14 @@ class AIMDriftCorrector(DriftCorrector):
 
 class FiducialDriftCorrector(DriftCorrector):
     """Fiducial-based drift corrector using picked localizations.
-    
+
     This method calculates drift using manually selected fiducial markers
     (e.g., gold nanoparticles, fluorescent beads) that should remain stationary
-    during the experiment. 
-    
+    during the experiment.
+
     The algorithm:
     1. Takes pre-selected fiducial localizations (picked manually or automatically)
-    2. Removes center-of-mass offset for each fiducial 
+    2. Removes center-of-mass offset for each fiducial
     3. Calculates weighted average drift across all fiducials
     4. Uses inverse mean squared deviation as weights (more stable fiducials get higher weight)
     5. Interpolates drift for frames without localizations
@@ -1151,35 +1151,35 @@ class FiducialDriftCorrector(DriftCorrector):
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> DriftResult:
         """Calculate drift using fiducial localizations.
-        
+
         Args:
             locs: Must contain fiducial localizations with 'group' field indicating fiducial ID
             info: Metadata list containing frame count information
             params: Drift correction parameters (segmentation not used)
-            
+
         Returns:
             DriftResult with calculated drift corrections
         """
         # Validate input
-        if not hasattr(locs, 'group'):
+        if not hasattr(locs, "group"):
             raise DriftCorrectionError(
                 "Fiducial drift correction requires 'group' field in locs to identify fiducials"
             )
-        
+
         # Extract metadata
         meta = CoordinateProcessor.extract_metadata(info)
         n_frames = int(meta["n_frames"])
-        
+
         # Group localizations by fiducial ID
         picked_locs = self._group_fiducials(locs)
-        
+
         if len(picked_locs) == 0:
             raise DriftCorrectionError("No fiducial localizations found")
-        
+
         # Calculate drift for each coordinate
         drift_x = self._calculate_coordinate_drift(picked_locs, n_frames, "xc")
         drift_y = self._calculate_coordinate_drift(picked_locs, n_frames, "yc")
-        
+
         # Create result
         result = DriftResult(
             drift_x=drift_x,
@@ -1187,74 +1187,76 @@ class FiducialDriftCorrector(DriftCorrector):
             method_used=DriftMethod.FIDUCIAL,
             metadata={
                 "n_fiducials": len(picked_locs),
-                "fiducial_groups": [np.unique(group_locs.group)[0] for group_locs in picked_locs],
+                "fiducial_groups": [
+                    np.unique(group_locs.group)[0] for group_locs in picked_locs
+                ],
                 "frames_per_fiducial": [len(group_locs) for group_locs in picked_locs],
-            }
+            },
         )
-        
+
         return result
 
     def _group_fiducials(self, locs: np.recarray) -> List[np.recarray]:
         """Group localizations by fiducial ID.
-        
+
         Args:
             locs: Localization data with 'group' field
-            
+
         Returns:
             List of localization arrays, one per fiducial
         """
         picked_locs = []
         unique_groups = np.unique(locs.group)
-        
+
         for group_id in unique_groups:
             if group_id >= 0:  # Skip negative group IDs (often used for unlabeled data)
                 group_locs = locs[locs.group == group_id].copy()
                 if len(group_locs) > 0:
                     picked_locs.append(group_locs)
-        
+
         return picked_locs
 
     def _calculate_coordinate_drift(
         self, picked_locs: List[np.recarray], n_frames: int, coordinate: str
     ) -> np.ndarray:
         """Calculate drift in a given coordinate using fiducial localizations.
-        
+
         Args:
             picked_locs: List of localization arrays for each fiducial
             n_frames: Total number of frames
             coordinate: Coordinate name ("xc", "yc", or "z")
-            
+
         Returns:
             Array of drift values for each frame
         """
         n_picks = len(picked_locs)
-        
+
         if n_picks == 0:
             return np.zeros(n_frames, dtype=np.float32)
-        
+
         # Initialize drift matrix: [n_fiducials, n_frames]
         drift = np.empty((n_picks, n_frames), dtype=np.float32)
         drift.fill(np.nan)
-        
+
         # Calculate drift for each fiducial (remove center of mass offset)
         for i, fiducial_locs in enumerate(picked_locs):
             if hasattr(fiducial_locs, coordinate):
                 coordinates = getattr(fiducial_locs, coordinate)
                 frames = fiducial_locs.frame.astype(int)
-                
+
                 # Ensure frames are within bounds
                 valid_frames = (frames >= 0) & (frames < n_frames)
                 coordinates = coordinates[valid_frames]
                 frames = frames[valid_frames]
-                
+
                 if len(coordinates) > 0:
                     # Calculate deviation from the mean position (this IS the drift)
                     mean_position = np.mean(coordinates)
                     drift[i, frames] = coordinates - mean_position
-        
+
         # Calculate mean drift across fiducials
         drift_mean = np.nanmean(drift, axis=0)
-        
+
         # Calculate reliability weights (inverse of mean squared deviation)
         if n_picks > 1:
             # Square deviation from mean drift
@@ -1263,33 +1265,33 @@ class FiducialDriftCorrector(DriftCorrector):
             msd = np.nanmean(squared_deviations, axis=1)
             # Avoid division by zero
             msd[msd == 0] = np.nanmin(msd[msd > 0]) if np.any(msd > 0) else 1.0
-            
+
             # Calculate weighted average
             weights = 1.0 / msd
-            
+
             # Create masked array for proper weighted averaging with NaNs
             drift_masked = np.ma.masked_invalid(drift)
             drift_mean = np.ma.average(drift_masked, axis=0, weights=weights)
             drift_mean = drift_mean.filled(np.nan)
-        
+
         # Interpolate missing frames
         drift_mean = self._interpolate_missing_frames(drift_mean)
-        
+
         return drift_mean.astype(np.float32)
-    
+
     def _interpolate_missing_frames(self, drift_mean: np.ndarray) -> np.ndarray:
         """Interpolate drift for frames without localizations.
-        
+
         Args:
             drift_mean: Drift array with possible NaN values
-            
+
         Returns:
             Interpolated drift array
         """
         # Find valid (non-NaN) frames
         valid_mask = ~np.isnan(drift_mean)
         valid_indices = np.where(valid_mask)[0]
-        
+
         if len(valid_indices) == 0:
             # No valid data - return zeros
             return np.zeros_like(drift_mean)
@@ -1303,7 +1305,7 @@ class FiducialDriftCorrector(DriftCorrector):
                 drift_mean[invalid_indices] = np.interp(
                     invalid_indices, valid_indices, drift_mean[valid_indices]
                 )
-        
+
         return drift_mean
 
 

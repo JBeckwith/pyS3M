@@ -32,9 +32,11 @@ class IO_Functions:
         if df.shape[0] > 0:
             # first, remove any columns that are all NaN
             df = df.dropna(axis=1, how="all")
-            df['frame'] = pd.to_numeric(df['frame'], downcast='integer', errors='coerce')
+            df["frame"] = pd.to_numeric(
+                df["frame"], downcast="integer", errors="coerce"
+            )
             # Add photon columns if amplitude columns are present
-            if 'photons' not in df.columns:
+            if "photons" not in df.columns:
                 df = self._add_photon_columns(df, normalise=normalise_photons)
 
             if append and os.path.isfile(filepath):
@@ -223,11 +225,15 @@ class IO_Functions:
             if isinstance(frame, type(None)):
                 # Read entire TIFF stack
                 if memmap:
-                    with tifffile.TiffFile(file_path) as tif:
-                        image = tif.asarray(out='memmap').astype(dtype)
+                    with tifffile.TiffFile(
+                        file_path, is_ome=False, is_mmstack=False, is_imagej=False
+                    ) as tif:
+                        image = tif.asarray(out="memmap").astype(dtype)
                 else:
                     image = np.asarray(
-                        imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
+                        imread(
+                            file_path, is_ome=False, is_mmstack=False, is_imagej=False
+                        ),
                         dtype=dtype,
                     )
             else:
@@ -235,8 +241,10 @@ class IO_Functions:
                 if hasattr(frame, "__len__"):
                     # Multiple frames
                     if memmap:
-                        with tifffile.TiffFile(file_path) as tif:
-                            image = tif.asarray(key=frame, out='memmap').astype(dtype)
+                        with tifffile.TiffFile(
+                            file_path, is_ome=False, is_mmstack=False, is_imagej=False
+                        ) as tif:
+                            image = tif.asarray(key=frame, out="memmap").astype(dtype)
                     else:
                         image = np.asarray(
                             imread(
@@ -251,8 +259,12 @@ class IO_Functions:
                 else:
                     # Single frame
                     if memmap:
-                        with tifffile.TiffFile(file_path) as tif:
-                            image = tif.asarray(key=int(frame), out='memmap').astype(dtype)
+                        with tifffile.TiffFile(
+                            file_path, is_ome=False, is_mmstack=False, is_imagej=False
+                        ) as tif:
+                            image = tif.asarray(key=int(frame), out="memmap").astype(
+                                dtype
+                            )
                     else:
                         image = np.asarray(
                             imread(
@@ -266,7 +278,9 @@ class IO_Functions:
                         )
         except Exception as e:
             # Fallback to non-memmap if memory mapping fails
-            print(f"Memory mapping failed for {file_path}, falling back to standard loading: {e}")
+            print(
+                f"Memory mapping failed for {file_path}, falling back to standard loading: {e}"
+            )
             if isinstance(frame, type(None)):
                 image = np.asarray(
                     imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
@@ -359,7 +373,9 @@ class IO_Functions:
                     np.divide(np.subtract(data, offset_map), gain_map), rqe
                 )
         else:
-            photoelectron_data = np.divide(np.divide(np.subtract(data, offset_map), gain_map), rqe)
+            photoelectron_data = np.divide(
+                np.divide(np.subtract(data, offset_map), gain_map), rqe
+            )
 
         smoothed_data = copy(photoelectron_data)
 
@@ -386,7 +402,7 @@ class IO_Functions:
         # Ensure consistent dtypes
         smoothed_data = smoothed_data.astype(dtype)
         weights_map = weights_map.astype(dtype)
-        
+
         return raw_data, photoelectron_data, smoothed_data, weights_map
 
     def write_tiff(self, volume, file_path, bit="double", pixel_size=0.11):
