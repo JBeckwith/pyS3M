@@ -64,7 +64,8 @@ class extract_SMs:
         filtered_data = filtered_data[filtered_data["yc_err"] < max_localization_error]
 
         # Add photons column using centralized method and apply photon count filters
-        filtered_data = IO._add_photon_columns(filtered_data, normalise=False)
+        if "photons" not in filtered_data.columns:
+            filtered_data = IO._add_photon_columns(filtered_data, normalise=True)
         filtered_data = filtered_data[filtered_data["photons"] < max_photons]
         filtered_data = filtered_data[filtered_data["photons"] > min_photons]
 

@@ -134,6 +134,8 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 
 **Python Test Scripts:** All Python test scripts (not unit tests) should be placed in the `claude/` directory. This includes performance tests, validation scripts, and standalone testing utilities.
 
+**Project TODO:** See `claude/TODO.md` for comprehensive analysis of completed refactoring work and remaining high-priority tasks.
+
 For simulation testing, use the pattern:
 1. Generate synthetic data with known parameters
 2. Run analysis pipeline
