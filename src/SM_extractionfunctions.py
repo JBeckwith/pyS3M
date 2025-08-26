@@ -98,8 +98,9 @@ class extract_SMs:
                 if column == "index":
                     continue
                 elif column in ["A_B", "A_G", "A_R"]:
-                    dict_obj[column][label] = np.sum(
-                        data[column][dbscan_labels == label]
+                    dict_obj[column][label] = np.average(
+                        data[column][dbscan_labels == label],
+                        weights=data[column + "_err"][dbscan_labels == label] ** -2,
                     )
                 else:
                     dict_obj[column][label] = np.mean(
@@ -113,9 +114,18 @@ class extract_SMs:
                 )
             else:
                 dict_obj["photons"][label] = (
-                    np.sum(data["A_B"][dbscan_labels == label])
-                    + np.sum(data["A_G"][dbscan_labels == label])
-                    + np.sum(data["A_R"][dbscan_labels == label])
+                    np.average(
+                        data["A_B"][dbscan_labels == label],
+                        weights=data["A_B_err"][dbscan_labels == label] ** -2,
+                    )
+                    + np.average(
+                        data["A_G"][dbscan_labels == label],
+                        weights=data["A_G_err"][dbscan_labels == label] ** -2,
+                    )
+                    + np.average(
+                        data["A_R"][dbscan_labels == label],
+                        weights=data["A_R_err"][dbscan_labels == label] ** -2,
+                    )
                 )
         df = pd.DataFrame.from_dict(dict_obj)
         # Normalise photon fractions using centralised IOFunctions method
@@ -200,9 +210,7 @@ class extract_SMs:
         labels_assigned = hdb.labels_[assigned_mask]
 
         # Add molecular index column (offset by previous files)
-        loc_data_assigned["molecular_index"] = (
-            labels_assigned + molecular_index_offset
-        )
+        loc_data_assigned["molecular_index"] = labels_assigned + molecular_index_offset
 
         # Create single molecule database for this file
         df = self.average_parameters(loc_data_assigned, labels_assigned)
@@ -255,9 +263,7 @@ class extract_SMs:
         labels_assigned = hdb.labels_[assigned_mask]
 
         # Add molecular index column (offset by previous files)
-        loc_data_assigned["molecular_index"] = (
-            labels_assigned + molecular_index_offset
-        )
+        loc_data_assigned["molecular_index"] = labels_assigned + molecular_index_offset
 
         # Create single molecule database for this file
         df = self.average_parameters(loc_data_assigned, labels_assigned)
@@ -321,9 +327,7 @@ class extract_SMs:
         link_groups_linked = link_groups[linked_mask]
 
         # Add molecular index column (offset by previous files)
-        loc_data_linked["molecular_index"] = (
-            link_groups_linked + molecular_index_offset
-        )
+        loc_data_linked["molecular_index"] = link_groups_linked + molecular_index_offset
 
         # Create single molecule database for this file
         df = self.average_parameters(loc_data_linked, link_groups_linked)
