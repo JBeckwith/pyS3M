@@ -119,7 +119,6 @@ class extract_SMs:
                 )
         df = pd.DataFrame.from_dict(dict_obj)
         # Normalise photon fractions using centralised IOFunctions method
-        df = IO._add_photon_columns(df, normalise=True)
         return df
 
     def collect_traces(self, data, dbscan_labels, image_stack, image_size=12):
