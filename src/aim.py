@@ -469,15 +469,8 @@ def intersection_max(
 
     # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
-    if progress is not None:
-        iterator = range(start_idx, n_segments)
-    else:
-        iterator = ProgressUtils.clean_progress_bar(
-            range(start_idx, n_segments), desc=f"Undrifting ({aim_round}/2)"
-        )
-
-    # run across each segment
-    for s in iterator:
+    
+    def _process_segment(s):
         # get the target localizations within the current segment
         min_frame_idx = frame > seg_bounds[s]
         max_frame_idx = frame <= seg_bounds[s + 1]
@@ -488,9 +481,10 @@ def intersection_max(
         if len(x1) == 0:
             drift_x[s] = drift_x[s - 1]
             drift_y[s] = drift_y[s - 1]
-            continue
+            return
 
         # undrifting from the previous round
+        nonlocal rel_drift_x, rel_drift_y
         x1 += rel_drift_x
         y1 += rel_drift_y
 
@@ -517,11 +511,17 @@ def intersection_max(
         drift_x[s] = -rel_drift_x
         drift_y[s] = -rel_drift_y
 
-        # update progress
-        if progress is not None:
+    # run across each segment
+    if progress is not None:
+        for s in range(start_idx, n_segments):
+            _process_segment(s)
             progress.set_value(s)
-        else:
-            iterator.update(s - iterator.n)
+    else:
+        with ProgressUtils.clean_progress_bar(
+            range(start_idx, n_segments), desc=f"Undrifting ({aim_round}/2)"
+        ) as iterator:
+            for s in iterator:
+                _process_segment(s)
 
     # interpolate the drifts (cubic spline) for all frames
     t = (seg_bounds[1:] + seg_bounds[:-1]) / 2
@@ -594,15 +594,8 @@ def intersection_max_z(
 
     # initialize progress such that if GUI is used, progress bar is omitted
     start_idx = 1 if aim_round == 1 else 0
-    if progress is not None:
-        iterator = range(start_idx, n_segments)
-    else:
-        iterator = ProgressUtils.clean_progress_bar(
-            range(start_idx, n_segments), desc=f"Undrifting z ({aim_round}/2)"
-        )
-
-    # run across each segment
-    for s in iterator:
+    
+    def _process_segment_z(s):
         # get the target localizations within the current segment
         min_frame_idx = frame > seg_bounds[s]
         max_frame_idx = frame <= seg_bounds[s + 1]
@@ -613,9 +606,10 @@ def intersection_max_z(
         # skip if no reference localizations
         if len(x1) == 0:
             drift_z[s] = drift_z[s - 1]
-            continue
+            return
 
         # undrifting from the previous round
+        nonlocal rel_drift_z
         z1 += rel_drift_z
 
         # count the number of intersected localizations
@@ -640,11 +634,17 @@ def intersection_max_z(
         rel_drift_z += pz
         drift_z[s] = -rel_drift_z
 
-        # update progress
-        if progress is not None:
+    # run across each segment
+    if progress is not None:
+        for s in range(start_idx, n_segments):
+            _process_segment_z(s)
             progress.set_value(s)
-        else:
-            iterator.update(s - iterator.n)
+    else:
+        with ProgressUtils.clean_progress_bar(
+            range(start_idx, n_segments), desc=f"Undrifting z ({aim_round}/2)"
+        ) as iterator:
+            for s in iterator:
+                _process_segment_z(s)
 
     # interpolate the drifts (cubic spline) for all frames
     t = (seg_bounds[1:] + seg_bounds[:-1]) / 2

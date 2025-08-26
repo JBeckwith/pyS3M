@@ -156,7 +156,43 @@ For simulation testing, use the pattern:
 - Consider memory usage when processing large image stacks
 - Use `polars` instead of `pandas` for large datasets where available
 
+## Progress Bar Integration
+
+The codebase uses a unified progress bar system through `ProgressUtils.py` providing:
+- **Clean context managers**: `clean_progress_bar()` for guaranteed cleanup
+- **Specialized functions**: `fitting_progress_bar()`, `analysis_progress_bar()`, etc.
+- **Jupyter notebook support**: Automatic detection of notebook environment
+- **Global control**: Environment variable `PYBAYERSMLM_NO_PROGRESS=1` to disable
+- **Error handling**: Graceful degradation and proper exception handling
+
+**Usage Pattern:**
+```python
+import ProgressUtils
+
+# For iteration with automatic cleanup
+with ProgressUtils.clean_progress_bar(range(n), desc="Processing") as pbar:
+    for item in pbar:
+        # Process item
+        pass
+
+# For manual updates
+with ProgressUtils.fitting_progress_bar(total=n) as pbar:
+    for i in range(n):
+        # Process item
+        pbar.update(1)
+```
+
 ## Recent Major Refactoring (August 15, 2025)
+
+### **Latest Updates (August 26, 2025)**
+
+**Progress Bar Integration Fixes [COMPLETED]:**
+- ✅ **Critical runtime errors resolved**: Fixed `'_GeneratorContextManager' object is not iterable` errors
+- ✅ **DriftCorrectionFunctions.py**: Corrected context manager usage in RCC and AIM methods
+- ✅ **aim.py**: Fixed both 2D and 3D drift correction progress bar integration
+- ✅ **Comprehensive testing**: All modules now import and function correctly
+- ✅ **Zero regression**: All functionality preserved while fixing integration issues
+- ✅ **Production ready**: Progress bar utilities fully integrated across entire codebase
 
 ### **Completed Code Improvements**
 
@@ -245,7 +281,7 @@ fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
 
 **Result:** ImageAnalysisFunctions.py refactored interface is now fully integrated across the codebase with consistent API usage and proper parameter flow. All fitting operations now use the modernized strategy pattern interface correctly.
 
-## American to British Spelling Standardisation (August 22, 2025)
+## American to British Spelling Standardisation [COMPLETED - August 22, 2025]
 
 ### **Complete Spelling Conversion**
 

@@ -366,25 +366,31 @@ class RCCDriftCorrector(DriftCorrector):
         segments = np.zeros((n_segments, Y, X))
 
         if params.progress_callback is None:
-            it = ProgressUtils.clean_progress_bar(
+            with ProgressUtils.clean_progress_bar(
                 range(n_segments), desc="Generating segments"
-            )
+            ) as it:
+                for i in it:
+                    segment_locs = locs[
+                        (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
+                    ]
+                    _, segments[i] = _render.render(
+                        segment_locs,
+                        [meta],
+                        blur_method=params.blur_method,
+                        min_blur_width=params.min_blur_width,
+                    )
         else:
-            it = range(n_segments)
             params.progress_callback(0)
-
-        for i in it:
-            segment_locs = locs[
-                (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
-            ]
-            _, segments[i] = _render.render(
-                segment_locs,
-                [meta],
-                blur_method=params.blur_method,
-                min_blur_width=params.min_blur_width,
-            )
-
-            if params.progress_callback is not None:
+            for i in range(n_segments):
+                segment_locs = locs[
+                    (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
+                ]
+                _, segments[i] = _render.render(
+                    segment_locs,
+                    [meta],
+                    blur_method=params.blur_method,
+                    min_blur_width=params.min_blur_width,
+                )
                 params.progress_callback(i + 1)
 
         return bounds, segments
@@ -722,15 +728,10 @@ class AIMDriftCorrector(DriftCorrector):
 
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
-        if progress_callback is None:
-            iterator = ProgressUtils.clean_progress_bar(
-                range(start_idx, n_segments), desc=f"AIM Undrifting ({aim_round}/2)"
-            )
-        else:
-            iterator = range(start_idx, n_segments)
-
-        # run across each segment
-        for s in iterator:
+        
+        def _process_segment(s):
+            nonlocal rel_drift_x, rel_drift_y
+            
             # get the target localizations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
@@ -742,7 +743,7 @@ class AIMDriftCorrector(DriftCorrector):
                 if s > 0:
                     drift_x[s] = drift_x[s - 1]
                     drift_y[s] = drift_y[s - 1]
-                continue
+                return
 
             # undrifting from the previous round
             x1 += rel_drift_x
@@ -770,8 +771,16 @@ class AIMDriftCorrector(DriftCorrector):
             drift_x[s] = -rel_drift_x
             drift_y[s] = -rel_drift_y
 
-            # update progress
-            if progress_callback is not None:
+        # run across each segment
+        if progress_callback is None:
+            with ProgressUtils.clean_progress_bar(
+                range(start_idx, n_segments), desc=f"AIM Undrifting ({aim_round}/2)"
+            ) as iterator:
+                for s in iterator:
+                    _process_segment(s)
+        else:
+            for s in range(start_idx, n_segments):
+                _process_segment(s)
                 progress_callback(s)
 
         # interpolate the drifts (cubic spline) for all frames
@@ -853,15 +862,10 @@ class AIMDriftCorrector(DriftCorrector):
 
         # initialize progress
         start_idx = 1 if aim_round == 1 else 0
-        if progress_callback is None:
-            iterator = ProgressUtils.clean_progress_bar(
-                range(start_idx, n_segments), desc=f"AIM Undrifting z ({aim_round}/2)"
-            )
-        else:
-            iterator = range(start_idx, n_segments)
-
-        # run across each segment
-        for s in iterator:
+        
+        def _process_segment_z(s):
+            nonlocal rel_drift_z
+            
             # get the target localizations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
@@ -873,7 +877,7 @@ class AIMDriftCorrector(DriftCorrector):
             if len(x1) == 0:
                 if s > 0:
                     drift_z[s] = drift_z[s - 1]
-                continue
+                return
 
             # undrifting from the previous round
             z1 += rel_drift_z
@@ -899,8 +903,16 @@ class AIMDriftCorrector(DriftCorrector):
             rel_drift_z += pz
             drift_z[s] = -rel_drift_z
 
-            # update progress
-            if progress_callback is not None:
+        # run across each segment
+        if progress_callback is None:
+            with ProgressUtils.clean_progress_bar(
+                range(start_idx, n_segments), desc=f"AIM Undrifting z ({aim_round}/2)"
+            ) as iterator:
+                for s in iterator:
+                    _process_segment_z(s)
+        else:
+            for s in range(start_idx, n_segments):
+                _process_segment_z(s)
                 progress_callback(s)
 
         # interpolate the drifts (cubic spline) for all frames
