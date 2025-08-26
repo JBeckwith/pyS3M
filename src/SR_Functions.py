@@ -94,6 +94,7 @@ class SuperRes_Functions:
         offset_map=None,
         rqe=None,
         read_noise=None,
+        variance=None,
         pfa=1e-3,
         ROI_size=12,
         peak_wavelength=0.638,
@@ -138,6 +139,7 @@ class SuperRes_Functions:
         offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
         read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
         rqe = rqe[start_x : start_x + width, start_y : start_y + height]
+        variance = variance[start_x : start_x + width, start_y : start_y + height]
 
         file = image_files[0]
         puncta_tofit = []
@@ -146,7 +148,7 @@ class SuperRes_Functions:
         weights_tofit = []
         relative_coords = []
 
-        photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
+        raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
             file,
             smoothing_function,
             dtype=np.float32,
@@ -157,8 +159,9 @@ class SuperRes_Functions:
             rqe=rqe,
         )
         detected_puncta = SD_F.detect_puncta_in_image(
-            photoelectron_data,
+            raw_data,
             pfa=pfa,
+            variance=variance,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
@@ -395,6 +398,7 @@ class SuperRes_Functions:
         offset_map,
         rqe,
         read_noise,
+        variance,
         pfa=1e-3,
         ROI_size=12,
         peak_wavelength=0.638,
@@ -440,6 +444,7 @@ class SuperRes_Functions:
         offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
         read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
         rqe = rqe[start_x : start_x + width, start_y : start_y + height]
+        variance = variance[start_x : start_x + width, start_y : start_y + height]
 
         result_params = [
             "xc",
@@ -476,7 +481,7 @@ class SuperRes_Functions:
 
             fit_savename = file.split(".")[0] + ".h5"
             n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
-            photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
+            raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
                 file,
                 smoothing_function,
                 dtype=np.float32,
@@ -487,8 +492,9 @@ class SuperRes_Functions:
                 rqe=rqe,
             )
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
-                photoelectron_data,
+                raw_data,
                 pfa=pfa,
+                variance=variance,
                 wavelength=peak_wavelength,
                 pixel_size=pixel_size,
                 NA=NA,
@@ -551,6 +557,7 @@ class SuperRes_Functions:
         offset_map,
         rqe,
         read_noise,
+        variance,
         pfa=1e-3,
         ROI_size=12,
         peak_wavelength=0.638,
@@ -599,6 +606,7 @@ class SuperRes_Functions:
         offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
         read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
         rqe = rqe[start_x : start_x + width, start_y : start_y + height]
+        variance = variance[start_x : start_x + width, start_y : start_y + height]
 
         result_params = [
             "xc",
@@ -635,7 +643,7 @@ class SuperRes_Functions:
             planes = []
 
             n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
-            photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
+            raw_data, photoelectron_data, smoothed_data, weights = IO.read_tiff_tophotoelectrons(
                 file,
                 smoothing_function,
                 dtype=np.float32,
@@ -646,9 +654,10 @@ class SuperRes_Functions:
                 rqe=rqe,
             )
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
-                photoelectron_data,
+                raw_data,
                 pfa=pfa,
                 wavelength=peak_wavelength,
+                variance=variance,
                 pixel_size=pixel_size,
                 NA=NA,
             )

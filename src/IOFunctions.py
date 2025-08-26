@@ -204,45 +204,95 @@ class IO_Functions:
         with open(file_name, "w") as json_file:
             json.dump(data, json_file, indent=4)
 
-    def read_tiff(self, file_path, frame=None, dtype="double", nchannels=1):
+    def read_tiff(self, file_path, frame=None, dtype="float32", memmap=True):
         """
-        Read a TIFF file using the skimage library.
+        Read a TIFF file using the tifffile library with memory mapping support.
 
         Args:
             file_path (str): The path to the TIFF file to be read.
             frame (int): if not None, loads a single frame
+            dtype (str): Data type for output array. Default "float32" for 50% memory reduction.
+            memmap (bool): Use memory mapping for large files. Default True.
 
         Returns:
             image (numpy.ndarray): The image data from the TIFF file.
         """
-        if isinstance(frame, type(None)):
-            image = np.asarray(
-                imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
-                dtype=dtype,
-            )
-        else:
-            if hasattr(frame, "__len__"):
+        try:
+            if isinstance(frame, type(None)):
+                # Read entire TIFF stack
+                if memmap:
+                    with tifffile.TiffFile(file_path) as tif:
+                        image = tif.asarray(out='memmap').astype(dtype)
+                else:
+                    image = np.asarray(
+                        imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
+                        dtype=dtype,
+                    )
+            else:
+                # Read specific frame(s)
+                if hasattr(frame, "__len__"):
+                    # Multiple frames
+                    if memmap:
+                        with tifffile.TiffFile(file_path) as tif:
+                            image = tif.asarray(key=frame, out='memmap').astype(dtype)
+                    else:
+                        image = np.asarray(
+                            imread(
+                                file_path,
+                                key=frame,
+                                is_ome=False,
+                                is_mmstack=False,
+                                is_imagej=False,
+                            ),
+                            dtype=dtype,
+                        )
+                else:
+                    # Single frame
+                    if memmap:
+                        with tifffile.TiffFile(file_path) as tif:
+                            image = tif.asarray(key=int(frame), out='memmap').astype(dtype)
+                    else:
+                        image = np.asarray(
+                            imread(
+                                file_path,
+                                key=int(frame),
+                                is_ome=False,
+                                is_mmstack=False,
+                                is_imagej=False,
+                            ),
+                            dtype=dtype,
+                        )
+        except Exception as e:
+            # Fallback to non-memmap if memory mapping fails
+            print(f"Memory mapping failed for {file_path}, falling back to standard loading: {e}")
+            if isinstance(frame, type(None)):
                 image = np.asarray(
-                    imread(
-                        file_path,
-                        key=frame,
-                        is_ome=False,
-                        is_mmstack=False,
-                        is_imagej=False,
-                    ),
+                    imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
                     dtype=dtype,
                 )
             else:
-                image = np.asarray(
-                    imread(
-                        file_path,
-                        key=int(frame),
-                        is_ome=False,
-                        is_mmstack=False,
-                        is_imagej=False,
-                    ),
-                    dtype=dtype,
-                )
+                if hasattr(frame, "__len__"):
+                    image = np.asarray(
+                        imread(
+                            file_path,
+                            key=frame,
+                            is_ome=False,
+                            is_mmstack=False,
+                            is_imagej=False,
+                        ),
+                        dtype=dtype,
+                    )
+                else:
+                    image = np.asarray(
+                        imread(
+                            file_path,
+                            key=int(frame),
+                            is_ome=False,
+                            is_mmstack=False,
+                            is_imagej=False,
+                        ),
+                        dtype=dtype,
+                    )
         return image
 
     def read_tiff_tophotoelectrons(
@@ -275,14 +325,15 @@ class IO_Functions:
             frame (int, optional): if not None, loads a single frame
 
         Returns:
-            image (numpy.ndarray): The image data from the TIFF file.
+            raw_data (numpy.ndarray): The raw image data from the TIFF file.
+            data (numpy.ndarray): The photoelectron data from the TIFF file.
             smoothed_data (np.ndarray): Smoothed data for use in initial guesses etc.
             weights_map (np.ndarray): Weights for fitting of data.
         """
         # Use skimage's imread function to read the TIFF file
         # specifying the 'tifffile' plugin explicitly
         data = self.read_tiff(file_path, dtype=dtype, frame=frame)
-
+        raw_data = copy(data)
         if type(gain_map) is not float:
 
             if data.shape[-2:] != gain_map.shape:
@@ -294,7 +345,7 @@ class IO_Functions:
 
         if type(gain_map) is not float:
             if len(data.shape) > 2:
-                data = np.divide(
+                photoelectron_data = np.divide(
                     np.divide(
                         np.subtract(data, offset_map[np.newaxis, :, :]),
                         gain_map[np.newaxis, :, :],
@@ -302,13 +353,13 @@ class IO_Functions:
                     rqe[np.newaxis, :, :],
                 )
             else:
-                data = np.divide(
+                photoelectron_data = np.divide(
                     np.divide(np.subtract(data, offset_map), gain_map), rqe
                 )
         else:
-            data = np.divide(np.divide(np.subtract(data, offset_map), gain_map), rqe)
+            photoelectron_data = np.divide(np.divide(np.subtract(data, offset_map), gain_map), rqe)
 
-        smoothed_data = copy(data)
+        smoothed_data = copy(photoelectron_data)
 
         smoothing_args = smoothing_function.args
         smoothing_args[smoothing_function.data_arg] = smoothed_data
@@ -330,7 +381,11 @@ class IO_Functions:
             if len(data.shape) > 2:
                 hot_pixels = np.tile(hot_pixels, (data.shape[0], 1, 1))
             weights_map[hot_pixels] = 1e-8
-        return data, smoothed_data, weights_map
+        # Ensure consistent dtypes
+        smoothed_data = smoothed_data.astype(dtype)
+        weights_map = weights_map.astype(dtype)
+        
+        return raw_data, photoelectron_data, smoothed_data, weights_map
 
     def write_tiff(self, volume, file_path, bit="double", pixel_size=0.11):
         """
