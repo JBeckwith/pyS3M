@@ -32,8 +32,10 @@ class IO_Functions:
         if df.shape[0] > 0:
             # first, remove any columns that are all NaN
             df = df.dropna(axis=1, how="all")
+            df['frame'] = pd.to_numeric(df['frame'], downcast='integer', errors='coerce')
             # Add photon columns if amplitude columns are present
-            df = self._add_photon_columns(df, normalise=normalise_photons)
+            if 'photons' not in df.columns:
+                df = self._add_photon_columns(df, normalise=normalise_photons)
 
             if append and os.path.isfile(filepath):
                 df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
