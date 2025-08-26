@@ -161,7 +161,7 @@ class extract_SMs:
 
     def extract_single_molecules_HDBSCAN(
         self,
-        localisation_files,
+        loc_data,
         min_cluster_size=10,
         chi_val=None,
         max_localization_error=1.0,
@@ -172,90 +172,51 @@ class extract_SMs:
         Extract single molecules from multiple localization files by clustering.
 
         Args:
-            localisation_files (list): List of HDF5 localization file paths
+            loc_data (pd.DataFrame): Localization data to process
             chi_val (float, optional): Chi-squared threshold for filtering. Defaults to median.
 
         Returns:
             tuple: (single_molecule_database, single_frame_database) as DataFrames
                    single_frame_database includes molecular_index column and excludes unassigned localizations
         """
-        columns = [
-            "xc",
-            "yc",
-            "s_x",
-            "s_y",
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "background_photons",
-            "A_B",
-            "A_G",
-            "A_R",
-            "photons",
-            "chi_sqr",
-            "frame",
-            "xc_err",
-            "yc_err",
-            "s_x_err",
-            "s_y_err",
-            "bg_B_err",
-            "bg_G_err",
-            "bg_R_err",
-            "A_B_err",
-            "A_G_err",
-            "A_R_err",
-        ]
 
-        single_frame_database_list = []
-        single_molecule_database_list = []
         molecular_index_offset = 0
 
-        for i, file in enumerate(localisation_files):
-            loc_data = pd.read_hdf(file, columns=columns)
-            loc_data = self.filter_quality_localizations(
-                loc_data, chi_val, max_localization_error, min_photons, max_photons
-            )
-            X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
-            loc_precision = 0.5 * (
-                np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
-            )
-            hdb = HDBSCAN(
-                min_cluster_size=min_cluster_size,
-                cluster_selection_epsilon=loc_precision,
-            )
-            hdb.fit(X)
-
-            # Filter out unassigned localizations (label = -1)
-            assigned_mask = hdb.labels_ >= 0
-            loc_data_assigned = loc_data[assigned_mask].copy()
-            labels_assigned = hdb.labels_[assigned_mask]
-
-            # Add molecular index column (offset by previous files)
-            loc_data_assigned["molecular_index"] = (
-                labels_assigned + molecular_index_offset
-            )
-
-            # Create single molecule database for this file
-            df = self.average_parameters(loc_data_assigned, labels_assigned)
-            df["molecular_index"] = df.index + molecular_index_offset
-
-            single_frame_database_list.append(loc_data_assigned)
-            single_molecule_database_list.append(df)
-
-            # Update offset for next file
-            molecular_index_offset += len(df)
-
-        # Concatenate all data
-        single_frame_database = pd.concat(single_frame_database_list, ignore_index=True)
-        single_molecule_database = pd.concat(
-            single_molecule_database_list, ignore_index=True
+        loc_data = self.filter_quality_localizations(
+            loc_data, chi_val, max_localization_error, min_photons, max_photons
         )
+        X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
+        loc_precision = 0.5 * (
+            np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
+        )
+        hdb = HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            cluster_selection_epsilon=loc_precision,
+        )
+        hdb.fit(X)
+
+        # Filter out unassigned localizations (label = -1)
+        assigned_mask = hdb.labels_ >= 0
+        loc_data_assigned = loc_data[assigned_mask].copy()
+        labels_assigned = hdb.labels_[assigned_mask]
+
+        # Add molecular index column (offset by previous files)
+        loc_data_assigned["molecular_index"] = (
+            labels_assigned + molecular_index_offset
+        )
+
+        # Create single molecule database for this file
+        df = self.average_parameters(loc_data_assigned, labels_assigned)
+        df["molecular_index"] = df.index + molecular_index_offset
+
+        single_frame_database = loc_data_assigned
+        single_molecule_database = df
 
         return single_molecule_database, single_frame_database
 
     def extract_single_molecules_DBSCAN(
         self,
-        localisation_files,
+        loc_data,
         min_cluster_size=10,
         chi_val=None,
         max_localization_error=1.0,
@@ -273,83 +234,44 @@ class extract_SMs:
             tuple: (single_molecule_database, single_frame_database) as DataFrames
                    single_frame_database includes molecular_index column and excludes unassigned localizations
         """
-        columns = [
-            "xc",
-            "yc",
-            "s_x",
-            "s_y",
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "background_photons",
-            "A_B",
-            "A_G",
-            "A_R",
-            "photons",
-            "chi_sqr",
-            "frame",
-            "xc_err",
-            "yc_err",
-            "s_x_err",
-            "s_y_err",
-            "bg_B_err",
-            "bg_G_err",
-            "bg_R_err",
-            "A_B_err",
-            "A_G_err",
-            "A_R_err",
-        ]
 
-        single_frame_database_list = []
-        single_molecule_database_list = []
         molecular_index_offset = 0
 
-        for i, file in enumerate(localisation_files):
-            loc_data = pd.read_hdf(file, columns=columns)
-            loc_data = self.filter_quality_localizations(
-                loc_data, chi_val, max_localization_error, min_photons, max_photons
-            )
-            X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
-            loc_precision = 0.5 * (
-                np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
-            )
-            hdb = DBSCAN(
-                min_samples=min_cluster_size,
-                eps=loc_precision,
-            )
-            hdb.fit(X)
-
-            # Filter out unassigned localizations (label = -1)
-            assigned_mask = hdb.labels_ >= 0
-            loc_data_assigned = loc_data[assigned_mask].copy()
-            labels_assigned = hdb.labels_[assigned_mask]
-
-            # Add molecular index column (offset by previous files)
-            loc_data_assigned["molecular_index"] = (
-                labels_assigned + molecular_index_offset
-            )
-
-            # Create single molecule database for this file
-            df = self.average_parameters(loc_data_assigned, labels_assigned)
-            df["molecular_index"] = df.index + molecular_index_offset
-
-            single_frame_database_list.append(loc_data_assigned)
-            single_molecule_database_list.append(df)
-
-            # Update offset for next file
-            molecular_index_offset += len(df)
-
-        # Concatenate all data
-        single_frame_database = pd.concat(single_frame_database_list, ignore_index=True)
-        single_molecule_database = pd.concat(
-            single_molecule_database_list, ignore_index=True
+        loc_data = self.filter_quality_localizations(
+            loc_data, chi_val, max_localization_error, min_photons, max_photons
         )
+        X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
+        loc_precision = 0.5 * (
+            np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
+        )
+        hdb = DBSCAN(
+            min_samples=min_cluster_size,
+            eps=loc_precision,
+        )
+        hdb.fit(X)
+
+        # Filter out unassigned localizations (label = -1)
+        assigned_mask = hdb.labels_ >= 0
+        loc_data_assigned = loc_data[assigned_mask].copy()
+        labels_assigned = hdb.labels_[assigned_mask]
+
+        # Add molecular index column (offset by previous files)
+        loc_data_assigned["molecular_index"] = (
+            labels_assigned + molecular_index_offset
+        )
+
+        # Create single molecule database for this file
+        df = self.average_parameters(loc_data_assigned, labels_assigned)
+        df["molecular_index"] = df.index + molecular_index_offset
+
+        single_frame_database = loc_data_assigned
+        single_molecule_database = df
 
         return single_molecule_database, single_frame_database
 
     def extract_single_molecules_linked(
         self,
-        localisation_files,
+        loc_data,
         max_distance=1.0,
         max_frames=10,
         chi_val=None,
@@ -376,92 +298,42 @@ class extract_SMs:
             tuple: (single_molecule_database, single_frame_database) as DataFrames
                    single_frame_database includes molecular_index column and excludes unlinked localizations
         """
-        columns = [
-            "xc",
-            "yc",
-            "s_x",
-            "s_y",
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "background_photons",
-            "A_B",
-            "A_G",
-            "A_R",
-            "photons",
-            "chi_sqr",
-            "frame",
-            "xc_err",
-            "yc_err",
-            "s_x_err",
-            "s_y_err",
-            "bg_B_err",
-            "bg_G_err",
-            "bg_R_err",
-            "A_B_err",
-            "A_G_err",
-            "A_R_err",
-        ]
-
-        single_frame_database_list = []
-        single_molecule_database_list = []
         molecular_index_offset = 0
 
-        for file in localisation_files:
-            loc_data = pd.read_hdf(file, columns=columns)
-            loc_data = self.filter_quality_localizations(
-                loc_data, chi_val, max_localization_error, min_photons, max_photons
-            )
+        loc_data = self.filter_quality_localizations(
+            loc_data, chi_val, max_localization_error, min_photons, max_photons
+        )
 
-            if len(loc_data) == 0:
-                continue
+        # Convert to numpy record array for postprocess.py compatibility and sort by frame
+        loc_data_sorted = loc_data.sort_values("frame")
+        loc_array = loc_data_sorted.to_records(index=False)
 
-            # Convert to numpy record array for postprocess.py compatibility and sort by frame
-            loc_data_sorted = loc_data.sort_values("frame")
-            loc_array = loc_data_sorted.to_records(index=False)
+        # Create group array (all localizations belong to same group for single molecule analysis)
+        group = np.zeros(len(loc_array), dtype=np.int32)
 
-            # Create group array (all localizations belong to same group for single molecule analysis)
-            group = np.zeros(len(loc_array), dtype=np.int32)
+        # Use postprocess linking function
+        link_groups = _postprocess.get_link_groups(
+            loc_array, max_distance, max_frames, group
+        )
 
-            # Use postprocess linking function
-            link_groups = _postprocess.get_link_groups(
-                loc_array, max_distance, max_frames, group
-            )
+        # Filter out unlinked localizations (group = -1 typically means no link)
+        linked_mask = link_groups >= 0
+        loc_data_linked = loc_data_sorted[linked_mask].copy()
+        link_groups_linked = link_groups[linked_mask]
 
-            # Filter out unlinked localizations (group = -1 typically means no link)
-            linked_mask = link_groups >= 0
-            loc_data_linked = loc_data_sorted[linked_mask].copy()
-            link_groups_linked = link_groups[linked_mask]
+        # Add molecular index column (offset by previous files)
+        loc_data_linked["molecular_index"] = (
+            link_groups_linked + molecular_index_offset
+        )
 
-            if len(loc_data_linked) == 0:
-                continue
+        # Create single molecule database for this file
+        df = self.average_parameters(loc_data_linked, link_groups_linked)
+        df["molecular_index"] = df.index + molecular_index_offset
 
-            # Add molecular index column (offset by previous files)
-            loc_data_linked["molecular_index"] = (
-                link_groups_linked + molecular_index_offset
-            )
+        single_frame_database = loc_data_linked
+        single_molecule_database = df
 
-            # Create single molecule database for this file
-            df = self.average_parameters(loc_data_linked, link_groups_linked)
-            df["molecular_index"] = df.index + molecular_index_offset
-
-            single_frame_database_list.append(loc_data_linked)
-            single_molecule_database_list.append(df)
-
-            # Update offset for next file
-            molecular_index_offset += len(df)
-
-        # Concatenate all data
-        if single_frame_database_list:
-            single_frame_database = pd.concat(
-                single_frame_database_list, ignore_index=True
-            )
-            single_molecule_database = pd.concat(
-                single_molecule_database_list, ignore_index=True
-            )
-        else:
-            # Return empty DataFrames if no data
-            single_frame_database = pd.DataFrame()
-            single_molecule_database = pd.DataFrame()
+        # Update offset for next file
+        molecular_index_offset += len(df)
 
         return single_molecule_database, single_frame_database
