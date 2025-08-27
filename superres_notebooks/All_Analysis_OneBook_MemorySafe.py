@@ -231,6 +231,8 @@ def get_all_folders():
     sm_data_base_dirs = [
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250819_TetraspeckCalibration',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717 BiotinDyes/ATTO488_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO655_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO700_50PM_PCA_PCD',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO520_50pM_PCAPCDTx',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTORho6G_50pM_PCAPCDTx',
@@ -238,8 +240,6 @@ def get_all_folders():
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto620_PCA_PCD_Tx_50pMDye',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250711 Biotinylated Dyes/Atto633_PCA_PCD_Tx_100pMDye',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto647N_PCA_PCD_Tx_20pMDye',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO655_50PM _PCA_PCD',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO700_50PM _PCA_PCD',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250609_dyes/data',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto594_PCA_PCD_Tx_50pMDye'
     ]
