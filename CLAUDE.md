@@ -134,7 +134,10 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 
 **Python Test Scripts:** All Python test scripts (not unit tests) should be placed in the `claude/` directory. This includes performance tests, validation scripts, and standalone testing utilities.
 
-**Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. The main batch processing script is `All_Analysis_OneBook_Fixed.py`, which provides memory-safe processing of multiple datasets with comprehensive logging and progress tracking.
+**Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. Available batch processing scripts:
+- `All_Analysis_OneBook_Optimized.py` - **RECOMMENDED**: 28-core parallelization, memory cleanup, proper logging with flush statements, preserves essential server communication recursion
+- `All_Analysis_OneBook_Fixed.py` - Memory-safe processing with comprehensive logging and progress tracking  
+- `All_Analysis_OneBook.py` - **AVOID**: Original script causes terminal exits due to memory issues
 
 **Project TODO:** See `claude/TODO.md` for comprehensive analysis of completed refactoring work and remaining high-priority tasks.
 
@@ -291,36 +294,37 @@ fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
 
 ## Analysis Script Modernization [COMPLETED - August 27, 2025]
 
-### **All_Analysis_OneBook Script Complete Rewrite**
+### **All_Analysis_OneBook Script Evolution**
 
-The main batch processing script `All_Analysis_OneBook.py` was causing terminal exits due to critical memory management and error handling issues. A complete rewrite has resolved all problems.
+The original `All_Analysis_OneBook.py` script had critical memory management and error handling issues causing terminal exits. Two improved versions are now available:
 
-#### **Issues in Original Script:**
-- **Memory exhaustion**: Processing 50+ large datasets without cleanup
-- **Infinite recursion**: Dangerous exception handling in file operations
-- **Resource leaks**: No garbage collection between iterations
-- **Disk space issues**: No checking before copying GBs of data
+#### **All_Analysis_OneBook_Optimized.py** ⭐ **RECOMMENDED**
+**Created:** August 27, 2025  
+**Features:**
+- **28-core parallelization**: Uses all available cores for file operations
+- **Memory management**: `gc.collect()` after each folder processing prevents memory exhaustion
+- **Proper logging**: Timestamped `.txt` log files with immediate flush statements
+- **Essential recursion preserved**: Server communication retry loops maintained for network reliability
+- **Compact organization**: Consolidated, well-structured code eliminating repetition
 
-#### **Solutions in All_Analysis_OneBook_Fixed.py:**
-- **Memory management**: Forced `gc.collect()` after each folder processing
-- **Safe retry logic**: Maximum attempts with proper error boundaries
-- **Resource monitoring**: Disk space checking and cleanup guarantees
+#### **All_Analysis_OneBook_Fixed.py**
+**Features:**
+- **Memory management**: Forced garbage collection and resource cleanup
+- **Safe retry logic**: Maximum attempts with proper error boundaries (removes infinite recursion)
 - **Progress tracking**: Comprehensive logging with success/failure statistics
+- **Configuration-driven**: Type-safe dataclass approach
 
 #### **Usage:**
 ```bash
-# Original (problematic)
+# Recommended (optimized with 28-core parallelization)
+python superres_notebooks/All_Analysis_OneBook_Optimized.py  # ⭐ Best performance
+
+# Alternative (memory-safe but no parallelization)  
+python superres_notebooks/All_Analysis_OneBook_Fixed.py  # ✅ Safe but slower
+
+# Avoid (problematic)
 python superres_notebooks/All_Analysis_OneBook.py  # ❌ Crashes terminal
-
-# New (robust) 
-python superres_notebooks/All_Analysis_OneBook_Fixed.py  # ✅ Memory-safe
 ```
-
-#### **Key Features:**
-- **Configuration-driven**: Type-safe dataclasses for all parameters
-- **Fault tolerance**: Individual failures don't stop batch processing
-- **Progress visibility**: Real-time statistics and comprehensive logging
-- **Resume capability**: Skips already-processed folders automatically
 
 ## American to British Spelling Standardisation [COMPLETED - August 22, 2025]
 
