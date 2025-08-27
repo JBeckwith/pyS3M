@@ -482,13 +482,11 @@ class SuperRes_Functions:
             planes = []
 
             fit_savename = file.split(".")[0] + ".h5"
-            n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
             raw_data, photoelectron_data, smoothed_data, weights = (
                 IO.read_tiff_tophotoelectrons(
                     file,
                     smoothing_function,
                     dtype=np.float32,
-                    frame=n_frames,
                     gain_map=gain_map,
                     offset_map=offset_map,
                     read_noise=read_noise,
@@ -646,13 +644,11 @@ class SuperRes_Functions:
             relative_coords = []
             planes = []
 
-            n_frames = np.arange(IO.get_num_pages_in_TIF(file), dtype=int)
             raw_data, photoelectron_data, smoothed_data, weights = (
                 IO.read_tiff_tophotoelectrons(
                     file,
                     smoothing_function,
                     dtype=np.float32,
-                    frame=n_frames,
                     gain_map=gain_map,
                     offset_map=offset_map,
                     read_noise=read_noise,
