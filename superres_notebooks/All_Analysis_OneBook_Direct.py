@@ -99,7 +99,7 @@ def determine_folder_type_and_wavelength(folder_path):
     else:
         return 'imaging', 0.55  # Default wavelength
 
-def process_folder_direct(folder_path, functions, camera_data, smoothing_function):
+def process_folder_direct(folder_path, functions, camera_data, smoothing_function, folder_type=None, peak_wavelength=None):
     """Process folder directly without copying files"""
     
     try:
@@ -117,8 +117,9 @@ def process_folder_direct(folder_path, functions, camera_data, smoothing_functio
         if not metadata_files:
             return f"SKIP: No metadata files found in {folder_path}"
         
-        # Determine processing type and wavelength
-        folder_type, peak_wavelength = determine_folder_type_and_wavelength(folder_path)
+        # Determine processing type and wavelength if not provided
+        if folder_type is None or peak_wavelength is None:
+            folder_type, peak_wavelength = determine_folder_type_and_wavelength(folder_path)
         log_and_flush(f"Processing as {folder_type} data with wavelength {peak_wavelength}")
         
         # Process data using SR_Functions
@@ -196,133 +197,102 @@ def process_folder_direct(folder_path, functions, camera_data, smoothing_functio
         gc.collect()
 
 def get_all_folders():
-    """Get all folders to process"""
-    folders = []
+    """Get all folders to process - exactly from MemorySafe script"""
     
-    # SM data hierarchies (13 bases)
-    sm_bases = [
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20250204_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241219_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241016_Ximea_LabelledDyes', 
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241015_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241014_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241009_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241008_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241007_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241003_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20241001_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20240930_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20240925_Ximea_LabelledDyes',
-        '/scratch/sycamore-asap/ASAP_Members_SM_Data/Jake/20240917_Ximea_LabelledDyes'
+    # Define SM data folders (dye experiments)
+    sm_data_base_dirs = [
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250819_TetraspeckCalibration',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO488_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO655_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO700_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO520_50pM_PCAPCDTx',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTORho6G_50pM_PCAPCDTx',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto565_PCA_PCD_Tx_50pMDye',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto620_PCA_PCD_Tx_50pMDye',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250711 Biotinylated Dyes/Atto633_PCA_PCD_Tx_100pMDye',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto647N_PCA_PCD_Tx_20pMDye',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250609_dyes/data',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto594_PCA_PCD_Tx_50pMDye'
     ]
     
-    # HeLa imaging folders (4 specific)
+    # Define individual HeLa imaging folders
     hela_folders = [
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250204_Ximea_HeLa_Tubulin/data/HeLa_anti_tubulin_cell_1_100nm_lockedGains',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250204_Ximea_HeLa_Tubulin/data/HeLa_anti_tubulin_cell_2_100nm_lockedGains',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250204_Ximea_HeLa_Tubulin/data/HeLa_anti_tubulin_cell_3_100nm_lockedGains',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250204_Ximea_HeLa_Tubulin/data/HeLa_anti_tubulin_cell_4_100nm_lockedGains'
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell3_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell4_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell2_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell1_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_2'
     ]
     
-    # General imaging folders (14 bases) 
-    imaging_bases = [
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250404_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250325_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250318_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250314_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250312_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250226_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250225_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250218_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250212_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250207_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250205_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250204_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250204_Ximea_HeLa_Tubulin',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Jake/20250130_Ximea_DNAOrigami'
+    # Define origami/DNA imaging folders
+    imaging_folders = [
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250717_Origami/F1F2F3F4Cy3B500pM/10perc561_LP561_BP586-64_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250717_Origami/F1F2F3F4Cy3B500pM_LowConcOrigami/10perc561_LP561_BP586-64_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250514_DNANanoruler/data/DNANanoRuler_10perc561_30mW488_50mW638/F1CF640CF550R_F2ATTO488AF647_F3ATTO565ATTO655_F4Cy3BCF488A_MultiNotch_488LP_758SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250514_DNANanoruler/data/DNANanoRuler_10perc561_30mW488_50mW638/F1CF640CF550R_F2ATTO488AF647_F3ATTO565ATTO655_F4Cy3BCF488A_MultiNotch_488LP_758SP_1nM_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250730 single colour origami/AlexaFluor647_2nM_strands/30mWboth638_NF_785SP_488LP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250730 single colour origami/CF488A_2nM_strands/20mW488_NF_785SP_488LP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250730 single colour origami/CF550R_2nM_strands_adjusteddichroic/30p561_NF_785SP_488LP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250730 single colour origami/CF640R_2nM_strands/30mWboth638_NF_785SP_488LP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1AF647_F2ATTO565_F3Cy3B_F4ATTO655_500pMEach/15percent_561_40mWEach_638_NotchFilter_785SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1AF647_F2ATTO565_F3Cy3B_F4ATTO655_500pMEach/15percent_561_100mWEach_638_NotchFilter_785SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1AF647_F2ATTO565_F3Cy3B_F4CF488A_500pMEach/30mW_488_15percent_561_100mWEach_638_NotchFilter_785SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1CF550R_F2ATTO565_F3Cy3B_F4CF488A_500pMEach/30mW_488_15percent_561_NotchFilter_785SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250716_iPSCJamesEvans/40mW488_30perc561_50mW638_NF_488LP_785SP_1',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250716_iPSCJamesEvans/250pMCy3B_250pM565_250pMCF550_250pM647/20perc561_40mW638_NF_488LP_785SP_1'
     ]
     
-    # Hierarchical imaging bases (3 bases)
+    # Define hierarchical directory bases (that need walking)
     hierarchical_bases = [
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250404_Ximea_AsynNRThX',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250325_Ximea_AsynNRThX', 
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250318_Ximea_AsynNRThX'
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250414_CellPAINT/data',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250404_Ximea_AsynNRThX/data',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250818_DNAOrigami'
     ]
     
-    # Process SM hierarchies
-    log_and_flush(f"Processing {len(sm_bases)} SM data hierarchies...")
-    for base_path in sm_bases:
-        if os.path.exists(base_path):
-            try:
-                subfolders = [d for d in os.listdir(base_path) 
-                             if os.path.isdir(os.path.join(base_path, d))]
-                for subfolder in subfolders:
-                    folder_path = os.path.join(base_path, subfolder)
-                    folders.append(folder_path)
-            except PermissionError:
-                log_and_flush(f"Permission denied: {base_path}")
+    all_folders = []
     
-    # Process HeLa folders (direct folders)
+    # Add SM data folders (need to walk hierarchies)
+    log_and_flush(f"Processing {len(sm_data_base_dirs)} SM data hierarchies...")
+    for base_dir in sm_data_base_dirs:
+        if os.path.exists(base_dir):
+            for root, dirs, _ in os.walk(base_dir):
+                if not dirs:  # Leaf directory
+                    all_folders.append(('sm', root))
+        else:
+            log_and_flush(f"SM directory not found: {base_dir}")
+    
+    # Add HeLa imaging folders (647nm wavelength)
     log_and_flush(f"Processing {len(hela_folders)} HeLa imaging folders...")
-    for folder_path in hela_folders:
-        if os.path.exists(folder_path):
-            folders.append(folder_path)
+    for folder in hela_folders:
+        if os.path.exists(folder):
+            all_folders.append(('imaging', folder, 0.647))
+        else:
+            log_and_flush(f"HeLa folder not found: {folder}")
     
-    # Process imaging bases 
-    log_and_flush(f"Processing {len(imaging_bases)} general imaging folders...")
-    for base_path in imaging_bases:
-        if os.path.exists(base_path):
-            try:
-                data_folder = os.path.join(base_path, 'data')
-                if os.path.exists(data_folder):
-                    subfolders = [d for d in os.listdir(data_folder)
-                                 if os.path.isdir(os.path.join(data_folder, d))]
-                    for subfolder in subfolders:
-                        folder_path = os.path.join(data_folder, subfolder)
-                        folders.append(folder_path)
-            except PermissionError:
-                log_and_flush(f"Permission denied: {base_path}")
+    # Add general imaging folders (550nm default)
+    log_and_flush(f"Processing {len(imaging_folders)} general imaging folders...")
+    for folder in imaging_folders:
+        if os.path.exists(folder):
+            all_folders.append(('imaging', folder, 0.55))
+        else:
+            log_and_flush(f"Imaging folder not found: {folder}")
     
-    # Process hierarchical bases
+    # Add hierarchical imaging folders (need to walk)
     log_and_flush(f"Processing {len(hierarchical_bases)} hierarchical imaging bases...")
-    for base_path in hierarchical_bases:
-        if os.path.exists(base_path):
-            try:
-                data_folder = os.path.join(base_path, 'data')
-                if os.path.exists(data_folder):
-                    subfolders = [d for d in os.listdir(data_folder)
-                                 if os.path.isdir(os.path.join(data_folder, d))]
-                    for subfolder in subfolders:
-                        folder_path = os.path.join(data_folder, subfolder)
-                        # Look for further subdirectories
-                        try:
-                            sub_subfolders = [d for d in os.listdir(folder_path)
-                                            if os.path.isdir(os.path.join(folder_path, d))]
-                            if sub_subfolders:
-                                for sub_subfolder in sub_subfolders:
-                                    final_path = os.path.join(folder_path, sub_subfolder)
-                                    folders.append(final_path)
-                            else:
-                                folders.append(folder_path)
-                        except PermissionError:
-                            log_and_flush(f"Permission denied: {folder_path}")
-            except PermissionError:
-                log_and_flush(f"Permission denied: {base_path}")
+    for base_dir in hierarchical_bases:
+        if os.path.exists(base_dir):
+            for root, dirs, _ in os.walk(base_dir):
+                if not dirs:  # Leaf directory
+                    all_folders.append(('imaging', root, 0.55))
+        else:
+            log_and_flush(f"Hierarchical directory not found: {base_dir}")
     
-    # Remove duplicates while preserving order
-    unique_folders = []
-    seen = set()
-    for folder in folders:
-        if folder not in seen:
-            unique_folders.append(folder)
-            seen.add(folder)
-    
-    log_and_flush(f"Total folders found: {len(unique_folders)}")
-    return unique_folders
+    log_and_flush(f"Total folders found: {len(all_folders)}")
+    return sorted(all_folders, key=lambda x: x[1])
 
 def main():
     # Set NumExpr threads to avoid warning spam
-    os.environ['NUMEXPR_MAX_THREADS'] = '16'
+    os.environ['NUMEXPR_MAX_THREADS'] = '24'
     
     print_and_log("="*60)
     print_and_log("Starting Direct Analysis (No File Copying)")
@@ -331,7 +301,6 @@ def main():
     try:
         # Import modules
         print_and_log("Importing modules...")
-        import numpy as np
         import IOFunctions
         import sCMOSFunctions
         import SpectralFunctions
@@ -379,15 +348,27 @@ def main():
         folders = get_all_folders()
         print_and_log(f"Found {len(folders)} folders to process")
         
-        # Process each folder
+        # Process each folder (handle tuple format from MemorySafe)
         results = []
-        for i, folder_path in enumerate(folders):
+        for i, folder_info in enumerate(folders):
+            # Handle tuple format (type, path, [wavelength])
+            if isinstance(folder_info, tuple):
+                if len(folder_info) == 2:
+                    folder_type, folder_path = folder_info
+                    peak_wavelength = 0.638 if folder_type == 'sm' else 0.55  # Default wavelengths
+                else:
+                    folder_type, folder_path, peak_wavelength = folder_info
+            else:
+                folder_path = folder_info
+                folder_type, peak_wavelength = determine_folder_type_and_wavelength(folder_path)
+            
             log_and_flush(f"Processing folder {i+1}/{len(folders)}: {folder_path}")
+            log_and_flush(f"Type: {folder_type}, Wavelength: {peak_wavelength}")
             
             # Monitor memory before each folder
             monitor_memory()
             
-            result = process_folder_direct(folder_path, functions, camera_data, smoothing_function)
+            result = process_folder_direct(folder_path, functions, camera_data, smoothing_function, folder_type, peak_wavelength)
             results.append(result)
             
             log_and_flush(f"Folder {i+1} result: {result}")
