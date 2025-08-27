@@ -161,11 +161,23 @@ def main():
         readnoise = tifffile.imread(os.path.join(cam_dir, "readnoise.tif")).astype(np.float32)
         rqe = tifffile.imread(os.path.join(cam_dir, "rqe.tif")).astype(np.float32)
         
+        # Setup smoothing function like the real script
+        import types
+        import sCMOSFunctions
+        
+        scmos_f = sCMOSFunctions.sCMOS_Functions()
+        
+        smoothing_function = types.SimpleNamespace()
+        smoothing_function.args = {"sigma": 1.5}
+        smoothing_function.extent = 1.5
+        smoothing_function.smoothing_function = scmos_f.gaussian_filter_stack
+        smoothing_function.data_arg = "image"
+        
         # Try the call (will likely fail due to missing files)
         if os.path.exists(crash_folder):
             sr_f.fit_imaging_data(
                 crash_folder,
-                None,  # smoothing_function
+                smoothing_function,  # Now properly configured
                 gain, offset, rqe, readnoise,  # camera params
                 variance=variance,
                 pfa=1e-4, ROI_size=12,
