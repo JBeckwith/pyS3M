@@ -65,11 +65,24 @@ declare -a HIERARCHICAL_DIRS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250818_DNAOrigami'
 )
 
-# Counters for tracking
-TOTAL_FOLDERS=0
-SUCCESS_COUNT=0
-ERROR_COUNT=0
-SKIP_COUNT=0
+# Counters for tracking - fix subshell issue with temp files
+COUNTER_DIR="/tmp/batch_counters_$$"
+mkdir -p "$COUNTER_DIR"
+echo "0" > "$COUNTER_DIR/total"
+echo "0" > "$COUNTER_DIR/success"
+echo "0" > "$COUNTER_DIR/error"
+echo "0" > "$COUNTER_DIR/skip"
+
+# Helper functions for counters
+increment_counter() {
+    local counter_file="$COUNTER_DIR/$1"
+    local current=$(cat "$counter_file")
+    echo $((current + 1)) > "$counter_file"
+}
+
+get_counter() {
+    cat "$COUNTER_DIR/$1"
+}
 
 # Function to process single folder
 process_folder() {
@@ -77,27 +90,30 @@ process_folder() {
     local folder_path="$2"
     local wavelength="$3"
     
+    increment_counter "total"
+    
     log_message "Processing: $folder_path (type: $folder_type, wavelength: $wavelength)"
     
     # Check if Python script exists
     if [ ! -f "$PYTHON_SCRIPT" ]; then
         log_message "ERROR: Python script not found: $PYTHON_SCRIPT"
+        increment_counter "error"
         return 1
     fi
     
     # Run Python script for single folder (isolated process)
     if python3 "$PYTHON_SCRIPT" "$folder_type" "$folder_path" "$wavelength" >> "$LOG_FILE" 2>&1; then
         log_message "✅ SUCCESS: $folder_path"
-        ((SUCCESS_COUNT++))
+        increment_counter "success"
         return 0
     else
         log_message "❌ ERROR: $folder_path"
-        ((ERROR_COUNT++))
+        increment_counter "error"
         return 1
     fi
 }
 
-# Function to discover and process hierarchical folders
+# Function to discover and process hierarchical folders  
 process_hierarchical() {
     local base_dir="$1"
     local folder_type="$2"
@@ -110,19 +126,22 @@ process_hierarchical() {
     
     log_message "Scanning hierarchical directory: $base_dir"
     
-    # Find all leaf directories (directories with no subdirectories)
-    while IFS= read -r -d '' folder; do
-        # Check if this directory has any subdirectories
-        if [ ! -d "$folder" ]; then
+    # Use os.walk equivalent - find all directories and check if they're leaves
+    find "$base_dir" -type d | while read -r folder; do
+        # Skip the base directory itself
+        if [ "$folder" = "$base_dir" ]; then
             continue
         fi
         
-        # Check if it's a leaf directory (no subdirectories)
-        if [ -z "$(find "$folder" -maxdepth 1 -type d ! -path "$folder")" ]; then
-            ((TOTAL_FOLDERS++))
+        # Check if this directory contains any subdirectories
+        has_subdirs=$(find "$folder" -maxdepth 1 -type d ! -path "$folder" | head -1)
+        
+        # If no subdirectories found, it's a leaf directory
+        if [ -z "$has_subdirs" ]; then
+            log_message "Found leaf directory: $folder"
             process_folder "$folder_type" "$folder" "$wavelength"
         fi
-    done < <(find "$base_dir" -type d -print0)
+    done
 }
 
 log_message "Discovering folders..."
@@ -135,7 +154,6 @@ done
 # Process HeLa folders directly (647nm wavelength)
 for folder in "${HELA_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
-        ((TOTAL_FOLDERS++))
         process_folder "imaging" "$folder" "0.647"
     else
         log_message "WARNING: HeLa folder not found: $folder"
@@ -145,7 +163,6 @@ done
 # Process imaging folders directly (550nm default)
 for folder in "${IMAGING_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
-        ((TOTAL_FOLDERS++))
         process_folder "imaging" "$folder" "0.55"
     else
         log_message "WARNING: Imaging folder not found: $folder"
@@ -158,6 +175,11 @@ for base_dir in "${HIERARCHICAL_DIRS[@]}"; do
 done
 
 # Final summary
+TOTAL_FOLDERS=$(get_counter "total")
+SUCCESS_COUNT=$(get_counter "success")
+ERROR_COUNT=$(get_counter "error")
+SKIP_COUNT=$(get_counter "skip")
+
 echo "============================================================" | tee -a "$LOG_FILE"
 echo "BATCH ANALYSIS COMPLETE - $(date)" | tee -a "$LOG_FILE"
 echo "============================================================" | tee -a "$LOG_FILE"
@@ -167,7 +189,10 @@ log_message "Errors: $ERROR_COUNT"
 log_message "Skipped: $SKIP_COUNT"
 log_message "Log saved to: $LOG_FILE"
 
-if [ $ERROR_COUNT -eq 0 ]; then
+# Cleanup
+rm -rf "$COUNTER_DIR"
+
+if [ "$ERROR_COUNT" -eq 0 ] && [ "$TOTAL_FOLDERS" -gt 0 ]; then
     log_message "🎉 All folders processed successfully!"
     exit 0
 else
