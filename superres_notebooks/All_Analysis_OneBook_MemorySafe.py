@@ -159,39 +159,57 @@ def process_folder_safe(folder_info, functions, camera_data, smoothing_function)
             if folder_type == 'sm' or (folder_type == 'auto' and ('dyes' in folder_path.lower() or 'biotinylated' in folder_path.lower())):
                 # SM data processing
                 log_and_flush(f"Processing as SM data with wavelength {peak_wavelength}")
-                SupRes_F.fit_SM_data(
-                    scratch_folder,
-                    smoothing_function,
-                    camera_data['gain'],
-                    camera_data['offset'],
-                    camera_data['rqe'],
-                    camera_data['readnoise'],
-                    variance=camera_data['variance'],
-                    pfa=1e-4,
-                    ROI_size=12,
-                    peak_wavelength=peak_wavelength,
-                    NA=1.49,
-                    pixel_size=0.069,
-                    image_type=".tif",
-                )
+                try:
+                    log_and_flush("About to call SupRes_F.fit_SM_data...")
+                    SupRes_F.fit_SM_data(
+                        scratch_folder,
+                        smoothing_function,
+                        camera_data['gain'],
+                        camera_data['offset'],
+                        camera_data['rqe'],
+                        camera_data['readnoise'],
+                        variance=camera_data['variance'],
+                        pfa=1e-4,
+                        ROI_size=12,
+                        peak_wavelength=peak_wavelength,
+                        NA=1.49,
+                        pixel_size=0.069,
+                        image_type=".tif",
+                    )
+                    log_and_flush("SupRes_F.fit_SM_data completed successfully")
+                except Exception as e:
+                    import traceback
+                    log_and_flush(f"ERROR in fit_SM_data: {str(e)}")
+                    log_and_flush(f"Exception type: {type(e).__name__}")
+                    log_and_flush(f"Full traceback: {traceback.format_exc()}")
+                    raise
             else:
                 # Imaging data processing
                 log_and_flush(f"Processing as imaging data with wavelength {peak_wavelength}")
-                SupRes_F.fit_imaging_data(
-                    scratch_folder,
-                    smoothing_function,
-                    camera_data['gain'],
-                    camera_data['offset'],
-                    camera_data['rqe'],
-                    camera_data['readnoise'],
-                    variance=camera_data['variance'],
-                    pfa=1e-4,
-                    ROI_size=12,
-                    peak_wavelength=peak_wavelength,
-                    NA=1.49,
-                    pixel_size=0.069,
-                    image_type=".tif",
-                )
+                try:
+                    log_and_flush("About to call SupRes_F.fit_imaging_data...")
+                    SupRes_F.fit_imaging_data(
+                        scratch_folder,
+                        smoothing_function,
+                        camera_data['gain'],
+                        camera_data['offset'],
+                        camera_data['rqe'],
+                        camera_data['readnoise'],
+                        variance=camera_data['variance'],
+                        pfa=1e-4,
+                        ROI_size=12,
+                        peak_wavelength=peak_wavelength,
+                        NA=1.49,
+                        pixel_size=0.069,
+                        image_type=".tif",
+                    )
+                    log_and_flush("SupRes_F.fit_imaging_data completed successfully")
+                except Exception as e:
+                    import traceback
+                    log_and_flush(f"ERROR in fit_imaging_data: {str(e)}")
+                    log_and_flush(f"Exception type: {type(e).__name__}")
+                    log_and_flush(f"Full traceback: {traceback.format_exc()}")
+                    raise
             
             # Copy results back
             result_files = [f for f in os.listdir(scratch_folder) if f.endswith('.h5')]
