@@ -105,6 +105,8 @@ Start with `notebooks/Basic_Camera_Example.ipynb` to understand the core workflo
 - **Type Safety**: Comprehensive type hints being added across refactored modules
 
 **Parallelization:** Uses multiprocessing for image analysis tasks (see `ImageAnalysisFunctions.py`).
+- **CRITICAL**: ProcessPoolExecutor instances must use context managers to prevent resource leaks
+- **Memory leak patterns identified**: ProcessPoolExecutor, ThreadPoolExecutor, and matplotlib figure cleanup issues
 
 **File I/O:** Custom formats for microscopy data, with TIFF support for images and CSV/HDF5 for tabular data.
 - **Error Handling**: Improved with specific exceptions and input validation
@@ -135,8 +137,11 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 **Python Test Scripts:** All Python test scripts (not unit tests) should be placed in the `claude/` directory. This includes performance tests, validation scripts, and standalone testing utilities.
 
 **Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. Available batch processing scripts:
-- `All_Analysis_OneBook_Optimized.py` - **RECOMMENDED**: 28-core parallelization, memory cleanup, proper logging with flush statements, preserves essential server communication recursion
-- `All_Analysis_OneBook_Fixed.py` - Memory-safe processing with comprehensive logging and progress tracking  
+- `All_Analysis_OneBook_MemorySafe.py` - **RECOMMENDED**: Fixes all identified memory leaks, sequential processing, comprehensive resource cleanup
+- `All_Analysis_OneBook_Debug.py` - Maximum logging version with PID tracking, memory monitoring, step-by-step diagnostics
+- `crash_test.py` - Step-by-step diagnostic testing to identify crash sources
+- `All_Analysis_OneBook_Optimized.py` - **DEPRECATED**: Still has memory leak issues causing terminal crashes
+- `All_Analysis_OneBook_Fixed.py` - **DEPRECATED**: Memory-safe but outdated
 - `All_Analysis_OneBook.py` - **AVOID**: Original script causes terminal exits due to memory issues
 
 **Project TODO:** See `claude/TODO.md` for comprehensive analysis of completed refactoring work and remaining high-priority tasks.
@@ -160,6 +165,22 @@ For simulation testing, use the pattern:
 - Leverage `multiprocessing` for parallel image analysis
 - Consider memory usage when processing large image stacks
 - Use `polars` instead of `pandas` for large datasets where available
+
+## Memory Management (Critical)
+
+**Memory Leak Prevention:**
+- **ProcessPoolExecutor**: Always use context managers (`with ProcessPoolExecutor() as executor:`)
+- **ThreadPoolExecutor**: Use context managers instead of manual `.shutdown()` calls
+- **Matplotlib**: Set backend to 'Agg' for batch processing, always call `plt.close()` after figures
+- **Large arrays**: Explicitly delete temporary arrays and call `gc.collect()` in intensive loops
+- **Resource monitoring**: Use `psutil` to monitor memory usage during large-scale processing
+
+**Identified Memory Leak Locations:**
+- `ImageAnalysisFunctions.py:1155` - ProcessPoolExecutor without context manager
+- `SpotDetectionFunctions.py:137` - ProcessPoolExecutor without context manager  
+- `aim.py:200` - ThreadPoolExecutor with vulnerable manual cleanup
+- `imageprocess.py:108` - Matplotlib figures without cleanup
+- `postprocess.py:1151` - Matplotlib figures without cleanup
 
 ## Progress Bar Integration
 
@@ -191,14 +212,20 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
 
 ### **Latest Updates (August 27, 2025)**
 
-**All_Analysis_OneBook Script Rewrite [COMPLETED]:**
-- ✅ **Terminal exit issue resolved**: Complete memory-safe rewrite eliminates crashes
-- ✅ **Memory management**: Forced garbage collection and resource cleanup after each folder
-- ✅ **Terminal output optimized**: Single-line status updates with carriage return, proper flush-only logging
-- ✅ **Robust error handling**: Replaced dangerous infinite recursion with safe retry logic
-- ✅ **Progress tracking**: Comprehensive logging with real-time statistics and success rates
-- ✅ **Configuration-driven**: Type-safe dataclass approach for easy parameter management
-- ✅ **Production ready**: Handles large-scale dataset processing without system resource exhaustion
+**Memory Leak Analysis and Diagnosis [COMPLETED - August 27, 2025]:**
+- ✅ **Comprehensive codebase analysis**: Identified critical memory leak patterns causing terminal crashes
+- ✅ **ProcessPoolExecutor leaks found**: 2 instances without context managers in core analysis functions
+- ✅ **ThreadPoolExecutor leaks found**: 1 instance with vulnerable manual cleanup in drift correction
+- ✅ **Matplotlib memory issues**: Multiple figures created without explicit cleanup in batch processing
+- ✅ **Diagnostic scripts created**: Step-by-step testing, debug logging, and memory-safe versions
+- ✅ **Memory-safe rewrite**: `All_Analysis_OneBook_MemorySafe.py` addresses all identified leak patterns
+- ✅ **Resource monitoring**: Added memory usage tracking and automatic cleanup systems
+
+**All_Analysis_OneBook Script Evolution:**
+- ✅ **Original issue identified**: ProcessPoolExecutor and matplotlib memory leaks causing terminal crashes  
+- ✅ **Memory-safe version created**: Eliminates multiprocessing leaks, uses sequential processing with cleanup
+- ✅ **Debug version created**: Maximum logging, PID tracking, system monitoring for crash diagnosis
+- ✅ **Diagnostic testing**: Step-by-step crash source identification system
 
 **Previous Updates (August 26, 2025):**
 - ✅ **IOFunctions TIFF optimizations**: 58-62% speed improvement with memory mapping
@@ -246,11 +273,16 @@ These patterns are now proven and ready for application to remaining modules:
 - **Enum-based Type Safety**: Replacing boolean conditionals and string comparisons
 - **Memory Optimization**: Object pooling and vectorized operations for performance
 - **Clean API Design**: Unified interfaces with proper error handling and documentation
+- **Memory-Safe Patterns**: Context managers for all resource-intensive operations (ProcessPoolExecutor, file I/O, figure handling)
 
 ### **Next Priority Targets**
-1. **Legacy cleanup**: Remove SpectralFunctions_Old.py and PlottingFunctions_Old.py (1,925 lines total)
-2. **postprocess.py**: Highest complexity (239), large function decomposition needed  
-3. **Final error handling**: Fix remaining 4 bare `except:` clauses in CalibrationFunctions.py, IOFunctions.py, and lib.py
+1. **Memory leak fixes (HIGH PRIORITY)**: 
+   - Fix ProcessPoolExecutor leaks in `ImageAnalysisFunctions.py:1155` and `SpotDetectionFunctions.py:137`
+   - Fix ThreadPoolExecutor leak in `aim.py:200`  
+   - Add matplotlib cleanup in `imageprocess.py:108` and `postprocess.py:1151`
+2. **Legacy cleanup**: Remove SpectralFunctions_Old.py and PlottingFunctions_Old.py (1,925 lines total)
+3. **postprocess.py**: Highest complexity (239), large function decomposition needed  
+4. **Final error handling**: Fix remaining 4 bare `except:` clauses in CalibrationFunctions.py, IOFunctions.py, and lib.py
 
 ### **Completed Achievements (August 15, 2025)**
 - ✅ **Code Reduction**: 19 duplicate functions eliminated from ImageAnalysisFunctions.py
