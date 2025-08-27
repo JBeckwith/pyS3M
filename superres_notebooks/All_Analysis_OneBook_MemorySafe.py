@@ -230,9 +230,9 @@ def get_all_folders():
     # Define SM data folders (dye experiments)
     sm_data_base_dirs = [
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250819_TetraspeckCalibration',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717 BiotinDyes/ATTO488_50PM_PCA_PCD',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO655_50PM_PCA_PCD',
-        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO700_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO488_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717_BiotinDyes/ATTO655_50PM_PCA_PCD',
+        '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717_BiotinDyes/ATTO700_50PM_PCA_PCD',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO520_50pM_PCAPCDTx',
         '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTORho6G_50pM_PCAPCDTx',
