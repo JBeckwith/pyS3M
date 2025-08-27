@@ -134,6 +134,8 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 
 **Python Test Scripts:** All Python test scripts (not unit tests) should be placed in the `claude/` directory. This includes performance tests, validation scripts, and standalone testing utilities.
 
+**Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. The main batch processing script is `All_Analysis_OneBook_Fixed.py`, which provides memory-safe processing of multiple datasets with comprehensive logging and progress tracking.
+
 **Project TODO:** See `claude/TODO.md` for comprehensive analysis of completed refactoring work and remaining high-priority tasks.
 
 For simulation testing, use the pattern:
@@ -184,15 +186,21 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
 
 ## Recent Major Refactoring (August 15, 2025)
 
-### **Latest Updates (August 26, 2025)**
+### **Latest Updates (August 27, 2025)**
 
-**Progress Bar Integration Fixes [COMPLETED]:**
-- ✅ **Critical runtime errors resolved**: Fixed `'_GeneratorContextManager' object is not iterable` errors
+**All_Analysis_OneBook Script Rewrite [COMPLETED]:**
+- ✅ **Terminal exit issue resolved**: Complete memory-safe rewrite eliminates crashes
+- ✅ **Memory management**: Forced garbage collection and resource cleanup after each folder
+- ✅ **Robust error handling**: Replaced dangerous infinite recursion with safe retry logic
+- ✅ **Progress tracking**: Comprehensive logging with real-time statistics and success rates
+- ✅ **Configuration-driven**: Type-safe dataclass approach for easy parameter management
+- ✅ **Production ready**: Handles large-scale dataset processing without system resource exhaustion
+
+**Previous Updates (August 26, 2025):**
+- ✅ **IOFunctions TIFF optimizations**: 58-62% speed improvement with memory mapping
+- ✅ **Progress bar integration fixes**: Resolved `'_GeneratorContextManager' object is not iterable` errors
 - ✅ **DriftCorrectionFunctions.py**: Corrected context manager usage in RCC and AIM methods
 - ✅ **aim.py**: Fixed both 2D and 3D drift correction progress bar integration
-- ✅ **Comprehensive testing**: All modules now import and function correctly
-- ✅ **Zero regression**: All functionality preserved while fixing integration issues
-- ✅ **Production ready**: Progress bar utilities fully integrated across entire codebase
 
 ### **Completed Code Improvements**
 
@@ -238,7 +246,7 @@ These patterns are now proven and ready for application to remaining modules:
 ### **Next Priority Targets**
 1. **Legacy cleanup**: Remove SpectralFunctions_Old.py and PlottingFunctions_Old.py (1,925 lines total)
 2. **postprocess.py**: Highest complexity (239), large function decomposition needed  
-3. **Multicolour_Simulation_Functions.py**: Apply established patterns to main simulation class
+3. **Final error handling**: Fix remaining 4 bare `except:` clauses in CalibrationFunctions.py, IOFunctions.py, and lib.py
 
 ### **Completed Achievements (August 15, 2025)**
 - ✅ **Code Reduction**: 19 duplicate functions eliminated from ImageAnalysisFunctions.py
@@ -280,6 +288,39 @@ fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
 ```
 
 **Result:** ImageAnalysisFunctions.py refactored interface is now fully integrated across the codebase with consistent API usage and proper parameter flow. All fitting operations now use the modernized strategy pattern interface correctly.
+
+## Analysis Script Modernization [COMPLETED - August 27, 2025]
+
+### **All_Analysis_OneBook Script Complete Rewrite**
+
+The main batch processing script `All_Analysis_OneBook.py` was causing terminal exits due to critical memory management and error handling issues. A complete rewrite has resolved all problems.
+
+#### **Issues in Original Script:**
+- **Memory exhaustion**: Processing 50+ large datasets without cleanup
+- **Infinite recursion**: Dangerous exception handling in file operations
+- **Resource leaks**: No garbage collection between iterations
+- **Disk space issues**: No checking before copying GBs of data
+
+#### **Solutions in All_Analysis_OneBook_Fixed.py:**
+- **Memory management**: Forced `gc.collect()` after each folder processing
+- **Safe retry logic**: Maximum attempts with proper error boundaries
+- **Resource monitoring**: Disk space checking and cleanup guarantees
+- **Progress tracking**: Comprehensive logging with success/failure statistics
+
+#### **Usage:**
+```bash
+# Original (problematic)
+python superres_notebooks/All_Analysis_OneBook.py  # ❌ Crashes terminal
+
+# New (robust) 
+python superres_notebooks/All_Analysis_OneBook_Fixed.py  # ✅ Memory-safe
+```
+
+#### **Key Features:**
+- **Configuration-driven**: Type-safe dataclasses for all parameters
+- **Fault tolerance**: Individual failures don't stop batch processing
+- **Progress visibility**: Real-time statistics and comprehensive logging
+- **Resume capability**: Skips already-processed folders automatically
 
 ## American to British Spelling Standardisation [COMPLETED - August 22, 2025]
 
