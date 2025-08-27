@@ -14,6 +14,7 @@ from copy import deepcopy
 import os
 import time
 import pandas as pd
+from datetime import datetime, timedelta
 
 from IPython.display import clear_output
 
@@ -142,6 +143,46 @@ def copy_from_scratch(new_folder, folder, filetype='.h5'):
 # In[8]:
 
 
+def should_analyse_folder(folder_path, cutoff_time=None):
+    """
+    Check if folder should be analysed based on .h5 file timestamps.
+    
+    Args:
+        folder_path (str): Path to the folder to check
+        cutoff_time (datetime, optional): Cutoff time. If None, uses 10am on August 26th, 2025
+        
+    Returns:
+        bool: True if folder should be analysed (no .h5 files or all .h5 files are from before cutoff_time)
+    """
+    if cutoff_time is None:
+        # Set cutoff to 10am on August 26th, 2025
+        cutoff_time = datetime(2025, 8, 26, 10, 0, 0)
+    
+    # Get all .h5 files in the folder
+    h5_files = [f for f in os.listdir(folder_path) if f.endswith('.h5')]
+    
+    # If no .h5 files exist, proceed with analysis
+    if not h5_files:
+        print(f"No .h5 files found in {folder_path} - proceeding with analysis")
+        return True
+    
+    # Check timestamp of each .h5 file
+    for h5_file in h5_files:
+        file_path = os.path.join(folder_path, h5_file)
+        # Get file modification time
+        file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+        
+        if file_mtime >= cutoff_time:
+            print(f"Found .h5 file {h5_file} from {file_mtime} (after {cutoff_time}) - skipping analysis")
+            return False
+    
+    print(f"All .h5 files in {folder_path} are from before {cutoff_time} - proceeding with analysis")
+    return True
+
+
+# In[9]:
+
+
 import types
 smoothing_function = types.SimpleNamespace()
 smoothing_function.args = {"sigma" :  1.5}
@@ -181,6 +222,10 @@ for starting_directory in dye_folders:
         if not dirs:
             lowest_dirs.append(root)
     for image_folder in np.sort(lowest_dirs):
+        # Check if folder should be analysed based on .h5 file timestamps
+        if not should_analyse_folder(image_folder):
+            continue
+            
         new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
         files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
         copy_folder_to_scratch(files_in_folder, new_folder)
@@ -207,104 +252,116 @@ for starting_directory in dye_folders:
 
 
 image_folder = '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell3_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
-new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
-files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
-copy_folder_to_scratch(files_in_folder, new_folder)
-SupRes_F.fit_imaging_data(
-        new_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance=variance,
-        pfa=1e-4,
-        ROI_size=12,
-        peak_wavelength=0.647,
-        NA=1.49,
-        pixel_size=0.069,
-        image_type=".tif",
-    )
-copy_from_scratch(new_folder, image_folder, filetype='.h5')
-delete_folder(new_folder)
+
+# Check if folder should be analysed based on .h5 file timestamps
+if should_analyse_folder(image_folder):
+    new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
+    files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
+    copy_folder_to_scratch(files_in_folder, new_folder)
+    SupRes_F.fit_imaging_data(
+            new_folder,
+            smoothing_function,
+            gain_map,
+            offset_map,
+            rqe,
+            read_noise,
+            variance=variance,
+            pfa=1e-4,
+            ROI_size=12,
+            peak_wavelength=0.647,
+            NA=1.49,
+            pixel_size=0.069,
+            image_type=".tif",
+        )
+    copy_from_scratch(new_folder, image_folder, filetype='.h5')
+    delete_folder(new_folder)
 
 
 # In[ ]:
 
 
 image_folder = '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell4_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
-new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
-files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
-copy_folder_to_scratch(files_in_folder, new_folder)
-SupRes_F.fit_imaging_data(
-        new_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance=variance,
-        pfa=1e-4,
-        ROI_size=12,
-        peak_wavelength=0.647,
-        NA=1.49,
-        pixel_size=0.069,
-        image_type=".tif",
-    )
-copy_from_scratch(new_folder, image_folder, filetype='.h5')
-delete_folder(new_folder)
+
+# Check if folder should be analysed based on .h5 file timestamps
+if should_analyse_folder(image_folder):
+    new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
+    files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
+    copy_folder_to_scratch(files_in_folder, new_folder)
+    SupRes_F.fit_imaging_data(
+            new_folder,
+            smoothing_function,
+            gain_map,
+            offset_map,
+            rqe,
+            read_noise,
+            variance=variance,
+            pfa=1e-4,
+            ROI_size=12,
+            peak_wavelength=0.647,
+            NA=1.49,
+            pixel_size=0.069,
+            image_type=".tif",
+        )
+    copy_from_scratch(new_folder, image_folder, filetype='.h5')
+    delete_folder(new_folder)
 
 
 # In[9]:
 
 
 image_folder = '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell2_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
-new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
-files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
-copy_folder_to_scratch(files_in_folder, new_folder)
-SupRes_F.fit_imaging_data(
-        new_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance=variance,
-        pfa=1e-4,
-        ROI_size=12,
-        peak_wavelength=0.647,
-        NA=1.49,
-        pixel_size=0.069,
-        image_type=".tif",
-    )
-copy_from_scratch(new_folder, image_folder, filetype='.h5')
-delete_folder(new_folder)
+
+# Check if folder should be analysed based on .h5 file timestamps
+if should_analyse_folder(image_folder):
+    new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
+    files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
+    copy_folder_to_scratch(files_in_folder, new_folder)
+    SupRes_F.fit_imaging_data(
+            new_folder,
+            smoothing_function,
+            gain_map,
+            offset_map,
+            rqe,
+            read_noise,
+            variance=variance,
+            pfa=1e-4,
+            ROI_size=12,
+            peak_wavelength=0.647,
+            NA=1.49,
+            pixel_size=0.069,
+            image_type=".tif",
+        )
+    copy_from_scratch(new_folder, image_folder, filetype='.h5')
+    delete_folder(new_folder)
 
 
 # In[10]:
 
 
 image_folder = '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell1_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_2'
-new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
-files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
-copy_folder_to_scratch(files_in_folder, new_folder)
-SupRes_F.fit_imaging_data(
-        new_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance=variance,
-        pfa=1e-4,
-        ROI_size=12,
-        peak_wavelength=0.647,
-        NA=1.49,
-        pixel_size=0.069,
-        image_type=".tif",
-    )
-copy_from_scratch(new_folder, image_folder, filetype='.h5')
-delete_folder(new_folder)
+
+# Check if folder should be analysed based on .h5 file timestamps
+if should_analyse_folder(image_folder):
+    new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
+    files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
+    copy_folder_to_scratch(files_in_folder, new_folder)
+    SupRes_F.fit_imaging_data(
+            new_folder,
+            smoothing_function,
+            gain_map,
+            offset_map,
+            rqe,
+            read_noise,
+            variance=variance,
+            pfa=1e-4,
+            ROI_size=12,
+            peak_wavelength=0.647,
+            NA=1.49,
+            pixel_size=0.069,
+            image_type=".tif",
+        )
+    copy_from_scratch(new_folder, image_folder, filetype='.h5')
+    delete_folder(new_folder)
 
 
 # In[11]:
@@ -330,6 +387,10 @@ folders = np.array(['/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/
 
 
 for image_folder in folders:
+    # Check if folder should be analysed based on .h5 file timestamps
+    if not should_analyse_folder(image_folder):
+        continue
+        
     new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
     files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
     copy_folder_to_scratch(files_in_folder, new_folder)
@@ -373,6 +434,10 @@ lowest_dirs = np.sort([x for x in lowest_dirs if 'WL_Image' not in x])
 
 
 for image_folder in np.sort(lowest_dirs):
+    # Check if folder should be analysed based on .h5 file timestamps
+    if not should_analyse_folder(image_folder):
+        continue
+        
     new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
     files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
     copy_folder_to_scratch(files_in_folder, new_folder)
@@ -409,6 +474,10 @@ for root,dirs,files in os.walk(starting_directory):
 
 
 for image_folder in np.sort(lowest_dirs):
+    # Check if folder should be analysed based on .h5 file timestamps
+    if not should_analyse_folder(image_folder):
+        continue
+        
     new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
     files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder)]
     copy_folder_to_scratch(files_in_folder, new_folder)
@@ -445,6 +514,10 @@ for root,dirs,files in os.walk(starting_directory):
 
 
 for image_folder in np.sort(lowest_dirs):
+    # Check if folder should be analysed based on .h5 file timestamps
+    if not should_analyse_folder(image_folder):
+        continue
+        
     new_folder = os.path.join('/scratch2/jsb92', os.path.split(image_folder)[-1])
     files_in_folder = [os.path.join(image_folder, x) for x in os.listdir(image_folder) if '.h5' not in x]
     copy_folder_to_scratch(files_in_folder, new_folder)
