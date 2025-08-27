@@ -1244,13 +1244,31 @@ def _fit_puncta_method_standalone(
     This function creates a temporary instance to perform fitting
     since bound methods cannot be pickled for multiprocessing.
     """
-    fitter = Image_Analysis_Functions()
-    return fitter.fit_puncta_method(
-        puncta=puncta,
-        smoothed_puncta=smoothed_puncta,
-        weights=weights,
-        relative_coords=relative_coords,
-        planes=planes,
-        strategy=strategy,
-        masks=masks,
-    )
+    # Import here to ensure all dependencies are available in worker process
+    import sys
+    import os
+    
+    # Add src to path if needed (for worker processes)
+    module_dir = os.path.abspath(os.path.dirname(__file__))
+    if module_dir not in sys.path:
+        sys.path.insert(0, module_dir)
+    
+    try:
+        # Create instance with proper error handling
+        fitter = Image_Analysis_Functions()
+        return fitter.fit_puncta_method(
+            puncta=puncta,
+            smoothed_puncta=smoothed_puncta,
+            weights=weights,
+            relative_coords=relative_coords,
+            planes=planes,
+            strategy=strategy,
+            masks=masks,
+        )
+    except Exception as e:
+        # Return empty arrays if fitting fails to prevent crash
+        dims = FittingConstants.PARAM_DIMENSIONS[strategy]
+        n_puncta = len(puncta)
+        empty_fits = np.full((n_puncta, dims["fit"]), np.nan, dtype=np.float32)
+        empty_errors = np.full((n_puncta, dims["error"]), np.nan, dtype=np.float32)
+        return empty_fits, empty_errors

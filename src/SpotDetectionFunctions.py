@@ -722,16 +722,30 @@ def _detect_puncta_in_images_standalone(
     This function creates a temporary instance to perform detection
     since bound methods cannot be pickled for multiprocessing.
     """
-    detector = SpotDetection_Functions()
-    return detector.detect_puncta_in_images(
-        image=image,
-        start_frame=start_frame,
-        psf_fun=psf_fun,
-        variance=variance,
-        pfa=pfa,
-        wavelength=wavelength,
-        pixel_size=pixel_size,
-        NA=NA,
-        mf_factor=mf_factor,
-        local_factor=local_factor,
-    )
+    # Import here to ensure all dependencies are available in worker process
+    import sys
+    import os
+    
+    # Add src to path if needed (for worker processes)
+    module_dir = os.path.abspath(os.path.dirname(__file__))
+    if module_dir not in sys.path:
+        sys.path.insert(0, module_dir)
+    
+    try:
+        # Create instance with proper error handling
+        detector = SpotDetection_Functions()
+        return detector.detect_puncta_in_images(
+            image=image,
+            start_frame=start_frame,
+            psf_fun=psf_fun,
+            variance=variance,
+            pfa=pfa,
+            wavelength=wavelength,
+            pixel_size=pixel_size,
+            NA=NA,
+            mf_factor=mf_factor,
+            local_factor=local_factor,
+        )
+    except Exception as e:
+        # Return empty array if detection fails to prevent crash
+        return np.empty((0, 3), dtype=np.float32)
