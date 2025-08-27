@@ -1244,7 +1244,7 @@ def _fit_puncta_method_standalone(
     This function creates a temporary instance to perform fitting
     since bound methods cannot be pickled for multiprocessing.
     """
-    fitter = ImageAnalysis_Functions()
+    fitter = Image_Analysis_Functions()
     return fitter.fit_puncta_method(
         puncta=puncta,
         smoothed_puncta=smoothed_puncta,
