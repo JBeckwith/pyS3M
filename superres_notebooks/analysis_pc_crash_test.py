@@ -8,8 +8,15 @@ import sys
 import os
 import traceback
 
-# Add paths
-sys.path.append('/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/src')
+# Add paths - adjust for running from superres_notebooks
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)  # Go up one level from superres_notebooks
+src_dir = os.path.join(project_root, 'src')
+
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+    
+print(f"Added to Python path: {src_dir}")
 
 def test_step(step_name, test_func):
     """Helper to run tests with clear output"""
@@ -96,7 +103,7 @@ def main():
         import tifffile
         import numpy as np
         
-        cam_dir = "/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/Camera_Calibrations/Ximea_Camera"
+        cam_dir = os.path.join(project_root, "Camera_Calibrations", "Ximea_Camera")
         gain_path = os.path.join(cam_dir, "gain.tif")
         
         if os.path.exists(gain_path):
