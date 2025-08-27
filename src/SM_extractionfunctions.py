@@ -20,11 +20,11 @@ import HelperFunctions
 
 H_F = HelperFunctions.Helper_Functions()
 
-from src import PlottingFunctions
+import PlottingFunctions
 
 plotter = PlottingFunctions.Plotter()
 
-from src import postprocess as _postprocess
+import postprocess as _postprocess
 from sklearn.cluster import DBSCAN, HDBSCAN
 
 

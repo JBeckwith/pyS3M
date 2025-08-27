@@ -1265,7 +1265,7 @@ def _fit_puncta_method_standalone(
             strategy=strategy,
             masks=masks,
         )
-    except Exception as e:
+    except Exception:
         # Return empty arrays if fitting fails to prevent crash
         dims = FittingConstants.PARAM_DIMENSIONS[strategy]
         n_puncta = len(puncta)

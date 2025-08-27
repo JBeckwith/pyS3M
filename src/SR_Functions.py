@@ -28,20 +28,20 @@ import HelperFunctions
 
 H_F = HelperFunctions.Helper_Functions()
 
-from src import MaskFunctions
+import MaskFunctions
 
 M_F = MaskFunctions.Mask_Functions()
 
-from src import ImageAnalysisFunctions
-from src.ImageAnalysisFunctions import FittingStrategy
+import ImageAnalysisFunctions
+from ImageAnalysisFunctions import FittingStrategy
 
 I_AF = ImageAnalysisFunctions.Image_Analysis_Functions()
 
-from src import SpotDetectionFunctions
+import SpotDetectionFunctions
 
 SD_F = SpotDetectionFunctions.SpotDetection_Functions()
 
-from src import PlottingFunctions
+import PlottingFunctions
 
 plotter = PlottingFunctions.Plotter()
 

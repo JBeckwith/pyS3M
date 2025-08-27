@@ -174,7 +174,7 @@ class SpotDetection_Functions:
     def detect_puncta_in_images(
         self,
         image: np.ndarray,
-        start_frame=int,
+        start_frame: int,
         psf_fun=None,
         variance: np.ndarray = None,
         pfa: float = 10**-4,
@@ -746,6 +746,6 @@ def _detect_puncta_in_images_standalone(
             mf_factor=mf_factor,
             local_factor=local_factor,
         )
-    except Exception as e:
+    except Exception:
         # Return empty array if detection fails to prevent crash
         return np.empty((0, 3), dtype=np.float32)
