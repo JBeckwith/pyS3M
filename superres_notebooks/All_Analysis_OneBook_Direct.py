@@ -22,20 +22,38 @@ src_dir = os.path.join(project_root, 'src')
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
-# Setup logging
+# Setup logging - reduce console spam
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 log_file = f"direct_analysis_{timestamp}.txt"
+
+# File handler for detailed logging
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+# Console handler for essential messages only
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)  # Only warnings and errors to console
+console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
+    handlers=[file_handler, console_handler]
 )
 
 def log_and_flush(message):
-    """Log message and ensure it's written immediately"""
+    """Log message to file and ensure it's written immediately"""
+    logging.info(message)
+    for handler in logging.root.handlers:
+        handler.flush()
+
+def print_status(message):
+    """Print status message to console with carriage return (single line updates)"""
+    print(f"\r{message}", end='', flush=True)
+
+def print_and_log(message):
+    """Print to console and log to file"""
+    print(message)
     logging.info(message)
     for handler in logging.root.handlers:
         handler.flush()
@@ -303,13 +321,16 @@ def get_all_folders():
     return unique_folders
 
 def main():
-    log_and_flush("="*60)
-    log_and_flush("Starting Direct Analysis (No File Copying)")
-    log_and_flush("="*60)
+    # Set NumExpr threads to avoid warning spam
+    os.environ['NUMEXPR_MAX_THREADS'] = '16'
+    
+    print_and_log("="*60)
+    print_and_log("Starting Direct Analysis (No File Copying)")
+    print_and_log("="*60)
     
     try:
         # Import modules
-        log_and_flush("Importing modules...")
+        print_and_log("Importing modules...")
         import numpy as np
         import IOFunctions
         import sCMOSFunctions
@@ -321,7 +342,7 @@ def main():
         import HelperFunctions
         
         # Initialize functions
-        log_and_flush("Initializing functions...")
+        print_and_log("Initializing functions...")
         functions = {
             'IO': IOFunctions.IO_Functions(),
             'sCMOS': sCMOSFunctions.sCMOS_Functions(),
@@ -334,7 +355,7 @@ def main():
         }
         
         # Load camera parameters
-        log_and_flush("Loading camera parameters...")
+        print_and_log("Loading camera parameters...")
         data_folder = os.path.join(project_root, "Camera_Calibrations", "Ximea_Camera")
         camera_data = {
             'gain': functions['IO'].read_tiff(os.path.join(data_folder, "gain.tif")),
@@ -352,11 +373,11 @@ def main():
         smoothing_function.smoothing_function = functions['sCMOS'].gaussian_filter_stack
         smoothing_function.data_arg = "image"
         
-        log_and_flush("Setup completed successfully")
+        print_and_log("Setup completed successfully")
         
         # Get folders to process
         folders = get_all_folders()
-        log_and_flush(f"Found {len(folders)} folders to process")
+        print_and_log(f"Found {len(folders)} folders to process")
         
         # Process each folder
         results = []
@@ -371,28 +392,28 @@ def main():
             
             log_and_flush(f"Folder {i+1} result: {result}")
             
-            # Status update
-            print(f"\rProgress: {i+1}/{len(folders)} - {result.split(':')[0]}", end='', flush=True)
+            # Clean status update to console
+            print_status(f"Progress: {i+1}/{len(folders)} - {result.split(':')[0]}")
         
-        print()  # New line
+        print()  # New line after progress updates
         
         # Summary
-        log_and_flush("="*60)
-        log_and_flush("DIRECT ANALYSIS COMPLETE")
-        log_and_flush("="*60)
+        print_and_log("="*60)
+        print_and_log("DIRECT ANALYSIS COMPLETE")
+        print_and_log("="*60)
         
         successes = sum(1 for r in results if r.startswith("SUCCESS"))
         errors = sum(1 for r in results if r.startswith("ERROR"))
         skipped = sum(1 for r in results if r.startswith("SKIP"))
         warnings = sum(1 for r in results if r.startswith("WARNING"))
         
-        log_and_flush(f"Summary:")
-        log_and_flush(f"  Total folders: {len(folders)}")
-        log_and_flush(f"  Successful: {successes}")
-        log_and_flush(f"  Errors: {errors}")
-        log_and_flush(f"  Skipped: {skipped}")
-        log_and_flush(f"  Warnings: {warnings}")
-        log_and_flush(f"Log saved to: {log_file}")
+        print_and_log(f"Summary:")
+        print_and_log(f"  Total folders: {len(folders)}")
+        print_and_log(f"  Successful: {successes}")
+        print_and_log(f"  Errors: {errors}")
+        print_and_log(f"  Skipped: {skipped}")
+        print_and_log(f"  Warnings: {warnings}")
+        print_and_log(f"Log saved to: {log_file}")
         
     except Exception as e:
         log_and_flush(f"FATAL ERROR: {str(e)}")
