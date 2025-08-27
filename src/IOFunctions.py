@@ -126,7 +126,11 @@ class IO_Functions:
         Returns:
             n_pages (int): number of frames in TIFF file.
         """
-        return len(tifffile.TiffFile(filename).pages)
+        return len(
+            tifffile.TiffFile(
+                filename, is_ome=False, is_mmstack=False, is_imagej=False
+            ).pages
+        )
 
     def metadata_reader_imageJ(self, filename):
         """
