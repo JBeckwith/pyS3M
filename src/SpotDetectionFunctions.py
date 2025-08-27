@@ -134,23 +134,23 @@ class SpotDetection_Functions:
         ]
         start_indices = np.cumsum([0] + frames_per_task[:-1])
         fs = []
-        executor = futures.ProcessPoolExecutor(n_workers)
-        for i, n_frame_task in zip(start_indices, frames_per_task):
-            fs.append(
-                executor.submit(
-                    self.detect_puncta_in_images,
-                    image[i : i + n_frame_task, :, :],
-                    i,
-                    psf_fun=psf_fun,
-                    variance=variance,
-                    pfa=pfa,
-                    wavelength=wavelength,
-                    pixel_size=pixel_size,
-                    NA=NA,
-                    mf_factor=mf_factor,
-                    local_factor=local_factor,
+        with futures.ProcessPoolExecutor(n_workers) as executor:
+            for i, n_frame_task in zip(start_indices, frames_per_task):
+                fs.append(
+                    executor.submit(
+                        self.detect_puncta_in_images,
+                        image[i : i + n_frame_task, :, :],
+                        i,
+                        psf_fun=psf_fun,
+                        variance=variance,
+                        pfa=pfa,
+                        wavelength=wavelength,
+                        pixel_size=pixel_size,
+                        NA=NA,
+                        mf_factor=mf_factor,
+                        local_factor=local_factor,
+                    )
                 )
-            )
         with ProgressUtils.analysis_progress_bar(
             total=n_tasks, desc="Detecting puncta"
         ) as progress_bar:

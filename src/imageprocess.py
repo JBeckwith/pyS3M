@@ -106,6 +106,7 @@ def get_image_shift(imageA, imageB, box, roi=None, display=False):
             _plt.imshow(XCorr, interpolation="none")
             _plt.plot(xc, yc, "x")
             _plt.show()
+            _plt.close()
 
         xc -= _np.floor(X / 2)
         yc -= _np.floor(Y / 2)

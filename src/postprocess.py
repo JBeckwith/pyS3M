@@ -1187,6 +1187,7 @@ def undrift(
         _plt.xlabel("x")
         _plt.ylabel("y")
         fig1.show()
+        _plt.close(fig1)
     locs.xc -= drift.x[locs.frame]
     locs.yc -= drift.y[locs.frame]
     return drift, locs

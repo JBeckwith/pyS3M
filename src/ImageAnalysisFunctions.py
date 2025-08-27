@@ -1152,33 +1152,32 @@ class Image_Analysis_Functions:
 
         # Submit tasks to process pool
         fs = []
-        executor = futures.ProcessPoolExecutor(n_workers)
+        with futures.ProcessPoolExecutor(n_workers) as executor:
+            for i, n_puncta_task in zip(start_indices, puncta_per_task):
+                if n_puncta_task == 0:
+                    continue
 
-        for i, n_puncta_task in zip(start_indices, puncta_per_task):
-            if n_puncta_task == 0:
-                continue
+                # Slice data for this task
+                task_puncta = puncta[i : i + n_puncta_task]
+                task_smoothed = smoothed_puncta[i : i + n_puncta_task]
+                task_weights = weights[i : i + n_puncta_task]
+                task_coords = relative_coords[i : i + n_puncta_task]
+                task_planes = planes[i : i + n_puncta_task]
+                task_masks = masks[i : i + n_puncta_task] if masks is not None else None
 
-            # Slice data for this task
-            task_puncta = puncta[i : i + n_puncta_task]
-            task_smoothed = smoothed_puncta[i : i + n_puncta_task]
-            task_weights = weights[i : i + n_puncta_task]
-            task_coords = relative_coords[i : i + n_puncta_task]
-            task_planes = planes[i : i + n_puncta_task]
-            task_masks = masks[i : i + n_puncta_task] if masks is not None else None
-
-            # Submit task
-            fs.append(
-                executor.submit(
-                    self.fit_puncta_method,
-                    task_puncta,
-                    task_smoothed,
-                    task_weights,
-                    task_coords,
-                    task_planes,
-                    strategy,
-                    task_masks,
+                # Submit task
+                fs.append(
+                    executor.submit(
+                        self.fit_puncta_method,
+                        task_puncta,
+                        task_smoothed,
+                        task_weights,
+                        task_coords,
+                        task_planes,
+                        strategy,
+                        task_masks,
+                    )
                 )
-            )
 
         if asynch:
             return fs

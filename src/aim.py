@@ -197,18 +197,17 @@ def run_intersections_multithread(
     l1_coords_shifted = l1_coords[:, _np.newaxis] + shifts_xy
     # run multiple threads
     n_workers = len(shifts_xy)
-    executor = _ThreadPoolExecutor(n_workers)
-    f = [
-        executor.submit(
-            count_intersections,
-            l0_coords,
-            l0_counts,
-            l1_coords_shifted[:, i],
-            l1_counts,
-        )
-        for i in range(len(shifts_xy))
-    ]
-    executor.shutdown(wait=True)
+    with _ThreadPoolExecutor(n_workers) as executor:
+        f = [
+            executor.submit(
+                count_intersections,
+                l0_coords,
+                l0_counts,
+                l1_coords_shifted[:, i],
+                l1_counts,
+            )
+            for i in range(len(shifts_xy))
+        ]
     if box == 1:  # z intersection only, for z undrifting
         roi_cc = _np.array([_.result() for _ in f])
     else:  # 2D intersection
