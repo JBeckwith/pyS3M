@@ -194,6 +194,7 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
 **All_Analysis_OneBook Script Rewrite [COMPLETED]:**
 - ✅ **Terminal exit issue resolved**: Complete memory-safe rewrite eliminates crashes
 - ✅ **Memory management**: Forced garbage collection and resource cleanup after each folder
+- ✅ **Terminal output optimized**: Single-line status updates with carriage return, proper flush-only logging
 - ✅ **Robust error handling**: Replaced dangerous infinite recursion with safe retry logic
 - ✅ **Progress tracking**: Comprehensive logging with real-time statistics and success rates
 - ✅ **Configuration-driven**: Type-safe dataclass approach for easy parameter management
@@ -303,6 +304,7 @@ The original `All_Analysis_OneBook.py` script had critical memory management and
 **Features:**
 - **28-core parallelization**: Uses all available cores for file operations
 - **Memory management**: `gc.collect()` after each folder processing prevents memory exhaustion
+- **Clean terminal output**: Single-line status updates with carriage return, no terminal spam
 - **Proper logging**: Timestamped `.txt` log files with immediate flush statements
 - **Essential recursion preserved**: Server communication retry loops maintained for network reliability
 - **Compact organization**: Consolidated, well-structured code eliminating repetition

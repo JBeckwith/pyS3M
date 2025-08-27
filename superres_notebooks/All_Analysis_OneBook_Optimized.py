@@ -54,9 +54,10 @@ def log_and_flush(message, level='info'):
     # Force flush
     for handler in logging.getLogger().handlers:
         handler.flush()
-    
-    print(message)
-    sys.stdout.flush()
+
+def print_status(message):
+    """Print single status line with carriage return (overwrites previous line)"""
+    print(f"\r{message}", end='', flush=True)
 
 # Add path and import modules
 sys.path.append("..")
@@ -140,6 +141,7 @@ def delete_folder(folder):
 
 def copy_folder_to_scratch(files, new_folder):
     """Copy folder to scratch using 28-core parallelization"""
+    print_status(f"Copying {len(files)} files to {new_folder} using 28 cores")
     log_and_flush(f"Copying {len(files)} files to {new_folder} using 28 cores")
     
     # Use 28 cores for copying
@@ -148,11 +150,13 @@ def copy_folder_to_scratch(files, new_folder):
     with Pool(processes=28) as pool:
         pool.map(copy_func, files)
     
+    print_status(f"Completed copying {len(files)} files")
     log_and_flush(f"Completed copying {len(files)} files")
 
 def copy_from_scratch(new_folder, folder, filetype='.h5'):
     """Copy results from scratch back to original location"""
     files = np.sort([x for x in os.listdir(new_folder) if filetype in x])
+    print_status(f"Copying back {len(files)} {filetype} files from scratch")
     log_and_flush(f"Copying back {len(files)} {filetype} files from scratch")
     
     for file in files:
@@ -357,7 +361,7 @@ def main():
     for folder in all_sm_folders:
         result = process_folder_sm_data(folder)
         results.append(result)
-        log_and_flush(f"SM Progress: {len(results)}/{len(all_sm_folders)}")
+        print_status(f"SM Progress: {len(results)}/{len(all_sm_folders)}")
     
     log_and_flush("SM data processing complete")
     
@@ -407,6 +411,8 @@ def main():
     # Final memory cleanup
     gc.collect()
     
+    # Clear status line and show completion
+    print()  # Move to new line after status updates
     log_and_flush("=" * 50)
     log_and_flush("All_Analysis_OneBook_Optimized completed successfully")
     log_and_flush(f"Log file: {log_filename}")
