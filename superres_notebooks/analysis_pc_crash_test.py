@@ -151,18 +151,22 @@ def main():
         # Create minimal test data
         sr_f = SR_Functions.SuperRes_Functions()
         
-        # Mock camera parameters
-        gain = np.ones((100, 100), dtype=np.float32)
-        offset = np.zeros((100, 100), dtype=np.float32)
-        variance = np.ones((100, 100), dtype=np.float32)  
-        rqe = np.ones((100, 100), dtype=np.float32)
+        # Load actual camera parameters like the real script
+        import tifffile
+        cam_dir = os.path.join(project_root, "Camera_Calibrations", "Ximea_Camera")
+        
+        gain = tifffile.imread(os.path.join(cam_dir, "gain.tif")).astype(np.float32)
+        offset = tifffile.imread(os.path.join(cam_dir, "offset.tif")).astype(np.float32)
+        variance = tifffile.imread(os.path.join(cam_dir, "variance.tif")).astype(np.float32)
+        readnoise = tifffile.imread(os.path.join(cam_dir, "readnoise.tif")).astype(np.float32)
+        rqe = tifffile.imread(os.path.join(cam_dir, "rqe.tif")).astype(np.float32)
         
         # Try the call (will likely fail due to missing files)
         if os.path.exists(crash_folder):
             sr_f.fit_imaging_data(
                 crash_folder,
                 None,  # smoothing_function
-                gain, offset, rqe, 1.0,  # camera params
+                gain, offset, rqe, readnoise,  # camera params
                 variance=variance,
                 pfa=1e-4, ROI_size=12,
                 peak_wavelength=0.55,
