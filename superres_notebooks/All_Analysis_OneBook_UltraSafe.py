@@ -291,7 +291,22 @@ def ultra_safe_process_folder(folder_info, functions, camera_data, smoothing_fun
                 return f"RESOURCE_ERROR: {folder_path}"
         
         # Setup scratch directory with PID for uniqueness
-        scratch_folder = f"/scratch2/jsb92/{os.path.basename(folder_path)}_{os.getpid()}_{int(time.time())}"
+        # Try /scratch2 first, fall back to /tmp if not available
+        scratch_bases = ["/scratch2/jsb92", "/tmp/jsb92_analysis"]
+        scratch_base = None
+        
+        for base in scratch_bases:
+            try:
+                os.makedirs(base, exist_ok=True)
+                scratch_base = base
+                break
+            except (OSError, PermissionError) as e:
+                log_and_flush(f"Cannot use {base}: {e}", 'warning')
+        
+        if scratch_base is None:
+            return f"SCRATCH_ERROR: No available scratch directory"
+        
+        scratch_folder = f"{scratch_base}/{os.path.basename(folder_path)}_{os.getpid()}_{int(time.time())}"
         
         try:
             # Copy files to scratch (sequential to avoid issues)
