@@ -138,7 +138,7 @@ class SpotDetection_Functions:
             for i, n_frame_task in zip(start_indices, frames_per_task):
                 fs.append(
                     executor.submit(
-                        self.detect_puncta_in_images,
+                        _detect_puncta_in_images_standalone,
                         image[i : i + n_frame_task, :, :],
                         i,
                         psf_fun=psf_fun,
@@ -702,3 +702,36 @@ class SpotDetection_Functions:
             "array_pool_sizes": {k: len(v) for k, v in self.array_pool.pools.items()},
             "has_opencv": HAS_OPENCV,
         }
+
+
+# Module-level standalone functions for multiprocessing (pickleable)
+def _detect_puncta_in_images_standalone(
+    image: np.ndarray,
+    start_frame: int,
+    psf_fun=None,
+    variance: np.ndarray = None,
+    pfa: float = 10**-4,
+    wavelength: float = 0.6,
+    pixel_size: float = 0.069,
+    NA: float = 1.49,
+    mf_factor: float = 3.0,
+    local_factor: float = 3.0,
+) -> np.ndarray:
+    """Standalone version of detect_puncta_in_images for multiprocessing.
+    
+    This function creates a temporary instance to perform detection
+    since bound methods cannot be pickled for multiprocessing.
+    """
+    detector = SpotDetection_Functions()
+    return detector.detect_puncta_in_images(
+        image=image,
+        start_frame=start_frame,
+        psf_fun=psf_fun,
+        variance=variance,
+        pfa=pfa,
+        wavelength=wavelength,
+        pixel_size=pixel_size,
+        NA=NA,
+        mf_factor=mf_factor,
+        local_factor=local_factor,
+    )

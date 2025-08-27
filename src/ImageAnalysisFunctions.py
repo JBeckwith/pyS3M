@@ -1168,7 +1168,7 @@ class Image_Analysis_Functions:
                 # Submit task
                 fs.append(
                     executor.submit(
-                        self.fit_puncta_method,
+                        _fit_puncta_method_standalone,
                         task_puncta,
                         task_smoothed,
                         task_weights,
@@ -1227,3 +1227,30 @@ class Image_Analysis_Functions:
             combined_errors = np.empty((0, dims["error"]), dtype=np.float32)
 
         return combined_fits, combined_errors
+
+
+# Module-level standalone functions for multiprocessing (pickleable)
+def _fit_puncta_method_standalone(
+    puncta: List[np.ndarray],
+    smoothed_puncta: List[np.ndarray],
+    weights: List[np.ndarray],
+    relative_coords: List[List[float]],
+    planes: List[int],
+    strategy: FittingStrategy,
+    masks: Optional[List[np.ndarray]] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Standalone version of fit_puncta_method for multiprocessing.
+    
+    This function creates a temporary instance to perform fitting
+    since bound methods cannot be pickled for multiprocessing.
+    """
+    fitter = ImageAnalysis_Functions()
+    return fitter.fit_puncta_method(
+        puncta=puncta,
+        smoothed_puncta=smoothed_puncta,
+        weights=weights,
+        relative_coords=relative_coords,
+        planes=planes,
+        strategy=strategy,
+        masks=masks,
+    )
