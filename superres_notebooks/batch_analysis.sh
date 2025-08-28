@@ -99,12 +99,105 @@ get_counter() {
     cat "$COUNTER_DIR/$1"
 }
 
-# Function to process single folder
+# Robust copy with retry logic for temporary resource issues
+robust_copy() {
+    local src="$1"
+    local dst="$2"
+    local max_attempts=5
+    local wait_time=10
+    
+    for attempt in $(seq 1 $max_attempts); do
+        log_message "Copy attempt $attempt/$max_attempts: $src -> $dst"
+        
+        if cp -r "$src" "$dst" 2>> "$LOG_FILE"; then
+            log_message "Copy successful on attempt $attempt"
+            return 0
+        else
+            log_message "Copy failed on attempt $attempt, waiting ${wait_time}s before retry"
+            if [ $attempt -lt $max_attempts ]; then
+                sleep $wait_time
+                wait_time=$((wait_time * 2))  # Exponential backoff
+            fi
+        fi
+    done
+    
+    log_message "ERROR: Copy failed after $max_attempts attempts"
+    return 1
+}
+
+# Copy .h5 files back with retry logic
+copy_results_back() {
+    local scratch_folder="$1"
+    local original_folder="$2"
+    local max_attempts=3
+    local wait_time=5
+    
+    # Find all .h5 files in scratch folder
+    local h5_files=($(find "$scratch_folder" -name "*.h5" -type f))
+    
+    if [ ${#h5_files[@]} -eq 0 ]; then
+        log_message "No .h5 files found to copy back"
+        return 0
+    fi
+    
+    log_message "Found ${#h5_files[@]} .h5 files to copy back"
+    
+    for h5_file in "${h5_files[@]}"; do
+        local filename=$(basename "$h5_file")
+        local dest_file="$original_folder/$filename"
+        
+        for attempt in $(seq 1 $max_attempts); do
+            log_message "Copying back attempt $attempt/$max_attempts: $filename"
+            
+            if cp "$h5_file" "$dest_file" 2>> "$LOG_FILE"; then
+                log_message "Successfully copied back: $filename"
+                break
+            else
+                log_message "Failed to copy back $filename on attempt $attempt"
+                if [ $attempt -lt $max_attempts ]; then
+                    sleep $wait_time
+                fi
+            fi
+        done
+        
+        # Verify copy was successful
+        if [ -f "$dest_file" ]; then
+            log_message "Verified: $filename exists in original location"
+        else
+            log_message "ERROR: Failed to copy back $filename after $max_attempts attempts"
+        fi
+    done
+}
+
+# Safe cleanup with verification
+safe_cleanup() {
+    local scratch_folder="$1"
+    
+    # Verify we're cleaning up the right directory (safety check)
+    if [[ "$scratch_folder" != /scratch2/jsb92/* ]]; then
+        log_message "ERROR: Refusing to cleanup directory outside /scratch2/jsb92: $scratch_folder"
+        return 1
+    fi
+    
+    if [ -d "$scratch_folder" ]; then
+        log_message "Cleaning up scratch directory: $scratch_folder"
+        if rm -rf "$scratch_folder" 2>> "$LOG_FILE"; then
+            log_message "Successfully cleaned up: $scratch_folder"
+        else
+            log_message "WARNING: Failed to cleanup: $scratch_folder"
+        fi
+    else
+        log_message "Scratch directory already cleaned or doesn't exist: $scratch_folder"
+    fi
+}
+
+# Function to process single folder with scratch workflow
 process_folder() {
     local folder_type="$1"
     local folder_path="$2"
     local wavelength="$3"
     local folder_name=$(basename "$folder_path")
+    local scratch_folder="/scratch2/jsb92/$folder_name"
     
     increment_counter "total"
     local current_total=$(get_counter "total")
@@ -115,12 +208,13 @@ process_folder() {
     # Detailed logging
     {
         echo
-        echo "----------------------------------------"
+        echo "========================================"
         echo "Processing Folder: $folder_path"
+        echo "Scratch Location: $scratch_folder"
         echo "Type: $folder_type"
         echo "Wavelength: $wavelength"
         echo "Started: $(date)"
-        echo "----------------------------------------"
+        echo "========================================"
     } >> "$LOG_FILE"
     
     # Check if Python script exists
@@ -131,16 +225,95 @@ process_folder() {
         return 1
     fi
     
-    # Run Python script for single folder (isolated process)
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$folder_path" "$wavelength" >> "$LOG_FILE" 2>&1; then
-        echo "✅ SUCCESS"
-        log_message "SUCCESS: Processing completed for $folder_path"
-        increment_counter "success"
-        return 0
+    # Check if original folder exists
+    if [ ! -d "$folder_path" ]; then
+        echo "ERROR - Folder not found"
+        log_message "ERROR: Original folder not found: $folder_path"
+        increment_counter "error"
+        return 1
+    fi
+    
+    # Ensure scratch base directory exists
+    if [ ! -d "/scratch2/jsb92" ]; then
+        log_message "Creating scratch base directory: /scratch2/jsb92"
+        if ! mkdir -p "/scratch2/jsb92" 2>> "$LOG_FILE"; then
+            echo "ERROR - Cannot create scratch base"
+            log_message "ERROR: Cannot create scratch base directory"
+            increment_counter "error"
+            return 1
+        fi
+    fi
+    
+    # Clean up any existing scratch folder with same name
+    if [ -d "$scratch_folder" ]; then
+        log_message "Removing existing scratch folder: $scratch_folder"
+        safe_cleanup "$scratch_folder"
+    fi
+    
+    # Step 1: Copy folder to scratch with retry logic
+    log_message "STEP 1: Copying folder to scratch"
+    if ! robust_copy "$folder_path" "/scratch2/jsb92/"; then
+        echo "ERROR - Copy to scratch failed"
+        log_message "ERROR: Failed to copy folder to scratch after all retry attempts"
+        increment_counter "error"
+        return 1
+    fi
+    
+    # Verify scratch folder exists and has content
+    if [ ! -d "$scratch_folder" ]; then
+        echo "ERROR - Scratch folder missing"
+        log_message "ERROR: Scratch folder does not exist after copy: $scratch_folder"
+        increment_counter "error"
+        return 1
+    fi
+    
+    local file_count=$(find "$scratch_folder" -type f | wc -l)
+    log_message "Scratch folder created with $file_count files"
+    
+    # Step 2: Run analysis on scratch folder
+    log_message "STEP 2: Running analysis on scratch folder"
+    local analysis_success=false
+    
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" >> "$LOG_FILE" 2>&1; then
+        log_message "SUCCESS: Analysis completed on scratch folder"
+        analysis_success=true
+    else
+        log_message "ERROR: Analysis failed on scratch folder"
+        analysis_success=false
+    fi
+    
+    # Step 3: Copy .h5 results back to original location
+    if [ "$analysis_success" = true ]; then
+        log_message "STEP 3: Copying results back to original location"
+        copy_results_back "$scratch_folder" "$folder_path"
+        
+        # Verify results were copied back
+        local h5_count=$(find "$folder_path" -name "*.h5" -type f | wc -l)
+        if [ $h5_count -gt 0 ]; then
+            echo "✅ SUCCESS ($h5_count .h5 files)"
+            log_message "SUCCESS: Processing completed, $h5_count .h5 files copied back"
+            increment_counter "success"
+        else
+            echo "⚠️  PARTIAL SUCCESS (no .h5 files)"
+            log_message "WARNING: Analysis completed but no .h5 files found to copy back"
+            increment_counter "success"  # Still count as success since analysis ran
+        fi
     else
         echo "❌ ERROR"
-        log_message "ERROR: Processing failed for $folder_path"
+        log_message "ERROR: Analysis failed"
         increment_counter "error"
+    fi
+    
+    # Step 4: Cleanup scratch folder
+    log_message "STEP 4: Cleaning up scratch folder"
+    safe_cleanup "$scratch_folder"
+    
+    log_message "Folder processing complete: $folder_path"
+    
+    # Return based on analysis success
+    if [ "$analysis_success" = true ]; then
+        return 0
+    else
         return 1
     fi
 }
