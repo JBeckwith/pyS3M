@@ -9,8 +9,25 @@ pyBayerSMLM is a Python package for multicolour single-molecule localization mic
 ## Installation and Dependencies
 
 **Virtual Environment Setup:**
+The project uses a dedicated Python virtual environment located at `/home/jbeckwith/.virtualenvs/pyBayerSMLM/`. 
+
+To activate the virtual environment:
 ```bash
-workon pyBayerSMLM  # Activate the project's virtual environment
+source ~/.bashrc                          # Load virtualenvwrapper if needed
+workon pyBayerSMLM                       # Activate the project's virtual environment
+
+# Alternative direct activation:
+source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
+```
+
+**For Claude Code:** Always use the virtual environment when running Python scripts:
+```bash
+# Method 1: Activate environment first
+source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
+python script.py
+
+# Method 2: Direct python path (preferred for scripts)
+/home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/python script.py
 ```
 
 Install dependencies using:

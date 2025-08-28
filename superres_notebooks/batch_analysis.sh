@@ -3,12 +3,19 @@
 # Batch Analysis Script - Process folders individually with Python
 # Each folder gets its own isolated Python process to prevent memory leaks
 # Created for pyBayerSMLM super-resolution analysis pipeline
+# Enhanced with swap usage minimization and memory monitoring
 
 set -e  # Exit on any error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/single_folder_analysis.py"
 LOG_FILE="batch_analysis_$(date +%Y%m%d_%H%M%S).log"
+
+# Memory management configuration
+MEMORY_CHECK_INTERVAL=5  # seconds between memory checks
+MAX_SWAP_USAGE_MB=2048   # Maximum swap usage before pausing (2GB)
+MAX_MEMORY_USAGE_PCT=85  # Maximum RAM usage percentage before pausing
+COOLDOWN_TIME=30         # seconds to wait when memory usage is high
 
 # Initialize log file with header
 {
@@ -35,20 +42,6 @@ console_message() {
 }
 
 # Define all folder lists exactly from MemorySafe script
-declare -a SM_DATA_DIRS=(
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO488_50PM_PCA_PCD'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717_BiotinDyes/ATTO655_50PM _PCA_PCD'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717_BiotinDyes/ATTO700_50PM _PCA_PCD'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO520_50pM_PCAPCDTx'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTORho6G_50pM_PCAPCDTx'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto565_PCA_PCD_Tx_50pMDye'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto620_PCA_PCD_Tx_50pMDye'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250711 Biotinylated Dyes/Atto633_PCA_PCD_Tx_100pMDye'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto647N_PCA_PCD_Tx_20pMDye'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250609_dyes/data'
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto594_PCA_PCD_Tx_50pMDye'
-)
 
 declare -a HELA_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell3_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
@@ -97,6 +90,115 @@ increment_counter() {
 
 get_counter() {
     cat "$COUNTER_DIR/$1"
+}
+
+# Memory monitoring functions
+get_memory_stats() {
+    # Get memory statistics in a single call to reduce overhead
+    local mem_info=$(free -m)
+    local swap_info=$(echo "$mem_info" | grep "Swap:")
+    local mem_info_line=$(echo "$mem_info" | grep "Mem:")
+    
+    # Extract values
+    local total_ram=$(echo "$mem_info_line" | awk '{print $2}')
+    local used_ram=$(echo "$mem_info_line" | awk '{print $3}')
+    local total_swap=$(echo "$swap_info" | awk '{print $2}')
+    local used_swap=$(echo "$swap_info" | awk '{print $3}')
+    
+    # Calculate percentages
+    local ram_usage_pct=0
+    if [ "$total_ram" -gt 0 ]; then
+        ram_usage_pct=$(( (used_ram * 100) / total_ram ))
+    fi
+    
+    # Return values separated by spaces
+    echo "$used_swap $total_swap $ram_usage_pct $total_ram $used_ram"
+}
+
+check_memory_pressure() {
+    local stats=($(get_memory_stats))
+    local used_swap_mb=${stats[0]}
+    local total_swap_mb=${stats[1]}
+    local ram_usage_pct=${stats[2]}
+    local total_ram_mb=${stats[3]}
+    local used_ram_mb=${stats[4]}
+    
+    # Log current memory status
+    log_message "Memory: ${used_ram_mb}MB/${total_ram_mb}MB RAM (${ram_usage_pct}%), ${used_swap_mb}MB/${total_swap_mb}MB swap"
+    
+    # Check if memory pressure is too high
+    local memory_pressure=false
+    local pressure_reasons=""
+    
+    if [ "$used_swap_mb" -gt "$MAX_SWAP_USAGE_MB" ]; then
+        memory_pressure=true
+        pressure_reasons="swap usage ${used_swap_mb}MB > ${MAX_SWAP_USAGE_MB}MB"
+    fi
+    
+    if [ "$ram_usage_pct" -gt "$MAX_MEMORY_USAGE_PCT" ]; then
+        memory_pressure=true
+        if [ -n "$pressure_reasons" ]; then
+            pressure_reasons="$pressure_reasons, "
+        fi
+        pressure_reasons="${pressure_reasons}RAM usage ${ram_usage_pct}% > ${MAX_MEMORY_USAGE_PCT}%"
+    fi
+    
+    if [ "$memory_pressure" = true ]; then
+        log_message "WARNING: High memory pressure detected ($pressure_reasons)"
+        return 1
+    fi
+    
+    return 0
+}
+
+wait_for_memory_relief() {
+    log_message "Waiting for memory pressure to decrease..."
+    echo -n "⏳ High memory usage, waiting for relief... "
+    
+    local wait_count=0
+    while ! check_memory_pressure >/dev/null 2>&1; do
+        sleep "$MEMORY_CHECK_INTERVAL"
+        wait_count=$((wait_count + MEMORY_CHECK_INTERVAL))
+        
+        # Show progress dots
+        echo -n "."
+        
+        # Force garbage collection and memory cleanup every 30 seconds
+        if [ $((wait_count % 30)) -eq 0 ]; then
+            echo -n " [cleanup] "
+            sync
+            echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+        fi
+        
+        # Timeout after 10 minutes
+        if [ "$wait_count" -gt 600 ]; then
+            echo " ⏰ TIMEOUT"
+            log_message "WARNING: Memory pressure timeout after 10 minutes, continuing anyway"
+            break
+        fi
+    done
+    
+    echo " ✅ READY"
+    log_message "Memory pressure relieved, continuing processing"
+}
+
+optimize_system_memory() {
+    log_message "Optimizing system memory settings for batch processing"
+    
+    # Reduce swap tendency (prefer RAM over swap)
+    echo 10 > /proc/sys/vm/swappiness 2>/dev/null || log_message "Cannot adjust swappiness (non-root)"
+    
+    # Increase dirty ratio to reduce I/O pressure
+    echo 15 > /proc/sys/vm/dirty_ratio 2>/dev/null || log_message "Cannot adjust dirty_ratio (non-root)"
+    
+    # Reduce memory overcommit
+    echo 2 > /proc/sys/vm/overcommit_memory 2>/dev/null || log_message "Cannot adjust overcommit_memory (non-root)"
+    
+    # Force initial cleanup
+    sync
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || log_message "Cannot drop caches (non-root)"
+    
+    log_message "System memory optimization complete"
 }
 
 # Robust copy with retry logic for temporary resource issues
@@ -202,6 +304,11 @@ process_folder() {
     increment_counter "total"
     local current_total=$(get_counter "total")
     
+    # Check memory pressure before processing
+    if ! check_memory_pressure; then
+        wait_for_memory_relief
+    fi
+    
     # Console progress update
     echo -n "[$current_total] Processing: $folder_name... "
     
@@ -250,8 +357,14 @@ process_folder() {
         safe_cleanup "$scratch_folder"
     fi
     
-    # Step 1: Copy folder to scratch with retry logic
+    # Step 1: Copy folder to scratch with retry logic and memory monitoring
     log_message "STEP 1: Copying folder to scratch"
+    
+    # Check memory before large copy operation
+    if ! check_memory_pressure; then
+        wait_for_memory_relief
+    fi
+    
     if ! robust_copy "$folder_path" "/scratch2/jsb92/"; then
         echo "ERROR - Copy to scratch failed"
         log_message "ERROR: Failed to copy folder to scratch after all retry attempts"
@@ -270,9 +383,14 @@ process_folder() {
     local file_count=$(find "$scratch_folder" -type f | wc -l)
     log_message "Scratch folder created with $file_count files"
     
-    # Step 2: Run analysis on scratch folder
+    # Step 2: Run analysis on scratch folder with memory monitoring
     log_message "STEP 2: Running analysis on scratch folder"
     local analysis_success=false
+    
+    # Check memory before intensive analysis
+    if ! check_memory_pressure; then
+        wait_for_memory_relief
+    fi
     
     if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
@@ -285,6 +403,11 @@ process_folder() {
     # Step 3: Copy .h5 results back to original location
     if [ "$analysis_success" = true ]; then
         log_message "STEP 3: Copying results back to original location"
+        
+        # Force memory cleanup before copying back results
+        sync
+        echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+        
         copy_results_back "$scratch_folder" "$folder_path"
         
         # Verify results were copied back
@@ -307,6 +430,10 @@ process_folder() {
     # Step 4: Cleanup scratch folder
     log_message "STEP 4: Cleaning up scratch folder"
     safe_cleanup "$scratch_folder"
+    
+    # Force final memory cleanup after each folder to prevent accumulation
+    sync
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
     
     log_message "Folder processing complete: $folder_path"
     
@@ -348,6 +475,9 @@ process_hierarchical() {
         fi
     done
 }
+
+# Initialize system for swap minimization
+optimize_system_memory
 
 console_message "Starting folder discovery and processing..."
 
@@ -404,6 +534,11 @@ SKIP_COUNT=$(get_counter "skip")
     echo "============================================================"
 } | tee -a "$LOG_FILE"
 
+# Final memory status
+FINAL_MEMORY_STATS=($(get_memory_stats))
+FINAL_SWAP_MB=${FINAL_MEMORY_STATS[0]}
+FINAL_RAM_PCT=${FINAL_MEMORY_STATS[2]}
+
 # Detailed final log entry
 {
     echo
@@ -411,6 +546,9 @@ SKIP_COUNT=$(get_counter "skip")
     echo "Analysis completed: $(date)"
     echo "Total processing time: $SECONDS seconds"
     echo "Success rate: $(( SUCCESS_COUNT * 100 / (TOTAL_FOLDERS == 0 ? 1 : TOTAL_FOLDERS) ))%"
+    echo "Final memory usage: ${FINAL_RAM_PCT}% RAM, ${FINAL_SWAP_MB}MB swap"
+    echo "Maximum swap usage: ${MAX_SWAP_USAGE_MB}MB (threshold)"
+    echo "Maximum RAM usage: ${MAX_MEMORY_USAGE_PCT}% (threshold)"
     echo "======================================================="
 } >> "$LOG_FILE"
 

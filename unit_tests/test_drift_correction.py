@@ -45,10 +45,12 @@ def create_test_data():
     x_drifted = x_base + drift_x
     y_drifted = y_base + drift_y
 
-    # Create record array
+    # Create record array with error fields (required for render function)
     locs = np.rec.array(
-        (x_drifted, y_drifted, frames, np.ones(n_locs) * 1000),
-        dtype=[("xc", "f4"), ("yc", "f4"), ("frame", "i4"), ("photons", "f4")],
+        (x_drifted, y_drifted, frames, np.ones(n_locs) * 1000, 
+         np.ones(n_locs) * 0.1, np.ones(n_locs) * 0.1),  # Add xc_err, yc_err
+        dtype=[("xc", "f4"), ("yc", "f4"), ("frame", "i4"), ("photons", "f4"),
+               ("xc_err", "f4"), ("yc_err", "f4")],
     )
 
     # Create metadata
@@ -62,6 +64,86 @@ def create_test_data():
     ]
 
     return locs, info, (drift_x, drift_y)
+
+
+def create_fiducial_test_data():
+    """Create synthetic localization data with fiducial markers for testing."""
+    
+    # Generate synthetic localizations with artificial drift and fiducial markers
+    np.random.seed(42)
+    n_locs = 3000  # Fewer locs for fiducial test
+    n_frames = 1000
+    n_fiducials = 5  # Number of fiducial markers
+    
+    # Create fiducial localizations (stationary markers + drift)
+    fiducial_locs = []
+    for fid_id in range(n_fiducials):
+        # Each fiducial has fixed position + some scatter + drift
+        base_x = 20 + fid_id * 15  # Spread fiducials across field
+        base_y = 20 + fid_id * 15
+        
+        # Generate localizations for this fiducial across frames
+        frames_per_fid = n_locs // (n_fiducials * 2)  # About half the locs are fiducials
+        fid_frames = np.random.choice(n_frames, frames_per_fid, replace=True) + 1
+        
+        # Add scatter around fiducial position (realistic localization precision)
+        scatter_x = np.random.normal(0, 0.2, frames_per_fid)  # 20nm scatter
+        scatter_y = np.random.normal(0, 0.2, frames_per_fid) 
+        
+        # Add artificial drift (same as regular molecules)
+        drift_x = 2 * np.sin(2 * np.pi * fid_frames / 200)
+        drift_y = 1.5 * np.cos(2 * np.pi * fid_frames / 300)
+        
+        fid_x = base_x + scatter_x + drift_x
+        fid_y = base_y + scatter_y + drift_y
+        
+        # Store with group ID
+        for i, frame in enumerate(fid_frames):
+            fiducial_locs.append((fid_x[i], fid_y[i], frame, 2000.0, 0.1, 0.1, fid_id))
+    
+    # Add some regular (non-fiducial) localizations
+    remaining_locs = n_locs - len(fiducial_locs)
+    reg_frames = np.random.randint(1, n_frames + 1, remaining_locs)
+    reg_x = np.random.uniform(5, 95, remaining_locs)
+    reg_y = np.random.uniform(5, 95, remaining_locs)
+    
+    # Add drift to regular molecules too
+    reg_drift_x = 2 * np.sin(2 * np.pi * reg_frames / 200)
+    reg_drift_y = 1.5 * np.cos(2 * np.pi * reg_frames / 300)
+    reg_x += reg_drift_x 
+    reg_y += reg_drift_y
+    
+    # Regular molecules get group ID -1 (non-fiducial)
+    for i in range(remaining_locs):
+        fiducial_locs.append((reg_x[i], reg_y[i], reg_frames[i], 1000.0, 0.1, 0.1, -1))
+    
+    # Convert to arrays
+    all_data = np.array(fiducial_locs)
+    
+    # Create record array with group field
+    locs = np.rec.array(
+        (all_data[:, 0], all_data[:, 1], all_data[:, 2].astype(int), 
+         all_data[:, 3], all_data[:, 4], all_data[:, 5], all_data[:, 6].astype(int)),
+        dtype=[("xc", "f4"), ("yc", "f4"), ("frame", "i4"), ("photons", "f4"),
+               ("xc_err", "f4"), ("yc_err", "f4"), ("group", "i4")],
+    )
+    
+    # Create metadata
+    info = [
+        {
+            "Width": 100.0,
+            "Height": 100.0,
+            "Frames": float(n_frames),
+            "Pixelsize": 100.0,  # nm per pixel
+        }
+    ]
+    
+    # True drift for validation
+    drift_frames = np.arange(1, n_frames + 1)
+    true_drift_x = 2 * np.sin(2 * np.pi * drift_frames / 200)
+    true_drift_y = 1.5 * np.cos(2 * np.pi * drift_frames / 300)
+    
+    return locs, info, (true_drift_x, true_drift_y)
 
 
 def test_drift_correction_factory():
@@ -229,6 +311,97 @@ def test_auto_method():
     print()
 
 
+def test_fiducial_method():
+    """Test fiducial-based drift correction method."""
+    print("=== Testing Fiducial Method ===")
+
+    try:
+        locs, info, true_drift = create_fiducial_test_data()
+        DCF = Drift_Correction_Functions()
+
+        print(f"Created {len(locs)} localizations with {len(np.unique(locs.group[locs.group >= 0]))} fiducials")
+        
+        # Test 1: Traditional fiducial correction with existing group field
+        corrected_locs, drift_result = DCF.undrift(
+            locs.copy(), info, method="fiducial"
+        )
+
+        print(f"✓ Traditional fiducial correction completed")
+        print(f"  Method used: {drift_result.method_used.value}")
+        print(
+            f"  Drift range X: [{drift_result.drift_x.min():.2f}, {drift_result.drift_x.max():.2f}]"
+        )
+        print(
+            f"  Drift range Y: [{drift_result.drift_y.min():.2f}, {drift_result.drift_y.max():.2f}]"
+        )
+        print(f"  Metadata: {drift_result.metadata}")
+
+    except Exception as e:
+        import traceback
+        print(f"✗ Traditional fiducial method failed: {e}")
+        print(f"  Details: {traceback.format_exc()}")
+
+    print()
+
+
+def test_fiducial_auto_detection():
+    """Test automatic fiducial detection workflow."""
+    print("=== Testing Automatic Fiducial Detection ===")
+
+    try:
+        # Create fiducial test data but remove the group field to test auto-detection
+        locs_with_groups, info, true_drift = create_fiducial_test_data()
+        
+        # Remove group field to simulate real-world scenario
+        original_dtype = locs_with_groups.dtype
+        new_dtype = np.dtype([desc for desc in original_dtype.descr if desc[0] != 'group'])
+        locs = np.empty(len(locs_with_groups), dtype=new_dtype)
+        
+        # Copy all fields except group
+        for field in new_dtype.names:
+            locs[field] = locs_with_groups[field]
+        locs = locs.view(np.recarray)
+        
+        DCF = Drift_Correction_Functions()
+
+        print(f"Created {len(locs)} localizations without group field (removed from fiducial data)")
+        print("Testing automatic fiducial detection workflow...")
+        
+        # Test the new convenience function with very lenient parameters
+        corrected_locs, drift_result, detection_info = DCF.undrift_with_fiducial_detection(
+            locs.copy(), info,
+            threshold_percentile=80.0,  # Much lower threshold
+            box_size_nm=1500.0,         # Even larger box size
+            min_frames_fraction=0.2     # Very lenient frame requirement (20%)
+        )
+
+        print(f"✓ Automatic fiducial detection completed")
+        print(f"  Detection success: {detection_info['success']}")
+        print(f"  Fiducials found: {detection_info['n_fiducials']}")
+        print(f"  Message: {detection_info['message']}")
+        print(f"  Method used: {drift_result.method_used.value}")
+        print(
+            f"  Drift range X: [{drift_result.drift_x.min():.2f}, {drift_result.drift_x.max():.2f}]"
+        )
+        print(
+            f"  Drift range Y: [{drift_result.drift_y.min():.2f}, {drift_result.drift_y.max():.2f}]"
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"✗ Automatic fiducial detection failed: {e}")
+        print(f"  Details: {traceback.format_exc()}")
+        
+        # If it failed, try to extract troubleshooting info
+        try:
+            # This might give us the detection_info even if the main function failed
+            pass
+        except:
+            pass
+
+    print()
+
+
 def test_backward_compatibility():
     """Test backward compatibility functions."""
     print("=== Testing Backward Compatibility ===")
@@ -261,6 +434,8 @@ def main():
     test_parameter_validation()
     test_rcc_method()
     test_aim_method()
+    test_fiducial_method()
+    test_fiducial_auto_detection()
     test_auto_method()
     test_backward_compatibility()
 
