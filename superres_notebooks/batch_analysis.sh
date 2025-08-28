@@ -2,6 +2,7 @@
 
 # Batch Analysis Script - Process folders individually with Python
 # Each folder gets its own isolated Python process to prevent memory leaks
+# Created for pyBayerSMLM super-resolution analysis pipeline
 
 set -e  # Exit on any error
 
@@ -9,13 +10,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/single_folder_analysis.py"
 LOG_FILE="batch_analysis_$(date +%Y%m%d_%H%M%S).log"
 
-echo "============================================================" | tee -a "$LOG_FILE"
-echo "Starting Batch Analysis - $(date)" | tee -a "$LOG_FILE"
-echo "============================================================" | tee -a "$LOG_FILE"
+# Initialize log file with header
+{
+    echo "============================================================"
+    echo "pyBayerSMLM Batch Analysis - $(date)"
+    echo "============================================================"
+    echo "Script: $(basename "$0")"
+    echo "Location: $SCRIPT_DIR"
+    echo "Python Script: $PYTHON_SCRIPT"
+    echo "Log File: $LOG_FILE"
+    echo "============================================================"
+    echo
+} | tee "$LOG_FILE"
 
-# Function to log with timestamp
+# Function to log with timestamp (detailed to log, summary to console)
 log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+# Function for console output (also logs)
+console_message() {
+    echo "$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
 # Define all folder lists exactly from MemorySafe script
@@ -89,13 +105,28 @@ process_folder() {
     local folder_type="$1"
     local folder_path="$2"
     local wavelength="$3"
+    local folder_name=$(basename "$folder_path")
     
     increment_counter "total"
+    local current_total=$(get_counter "total")
     
-    log_message "Processing: $folder_path (type: $folder_type, wavelength: $wavelength)"
+    # Console progress update
+    echo -n "[$current_total] Processing: $folder_name... "
+    
+    # Detailed logging
+    {
+        echo
+        echo "----------------------------------------"
+        echo "Processing Folder: $folder_path"
+        echo "Type: $folder_type"
+        echo "Wavelength: $wavelength"
+        echo "Started: $(date)"
+        echo "----------------------------------------"
+    } >> "$LOG_FILE"
     
     # Check if Python script exists
     if [ ! -f "$PYTHON_SCRIPT" ]; then
+        echo "ERROR - Script not found"
         log_message "ERROR: Python script not found: $PYTHON_SCRIPT"
         increment_counter "error"
         return 1
@@ -103,11 +134,13 @@ process_folder() {
     
     # Run Python script for single folder (isolated process)
     if python3 "$PYTHON_SCRIPT" "$folder_type" "$folder_path" "$wavelength" >> "$LOG_FILE" 2>&1; then
-        log_message "✅ SUCCESS: $folder_path"
+        echo "✅ SUCCESS"
+        log_message "SUCCESS: Processing completed for $folder_path"
         increment_counter "success"
         return 0
     else
-        log_message "❌ ERROR: $folder_path"
+        echo "❌ ERROR"
+        log_message "ERROR: Processing failed for $folder_path"
         increment_counter "error"
         return 1
     fi
@@ -144,14 +177,16 @@ process_hierarchical() {
     done
 }
 
-log_message "Discovering folders..."
+console_message "Starting folder discovery and processing..."
 
 # Process SM data hierarchical directories
+console_message "Processing SM data directories (${#SM_DATA_DIRS[@]} base directories)..."
 for base_dir in "${SM_DATA_DIRS[@]}"; do
     process_hierarchical "$base_dir" "sm" "0.638"
 done
 
 # Process HeLa folders directly (647nm wavelength)
+console_message "Processing HeLa imaging folders (${#HELA_FOLDERS[@]} folders)..."
 for folder in "${HELA_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.647"
@@ -161,6 +196,7 @@ for folder in "${HELA_FOLDERS[@]}"; do
 done
 
 # Process imaging folders directly (550nm default)
+console_message "Processing general imaging folders (${#IMAGING_FOLDERS[@]} folders)..."
 for folder in "${IMAGING_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.55"
@@ -170,9 +206,12 @@ for folder in "${IMAGING_FOLDERS[@]}"; do
 done
 
 # Process hierarchical imaging directories
+console_message "Processing hierarchical imaging directories (${#HIERARCHICAL_DIRS[@]} base directories)..."
 for base_dir in "${HIERARCHICAL_DIRS[@]}"; do
     process_hierarchical "$base_dir" "imaging" "0.55"
 done
+
+echo  # New line after progress output
 
 # Final summary
 TOTAL_FOLDERS=$(get_counter "total")
@@ -180,22 +219,39 @@ SUCCESS_COUNT=$(get_counter "success")
 ERROR_COUNT=$(get_counter "error")
 SKIP_COUNT=$(get_counter "skip")
 
-echo "============================================================" | tee -a "$LOG_FILE"
-echo "BATCH ANALYSIS COMPLETE - $(date)" | tee -a "$LOG_FILE"
-echo "============================================================" | tee -a "$LOG_FILE"
-log_message "Total folders processed: $TOTAL_FOLDERS"
-log_message "Successful: $SUCCESS_COUNT"
-log_message "Errors: $ERROR_COUNT"
-log_message "Skipped: $SKIP_COUNT"
-log_message "Log saved to: $LOG_FILE"
+# Console summary
+{
+    echo "============================================================"
+    echo "BATCH ANALYSIS COMPLETE - $(date)"
+    echo "============================================================"
+    echo "Total folders processed: $TOTAL_FOLDERS"
+    echo "Successful: $SUCCESS_COUNT"
+    echo "Errors: $ERROR_COUNT"
+    echo "Skipped: $SKIP_COUNT"
+    echo "Detailed log saved to: $LOG_FILE"
+    echo "============================================================"
+} | tee -a "$LOG_FILE"
+
+# Detailed final log entry
+{
+    echo
+    echo "==================== FINAL SUMMARY ===================="
+    echo "Analysis completed: $(date)"
+    echo "Total processing time: $SECONDS seconds"
+    echo "Success rate: $(( SUCCESS_COUNT * 100 / (TOTAL_FOLDERS == 0 ? 1 : TOTAL_FOLDERS) ))%"
+    echo "======================================================="
+} >> "$LOG_FILE"
 
 # Cleanup
 rm -rf "$COUNTER_DIR"
 
 if [ "$ERROR_COUNT" -eq 0 ] && [ "$TOTAL_FOLDERS" -gt 0 ]; then
-    log_message "🎉 All folders processed successfully!"
+    console_message "🎉 All folders processed successfully!"
     exit 0
+elif [ "$TOTAL_FOLDERS" -eq 0 ]; then
+    console_message "⚠️  No folders found to process. Check directory paths."
+    exit 1
 else
-    log_message "⚠️  Some folders had errors. Check the log for details."
+    console_message "⚠️  $ERROR_COUNT/$TOTAL_FOLDERS folders had errors. Check the log for details."
     exit 1
 fi

@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-Single Folder Analysis Script
-Processes one folder and exits - called by bash script for complete isolation
+Single Folder Analysis Script for pyBayerSMLM
+
+Processes one folder and exits - called by batch_analysis.sh for complete isolation.
+Each invocation gets a fresh Python interpreter to prevent memory leaks.
+
+Usage:
+    python3 single_folder_analysis.py <type> <folder_path> <wavelength>
+    
+    type: 'sm' or 'imaging'
+    folder_path: full path to folder to process  
+    wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)
+
+Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
 """
 
 import sys
@@ -23,8 +34,11 @@ def main():
     folder_path = sys.argv[2]
     peak_wavelength = float(sys.argv[3])
     
+    print(f"=== pyBayerSMLM Single Folder Analysis ===")
     print(f"Processing: {folder_path}")
     print(f"Type: {folder_type}, Wavelength: {peak_wavelength}")
+    print(f"Started: {os.popen('date').read().strip()}")
+    print()
     
     # Set up paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
