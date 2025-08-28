@@ -718,19 +718,19 @@ def _detect_puncta_in_images_standalone(
     local_factor: float = 3.0,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
-    
+
     This function creates a temporary instance to perform detection
     since bound methods cannot be pickled for multiprocessing.
     """
     # Import here to ensure all dependencies are available in worker process
     import sys
     import os
-    
+
     # Add src to path if needed (for worker processes)
     module_dir = os.path.abspath(os.path.dirname(__file__))
     if module_dir not in sys.path:
         sys.path.insert(0, module_dir)
-    
+
     try:
         # Create instance with proper error handling
         detector = SpotDetection_Functions()

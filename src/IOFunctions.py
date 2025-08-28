@@ -409,6 +409,157 @@ class IO_Functions:
 
         return raw_data, photoelectron_data, smoothed_data, weights_map
 
+    def convert_to_photoelectrons(
+        self,
+        raw_data,
+        gain_map=1.0,
+        offset_map=0.0,
+        rqe=1.0,
+    ):
+        """
+        Convert raw ADU data to photoelectrons using camera parameters.
+        Memory-efficient version that processes data in-place when possible.
+
+        Args:
+            raw_data (np.ndarray): Raw camera data in ADU
+            gain_map (matrix or float): Gain map. Units: ADU/photoelectrons
+            offset_map (matrix or float): Offset map. Units: ADU
+            rqe (matrix or float): Relative quantum efficiency map
+
+        Returns:
+            np.ndarray: Photoelectron data
+        """
+        if not isinstance(gain_map, (int, float)):
+            if raw_data.shape[-2:] != gain_map.shape:
+                print(
+                    "Gain and offset map not compatible with image dimensions. "
+                    "Defaulting to gain of 1 and offset of 0."
+                )
+                gain_map = 1.0
+                offset_map = 0.0
+
+        if not isinstance(gain_map, (int, float)):
+            if len(raw_data.shape) > 2:
+                photoelectron_data = np.divide(
+                    np.divide(
+                        np.subtract(raw_data, offset_map[np.newaxis, :, :]),
+                        gain_map[np.newaxis, :, :],
+                    ),
+                    rqe[np.newaxis, :, :],
+                )
+            else:
+                photoelectron_data = np.divide(
+                    np.divide(np.subtract(raw_data, offset_map), gain_map), rqe
+                )
+        else:
+            photoelectron_data = np.divide(
+                np.divide(np.subtract(raw_data, offset_map), gain_map), rqe
+            )
+
+        return photoelectron_data
+
+    def apply_smoothing(self, data, smoothing_function, dtype="double"):
+        """
+        Apply smoothing function to data.
+
+        Args:
+            data (np.ndarray): Input data to smooth
+            smoothing_function: Smoothing function object with args and data_arg
+            dtype (str): Output data type
+
+        Returns:
+            np.ndarray: Smoothed data
+        """
+        smoothed_data = data.copy()
+
+        smoothing_args = smoothing_function.args
+        smoothing_args[smoothing_function.data_arg] = smoothed_data
+        smoothed_data = smoothing_function.smoothing_function(**smoothing_args)
+
+        return smoothed_data.astype(dtype)
+
+    def generate_weights(
+        self, smoothed_data, read_noise=1.0, hot_pixel_threshold=20, dtype="double"
+    ):
+        """
+        Generate weights map for fitting from smoothed photoelectron data.
+
+        Args:
+            smoothed_data (np.ndarray): Smoothed photoelectron data
+            read_noise (matrix or float): Read noise map of the camera
+            hot_pixel_threshold (float): Threshold for hot pixel detection
+            dtype (str): Output data type
+
+        Returns:
+            np.ndarray: Weights map for fitting
+        """
+        error_data = smoothed_data.copy()
+        error_data[error_data < 0] = 0
+        error_data = error_data + 1
+
+        if not isinstance(read_noise, (int, float)):
+            if len(smoothed_data.shape) > 2:
+                error_map = np.add(error_data, np.square(read_noise[np.newaxis, :, :]))
+            else:
+                error_map = np.add(error_data, np.square(read_noise))
+        else:
+            error_map = np.add(error_data, np.square(read_noise))
+
+        weights_map = np.power(error_map, -1)
+
+        if not isinstance(read_noise, (int, float)):
+            hot_pixels = read_noise > hot_pixel_threshold
+            if len(smoothed_data.shape) > 2:
+                hot_pixels = np.tile(hot_pixels, (smoothed_data.shape[0], 1, 1))
+            weights_map[hot_pixels] = 1e-8
+
+        return weights_map.astype(dtype)
+
+    def process_roi_to_photoelectrons(
+        self,
+        raw_roi,
+        smoothing_function,
+        gain_map=1.0,
+        offset_map=0.0,
+        rqe=1.0,
+        read_noise=1.0,
+        hot_pixel_threshold=20,
+        dtype="double",
+    ):
+        """
+        Memory-efficient conversion of a single ROI from raw data to photoelectrons,
+        smoothed data, and weights. This is the core function for the new workflow.
+
+        Args:
+            raw_roi (np.ndarray): Raw ROI data
+            smoothing_function: Smoothing function object
+            gain_map (matrix or float): Gain map (ROI-sized or scalar)
+            offset_map (matrix or float): Offset map (ROI-sized or scalar)
+            rqe (matrix or float): Relative quantum efficiency (ROI-sized or scalar)
+            read_noise (matrix or float): Read noise (ROI-sized or scalar)
+            hot_pixel_threshold (float): Hot pixel threshold
+            dtype (str): Output data type
+
+        Returns:
+            tuple: (photoelectron_roi, smoothed_roi, weights_roi)
+        """
+        # Convert to photoelectrons
+        photoelectron_roi = self.convert_to_photoelectrons(
+            raw_roi, gain_map, offset_map, rqe
+        )
+
+        # Apply smoothing
+        smoothed_roi = self.apply_smoothing(
+            photoelectron_roi, smoothing_function, dtype
+        )
+
+        # Generate weights
+        weights_roi = self.generate_weights(
+            smoothed_roi, read_noise, hot_pixel_threshold, dtype
+        )
+
+        return photoelectron_roi, smoothed_roi, weights_roi
+
     def write_tiff(self, volume, file_path, bit="double", pixel_size=0.11):
         """
         Write a TIFF file using the skimage library.

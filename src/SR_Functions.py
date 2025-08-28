@@ -148,18 +148,9 @@ class SuperRes_Functions:
         weights_tofit = []
         relative_coords = []
 
-        raw_data, photoelectron_data, smoothed_data, weights = (
-            IO.read_tiff_tophotoelectrons(
-                file,
-                smoothing_function,
-                dtype=np.float32,
-                frame=1,
-                gain_map=gain_map,
-                offset_map=offset_map,
-                read_noise=read_noise,
-                rqe=rqe,
-            )
-        )
+        # Memory-efficient workflow: Load only raw data first
+        raw_data = IO.read_tiff(file, dtype="float32", frame=1)
+
         detected_puncta = SD_F.detect_puncta_in_image(
             raw_data,
             pfa=pfa,
@@ -169,6 +160,7 @@ class SuperRes_Functions:
             NA=NA,
         )
 
+        # Process only detected ROIs to photoelectrons/smoothed/weights
         for i in np.arange(len(detected_puncta)):
             xcentre = detected_puncta[i, 0]
             ycentre = detected_puncta[i, 1]
@@ -179,12 +171,51 @@ class SuperRes_Functions:
 
             if xmax - xmin != ymax - ymin:
                 continue
-            puncta_tofit.append(photoelectron_data[xmin:xmax, ymin:ymax])
-            smoothed_puncta_tofit.append(smoothed_data[xmin:xmax, ymin:ymax])
+
+            # Extract raw ROI
+            raw_roi = raw_data[xmin:xmax, ymin:ymax]
+
+            # Get camera parameter ROIs
+            roi_gain_map = (
+                gain_map[xmin:xmax, ymin:ymax]
+                if not isinstance(gain_map, (int, float))
+                else gain_map
+            )
+            roi_offset_map = (
+                offset_map[xmin:xmax, ymin:ymax]
+                if not isinstance(offset_map, (int, float))
+                else offset_map
+            )
+            roi_rqe = (
+                rqe[xmin:xmax, ymin:ymax] if not isinstance(rqe, (int, float)) else rqe
+            )
+            roi_read_noise = (
+                read_noise[xmin:xmax, ymin:ymax]
+                if not isinstance(read_noise, (int, float))
+                else read_noise
+            )
+
+            # Convert ROI to photoelectrons, smoothed, and weights
+            photoelectron_roi, smoothed_roi, weights_roi = (
+                IO.process_roi_to_photoelectrons(
+                    raw_roi,
+                    smoothing_function,
+                    gain_map=roi_gain_map,
+                    offset_map=roi_offset_map,
+                    rqe=roi_rqe,
+                    read_noise=roi_read_noise,
+                    dtype="float32",
+                )
+            )
+
+            puncta_tofit.append(photoelectron_roi)
+            smoothed_puncta_tofit.append(smoothed_roi)
             masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
-            weights_tofit.append(weights[xmin:xmax, ymin:ymax])
+            weights_tofit.append(weights_roi)
             relative_coords.append((xmin, ymin))
-        del smoothed_data, weights
+
+        # Clean up raw data
+        del raw_data
         gc.collect()
 
         fit_results, _ = I_AF.fit_puncta_parallel_method(
@@ -482,17 +513,10 @@ class SuperRes_Functions:
             planes = []
 
             fit_savename = file.split(".")[0] + ".h5"
-            raw_data, photoelectron_data, smoothed_data, weights = (
-                IO.read_tiff_tophotoelectrons(
-                    file,
-                    smoothing_function,
-                    dtype=np.float32,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    read_noise=read_noise,
-                    rqe=rqe,
-                )
-            )
+
+            # Memory-efficient workflow: Load only raw data first
+            raw_data = IO.read_tiff(file, dtype="float32")
+
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
                 raw_data,
                 pfa=pfa,
@@ -501,6 +525,8 @@ class SuperRes_Functions:
                 pixel_size=pixel_size,
                 NA=NA,
             )
+
+            # Process only detected ROIs to photoelectrons/smoothed/weights
             for i in np.arange(len(detected_puncta)):
                 xcentre = detected_puncta[i, 0]
                 ycentre = detected_puncta[i, 1]
@@ -512,13 +538,53 @@ class SuperRes_Functions:
 
                 if xmax - xmin != ymax - ymin:
                     continue
-                puncta_tofit.append(photoelectron_data[frame, xmin:xmax, ymin:ymax])
-                smoothed_puncta_tofit.append(smoothed_data[frame, xmin:xmax, ymin:ymax])
+
+                # Extract raw ROI from specific frame
+                raw_roi = raw_data[frame, xmin:xmax, ymin:ymax]
+
+                # Get camera parameter ROIs
+                roi_gain_map = (
+                    gain_map[xmin:xmax, ymin:ymax]
+                    if not isinstance(gain_map, (int, float))
+                    else gain_map
+                )
+                roi_offset_map = (
+                    offset_map[xmin:xmax, ymin:ymax]
+                    if not isinstance(offset_map, (int, float))
+                    else offset_map
+                )
+                roi_rqe = (
+                    rqe[xmin:xmax, ymin:ymax]
+                    if not isinstance(rqe, (int, float))
+                    else rqe
+                )
+                roi_read_noise = (
+                    read_noise[xmin:xmax, ymin:ymax]
+                    if not isinstance(read_noise, (int, float))
+                    else read_noise
+                )
+
+                # Convert ROI to photoelectrons, smoothed, and weights
+                photoelectron_roi, smoothed_roi, weights_roi = (
+                    IO.process_roi_to_photoelectrons(
+                        raw_roi,
+                        smoothing_function,
+                        gain_map=roi_gain_map,
+                        offset_map=roi_offset_map,
+                        rqe=roi_rqe,
+                        read_noise=roi_read_noise,
+                        dtype="float32",
+                    )
+                )
+
+                puncta_tofit.append(photoelectron_roi)
+                smoothed_puncta_tofit.append(smoothed_roi)
                 masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
-                weights_tofit.append(weights[frame, xmin:xmax, ymin:ymax])
+                weights_tofit.append(weights_roi)
                 relative_coords.append((xmin, ymin))
                 planes.append(frame)
-            del photoelectron_data, smoothed_data, weights, detected_puncta
+
+            del raw_data, detected_puncta
             gc.collect()
 
             fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
@@ -644,17 +710,9 @@ class SuperRes_Functions:
             relative_coords = []
             planes = []
 
-            raw_data, photoelectron_data, smoothed_data, weights = (
-                IO.read_tiff_tophotoelectrons(
-                    file,
-                    smoothing_function,
-                    dtype=np.float32,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    read_noise=read_noise,
-                    rqe=rqe,
-                )
-            )
+            # Memory-efficient workflow: Load only raw data first
+            raw_data = IO.read_tiff(file, dtype="float32")
+
             detected_puncta = SD_F.detect_puncta_in_stack_parallel(
                 raw_data,
                 pfa=pfa,
@@ -663,6 +721,11 @@ class SuperRes_Functions:
                 pixel_size=pixel_size,
                 NA=NA,
             )
+
+            # Track the highest frame number for this file
+            file_frames = raw_data.shape[0] if len(raw_data.shape) > 2 else 1
+
+            # Process only detected ROIs to photoelectrons/smoothed/weights
             for i in np.arange(len(detected_puncta)):
                 xcentre = detected_puncta[i, 0]
                 ycentre = detected_puncta[i, 1]
@@ -674,14 +737,58 @@ class SuperRes_Functions:
 
                 if xmax - xmin != ymax - ymin:
                     continue
-                puncta_tofit.append(photoelectron_data[frame, xmin:xmax, ymin:ymax])
-                smoothed_puncta_tofit.append(smoothed_data[frame, xmin:xmax, ymin:ymax])
+
+                # Extract raw ROI from specific frame
+                raw_roi = (
+                    raw_data[frame, xmin:xmax, ymin:ymax]
+                    if len(raw_data.shape) > 2
+                    else raw_data[xmin:xmax, ymin:ymax]
+                )
+
+                # Get camera parameter ROIs
+                roi_gain_map = (
+                    gain_map[xmin:xmax, ymin:ymax]
+                    if not isinstance(gain_map, (int, float))
+                    else gain_map
+                )
+                roi_offset_map = (
+                    offset_map[xmin:xmax, ymin:ymax]
+                    if not isinstance(offset_map, (int, float))
+                    else offset_map
+                )
+                roi_rqe = (
+                    rqe[xmin:xmax, ymin:ymax]
+                    if not isinstance(rqe, (int, float))
+                    else rqe
+                )
+                roi_read_noise = (
+                    read_noise[xmin:xmax, ymin:ymax]
+                    if not isinstance(read_noise, (int, float))
+                    else read_noise
+                )
+
+                # Convert ROI to photoelectrons, smoothed, and weights
+                photoelectron_roi, smoothed_roi, weights_roi = (
+                    IO.process_roi_to_photoelectrons(
+                        raw_roi,
+                        smoothing_function,
+                        gain_map=roi_gain_map,
+                        offset_map=roi_offset_map,
+                        rqe=roi_rqe,
+                        read_noise=roi_read_noise,
+                        dtype="float32",
+                    )
+                )
+
+                puncta_tofit.append(photoelectron_roi)
+                smoothed_puncta_tofit.append(smoothed_roi)
                 masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
-                weights_tofit.append(weights[frame, xmin:xmax, ymin:ymax])
+                weights_tofit.append(weights_roi)
                 relative_coords.append((xmin, ymin))
                 planes.append(frame + total_frames)
-            total_frames += frame
-            del photoelectron_data, smoothed_data, weights, detected_puncta
+
+            total_frames += file_frames
+            del raw_data, detected_puncta
             gc.collect()
 
             fit_results, fit_errors = I_AF.fit_puncta_parallel_method(

@@ -1240,19 +1240,19 @@ def _fit_puncta_method_standalone(
     masks: Optional[List[np.ndarray]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Standalone version of fit_puncta_method for multiprocessing.
-    
+
     This function creates a temporary instance to perform fitting
     since bound methods cannot be pickled for multiprocessing.
     """
     # Import here to ensure all dependencies are available in worker process
     import sys
     import os
-    
+
     # Add src to path if needed (for worker processes)
     module_dir = os.path.abspath(os.path.dirname(__file__))
     if module_dir not in sys.path:
         sys.path.insert(0, module_dir)
-    
+
     try:
         # Create instance with proper error handling
         fitter = Image_Analysis_Functions()
