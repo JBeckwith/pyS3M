@@ -30,8 +30,8 @@ class IO_Functions:
 
     def _write_h5_database(self, df, filepath, append=False, normalise_photons=True):
         if df.shape[0] > 0:
-            # first, remove any columns that are all NaN
-            df = df.dropna(axis=1, how="all")
+            # first, remove any rows that are all NaN
+            df = df.dropna(axis=0, how="all")
             df["frame"] = pd.to_numeric(
                 df["frame"], downcast="integer", errors="coerce"
             )

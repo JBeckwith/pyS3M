@@ -44,11 +44,14 @@ The codebase follows a modular architecture with specialized function classes:
 
 **Utilities:**
 - `IOFunctions.py` - File I/O operations for microscopy data
+  - **REFACTORED (August 28, 2025)**: Memory-efficient image processing workflow with 4 new functions for ROI-based photoelectron conversion, reducing peak memory from 4x to 1x file size
 - `CalibrationFunctions.py` - Camera calibration routines
 - `PlottingFunctions.py` - Visualization functions
   - **REFACTORED**: Google-style docstrings, DRY principles, constants organization
 - `SpotDetectionFunctions.py` - Fluorescent spot identification
 - `MaskFunctions.py` - Spatial masking operations
+- `SR_Functions.py` - Super-resolution analysis workflows
+  - **REFACTORED (August 28, 2025)**: Updated to use memory-efficient ROI processing workflow in 3 main analysis functions
 
 **Legacy Integration:**
 - `lib.py`, `localise.py`, `postprocess.py`, `render.py` - Adapted from Picasso SMLM package
@@ -210,7 +213,23 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
 
 ## Recent Major Refactoring (August 15, 2025)
 
-### **Latest Updates (August 27, 2025)**
+### **Latest Updates (August 28, 2025)**
+
+**Memory-Efficient Image Processing Refactor [COMPLETED - August 28, 2025]:**
+- ✅ **IOFunctions.py enhancement**: Added 4 new functions for memory-efficient ROI processing
+  - `convert_to_photoelectrons()` - Raw ADU to photoelectron conversion
+  - `apply_smoothing()` - Data smoothing operations
+  - `generate_weights()` - Weights map generation for fitting
+  - `process_roi_to_photoelectrons()` - **Core unified ROI processing pipeline**
+- ✅ **SR_Functions.py workflow update**: Updated 3 main analysis functions to use ROI-based processing
+  - `example_spots_singleframe()` - Single frame analysis with on-demand plotting data
+  - `fit_SM_data()` - Multi-frame batch analysis 
+  - `fit_imaging_data()` - Cross-file analysis
+- ✅ **Memory optimization achieved**: Peak memory usage reduced from 4x file size to 1x file size
+- ✅ **Processing efficiency**: Only detected ROIs converted to photoelectrons/smoothed/weights
+- ✅ **Batch analysis cleanup**: Removed SM_DATA_DIRS processing from `batch_analysis.sh`
+
+**Previous Updates (August 27, 2025)**
 
 **Memory Leak Analysis and Diagnosis [COMPLETED - August 27, 2025]:**
 - ✅ **Comprehensive codebase analysis**: Identified critical memory leak patterns causing terminal crashes

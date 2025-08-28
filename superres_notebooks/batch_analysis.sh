@@ -35,6 +35,21 @@ console_message() {
 }
 
 # Define all folder lists exactly from MemorySafe script
+declare -a SM_DATA_DIRS=(
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250819_TetraspeckCalibration'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717 BiotinDyes/ATTO488_50PM_PCA_PCD'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO520_50pM_PCAPCDTx'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTORho6G_50pM_PCAPCDTx'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto565_PCA_PCD_Tx_50pMDye'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto620_PCA_PCD_Tx_50pMDye'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250711 Biotinylated Dyes/Atto633_PCA_PCD_Tx_100pMDye'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto647N_PCA_PCD_Tx_20pMDye'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO655_50PM _PCA_PCD'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/29250717 BiotinDyes/ATTO700_50PM _PCA_PCD'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250609_dyes/data'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto594_PCA_PCD_Tx_50pMDye'
+)
 
 declare -a HELA_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell3_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
@@ -164,7 +179,11 @@ process_hierarchical() {
 
 console_message "Starting folder discovery and processing..."
 
-# SM data processing removed - no longer needed
+# Process SM data hierarchical directories
+console_message "Processing SM data directories (${#SM_DATA_DIRS[@]} base directories)..."
+for base_dir in "${SM_DATA_DIRS[@]}"; do
+    process_hierarchical "$base_dir" "sm" "0.638"
+done
 
 # Process HeLa folders directly (647nm wavelength)
 console_message "Processing HeLa imaging folders (${#HELA_FOLDERS[@]} folders)..."
