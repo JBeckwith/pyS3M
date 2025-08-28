@@ -243,6 +243,12 @@ class SuperRes_Functions:
         ]
         fit_results = pd.DataFrame(fit_results, columns=columns)
 
+        # For plotting, generate photoelectron data on demand
+        raw_data = IO.read_tiff(file, dtype="float32", frame=1)
+        photoelectron_data = IO.convert_to_photoelectrons(
+            raw_data, gain_map, offset_map, rqe
+        )
+
         fig, axs = plotter.two_column_plot(
             ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
         )
@@ -299,6 +305,11 @@ class SuperRes_Functions:
         )
         axs[1, 1].set_ylim([min_y, max_y])
         axs[1, 1].set_xlim([min_x, max_x])
+
+        # Clean up plotting data
+        del raw_data, photoelectron_data
+        gc.collect()
+
         return fig, axs
 
     def fit_FRET_data(

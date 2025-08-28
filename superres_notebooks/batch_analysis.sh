@@ -35,9 +35,6 @@ console_message() {
 }
 
 # Define all folder lists exactly from MemorySafe script
-declare -a SM_DATA_DIRS=(
-    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250714_BiotinylatedDyes/Atto594_PCA_PCD_Tx_50pMDye'
-)
 
 declare -a HELA_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell3_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_1'
@@ -167,11 +164,7 @@ process_hierarchical() {
 
 console_message "Starting folder discovery and processing..."
 
-# Process SM data hierarchical directories
-console_message "Processing SM data directories (${#SM_DATA_DIRS[@]} base directories)..."
-for base_dir in "${SM_DATA_DIRS[@]}"; do
-    process_hierarchical "$base_dir" "sm" "0.638"
-done
+# SM data processing removed - no longer needed
 
 # Process HeLa folders directly (647nm wavelength)
 console_message "Processing HeLa imaging folders (${#HELA_FOLDERS[@]} folders)..."
