@@ -227,7 +227,8 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
   - `fit_imaging_data()` - Cross-file analysis
 - ✅ **Memory optimization achieved**: Peak memory usage reduced from 4x file size to 1x file size
 - ✅ **Processing efficiency**: Only detected ROIs converted to photoelectrons/smoothed/weights
-- ✅ **Batch analysis cleanup**: Removed SM_DATA_DIRS processing from `batch_analysis.sh`
+- ✅ **HDF5 append bug fix**: Corrected `dropna(axis=1, how='all')` → `dropna(axis=0, how='all')` to preserve column structure
+- ✅ **Batch analysis restored**: Added complete SM dataset list (13 datasets) including Tetraspeck calibration and biotinylated dyes
 
 **Previous Updates (August 27, 2025)**
 
