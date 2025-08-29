@@ -16,6 +16,7 @@ import scipy.ndimage
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
+from Constants import CalibrationConstants
 
 IO = IOFunctions.IO_Functions()
 
@@ -151,13 +152,13 @@ class Calibration_Functions:
             np.swapaxes(np.swapaxes(A, -1, 0), -1, -2),
             A_filepath,
             bit=float,
-            pixel_size=3.45,
+            pixel_size=CalibrationConstants.PIXEL_SIZE,
         )
         IO.write_tiff(
             np.swapaxes(np.swapaxes(B, -1, 0), -1, -2),
             B_filepath,
             bit=float,
-            pixel_size=3.45,
+            pixel_size=CalibrationConstants.PIXEL_SIZE,
         )
 
         gain = np.zeros_like(offset)
@@ -241,7 +242,7 @@ class Calibration_Functions:
         """
         corrected_image = np.divide(np.subtract(intensity_image, offset), gain)
         smoothed_image = scipy.ndimage.uniform_filter(
-            corrected_image, size=10, mode="nearest"
+            corrected_image, size=CalibrationConstants.SMOOTHING_SIZE, mode="nearest"
         )
         rqe = np.divide(corrected_image, smoothed_image)
         return rqe
@@ -301,15 +302,19 @@ class Calibration_Functions:
                         frame = IO.read_tiff(os.path.join(directory, file), n_frames)
                         n_frames += 1
                         offset = np.add(offset, frame)
-                    except:
+                    except (IOError, OSError, IndexError, ValueError) as e:
                         finished = 1
             framesCounter = framesCounter + n_frames
             elapsed = time.time() - start
-            if elapsed > 60:
-                elapsed_display = elapsed / 60
+            if elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES:
+                elapsed_display = (
+                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES
+                )
                 timestring = "min"
-            elif elapsed > np.square(60):
-                elapsed_display = elapsed / np.square(60)
+            elif elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS:
+                elapsed_display = (
+                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS
+                )
                 timestring = "hours"
             else:
                 elapsed_display = elapsed
@@ -390,16 +395,20 @@ class Calibration_Functions:
                         variance = np.add(
                             variance, np.subtract(np.square(frame), offset_sq)
                         )
-                    except:
+                    except (IOError, OSError, IndexError, ValueError) as e:
                         finished = 1
             framesCounter = framesCounter + n_frames
 
             elapsed = time.time() - start
-            if elapsed > 60:
-                elapsed_display = elapsed / 60
+            if elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES:
+                elapsed_display = (
+                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES
+                )
                 timestring = "min"
-            elif elapsed > np.square(60):
-                elapsed_display = elapsed / np.square(60)
+            elif elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS:
+                elapsed_display = (
+                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS
+                )
                 timestring = "hours"
             else:
                 elapsed_display = elapsed

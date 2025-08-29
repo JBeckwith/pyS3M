@@ -16,13 +16,6 @@ import IOFunctions
 
 IO = IOFunctions.IO_Functions()
 
-import sCMOSFunctions
-
-sCMOS = sCMOSFunctions.sCMOS_Functions()
-
-import PSFFunctions
-
-PSF_F = PSFFunctions.PSF_Functions()
 
 import HelperFunctions
 
@@ -84,6 +77,88 @@ class SuperRes_Functions:
 
         fit_results = fit_results.reset_index()
         return fit_results
+
+    def _process_roi(
+        self,
+        photoelectron_data,
+        detected_puncta,
+        i,
+        width,
+        height,
+        ROI_size,
+        smoothing_function,
+        read_noise,
+        masks,
+        frame_offset=0,
+        is_multi_frame=False,
+    ):
+        """
+        Process a single detected ROI to extract photoelectron data, smoothed data, and weights.
+
+        Args:
+            photoelectron_data (np.ndarray): Full photoelectron image data
+            detected_puncta (np.ndarray): Array of detected puncta coordinates
+            i (int): Index of current puncta to process
+            width (int): Image width
+            height (int): Image height
+            ROI_size (int): Size of ROI to extract
+            smoothing_function: Function for smoothing data
+            read_noise: Read noise map or scalar
+            masks (np.ndarray): Color masks
+            frame_offset (int): Frame offset for plane labeling
+            is_multi_frame (bool): Whether data has multiple frames
+
+        Returns:
+            tuple or None: (photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane)
+                          Returns None if ROI is invalid (not square)
+        """
+        xcentre = detected_puncta[i, 0]
+        ycentre = detected_puncta[i, 1]
+        frame = detected_puncta[i, 2] if is_multi_frame else 0
+
+        # Calculate ROI boundaries
+        xmin = np.max([0, int(xcentre - ROI_size / 2)])
+        xmax = np.min([int(xcentre + ROI_size / 2), width])
+        ymin = np.max([0, int(ycentre - ROI_size / 2)])
+        ymax = np.min([int(ycentre + ROI_size / 2), height])
+
+        # Skip non-square ROIs
+        if xmax - xmin != ymax - ymin:
+            return None
+
+        # Extract photoelectron ROI
+        if is_multi_frame:
+            photoelectron_roi = (
+                photoelectron_data[frame, xmin:xmax, ymin:ymax]
+                if len(photoelectron_data.shape) > 2
+                else photoelectron_data[xmin:xmax, ymin:ymax]
+            )
+        else:
+            photoelectron_roi = photoelectron_data[xmin:xmax, ymin:ymax]
+
+        # Extract read_noise ROI for weights calculation
+        read_noise_roi = (
+            read_noise[xmin:xmax, ymin:ymax]
+            if not isinstance(read_noise, (int, float))
+            else read_noise
+        )
+
+        # Generate smoothed and weights only for this ROI
+        smoothed_roi = IO.apply_smoothing(
+            photoelectron_roi, smoothing_function, dtype="float32"
+        )
+        weights_roi = IO.generate_weights(
+            smoothed_roi, read_noise=read_noise_roi, dtype="float32"
+        )
+
+        # Extract mask ROI
+        mask_roi = masks[xmin:xmax, ymin:ymax, :]
+
+        # Return processed data and metadata
+        coords = (xmin, ymin)
+        plane = frame + frame_offset
+
+        return photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane
 
     def example_spots_singleframe(
         self,
@@ -169,39 +244,30 @@ class SuperRes_Functions:
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
         for i in np.arange(len(detected_puncta)):
-            xcentre = detected_puncta[i, 0]
-            ycentre = detected_puncta[i, 1]
-            xmin = np.max([0, int(xcentre - ROI_size / 2)])
-            xmax = np.min([int(xcentre + ROI_size / 2), width])
-            ymin = np.max([0, int(ycentre - ROI_size / 2)])
-            ymax = np.min([int(ycentre + ROI_size / 2), height])
+            result = self._process_roi(
+                photoelectron_data,
+                detected_puncta,
+                i,
+                width,
+                height,
+                ROI_size,
+                smoothing_function,
+                read_noise,
+                masks,
+                frame_offset=0,
+                is_multi_frame=False,
+            )
 
-            if xmax - xmin != ymax - ymin:
+            if result is None:
                 continue
 
-            # Extract photoelectron ROI
-            photoelectron_roi = photoelectron_data[xmin:xmax, ymin:ymax]
-
-            # Extract read_noise ROI for weights calculation
-            read_noise_roi = (
-                read_noise[xmin:xmax, ymin:ymax]
-                if not isinstance(read_noise, (int, float))
-                else read_noise
-            )
-
-            # Generate smoothed and weights only for this ROI
-            smoothed_roi = IO.apply_smoothing(
-                photoelectron_roi, smoothing_function, dtype="float32"
-            )
-            weights_roi = IO.generate_weights(
-                smoothed_roi, read_noise=read_noise_roi, dtype="float32"
-            )
+            photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, _ = result
 
             puncta_tofit.append(photoelectron_roi)
             smoothed_puncta_tofit.append(smoothed_roi)
-            masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
+            masks_tofit.append(mask_roi)
             weights_tofit.append(weights_roi)
-            relative_coords.append((xmin, ymin))
+            relative_coords.append(coords)
         gc.collect()
 
         fit_results, _ = I_AF.fit_puncta_parallel_method(
@@ -433,12 +499,13 @@ class SuperRes_Functions:
         pixel_size=0.069,
         image_type=".tif",
     ):
-        """fiducial_correction function
-            analyses where fiducials are for images in image folder given boxes
+        """Single-molecule data fitting function.
+
+        Analyzes single-molecule localization microscopy data by detecting puncta
+        and fitting them with Gaussian models to extract precise positions and photon counts.
 
         Args:
-            fiducial_boxes (dict): dictionary of fiducial boxes.
-            image_folder (str): where the images are
+            image_folder (str): Path to folder containing image files
             smoothing_function (type): function to smooth data
             gain_map (np.2darray): 2darray of gain map
             offset_map (np.2darray): 2darray of offset map
@@ -524,41 +591,38 @@ class SuperRes_Functions:
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
             for i in np.arange(len(detected_puncta)):
-                xcentre = detected_puncta[i, 0]
-                ycentre = detected_puncta[i, 1]
-                frame = detected_puncta[i, 2]
-                xmin = np.max([0, int(xcentre - ROI_size / 2)])
-                xmax = np.min([int(xcentre + ROI_size / 2), width])
-                ymin = np.max([0, int(ycentre - ROI_size / 2)])
-                ymax = np.min([int(ycentre + ROI_size / 2), height])
+                result = self._process_roi(
+                    photoelectron_data,
+                    detected_puncta,
+                    i,
+                    width,
+                    height,
+                    ROI_size,
+                    smoothing_function,
+                    read_noise,
+                    masks,
+                    frame_offset=0,
+                    is_multi_frame=True,
+                )
 
-                if xmax - xmin != ymax - ymin:
+                if result is None:
                     continue
 
-                # Extract photoelectron ROI
-                photoelectron_roi = photoelectron_data[frame, xmin:xmax, ymin:ymax]
-
-                # Extract read_noise ROI for weights calculation
-                read_noise_roi = (
-                    read_noise[xmin:xmax, ymin:ymax]
-                    if not isinstance(read_noise, (int, float))
-                    else read_noise
-                )
-
-                # Generate smoothed and weights only for this ROI
-                smoothed_roi = IO.apply_smoothing(
-                    photoelectron_roi, smoothing_function, dtype="float32"
-                )
-                weights_roi = IO.generate_weights(
-                    smoothed_roi, read_noise=read_noise_roi, dtype="float32"
-                )
+                (
+                    photoelectron_roi,
+                    smoothed_roi,
+                    weights_roi,
+                    mask_roi,
+                    coords,
+                    plane,
+                ) = result
 
                 puncta_tofit.append(photoelectron_roi)
                 smoothed_puncta_tofit.append(smoothed_roi)
-                masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
+                masks_tofit.append(mask_roi)
                 weights_tofit.append(weights_roi)
-                relative_coords.append((xmin, ymin))
-                planes.append(frame)
+                relative_coords.append(coords)
+                planes.append(plane)
 
             del photoelectron_data, detected_puncta
             gc.collect()
@@ -609,12 +673,13 @@ class SuperRes_Functions:
         pixel_size=0.069,
         image_type=".tif",
     ):
-        """fiducial_correction function
-            analyses where fiducials are for images in image folder given boxes
+        """Cross-file imaging data fitting function.
+
+        Analyzes imaging data across multiple files by detecting puncta and fitting them
+        with Gaussian models, maintaining frame numbering consistency across files.
 
         Args:
-            fiducial_boxes (dict): dictionary of fiducial boxes.
-            image_folder (str): where the images are
+            image_folder (str): Path to folder containing image files
             smoothing_function (type): function to smooth data
             gain_map (np.2darray): 2darray of gain map
             offset_map (np.2darray): 2darray of offset map
@@ -707,45 +772,38 @@ class SuperRes_Functions:
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
             for i in np.arange(len(detected_puncta)):
-                xcentre = detected_puncta[i, 0]
-                ycentre = detected_puncta[i, 1]
-                frame = detected_puncta[i, 2]
-                xmin = np.max([0, int(xcentre - ROI_size / 2)])
-                xmax = np.min([int(xcentre + ROI_size / 2), width])
-                ymin = np.max([0, int(ycentre - ROI_size / 2)])
-                ymax = np.min([int(ycentre + ROI_size / 2), height])
+                result = self._process_roi(
+                    photoelectron_data,
+                    detected_puncta,
+                    i,
+                    width,
+                    height,
+                    ROI_size,
+                    smoothing_function,
+                    read_noise,
+                    masks,
+                    frame_offset=total_frames,
+                    is_multi_frame=True,
+                )
 
-                if xmax - xmin != ymax - ymin:
+                if result is None:
                     continue
 
-                # Extract photoelectron ROI
-                photoelectron_roi = (
-                    photoelectron_data[frame, xmin:xmax, ymin:ymax]
-                    if len(photoelectron_data.shape) > 2
-                    else photoelectron_data[xmin:xmax, ymin:ymax]
-                )
-
-                # Extract read_noise ROI for weights calculation
-                read_noise_roi = (
-                    read_noise[xmin:xmax, ymin:ymax]
-                    if not isinstance(read_noise, (int, float))
-                    else read_noise
-                )
-
-                # Generate smoothed and weights only for this ROI
-                smoothed_roi = IO.apply_smoothing(
-                    photoelectron_roi, smoothing_function, dtype="float32"
-                )
-                weights_roi = IO.generate_weights(
-                    smoothed_roi, read_noise=read_noise_roi, dtype="float32"
-                )
+                (
+                    photoelectron_roi,
+                    smoothed_roi,
+                    weights_roi,
+                    mask_roi,
+                    coords,
+                    plane,
+                ) = result
 
                 puncta_tofit.append(photoelectron_roi)
                 smoothed_puncta_tofit.append(smoothed_roi)
-                masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
+                masks_tofit.append(mask_roi)
                 weights_tofit.append(weights_roi)
-                relative_coords.append((xmin, ymin))
-                planes.append(frame + total_frames)
+                relative_coords.append(coords)
+                planes.append(plane)
 
             total_frames += file_frames
             del photoelectron_data, detected_puncta

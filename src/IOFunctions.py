@@ -236,7 +236,7 @@ class IO_Functions:
         try:
             with open(filename, "r", encoding=encoding) as file:
                 data = json.load(file)
-        except:
+        except (UnicodeDecodeError, LookupError) as e:
             with open(filename, "r") as file:
                 data = json.load(file)
         return data

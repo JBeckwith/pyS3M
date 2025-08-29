@@ -12,6 +12,7 @@ from numba import jit
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+from Constants import ProcessingConstants, DefaultParameters
 
 import pathos
 from pathos.pools import ThreadPool as Pool
@@ -490,8 +491,8 @@ class PSF_Functions:
         labelled_pixels,
         background_pixels,
         n_photons=4000,
-        n_photons_b=1000,
-        n_frames=100,
+        n_photons_b=DefaultParameters.N_PHOTONS,
+        n_frames=DefaultParameters.N_FRAMES,
         labelling_density=0.2,
         pixel_size=0.11,
         imaging_wavelength=0.520,
@@ -582,7 +583,7 @@ class PSF_Functions:
         image_size,
         labelled_pixels,
         n_photons=4000,
-        n_frames=100,
+        n_frames=DefaultParameters.N_FRAMES,
         labelling_density=0.2,
         pixel_size=0.11,
         imaging_wavelength=0.520,

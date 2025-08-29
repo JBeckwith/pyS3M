@@ -10,6 +10,12 @@
 
 import numba as _numba
 import numpy as _np
+import sys
+import os
+
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+from Constants import ProcessingConstants
 from lmfit import Model as _Model
 from numpy.lib.recfunctions import append_fields as _append_fields
 from numpy.lib.recfunctions import drop_fields as _drop_fields
@@ -67,8 +73,8 @@ def calculate_optimal_bins(data, max_n_bins=None):
     try:
         n_bins = (data.max() - bin_min) / bin_size
         n_bins = int(n_bins)
-    except:
-        n_bins = 10
+    except (ValueError, OverflowError, ZeroDivisionError) as e:
+        n_bins = ProcessingConstants.N_BINS_FALLBACK
     if max_n_bins and n_bins > max_n_bins:
         n_bins = max_n_bins
     bins = _np.linspace(bin_min, data.max(), n_bins)

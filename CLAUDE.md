@@ -119,15 +119,20 @@ Start with `notebooks/Basic_Camera_Example.ipynb` to understand the core workflo
 
 ## Key Development Patterns
 
+**Spelling Convention:** **ALWAYS use British English spelling** throughout the codebase for consistency and professionalism:
+- "optimise" (not "optimize"), "normalise" (not "normalize"), "centre" (not "center"), "colour" (not "color"), "analyse" (not "analyze")
+- External library compatibility preserved (matplotlib.colors, scipy.optimize retain American spelling)
+- This standard applies to all code, comments, docstrings, and documentation
+
 **Function Organization:** Each module typically implements a class with related methods rather than standalone functions.
-- **Recent Improvements**: Anti-pattern empty `__init__` methods being replaced with proper initialization
+- **Recent Improvements**: Anti-pattern empty `__init__` methods being replaced with proper initialisation
 - **Strategy Pattern**: Used in refactored modules for handling different data types and processing methods
 
 **Data Handling:** Heavy use of numpy/pandas for numerical data, with polars for performance-critical operations.
-- **Database Integration**: DuckDB for spectral data with optimized query patterns
+- **Database Integration**: DuckDB for spectral data with optimised query patterns
 - **Type Safety**: Comprehensive type hints being added across refactored modules
 
-**Parallelization:** Uses multiprocessing for image analysis tasks (see `ImageAnalysisFunctions.py`).
+**Parallelisation:** Uses multiprocessing for image analysis tasks (see `ImageAnalysisFunctions.py`).
 - **CRITICAL**: ProcessPoolExecutor instances must use context managers to prevent resource leaks
 - **Memory leak patterns identified**: ProcessPoolExecutor, ThreadPoolExecutor, and matplotlib figure cleanup issues
 
