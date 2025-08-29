@@ -177,9 +177,16 @@ class SuperRes_Functions:
             # Extract photoelectron ROI
             photoelectron_roi = photoelectron_data[xmin:xmax, ymin:ymax]
             
+            # Extract read_noise ROI for weights calculation
+            read_noise_roi = (
+                read_noise[xmin:xmax, ymin:ymax]
+                if not isinstance(read_noise, (int, float))
+                else read_noise
+            )
+            
             # Generate smoothed and weights only for this ROI
             smoothed_roi = IO.apply_smoothing(photoelectron_roi, smoothing_function, dtype="float32")
-            weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise, dtype="float32")
+            weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise_roi, dtype="float32")
 
             puncta_tofit.append(photoelectron_roi)
             smoothed_puncta_tofit.append(smoothed_roi)
@@ -522,9 +529,16 @@ class SuperRes_Functions:
                 # Extract photoelectron ROI
                 photoelectron_roi = photoelectron_data[frame, xmin:xmax, ymin:ymax]
                 
+                # Extract read_noise ROI for weights calculation
+                read_noise_roi = (
+                    read_noise[xmin:xmax, ymin:ymax]
+                    if not isinstance(read_noise, (int, float))
+                    else read_noise
+                )
+                
                 # Generate smoothed and weights only for this ROI
                 smoothed_roi = IO.apply_smoothing(photoelectron_roi, smoothing_function, dtype="float32")
-                weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise, dtype="float32")
+                weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise_roi, dtype="float32")
 
                 puncta_tofit.append(photoelectron_roi)
                 smoothed_puncta_tofit.append(smoothed_roi)
@@ -696,9 +710,16 @@ class SuperRes_Functions:
                     else photoelectron_data[xmin:xmax, ymin:ymax]
                 )
                 
+                # Extract read_noise ROI for weights calculation
+                read_noise_roi = (
+                    read_noise[xmin:xmax, ymin:ymax]
+                    if not isinstance(read_noise, (int, float))
+                    else read_noise
+                )
+                
                 # Generate smoothed and weights only for this ROI
                 smoothed_roi = IO.apply_smoothing(photoelectron_roi, smoothing_function, dtype="float32")
-                weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise, dtype="float32")
+                weights_roi = IO.generate_weights(smoothed_roi, read_noise=read_noise_roi, dtype="float32")
 
                 puncta_tofit.append(photoelectron_roi)
                 smoothed_puncta_tofit.append(smoothed_roi)
