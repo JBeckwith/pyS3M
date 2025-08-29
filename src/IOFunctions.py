@@ -410,14 +410,11 @@ class IO_Functions:
     def read_tiff_tophotoelectrons(
         self,
         file_path,
-        smoothing_function,
         dtype="double",
         gain_map=1.0,
         offset_map=0.0,
         rqe=1.0,
-        read_noise=1.0,
         frame=None,
-        hot_pixel_threshold=20,
     ):
         """
         Read a TIFF file using the skimage library.
@@ -433,7 +430,6 @@ class IO_Functions:
             gain_map (matrix, or float): gain map. Assumes units of ADU/photoelectrons
             offset_map (matrix, or float): offset map. Assumes units of ADU
             rqe (matrix, or float): relative quantum yield map.
-            read_noise (matrix, or float): read noise map of the camera
             frame (int, optional): if not None, loads a single frame
 
         Returns:
@@ -445,7 +441,6 @@ class IO_Functions:
         # Use skimage's imread function to read the TIFF file
         # specifying the 'tifffile' plugin explicitly
         data = self.read_tiff(file_path, dtype=dtype, frame=frame)
-        raw_data = copy(data)
         if type(gain_map) is not float:
 
             if data.shape[-2:] != gain_map.shape:
@@ -472,34 +467,7 @@ class IO_Functions:
             photoelectron_data = np.divide(
                 np.divide(np.subtract(data, offset_map), gain_map), rqe
             )
-
-        smoothed_data = copy(photoelectron_data)
-
-        smoothing_args = smoothing_function.args
-        smoothing_args[smoothing_function.data_arg] = smoothed_data
-        smoothed_data = smoothing_function.smoothing_function(**smoothing_args)
-
-        error_data = copy(smoothed_data)
-        error_data[error_data < 0] = 0
-        error_data = error_data + 1
-        if type(read_noise) is not float:
-            if len(data.shape) > 2:
-                error_map = np.add(error_data, np.square(read_noise[np.newaxis, :, :]))
-            else:
-                error_map = np.add(error_data, np.square(read_noise))
-        else:
-            error_map = np.add(error_data, np.square(read_noise))
-        weights_map = np.power(error_map, -1)
-        if type(read_noise) is not float:
-            hot_pixels = read_noise > hot_pixel_threshold
-            if len(data.shape) > 2:
-                hot_pixels = np.tile(hot_pixels, (data.shape[0], 1, 1))
-            weights_map[hot_pixels] = 1e-8
-        # Ensure consistent dtypes
-        smoothed_data = smoothed_data.astype(dtype)
-        weights_map = weights_map.astype(dtype)
-
-        return raw_data, photoelectron_data, smoothed_data, weights_map
+        return photoelectron_data
 
     def convert_to_photoelectrons(
         self,

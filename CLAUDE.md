@@ -62,6 +62,9 @@ The codebase follows a modular architecture with specialized function classes:
 **Utilities:**
 - `IOFunctions.py` - File I/O operations for microscopy data
   - **REFACTORED (August 28, 2025)**: Memory-efficient image processing workflow with 4 new functions for ROI-based photoelectron conversion, reducing peak memory from 4x to 1x file size
+  - **HDF5 COMPATIBILITY FIX (August 28, 2025)**: Frame columns automatically converted to int32 to handle large frame numbers and prevent dtype mismatch errors in batch processing
+- `DriftCorrectionFunctions.py` - Drift correction methods for SMLM data
+  - **ENHANCED (August 28, 2025)**: Automatic fiducial detection integrated with configurable parameters (threshold, box size, frame requirements), comprehensive testing framework, and unified workflow via `undrift_with_fiducial_detection()` convenience function
 - `CalibrationFunctions.py` - Camera calibration routines
 - `PlottingFunctions.py` - Visualization functions
   - **REFACTORED**: Google-style docstrings, DRY principles, constants organization
@@ -156,6 +159,13 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 
 **Python Test Scripts:** All Python test scripts (not unit tests) should be placed in the `claude/` directory. This includes performance tests, validation scripts, and standalone testing utilities.
 
+**Drift Correction Testing Framework (August 28, 2025):** Comprehensive testing system implemented in `unit_tests/test_drift_correction.py` covering:
+- RCC, AIM, and fiducial drift correction methods
+- Automatic fiducial detection with configurable parameters
+- Parameter validation and error handling
+- Backward compatibility functions
+- HDF5 compatibility testing in `test_hdf5_fix.py` for large frame number handling
+
 **Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. Available batch processing scripts:
 - `All_Analysis_OneBook_MemorySafe.py` - **RECOMMENDED**: Fixes all identified memory leaks, sequential processing, comprehensive resource cleanup
 - `All_Analysis_OneBook_Debug.py` - Maximum logging version with PID tracking, memory monitoring, step-by-step diagnostics
@@ -176,6 +186,7 @@ For simulation testing, use the pattern:
 
 - **Images:** TIFF format (multi-frame supported)
 - **Localizations:** CSV with standard SMLM columns (xc, yc, photons, etc.)
+- **HDF5 Tables:** Localization data with automatic dtype compatibility (frame columns converted to int32 for large frame numbers)
 - **Spectra:** CSV files in `Spectra/` directory
 - **Results:** CSV for tabular data, NPY for arrays
 
