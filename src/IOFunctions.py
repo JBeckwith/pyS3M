@@ -34,9 +34,7 @@ class IO_Functions:
             df = df.dropna(axis=0, how="all")
             # Always convert frame column to int32 to handle large frame numbers
             # int16 max is 32767, but experiments can have 100k+ frames
-            df["frame"] = pd.to_numeric(
-                df["frame"], errors="coerce"
-            ).astype('int32')
+            df["frame"] = pd.to_numeric(df["frame"], errors="coerce").astype("int32")
             # Add photon columns if amplitude columns are present
             if "photons" not in df.columns:
                 df = self._add_photon_columns(df, normalise=normalise_photons)
@@ -94,86 +92,121 @@ class IO_Functions:
     def _ensure_hdf5_compatibility(self, df, filepath):
         """
         Ensure new DataFrame is compatible with existing HDF5 table schema.
-        
+
         This method reads the existing HDF5 table schema and adjusts the new DataFrame's
         dtypes to match, preventing the "invalid combination of values_axes" error.
-        
+
         Args:
             df (pd.DataFrame): New DataFrame to append
             filepath (str): Path to existing HDF5 file
-            
+
         Returns:
             pd.DataFrame: DataFrame with compatible dtypes
         """
         import pandas as pd
-        
+
         try:
             # Read just the first row to get schema information
             existing_df = pd.read_hdf(filepath, key="data", stop=1)
-            
+
             if len(existing_df) == 0:
                 # Empty table - return original df
                 return df
-                
+
             # Get column overlap
             common_columns = set(df.columns) & set(existing_df.columns)
-            
+
             if not common_columns:
                 # No common columns - return original
                 return df
-                
+
             # Create copy to avoid modifying original
             df_compatible = df.copy()
-            
+
             # Adjust dtypes for common columns
             for col in common_columns:
                 existing_dtype = existing_df[col].dtype
                 new_dtype = df_compatible[col].dtype
-                
+
                 if existing_dtype != new_dtype:
                     try:
                         # Special handling for frame column - always prefer int32
-                        if col == 'frame':
-                            if existing_dtype.kind == 'i' and new_dtype.kind == 'i':
+                        if col == "frame":
+                            if existing_dtype.kind == "i" and new_dtype.kind == "i":
                                 # Both integers - prefer wider int32 for frame numbers
-                                target_dtype = 'int32' if existing_dtype == 'int16' else existing_dtype
-                                df_compatible[col] = df_compatible[col].astype(target_dtype)
+                                target_dtype = (
+                                    "int32"
+                                    if existing_dtype == "int16"
+                                    else existing_dtype
+                                )
+                                df_compatible[col] = df_compatible[col].astype(
+                                    target_dtype
+                                )
                                 if target_dtype != existing_dtype:
-                                    print(f"Note: Frame column upgrading from {existing_dtype} to {target_dtype} for large frame number support")
+                                    print(
+                                        f"Note: Frame column upgrading from {existing_dtype} to {target_dtype} for large frame number support"
+                                    )
                             else:
-                                df_compatible[col] = df_compatible[col].astype(existing_dtype)
+                                df_compatible[col] = df_compatible[col].astype(
+                                    existing_dtype
+                                )
                         # Try to convert to existing dtype
-                        elif pd.api.types.is_numeric_dtype(existing_dtype) and pd.api.types.is_numeric_dtype(new_dtype):
+                        elif pd.api.types.is_numeric_dtype(
+                            existing_dtype
+                        ) and pd.api.types.is_numeric_dtype(new_dtype):
                             # For numeric types, convert carefully
-                            if existing_dtype.kind == 'i' and new_dtype.kind == 'i':
+                            if existing_dtype.kind == "i" and new_dtype.kind == "i":
                                 # Both integers - use the existing dtype
-                                df_compatible[col] = df_compatible[col].astype(existing_dtype)
-                            elif existing_dtype.kind in ['i', 'u'] and new_dtype.kind in ['f']:
+                                df_compatible[col] = df_compatible[col].astype(
+                                    existing_dtype
+                                )
+                            elif existing_dtype.kind in [
+                                "i",
+                                "u",
+                            ] and new_dtype.kind in ["f"]:
                                 # New is float, existing is int - keep as int if possible
-                                if df_compatible[col].dtype == 'float64' and not df_compatible[col].isna().any():
+                                if (
+                                    df_compatible[col].dtype == "float64"
+                                    and not df_compatible[col].isna().any()
+                                ):
                                     # Check if all values are integers
-                                    if (df_compatible[col] == df_compatible[col].astype(int)).all():
-                                        df_compatible[col] = df_compatible[col].astype(existing_dtype)
+                                    if (
+                                        df_compatible[col]
+                                        == df_compatible[col].astype(int)
+                                    ).all():
+                                        df_compatible[col] = df_compatible[col].astype(
+                                            existing_dtype
+                                        )
                                     else:
                                         # Can't convert to int - widen existing type to float
-                                        print(f"Warning: Column '{col}' dtype mismatch ({existing_dtype} vs {new_dtype}). "
-                                              f"Values contain decimals, keeping as {new_dtype}")
+                                        print(
+                                            f"Warning: Column '{col}' dtype mismatch ({existing_dtype} vs {new_dtype}). "
+                                            f"Values contain decimals, keeping as {new_dtype}"
+                                        )
                                 else:
-                                    df_compatible[col] = df_compatible[col].astype(existing_dtype)
+                                    df_compatible[col] = df_compatible[col].astype(
+                                        existing_dtype
+                                    )
                             else:
                                 # Other numeric conversions
-                                df_compatible[col] = df_compatible[col].astype(existing_dtype)
+                                df_compatible[col] = df_compatible[col].astype(
+                                    existing_dtype
+                                )
                         else:
                             # Non-numeric - try direct conversion
-                            df_compatible[col] = df_compatible[col].astype(existing_dtype)
-                            
+                            df_compatible[col] = df_compatible[col].astype(
+                                existing_dtype
+                            )
+
                     except (ValueError, TypeError) as e:
-                        print(f"Warning: Could not convert column '{col}' from {new_dtype} to {existing_dtype}: {e}")
+                        print(
+                            f"Warning: Could not convert column '{col}' from {new_dtype} to {existing_dtype}: {e}"
+                        )
                         print(f"Keeping original dtype {new_dtype}")
                         # Keep original dtype if conversion fails
-                        
+
             return df_compatible
-            
+
         except Exception as e:
             print(f"Warning: Could not check HDF5 compatibility: {e}")
             print("Proceeding with original DataFrame")

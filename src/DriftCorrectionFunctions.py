@@ -85,7 +85,9 @@ class DriftParameters:
     # Fiducial detection parameters with sensible defaults
     fiducial_threshold_percentile: float = 99.0  # 99th percentile threshold
     fiducial_box_size_nm: float = 900.0  # 900nm box size (matches imageprocess.py)
-    fiducial_min_frames_fraction: float = 0.8  # 80% of frames minimum (matches imageprocess.py)
+    fiducial_min_frames_fraction: float = (
+        0.8  # 80% of frames minimum (matches imageprocess.py)
+    )
     fiducial_histogram_bins: int = 256  # Number of histogram bins
     auto_detect_fiducials: bool = True  # Automatically detect if no group field
 
@@ -97,11 +99,15 @@ class DriftParameters:
             raise DriftCorrectionError("Intersection distance must be positive")
         # Fiducial validation
         if not (0 < self.fiducial_threshold_percentile <= 100):
-            raise DriftCorrectionError("Fiducial threshold percentile must be between 0 and 100")
+            raise DriftCorrectionError(
+                "Fiducial threshold percentile must be between 0 and 100"
+            )
         if self.fiducial_box_size_nm <= 0:
             raise DriftCorrectionError("Fiducial box size must be positive")
         if not (0 < self.fiducial_min_frames_fraction <= 1):
-            raise DriftCorrectionError("Fiducial minimum frames fraction must be between 0 and 1")
+            raise DriftCorrectionError(
+                "Fiducial minimum frames fraction must be between 0 and 1"
+            )
         if self.fiducial_histogram_bins <= 0:
             raise DriftCorrectionError("Fiducial histogram bins must be positive")
         if self.roi_r <= 0:
@@ -368,7 +374,11 @@ class RCCDriftCorrector(DriftCorrector):
         )
 
     def _generate_segments(
-        self, locs: np.recarray, info: list, meta: Dict[str, float], params: DriftParameters
+        self,
+        locs: np.recarray,
+        info: list,
+        meta: Dict[str, float],
+        params: DriftParameters,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Generate temporal segments for RCC analysis.
 
@@ -1339,12 +1349,12 @@ class FiducialDriftCorrector(DriftCorrector):
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> np.recarray:
         """Automatically detect fiducials and add group field to localizations.
-        
+
         Args:
             locs: Localization data without group field
             info: Metadata list
             params: Drift parameters with fiducial detection settings
-            
+
         Returns:
             New localization array with group field added
         """
@@ -1352,13 +1362,13 @@ class FiducialDriftCorrector(DriftCorrector):
             raise DriftCorrectionError(
                 "Fiducial detection requires render and imageprocess modules"
             )
-        
+
         # Extract metadata for pixel size
         meta = CoordinateProcessor.extract_metadata(info)
         pixelsize = meta.get("pixelsize", 130.0)  # Default fallback
         n_frames = int(meta["n_frames"])
-        
-        # Render localizations to image for fiducial detection  
+
+        # Render localizations to image for fiducial detection
         image = _render.render(
             locs=locs,
             info=info,
@@ -1366,41 +1376,44 @@ class FiducialDriftCorrector(DriftCorrector):
             viewport=None,
             blur_method="smooth",
         )[1]
-        
+
         # Create histogram with user-specified number of bins
-        hist = np.histogram(
-            image.flatten(), 
-            bins=params.fiducial_histogram_bins
-        )
-        
+        hist = np.histogram(image.flatten(), bins=params.fiducial_histogram_bins)
+
         # Use user-specified threshold percentile
         threshold = np.percentile(hist[0], params.fiducial_threshold_percentile)
-        
+
         # Calculate box size from nanometer specification
         box = int(np.round(params.fiducial_box_size_nm / pixelsize))
         box = box + 1 if box % 2 == 0 else box  # Ensure odd
-        
+
         # Find local maxima (potential fiducials)
         try:
             import localise as _localise  # Import here to handle potential issues
         except ImportError:
-            raise DriftCorrectionError("localise module required for fiducial detection")
-            
+            raise DriftCorrectionError(
+                "localise module required for fiducial detection"
+            )
+
         y, x, _ = _localise.identify_in_image(image, threshold, box=box)
         picks = [(xi, yi) for xi, yi in zip(x, y)]
-        
+
         if len(picks) == 0:
-            raise DriftCorrectionError("No fiducial candidates detected. Try lowering threshold_percentile.")
-        
+            raise DriftCorrectionError(
+                "No fiducial candidates detected. Try lowering threshold_percentile."
+            )
+
         # Filter picks by minimum localizations per fiducial
         min_n = params.fiducial_min_frames_fraction * n_frames
-        
+
         try:
             import postprocess as _postprocess  # Import here to handle potential issues
         except ImportError:
-            raise DriftCorrectionError("postprocess module required for fiducial detection")
-            
-        # Get localizations for each pick  
+            raise DriftCorrectionError(
+                "postprocess module required for fiducial detection"
+            )
+
+        # Get localizations for each pick
         width = int(meta["width"])
         height = int(meta["height"])
         temp_picked_locs = _postprocess.picked_locs(
@@ -1412,7 +1425,7 @@ class FiducialDriftCorrector(DriftCorrector):
             pick_size=box / 2,
             add_group=False,
         )
-        
+
         # Keep only picks with sufficient localizations
         valid_picks = []
         valid_picked_locs = []
@@ -1420,58 +1433,58 @@ class FiducialDriftCorrector(DriftCorrector):
             if len(temp_picked_locs[i]) > min_n:
                 valid_picks.append(pick)
                 valid_picked_locs.append(temp_picked_locs[i])
-        
+
         if len(valid_picks) == 0:
             raise DriftCorrectionError(
                 f"No fiducials found with minimum {min_n:.0f} localizations. "
                 f"Try lowering fiducial_min_frames_fraction or threshold_percentile."
             )
-        
+
         # Create new localization array with group field
         return self._add_group_field(locs, valid_picked_locs, valid_picks)
-    
+
     def _add_group_field(
         self, locs: np.recarray, picked_locs: list, picks: list
     ) -> np.recarray:
         """Add group field to localizations based on fiducial assignments.
-        
+
         Args:
             locs: Original localizations
             picked_locs: List of localizations for each fiducial
             picks: List of pick coordinates
-            
+
         Returns:
             New recarray with group field added
         """
         # Create group field array, initialize with -1 (non-fiducial)
         group = np.full(len(locs), -1, dtype=np.int32)
-        
+
         # Assign group IDs to fiducial localizations
         for group_id, fiducial_locs in enumerate(picked_locs):
             # Find indices of these localizations in original array
             for fid_loc in fiducial_locs:
                 # Match by frame and coordinate (within small tolerance)
                 matches = (
-                    (locs.frame == fid_loc.frame) & 
-                    (np.abs(locs.xc - fid_loc.xc) < 0.1) &
-                    (np.abs(locs.yc - fid_loc.yc) < 0.1)
+                    (locs.frame == fid_loc.frame)
+                    & (np.abs(locs.xc - fid_loc.xc) < 0.1)
+                    & (np.abs(locs.yc - fid_loc.yc) < 0.1)
                 )
                 group[matches] = group_id
-        
+
         # Create new dtype with group field
         original_dtype = locs.dtype
-        group_dtype = np.dtype(original_dtype.descr + [('group', 'i4')])
-        
+        group_dtype = np.dtype(original_dtype.descr + [("group", "i4")])
+
         # Create new recarray with group field
         new_locs = np.empty(len(locs), dtype=group_dtype)
-        
+
         # Copy original data
         for field in original_dtype.names:
             new_locs[field] = locs[field]
-            
+
         # Add group data
-        new_locs['group'] = group
-        
+        new_locs["group"] = group
+
         # Convert to recarray
         return new_locs.view(np.recarray)
 
@@ -1716,7 +1729,7 @@ class Drift_Correction_Functions:
                 else ""
             ),
         }
-    
+
     def undrift_with_fiducial_detection(
         self,
         locs: np.recarray,
@@ -1725,37 +1738,37 @@ class Drift_Correction_Functions:
         box_size_nm: float = 900.0,
         min_frames_fraction: float = 0.8,
         histogram_bins: int = 256,
-        **params
+        **params,
     ) -> Tuple[np.recarray, DriftResult, Dict[str, Any]]:
         """Complete fiducial drift correction workflow with automatic fiducial detection.
-        
+
         This is a user-friendly wrapper that combines automatic fiducial detection
         with drift correction. It allows fine-tuning of detection parameters while
         providing sensible defaults.
-        
+
         Args:
             locs: Localization data (group field not required)
             info: Metadata list containing frame count and image dimensions
             threshold_percentile: Histogram percentile threshold for fiducial detection (0-100)
-            box_size_nm: Box size for fiducial detection in nanometers  
+            box_size_nm: Box size for fiducial detection in nanometers
             min_frames_fraction: Minimum fraction of frames for valid fiducial (0-1)
             histogram_bins: Number of bins for histogram analysis
             **params: Additional drift correction parameters
-            
+
         Returns:
             Tuple of (corrected_locs, drift_result, detection_info)
             - corrected_locs: Drift-corrected localizations
             - drift_result: Drift correction results with metadata
             - detection_info: Information about fiducial detection process
-            
+
         Raises:
             DriftCorrectionError: If fiducial detection fails or no valid fiducials found
-            
+
         Example:
             >>> DCF = Drift_Correction_Functions()
             >>> # Basic usage with defaults
             >>> corrected, drift, info = DCF.undrift_with_fiducial_detection(locs, metadata)
-            >>> 
+            >>>
             >>> # Fine-tune detection parameters
             >>> corrected, drift, info = DCF.undrift_with_fiducial_detection(
             ...     locs, metadata,
@@ -1763,18 +1776,18 @@ class Drift_Correction_Functions:
             ...     box_size_nm=1200.0,         # Larger search box
             ...     min_frames_fraction=0.6     # Allow fiducials with fewer localizations
             ... )
-            >>> 
+            >>>
             >>> print(f"Found {info['n_fiducials']} fiducials")
             >>> print(f"Drift range: X [{drift.drift_x.min():.2f}, {drift.drift_x.max():.2f}]")
         """
         # Store original parameters for reporting
         detection_params = {
             "threshold_percentile": threshold_percentile,
-            "box_size_nm": box_size_nm, 
+            "box_size_nm": box_size_nm,
             "min_frames_fraction": min_frames_fraction,
-            "histogram_bins": histogram_bins
+            "histogram_bins": histogram_bins,
         }
-        
+
         # Create drift parameters with fiducial detection settings
         drift_params = DriftParameters(
             fiducial_threshold_percentile=threshold_percentile,
@@ -1782,25 +1795,29 @@ class Drift_Correction_Functions:
             fiducial_min_frames_fraction=min_frames_fraction,
             fiducial_histogram_bins=histogram_bins,
             auto_detect_fiducials=True,
-            **params
+            **params,
         )
-        
+
         # Apply fiducial drift correction
         try:
-            corrected_locs, drift_result = self.undrift(locs, info, method="fiducial", **drift_params.__dict__)
-            
+            corrected_locs, drift_result = self.undrift(
+                locs, info, method="fiducial", **drift_params.__dict__
+            )
+
             # Extract detection information from drift result metadata
             detection_info = {
                 "detection_params": detection_params,
                 "n_fiducials": drift_result.metadata.get("n_fiducials", 0),
                 "fiducial_groups": drift_result.metadata.get("fiducial_groups", []),
-                "frames_per_fiducial": drift_result.metadata.get("frames_per_fiducial", []),
+                "frames_per_fiducial": drift_result.metadata.get(
+                    "frames_per_fiducial", []
+                ),
                 "success": True,
-                "message": f"Successfully detected {drift_result.metadata.get('n_fiducials', 0)} fiducials"
+                "message": f"Successfully detected {drift_result.metadata.get('n_fiducials', 0)} fiducials",
             }
-            
+
             return corrected_locs, drift_result, detection_info
-            
+
         except DriftCorrectionError as e:
             # Provide detailed error information for troubleshooting
             detection_info = {
@@ -1814,7 +1831,7 @@ class Drift_Correction_Functions:
                     "try_lower_threshold": "Reduce threshold_percentile (e.g., 95.0 or 90.0)",
                     "try_larger_box": "Increase box_size_nm (e.g., 1200.0)",
                     "try_lower_min_frames": "Reduce min_frames_fraction (e.g., 0.6 or 0.5)",
-                    "check_data": "Ensure localizations contain bright, stationary markers"
-                }
+                    "check_data": "Ensure localizations contain bright, stationary markers",
+                },
             }
             raise DriftCorrectionError(f"Fiducial detection failed: {e}") from e
