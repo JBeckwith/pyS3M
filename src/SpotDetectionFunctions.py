@@ -235,7 +235,7 @@ class SpotDetection_Functions:
         """detect_puncta_in_image: Returns spots from an image supplied
 
         Args:
-            image (np.ndarray): image to analyse
+            image (np.ndarray): image to analyse. Expects photoelectron units
             psf_fun (function): function of psf (if None, uses gauss2d)
             variance (np.ndarray): variance of camera used to record image
             pfa (float): probability of false alarm
