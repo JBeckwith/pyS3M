@@ -108,6 +108,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
+        perc_threshold: float = 98,
         bayer_image: bool = False,
     ) -> np.ndarray:
         """
@@ -163,6 +164,7 @@ class SpotDetection_Functions:
                         NA=NA,
                         mf_factor=mf_factor,
                         local_factor=local_factor,
+                        perc_threshold=perc_threshold,
                         bayer_image=bayer_image,
                     )
                 )
@@ -198,6 +200,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
+        perc_threshold: float = 98,
         bayer_image: bool = False,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
@@ -229,6 +232,7 @@ class SpotDetection_Functions:
                 NA=NA,
                 mf_factor=mf_factor,
                 local_factor=local_factor,
+                perc_threshold=perc_threshold,
                 bayer_image=bayer_image,
             )
             detected_puncta.append(
@@ -822,6 +826,7 @@ def _detect_puncta_in_images_standalone(
     NA: float = 1.49,
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
+    perc_threshold: float = 98,
     bayer_image: bool = False,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
@@ -852,6 +857,7 @@ def _detect_puncta_in_images_standalone(
             NA=NA,
             mf_factor=mf_factor,
             local_factor=local_factor,
+            perc_threshold=perc_threshold,
             bayer_image=bayer_image,
         )
     except Exception:
