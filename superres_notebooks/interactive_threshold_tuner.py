@@ -36,6 +36,7 @@ try:
     from SpotDetectionFunctions import SpotDetection_Functions
     from IOFunctions import IO_Functions  
     from CalibrationFunctions import Calibration_Functions
+    from PlottingFunctions import Plotter
     import matplotlib
     
     # Try to use interactive backend, fall back gracefully
@@ -68,6 +69,7 @@ class InteractiveThresholdTuner:
         self.sdf = SpotDetection_Functions()
         self.iof = IO_Functions()
         self.cf = Calibration_Functions()
+        self.pf = Plotter()
         
         # Default parameters
         self.default_pfa = 1e-4
@@ -238,24 +240,37 @@ class InteractiveThresholdTuner:
     
     def plot_detection_results(self, image: np.ndarray, spots: np.ndarray, 
                              pfa: float, perc_threshold: float, folder_name: str):
-        """Plot the detection results (interactive or file-based)"""
+        """Plot the detection results using PlottingFunctions (interactive or file-based)"""
         global INTERACTIVE_DISPLAY
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
-        # Original image
-        ax1.imshow(image, cmap='gray', vmin=np.percentile(image, 1), 
+        # Original image (left panel)
+        ax1.imshow(image, cmap='gist_gray', vmin=np.percentile(image, 1), 
                   vmax=np.percentile(image, 99))
         ax1.set_title(f'Original Image\n{folder_name}')
         ax1.axis('off')
         
-        # Image with detected spots
-        ax2.imshow(image, cmap='gray', vmin=np.percentile(image, 1), 
-                  vmax=np.percentile(image, 99))
-        
+        # Image with detected spots using PlottingFunctions (right panel)  
         if len(spots) > 0:
-            ax2.plot(spots[:, 0], spots[:, 1], 'ro', markersize=8, 
-                    markerfacecolor='none', markeredgewidth=2)
+            self.pf.image_scatter_plot(
+                ax2, 
+                data=image,
+                xdata=spots[:, 0], 
+                ydata=spots[:, 1],
+                vmin=float(np.percentile(image, 1)),
+                vmax=float(np.percentile(image, 99)),
+                cmap="gist_gray",
+                cbar="off",  # Disable colorbar for cleaner display
+                scattercolor="red",
+                s=50,  # Marker size
+                alpha=1.0,
+                scatteralpha=0.8
+            )
+        else:
+            # No spots detected, just show image
+            ax2.imshow(image, cmap='gist_gray', vmin=np.percentile(image, 1), 
+                      vmax=np.percentile(image, 99))
         
         ax2.set_title(f'Detected Spots ({len(spots)} found)\n'
                      f'PFA: {pfa:.0e}, Perc Threshold: {perc_threshold}%')
@@ -353,7 +368,8 @@ class InteractiveThresholdTuner:
                     
             elif choice == '4':
                 # Accept parameters
-                plt.close(fig)
+                if INTERACTIVE_DISPLAY and fig_or_file is not None:
+                    plt.close(fig_or_file)
                 return {
                     'folder_path': folder_path,
                     'folder_type': folder_type,
@@ -365,12 +381,14 @@ class InteractiveThresholdTuner:
                 
             elif choice == '5':
                 # Skip folder
-                plt.close(fig)
+                if INTERACTIVE_DISPLAY and fig_or_file is not None:
+                    plt.close(fig_or_file)
                 return None
                 
             elif choice.lower() == 'q':
                 # Quit
-                plt.close(fig)
+                if INTERACTIVE_DISPLAY and fig_or_file is not None:
+                    plt.close(fig_or_file)
                 return 'quit'
                 
             else:

@@ -49,7 +49,7 @@ class PlotConstants:
 
     # Default parameters
     DEFAULT_PANEL_HEIGHT_RATIO = 3.5
-    DEFAULT_PERCENTILES = (0.1, 99.9)
+    DEFAULT_PERCENTILES = (1, 99)
     DEFAULT_GRID_ALPHA = 0.25
     DEFAULT_GRID_LINE_WIDTH = 0.25
 
