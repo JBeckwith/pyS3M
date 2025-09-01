@@ -11,9 +11,12 @@ import sys
 import numpy as np
 import warnings
 
-# Add module directory
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+# Add src module directory to path
+src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.append(src_dir)
+# Also add current directory for SpotDetectionValidation import
+current_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(current_dir)
 
 # Activate virtual environment
 try:
