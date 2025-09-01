@@ -230,9 +230,8 @@ class InteractiveThresholdTuner:
             return np.array([]), 0
     
     def plot_detection_results(self, image: np.ndarray, spots: np.ndarray, 
-                             pfa: float, perc_threshold: float, folder_name: str,
-                             output_path: str = 'current_detection.png'):
-        """Plot and save the detection results"""
+                             pfa: float, perc_threshold: float, folder_name: str):
+        """Plot the detection results interactively"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Original image
@@ -254,10 +253,8 @@ class InteractiveThresholdTuner:
         ax2.axis('off')
         
         plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"Detection plot saved to: {output_path}")
-        return output_path
+        plt.show(block=False)
+        return fig
     
     def interactive_parameter_tuning(self, folder_path: str, folder_type: str, 
                                    default_wavelength: float) -> Union[Dict, None, str]:
