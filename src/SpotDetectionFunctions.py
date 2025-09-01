@@ -194,6 +194,7 @@ class SpotDetection_Functions:
         start_frame: int,
         psf_fun=None,
         variance: np.ndarray = None,
+        read_noise: np.ndarray = None,
         pfa: float = 10**-4,
         wavelength: float = 0.6,
         pixel_size: float = 0.069,
@@ -202,6 +203,7 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         perc_threshold: float = 98,
         bayer_image: bool = False,
+        hot_pixel_threshold: float = 20.0,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -226,6 +228,7 @@ class SpotDetection_Functions:
                 image[i, :, :],
                 psf_fun=psf_fun,
                 variance=variance,
+                read_noise=read_noise,
                 pfa=pfa,
                 wavelength=wavelength,
                 pixel_size=pixel_size,
@@ -234,6 +237,7 @@ class SpotDetection_Functions:
                 local_factor=local_factor,
                 perc_threshold=perc_threshold,
                 bayer_image=bayer_image,
+                hot_pixel_threshold=hot_pixel_threshold,
             )
             detected_puncta.append(
                 np.vstack(
@@ -247,6 +251,7 @@ class SpotDetection_Functions:
         image: np.ndarray,
         psf_fun=None,
         variance: np.ndarray = None,
+        read_noise: np.ndarray = None,
         pfa: float = 10**-4,
         wavelength: float = 0.6,
         pixel_size: float = 0.069,
@@ -255,6 +260,7 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         perc_threshold: float = 98,
         bayer_image: bool = False,
+        hot_pixel_threshold: float = 20.0,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -262,6 +268,7 @@ class SpotDetection_Functions:
             image (np.ndarray): image to analyse. Expects photoelectron units
             psf_fun (function): function of psf (if None, uses gauss2d)
             variance (np.ndarray): variance of camera used to record image
+            read_noise (np.ndarray): read noise map for hot pixel detection
             pfa (float): probability of false alarm
             wavelength (float): average fluorescence wavelength
             pixel_size (float): pixel size in microns
@@ -271,6 +278,7 @@ class SpotDetection_Functions:
             local_factor (float): local max factor
             perc_threshold (float): percentile threshold for post-filtering
             bayer_image (bool): if True, image is assumed to be a bayer image
+            hot_pixel_threshold (float): threshold for hot pixel detection
 
         Returns:
             detected_puncta (np.ndarray): xy coordinates of detected puncta"""
@@ -301,6 +309,12 @@ class SpotDetection_Functions:
             filtered_image, detected_puncta, guard_interval, reference_interval
         )
         detected_puncta = detected_puncta[estimated_intensity > global_threshold]
+        
+        # Filter spots near hot pixels if read_noise is provided
+        if read_noise is not None:
+            hot_pixel_mask = self.detect_hot_pixels(read_noise, hot_pixel_threshold)
+            detected_puncta = self.filter_spots_near_hot_pixels(detected_puncta, hot_pixel_mask, radius=2.0)
+        
         return detected_puncta
     
     def estimate_intensity(self, image, detected_puncta, guard_interval, reference_interval):
@@ -787,6 +801,61 @@ class SpotDetection_Functions:
             mask = detector_type(T, pfa, local_max_range, kernel)
         points = self.mask2points(mask)
         return points
+    
+    def detect_hot_pixels(self, read_noise: np.ndarray, threshold: float = 20.0) -> np.ndarray:
+        """Detect hot pixels based on read noise threshold.
+        
+        Args:
+            read_noise (np.ndarray): Read noise map
+            threshold (float): Threshold for hot pixel detection (default: 20.0)
+            
+        Returns:
+            np.ndarray: Boolean mask where True indicates hot pixels
+        """
+        if read_noise is None:
+            return np.zeros((1, 1), dtype=bool)  # No hot pixels if no read noise map
+        
+        return read_noise > threshold
+    
+    def filter_spots_near_hot_pixels(self, detected_spots: np.ndarray, hot_pixel_mask: np.ndarray, 
+                                   radius: float = 2.0) -> np.ndarray:
+        """Filter out detected spots that are within radius of hot pixels.
+        
+        Args:
+            detected_spots (np.ndarray): Array of detected spot coordinates (N, 2)
+            hot_pixel_mask (np.ndarray): Boolean mask of hot pixels
+            radius (float): Radius in pixels to exclude spots around hot pixels
+            
+        Returns:
+            np.ndarray: Filtered array of spot coordinates
+        """
+        if len(detected_spots) == 0:
+            return detected_spots
+            
+        if hot_pixel_mask is None or not np.any(hot_pixel_mask):
+            return detected_spots  # No hot pixels to filter
+        
+        # Get coordinates of hot pixels
+        hot_pixel_coords = np.array(np.where(hot_pixel_mask)).T  # Shape: (N_hot, 2)
+        
+        if len(hot_pixel_coords) == 0:
+            return detected_spots
+        
+        # Convert to (y, x) format to match hot pixel coordinates 
+        spots_yx = detected_spots[:, [1, 0]]  # Convert (x, y) to (y, x)
+        
+        # Calculate distances between all spots and all hot pixels
+        # Using broadcasting: (N_spots, 1, 2) - (1, N_hot, 2) = (N_spots, N_hot, 2)
+        distances = np.linalg.norm(
+            spots_yx[:, np.newaxis, :] - hot_pixel_coords[np.newaxis, :, :], 
+            axis=2
+        )
+        
+        # Check if any hot pixel is within radius of each spot
+        min_distances = np.min(distances, axis=1)
+        valid_spots = min_distances > radius
+        
+        return detected_spots[valid_spots]
 
     def cleanup_memory(self):
         """Clean up cached arrays and kernels to free memory."""
@@ -808,6 +877,7 @@ def _detect_puncta_in_images_standalone(
     start_frame: int,
     psf_fun=None,
     variance: np.ndarray = None,
+    read_noise: np.ndarray = None,
     pfa: float = 10**-4,
     wavelength: float = 0.6,
     pixel_size: float = 0.069,
@@ -816,6 +886,7 @@ def _detect_puncta_in_images_standalone(
     local_factor: float = 3.0,
     perc_threshold: float = 98,
     bayer_image: bool = False,
+    hot_pixel_threshold: float = 20.0,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
@@ -839,6 +910,7 @@ def _detect_puncta_in_images_standalone(
             start_frame=start_frame,
             psf_fun=psf_fun,
             variance=variance,
+            read_noise=read_noise,
             pfa=pfa,
             wavelength=wavelength,
             pixel_size=pixel_size,
@@ -847,6 +919,7 @@ def _detect_puncta_in_images_standalone(
             local_factor=local_factor,
             perc_threshold=perc_threshold,
             bayer_image=bayer_image,
+            hot_pixel_threshold=hot_pixel_threshold,
         )
     except Exception:
         # Return empty array if detection fails to prevent crash
