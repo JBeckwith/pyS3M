@@ -35,6 +35,10 @@ import PSFFunctions
 
 PSF = PSFFunctions.PSF_Functions()
 
+import sCMOSFunctions
+
+sCMOS = sCMOSFunctions.sCMOS_Functions()
+
 
 class ArrayPool:
     """Memory pool for frequently allocated arrays to reduce allocation overhead."""
@@ -104,6 +108,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
+        bayer_image: bool = True,
     ) -> np.ndarray:
         """
         function to fit puncta in parallel
@@ -115,6 +120,15 @@ class SpotDetection_Functions:
             weights (list): list of np.2darray weights
             relative_coords (list): list of starting coords
             planes (list): list of planes
+            psf_fun (function): function of psf (if None, uses gauss2d)
+            variance (np.ndarray): variance of camera used to record image
+            pfa (float): probability of false alarm
+            wavelength (float): average fluorescence wavelength
+            pixel_size (float): pixel size in microns
+            NA (float): numerical aperture of microscope
+            mf_factor (float): match filter factor
+            local_factor (float): local max factor
+            bayer_image (bool): if True, image is assumed to be a bayer image
 
         Returns:
             puncta_detected (list): list of puncta detected
@@ -149,6 +163,7 @@ class SpotDetection_Functions:
                         NA=NA,
                         mf_factor=mf_factor,
                         local_factor=local_factor,
+                        bayer_image=bayer_image,
                     )
                 )
         with ProgressUtils.analysis_progress_bar(
@@ -183,6 +198,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
+        bayer_image: bool = True,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -197,6 +213,7 @@ class SpotDetection_Functions:
             multispot_marginfactor (float): multi spot margin factor
             mf_factor (float): match filter factor
             local_factor (float): local max factor
+            bayer_image (bool): if True, image is assumed to be a bayer image
 
         Returns:
             detected_puncta (np.ndarray): xy coordinates of detected puncta"""
@@ -212,6 +229,7 @@ class SpotDetection_Functions:
                 NA=NA,
                 mf_factor=mf_factor,
                 local_factor=local_factor,
+                bayer_image=bayer_image,
             )
             detected_puncta.append(
                 np.vstack(
@@ -231,6 +249,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
+        bayer_image: bool = True,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -245,6 +264,7 @@ class SpotDetection_Functions:
             multispot_marginfactor (float): multi spot margin factor
             mf_factor (float): match filter factor
             local_factor (float): local max factor
+            bayer_image (bool): if True, image is assumed to be a bayer image
 
         Returns:
             detected_puncta (np.ndarray): xy coordinates of detected puncta"""
@@ -252,6 +272,8 @@ class SpotDetection_Functions:
             image_for_detection = np.divide(image, variance)
         else:
             image_for_detection = image
+        if bayer_image:
+            image_for_detection = sCMOS.bayer_bin_stack(image_for_detection)
         if psf_fun is None:
             psf_fun = self.gauss2d
         sigma = np.divide(PSF.sigma_PSF(wavelength, NA), pixel_size)
