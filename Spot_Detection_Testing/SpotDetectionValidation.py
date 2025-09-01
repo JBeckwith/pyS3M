@@ -25,9 +25,9 @@ from copy import deepcopy
 import warnings
 from scipy.spatial.distance import cdist
 
-# Add module directory to path
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+# Add src module directory to path
+src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.append(src_dir)
 
 # Import project modules
 import IOFunctions
@@ -37,6 +37,7 @@ import SpotDetectionFunctions
 import Multicolour_Simulation_Functions
 import SpectralFunctions
 import PlottingFunctions
+import MaskFunctions
 
 # Initialise function classes
 IO = IOFunctions.IO_Functions()
@@ -46,6 +47,7 @@ SD = SpotDetectionFunctions.SpotDetection_Functions()
 MSF = Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
 SF = SpectralFunctions.Spectral_Funcs()
 plotter = PlottingFunctions.Plotter()
+Mask = MaskFunctions.Mask_Functions()
 
 
 @dataclass
@@ -181,7 +183,9 @@ class SpotDetectionValidator:
             )
 
         # Generate Bayer masks for the region
-        region_params["masks"] = MSF.get_masks(MSF.mosaic_unit, size, size)
+        # Use default Bayer mosaic unit: [["B", "G"], ["G", "R"]]
+        mosaic_unit = np.array([["B", "G"], ["G", "R"]])
+        region_params["masks"] = Mask.get_masks(size, size, mosaic_unit)
 
         return region_params
 
