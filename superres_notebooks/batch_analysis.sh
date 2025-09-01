@@ -32,10 +32,10 @@ check_threshold_params() {
         exit 1
     fi
     
-    # Validate file format
-    if ! head -1 "$THRESHOLD_PARAMS_FILE" | grep -q "folder_path.*pfa.*perc_threshold.*wavelength"; then
-        echo "WARNING: threshold_parameters.txt format may be invalid"
-        log_message "WARNING: threshold_parameters.txt format validation failed"
+    # Validate file format (check for pipe-delimited content)
+    if ! grep -q "|" "$THRESHOLD_PARAMS_FILE"; then
+        echo "WARNING: threshold_parameters.txt format may be invalid (no pipe delimiters found)"
+        log_message "WARNING: threshold_parameters.txt format validation failed - no pipe delimiters"
     fi
     
     local param_count=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | wc -l)
@@ -66,9 +66,6 @@ get_threshold_params() {
         log_message "Using default parameters for $folder_path: pfa=$default_pfa, perc_threshold=$default_perc, wavelength=$default_wavelength"
     fi
 }
-
-# Check threshold parameters file first
-check_threshold_params
 
 # Initialize log file with header
 {
@@ -565,6 +562,9 @@ process_hierarchical() {
 
 # Initialize system for swap minimization
 optimize_system_memory
+
+# Check threshold parameters file after all functions are defined
+check_threshold_params
 
 console_message "Starting folder discovery and processing..."
 
