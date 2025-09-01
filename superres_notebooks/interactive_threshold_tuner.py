@@ -273,8 +273,12 @@ class InteractiveThresholdTuner:
             )
         else:
             # No spots detected, just show image
-            ax2.imshow(image, cmap='gist_gray', vmin=np.percentile(image, 1), 
-                      vmax=np.percentile(image, 99))
+            self.pf.image_plot(axs=ax2,
+                                data=image,
+                                vmin=np.percentile(image, 1), 
+                                vmax=np.percentile(image, 99),
+                                cmap='gist_gray',
+                                cbar='off')
         
         ax2.set_title(f'Detected Spots ({len(spots)} found)\n'
                      f'PFA: {pfa:.0e}, Perc Threshold: {perc_threshold}%')
