@@ -231,7 +231,7 @@ class SuperRes_Functions:
             file,
             dtype="float32",
             gain_map=gain_map,
-            offset_map=offset_map,
+            offset_map=np.zeros_like(offset_map),
             rqe=rqe,
             frame=1,
         )
