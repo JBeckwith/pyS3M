@@ -230,9 +230,9 @@ class SuperRes_Functions:
         photoelectron_data = IO.read_tiff_tophotoelectrons(
             file,
             dtype="float32",
-            gain_map=gain_map,
+            gain_map=np.ones_like(gain_map),
             offset_map=np.zeros_like(offset_map),
-            rqe=rqe,
+            rqe=np.ones_like(rqe),
             frame=1,
         )
 
