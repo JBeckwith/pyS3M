@@ -178,7 +178,8 @@ class SuperRes_Functions:
         NA=1.49,
         pixel_size=0.069,
         s=5,
-        bayer_image=True,
+        perc_threshold=95,
+        bayer_image=False,
     ):
         """example_spots_singleframe function
             analyses where fiducials are for images in image folder given boxes
@@ -246,6 +247,7 @@ class SuperRes_Functions:
             bayer_image=bayer_image,
             mf_factor=mf_factor,
             local_factor=local_factor,
+            perc_threshold=perc_threshold,
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
