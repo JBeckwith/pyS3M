@@ -323,12 +323,9 @@ class SpotDetection_Functions:
             len(indices), dtype=float
         )  # Estimated sum intensity per punctum
 
-        x_in, y_in, x_out, y_out = self.intensity_pixel_indices(detected_puncta, image_size, guard_interval, reference_interval)
+        x_in, y_in = self.intensity_pixel_indices(detected_puncta, image_size, guard_interval, reference_interval)
 
-        estimated_background = np.mean(image[x_out, y_out], axis=0)
-        estimated_intensity = np.mean(
-            np.subtract(image[x_in, y_in], estimated_background), axis=0
-        )
+        estimated_intensity = np.mean(image[x_in, y_in], axis=0)
 
         estimated_intensity[estimated_intensity < 0] = 0
 
@@ -358,27 +355,18 @@ class SpotDetection_Functions:
 
         annulus = self.get_square_annulus(guard_interval, reference_interval)
         inner_ind = np.abs(annulus - 1)
-        outer_ind = annulus
 
         x_inner, y_inner = calculate_offsets(inner_ind)
-        x_outer, y_outer = calculate_offsets(outer_ind)
 
         x_inner = np.tile(x_inner, (len(centroid_loc), 1)).T + centroid_loc[:, 0]
         y_inner = np.tile(y_inner, (len(centroid_loc), 1)).T + centroid_loc[:, 1]
-        x_outer = np.tile(x_outer, (len(centroid_loc), 1)).T + centroid_loc[:, 0]
-        y_outer = np.tile(y_outer, (len(centroid_loc), 1)).T + centroid_loc[:, 1]
 
         x_inner[x_inner < 0] = 0
         y_inner[y_inner < 0] = 0
         x_inner[x_inner >= image_size[0]] = image_size[0] - 1
         y_inner[y_inner >= image_size[1]] = image_size[1] - 1
 
-        x_outer[x_outer < 0] = 0
-        y_outer[y_outer < 0] = 0
-        x_outer[x_outer >= image_size[0]] = image_size[0] - 1
-        y_outer[y_outer >= image_size[1]] = image_size[1] - 1
-
-        return x_inner, y_inner, x_outer, y_outer    
+        return x_inner, y_inner    
     
     def get_mf(self, psf_fun, mf_sigma: float, mf_range: int) -> np.ndarray:
         """get_mf: Returns matched filter with PSF function given by parameter 'psf_fun'
