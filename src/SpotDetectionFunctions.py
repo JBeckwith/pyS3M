@@ -108,7 +108,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        bayer_image: bool = True,
+        bayer_image: bool = False,
     ) -> np.ndarray:
         """
         function to fit puncta in parallel
@@ -198,7 +198,7 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        bayer_image: bool = True,
+        bayer_image: bool = False,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -249,7 +249,8 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        bayer_image: bool = True,
+        perc_threshold: float = 98,
+        bayer_image: bool = False,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -264,6 +265,7 @@ class SpotDetection_Functions:
             multispot_marginfactor (float): multi spot margin factor
             mf_factor (float): match filter factor
             local_factor (float): local max factor
+            perc_threshold (float): percentile threshold for post-filtering
             bayer_image (bool): if True, image is assumed to be a bayer image
 
         Returns:
@@ -286,12 +288,94 @@ class SpotDetection_Functions:
 
         w = self.get_mf(psf_fun, sigma, mf_range)
         filtered_image = self.filter_image(image_for_detection, w)
+        global_threshold = np.percentile(filtered_image, perc_threshold)
         square_annulus = self.get_square_annulus(guard_interval, reference_interval)
         detected_puncta = self.get_detection_points(
             filtered_image, self.cacfar, pfa, local_max_range, kernel=square_annulus
         )
+        estimated_intensity = self.estimate_intensity(
+            filtered_image, detected_puncta, guard_interval, reference_interval
+        )
+        detected_puncta = detected_puncta[estimated_intensity > global_threshold]
         return detected_puncta
+    
+    def estimate_intensity(self, image, detected_puncta, guard_interval, reference_interval):
+        """
+        Estimate intensity values for each centroid in the image.
 
+        Args:
+            image (numpy.2darray): Input image.
+            centroids (numpy.ndarray): Centroid locations.
+            guard_interval (int): Range of internal hole.
+            reference_interval (int): Width of non-zero band.
+
+        Returns:
+            estimated_intensity (numpy.ndarray): Estimated sum intensity per punctum.
+        """
+        detected_puncta = np.asarray(detected_puncta, dtype=int)
+        image_size = image.shape
+        indices = np.ravel_multi_index(detected_puncta.T, image_size, order="F")
+        estimated_intensity = np.zeros(
+            len(indices), dtype=float
+        )  # Estimated sum intensity per punctum
+
+        x_in, y_in, x_out, y_out = self.intensity_pixel_indices(detected_puncta, image_size, guard_interval, reference_interval)
+
+        estimated_background = np.mean(image[x_out, y_out], axis=0)
+        estimated_intensity = np.mean(
+            np.subtract(image[x_in, y_in], estimated_background), axis=0
+        )
+
+        estimated_intensity[estimated_intensity < 0] = 0
+
+        # correct for averaged background; report background summed
+        return estimated_intensity
+    
+    def intensity_pixel_indices(self, centroid_loc, image_size, guard_interval, reference_interval):
+        """
+        Calculate pixel indices for inner and outer regions around the given index.
+
+        Args:
+            centroid_loc (2D array): xy location of the pixel.
+            image_size (tuple): Size of the image.
+            guard_interval (int): Range of internal hole.
+            reference_interval (int): Width of non-zero band.
+
+        Returns:
+            inner_indices (numpy.ndarray): Pixel indices for the inner region.
+            outer_indices (numpy.ndarray): Pixel indices for the outer region.
+        """
+
+        def calculate_offsets(annular_shape):
+            x, y = np.where(annular_shape)
+            x -= int(annular_shape.shape[0] / 2)
+            y -= int(annular_shape.shape[1] / 2)
+            return x, y
+
+        annulus = self.get_square_annulus(guard_interval, reference_interval)
+        inner_ind = np.abs(annulus - 1)
+        outer_ind = annulus
+
+        x_inner, y_inner = calculate_offsets(inner_ind)
+        x_outer, y_outer = calculate_offsets(outer_ind)
+
+        x_inner = np.tile(x_inner, (len(centroid_loc), 1)).T + centroid_loc[:, 0]
+        y_inner = np.tile(y_inner, (len(centroid_loc), 1)).T + centroid_loc[:, 1]
+        x_outer = np.tile(x_outer, (len(centroid_loc), 1)).T + centroid_loc[:, 0]
+        y_outer = np.tile(y_outer, (len(centroid_loc), 1)).T + centroid_loc[:, 1]
+
+        x_inner[x_inner < 0] = 0
+        y_inner[y_inner < 0] = 0
+        x_inner[x_inner >= image_size[0]] = image_size[0] - 1
+        y_inner[y_inner >= image_size[1]] = image_size[1] - 1
+
+        x_outer[x_outer < 0] = 0
+        y_outer[y_outer < 0] = 0
+        x_outer[x_outer >= image_size[0]] = image_size[0] - 1
+        y_outer[y_outer >= image_size[1]] = image_size[1] - 1
+
+        return x_inner, y_inner, x_outer, y_outer    
+    
     def get_mf(self, psf_fun, mf_sigma: float, mf_range: int) -> np.ndarray:
         """get_mf: Returns matched filter with PSF function given by parameter 'psf_fun'
 
@@ -738,7 +822,7 @@ def _detect_puncta_in_images_standalone(
     NA: float = 1.49,
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
-    bayer_image: bool = True,
+    bayer_image: bool = False,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
