@@ -176,6 +176,7 @@ class SuperRes_Functions:
         NA=1.49,
         pixel_size=0.069,
         s=5,
+        bayer_image=True,
     ):
         """example_spots_singleframe function
             analyses where fiducials are for images in image folder given boxes
@@ -240,6 +241,7 @@ class SuperRes_Functions:
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
+            bayer_image=bayer_image,
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
