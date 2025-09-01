@@ -27,7 +27,7 @@ from typing import Dict, List, Tuple, Optional
 import json
 
 # Add src to path for imports
-sys.path.append('/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/src')
+sys.path.append('../src')
 
 try:
     from SpotDetectionFunctions import SpotDetection_Functions
