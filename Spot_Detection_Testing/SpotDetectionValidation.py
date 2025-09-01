@@ -186,6 +186,15 @@ class SpotDetectionValidator:
         # Use default Bayer mosaic unit: [["B", "G"], ["G", "R"]]
         mosaic_unit = np.array([["B", "G"], ["G", "R"]])
         region_params["masks"] = Mask.get_masks(size, size, mosaic_unit)
+        
+        # Load spectral data if not already loaded
+        if self.spectral_data is None:
+            self.spectral_data = self._load_spectral_data()
+        
+        # Add required parameters for gen_camera_image_stack
+        region_params["pixel_QYs"] = self.spectral_data[2]  # absolute_QYs
+        region_params["pixel_order"] = ["B", "G", "R"]
+        region_params["pixel_order_indices"] = {"B": 0, "G": 1, "R": 2}
 
         return region_params
 
@@ -250,16 +259,24 @@ class SpotDetectionValidator:
         n_photons_dict = {"dye": n_photons}
         x0y0_dict = {"dye": np.array([positions_pixels[:, 0], positions_pixels[:, 1]])}
 
+        # Create proper smoothing function object (following notebook examples)
+        import types
+        smoothing_function = types.SimpleNamespace()
+        smoothing_function.args = {"sigma": 1.5}
+        smoothing_function.extent = 1.5
+        smoothing_function.smoothing_function = sCMOS.gaussian_filter_stack
+        smoothing_function.data_arg = "image"
+        
         # Generate camera image
         try:
-            ground_truth_image, bayer_image = MSF.gen_camera_image_stack(
+            bayer_image, smoothed_image, normal_image = MSF.gen_camera_image_stack(
                 camera_region,
                 wavelength,
                 average_emission_wavelength,
                 dye_pixel_efficiency,
                 n_photons_dict,
                 x0y0_dict,
-                sCMOS.var_weighted_uniform_filter,
+                smoothing_function,
                 background_photons=self.config.background_photons,
                 NA=self.config.NA,
                 pixel_size=self.config.pixel_size_nm,

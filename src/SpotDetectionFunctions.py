@@ -738,6 +738,7 @@ def _detect_puncta_in_images_standalone(
     NA: float = 1.49,
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
+    bayer_image: bool = True,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
@@ -767,6 +768,7 @@ def _detect_puncta_in_images_standalone(
             NA=NA,
             mf_factor=mf_factor,
             local_factor=local_factor,
+            bayer_image=bayer_image,
         )
     except Exception:
         # Return empty array if detection fails to prevent crash
