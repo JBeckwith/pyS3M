@@ -49,6 +49,7 @@ def main():
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
     print(f"Processing: {folder_path}")
     print(f"Type: {folder_type}, Wavelength: {peak_wavelength}")
+    print(f"Threshold Parameters: pfa={pfa}, perc_threshold={perc_threshold}")
     print(f"Started: {os.popen('date').read().strip()}")
     print()
     
