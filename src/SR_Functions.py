@@ -171,6 +171,8 @@ class SuperRes_Functions:
         read_noise=None,
         variance=None,
         pfa=1e-3,
+        mf_factor: float = 3.0,
+        local_factor: float = 3.0,
         ROI_size=12,
         peak_wavelength=0.638,
         NA=1.49,
@@ -242,6 +244,8 @@ class SuperRes_Functions:
             pixel_size=pixel_size,
             NA=NA,
             bayer_image=bayer_image,
+            mf_factor=mf_factor,
+            local_factor=local_factor,
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
@@ -308,6 +312,8 @@ class SuperRes_Functions:
             data=photoelectron_data,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             s=s,
         )
 
@@ -316,6 +322,8 @@ class SuperRes_Functions:
             data=photoelectron_data,
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             s=s,
             scattercolor="#32cd32",
         )
