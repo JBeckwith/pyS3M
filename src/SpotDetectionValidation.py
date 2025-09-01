@@ -1080,7 +1080,7 @@ def main():
         grid_spacing_microns=1.0,
         image_size_pixels=200,
         n_photons_range=(1000, 5000),
-        n_bootstrap=100,
+        n_bootstrap=500,
         pfa=1e-4,
         detection_tolerance_nm=150.0,
         test_bayer_processing=True,  # Enable Bayer processing comparison
