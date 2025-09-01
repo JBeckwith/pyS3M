@@ -421,6 +421,62 @@ python superres_notebooks/All_Analysis_OneBook_Fixed.py  # ✅ Safe but slower
 python superres_notebooks/All_Analysis_OneBook.py  # ❌ Crashes terminal
 ```
 
+## Interactive Threshold Tuning System [COMPLETED - September 1, 2025]
+
+### **Batch Analysis Parameter Optimization**
+
+The interactive threshold tuner helps determine optimal spot detection parameters (`pfa` and `perc_threshold`) for each dataset in your batch analysis workflow.
+
+**Location:** `superres_notebooks/interactive_threshold_tuner.py`
+
+**Key Features:**
+- **Automatic folder discovery**: Uses exact same folder lists as `batch_analysis.sh`
+- **Interactive/file-based display**: Auto-detects tkinter availability, graceful fallback
+- **Professional visualization**: Integrates `PlottingFunctions.Plotter.image_scatter_plot()`
+- **Parameter tuning**: Real-time adjustment of PFA (probability of false alarm) and percentile thresholds
+- **Batch integration**: Outputs `threshold_parameters.txt` for direct use by `batch_analysis.sh`
+
+#### **Usage Workflow:**
+
+```bash
+# CRITICAL: Always activate virtual environment first
+source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
+
+# Run interactive threshold tuner before batch analysis
+python superres_notebooks/interactive_threshold_tuner.py
+
+# Then run batch analysis with optimized parameters
+./superres_notebooks/batch_analysis.sh
+```
+
+#### **Interactive Process:**
+1. **Folder Discovery**: Automatically finds all folders from batch analysis workflow (SM data, HeLa, imaging, hierarchical)
+2. **Frame Loading**: Loads one representative TIFF frame from each folder
+3. **Parameter Testing**: Interactive menu to adjust:
+   - `pfa` (probability of false alarm, default: 1e-4)
+   - `perc_threshold` (percentile threshold, default: 98%)
+   - `wavelength` if needed
+4. **Real-time Visualization**: Side-by-side comparison of original image vs detected spots
+5. **Parameter Storage**: Save optimized parameters for each folder
+6. **Batch Output**: Generate `threshold_parameters.txt` for batch processing
+
+#### **Output Format:**
+```
+# threshold_parameters.txt
+folder_path|pfa|perc_threshold|wavelength
+/path/to/TetraspeckCalibration|1e-04|98.0|0.638
+/path/to/ATTO488_data|1e-05|95.0|0.638
+/path/to/HeLa_Cell1|5e-05|96.5|0.647
+```
+
+#### **tkinter Dependency Handling:**
+- **Interactive Mode**: Full GUI display if tkinter available
+- **File Mode**: Saves detection preview images as PNG files if tkinter unavailable
+- **Installation**: `sudo apt-get install python3-tk` to enable interactive mode
+
+#### **Integration with Batch Analysis:**
+The threshold tuner is designed to run **before** `batch_analysis.sh`, providing folder-specific parameters that optimize spot detection for each dataset's characteristics.
+
 ## American to British Spelling Standardisation [COMPLETED - August 22, 2025]
 
 ### **Complete Spelling Conversion**

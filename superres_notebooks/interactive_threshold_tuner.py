@@ -246,8 +246,12 @@ class InteractiveThresholdTuner:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Original image (left panel)
-        ax1.imshow(image, cmap='gist_gray', vmin=np.percentile(image, 1), 
-                  vmax=np.percentile(image, 99))
+        self.pf.image_plot(axs=ax1,
+                           data=image,
+                           vmin=np.percentile(image, 1), 
+                           vmax=np.percentile(image, 99),
+                            cmap='gist_gray',
+                            cbar='off')
         ax1.set_title(f'Original Image\n{folder_name}')
         ax1.axis('off')
         
