@@ -20,15 +20,23 @@ workon pyBayerSMLM                       # Activate the project's virtual enviro
 source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
 ```
 
-**For Claude Code:** Always use the virtual environment when running Python scripts:
+**For Claude Code:** **CRITICAL - ALWAYS activate the virtual environment before running ANY Python commands:**
 ```bash
-# Method 1: Activate environment first
+# Method 1: Activate environment first (REQUIRED for interactive scripts)
 source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
 python script.py
 
-# Method 2: Direct python path (preferred for scripts)
+# Method 2: Direct python path (preferred for non-interactive scripts)
 /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/python script.py
 ```
+
+**IMPORTANT:** The virtual environment must be activated for:
+- Interactive scripts requiring tkinter/matplotlib GUI
+- Scripts importing pyBayerSMLM modules
+- Any Python command execution in this project
+- Installing additional packages with pip
+
+Always run `source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate` before Python operations.
 
 Install dependencies using:
 ```bash

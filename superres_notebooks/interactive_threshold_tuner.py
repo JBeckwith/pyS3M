@@ -27,26 +27,33 @@ from typing import Dict, List, Tuple, Optional, Union
 import json
 
 # Add src to path for imports
-sys.path.append('/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/src')
+sys.path.append('../src')
+
+# Global flag for display mode
+INTERACTIVE_DISPLAY = False
 
 try:
     from SpotDetectionFunctions import SpotDetection_Functions
-    from IOFunctions import IO_Functions
+    from IOFunctions import IO_Functions  
     from CalibrationFunctions import Calibration_Functions
     import matplotlib
-    # Try to use interactive backend
+    
+    # Try to use interactive backend, fall back gracefully
     try:
         import tkinter
         matplotlib.use('TkAgg')
-        print("Using interactive matplotlib backend")
+        INTERACTIVE_DISPLAY = True
+        print("✓ Interactive matplotlib backend enabled")
     except ImportError:
-        print("tkinter not available, installing...")
-        import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "tk"])
-        import tkinter
-        matplotlib.use('TkAgg')
-        print("tkinter installed and interactive backend enabled")
+        print("⚠ tkinter not available - using file-based display mode")
+        print("  Images will be saved as PNG files for viewing")
+        print("  To enable interactive display:")
+        print("  sudo apt-get install python3-tk")
+        matplotlib.use('Agg')
+        INTERACTIVE_DISPLAY = False
+    
     import matplotlib.pyplot as plt
+    
 except ImportError as e:
     print(f"Error importing pyBayerSMLM modules: {e}")
     print("Please ensure the virtual environment is activated:")
@@ -65,7 +72,7 @@ class InteractiveThresholdTuner:
         # Default parameters
         self.default_pfa = 1e-4
         self.default_perc_threshold = 98.0
-        self.default_wavelength = 0.638
+        self.default_wavelength = 0.7
         
         # Results storage
         self.threshold_results = {}
@@ -147,23 +154,23 @@ class InteractiveThresholdTuner:
         for base_dir in self.folder_lists['SM_DATA_DIRS']:
             leaf_dirs = self.find_leaf_directories(base_dir)
             for folder in leaf_dirs:
-                all_folders.append((folder, 'sm', 0.638))
+                all_folders.append((folder, 'sm', 0.68))
         
         # HeLa folders (direct)
         for folder in self.folder_lists['HELA_FOLDERS']:
             if os.path.isdir(folder):
-                all_folders.append((folder, 'imaging', 0.647))
+                all_folders.append((folder, 'imaging', 0.700))
         
         # Imaging folders (direct)  
         for folder in self.folder_lists['IMAGING_FOLDERS']:
             if os.path.isdir(folder):
-                all_folders.append((folder, 'imaging', 0.55))
+                all_folders.append((folder, 'imaging', 0.6))
         
         # Hierarchical imaging directories
         for base_dir in self.folder_lists['HIERARCHICAL_DIRS']:
             leaf_dirs = self.find_leaf_directories(base_dir)
             for folder in leaf_dirs:
-                all_folders.append((folder, 'imaging', 0.55))
+                all_folders.append((folder, 'imaging', 0.6))
         
         return all_folders
     
@@ -231,7 +238,9 @@ class InteractiveThresholdTuner:
     
     def plot_detection_results(self, image: np.ndarray, spots: np.ndarray, 
                              pfa: float, perc_threshold: float, folder_name: str):
-        """Plot the detection results interactively"""
+        """Plot the detection results (interactive or file-based)"""
+        global INTERACTIVE_DISPLAY
+        
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Original image
@@ -253,8 +262,18 @@ class InteractiveThresholdTuner:
         ax2.axis('off')
         
         plt.tight_layout()
-        plt.show(block=False)
-        return fig
+        
+        if INTERACTIVE_DISPLAY:
+            plt.show(block=False)
+            return fig
+        else:
+            # Save to file and notify user
+            safe_name = "".join(c for c in folder_name if c.isalnum() or c in (' ', '-', '_')).strip()
+            filename = f"threshold_preview_{safe_name}.png"
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+            print(f"📸 Detection preview saved: {filename}")
+            plt.close(fig)
+            return filename
     
     def interactive_parameter_tuning(self, folder_path: str, folder_type: str, 
                                    default_wavelength: float) -> Union[Dict, None, str]:
@@ -277,19 +296,19 @@ class InteractiveThresholdTuner:
         current_perc_threshold = self.default_perc_threshold
         current_wavelength = default_wavelength
         
-        fig = None
+        fig_or_file = None
         
         while True:
             # Test current parameters
             spots, num_spots = self.test_spot_detection(
                 frame, current_pfa, current_perc_threshold, current_wavelength)
             
-            # Close previous plot
-            if fig is not None:
-                plt.close(fig)
+            # Close previous plot if interactive mode
+            if INTERACTIVE_DISPLAY and fig_or_file is not None:
+                plt.close(fig_or_file)
             
             # Plot results
-            fig = self.plot_detection_results(
+            fig_or_file = self.plot_detection_results(
                 frame, spots, current_pfa, current_perc_threshold, folder_name)
             
             print(f"\nCurrent parameters:")
