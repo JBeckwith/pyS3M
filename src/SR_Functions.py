@@ -509,6 +509,7 @@ class SuperRes_Functions:
         peak_wavelength=0.638,
         NA=1.49,
         pixel_size=0.069,
+        perc_threshold=98,
         image_type=".tif",
     ):
         """Single-molecule data fitting function.
@@ -599,6 +600,7 @@ class SuperRes_Functions:
                 wavelength=peak_wavelength,
                 pixel_size=pixel_size,
                 NA=NA,
+                perc_threshold=perc_threshold,
             )
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
@@ -683,6 +685,7 @@ class SuperRes_Functions:
         peak_wavelength=0.638,
         NA=1.49,
         pixel_size=0.069,
+        perc_threshold=98,
         image_type=".tif",
     ):
         """Cross-file imaging data fitting function.
@@ -775,6 +778,7 @@ class SuperRes_Functions:
                 variance=variance,
                 pixel_size=pixel_size,
                 NA=NA,
+                perc_threshold=perc_threshold,
             )
 
             # Track the highest frame number for this file

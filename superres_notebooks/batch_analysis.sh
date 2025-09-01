@@ -10,12 +10,65 @@ set -e  # Exit on any error
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/single_folder_analysis.py"
 LOG_FILE="batch_analysis_$(date +%Y%m%d_%H%M%S).log"
+THRESHOLD_PARAMS_FILE="$SCRIPT_DIR/threshold_parameters.txt"
 
 # Memory management configuration
 MEMORY_CHECK_INTERVAL=5  # seconds between memory checks
 MAX_SWAP_USAGE_MB=2048   # Maximum swap usage before pausing (2GB)
 MAX_MEMORY_USAGE_PCT=85  # Maximum RAM usage percentage before pausing
 COOLDOWN_TIME=30         # seconds to wait when memory usage is high
+
+# Check for threshold parameters file
+check_threshold_params() {
+    if [ ! -f "$THRESHOLD_PARAMS_FILE" ]; then
+        echo "ERROR: threshold_parameters.txt not found!"
+        echo "Please run the interactive threshold tuner first:"
+        echo "  source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate"
+        echo "  python superres_notebooks/interactive_threshold_tuner.py"
+        echo ""
+        echo "The interactive threshold tuner generates optimized parameters"
+        echo "for spot detection that are required for batch analysis."
+        log_message "ERROR: threshold_parameters.txt missing - interactive_threshold_tuner must be run first"
+        exit 1
+    fi
+    
+    # Validate file format
+    if ! head -1 "$THRESHOLD_PARAMS_FILE" | grep -q "folder_path.*pfa.*perc_threshold.*wavelength"; then
+        echo "WARNING: threshold_parameters.txt format may be invalid"
+        log_message "WARNING: threshold_parameters.txt format validation failed"
+    fi
+    
+    local param_count=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | wc -l)
+    echo "Found threshold parameters for $param_count folders"
+    log_message "Loaded threshold parameters for $param_count folders from $THRESHOLD_PARAMS_FILE"
+}
+
+# Function to get threshold parameters for a folder
+get_threshold_params() {
+    local folder_path="$1"
+    local default_pfa="1e-4"
+    local default_perc="98.0" 
+    local default_wavelength="$2"
+    
+    # Look for exact match first
+    local params_line=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | grep "^$folder_path|" | head -1)
+    
+    if [ -n "$params_line" ]; then
+        # Parse the parameters: folder_path|pfa|perc_threshold|wavelength
+        local pfa=$(echo "$params_line" | cut -d'|' -f2)
+        local perc_threshold=$(echo "$params_line" | cut -d'|' -f3)
+        local wavelength=$(echo "$params_line" | cut -d'|' -f4)
+        echo "$pfa $perc_threshold $wavelength"
+        log_message "Using custom parameters for $folder_path: pfa=$pfa, perc_threshold=$perc_threshold, wavelength=$wavelength"
+    else
+        # Use defaults
+        echo "$default_pfa $default_perc $default_wavelength"
+        log_message "Using default parameters for $folder_path: pfa=$default_pfa, perc_threshold=$default_perc, wavelength=$default_wavelength"
+    fi
+}
+
+# Check threshold parameters file first
+check_threshold_params
 
 # Initialize log file with header
 {
@@ -26,6 +79,7 @@ COOLDOWN_TIME=30         # seconds to wait when memory usage is high
     echo "Location: $SCRIPT_DIR"
     echo "Python Script: $PYTHON_SCRIPT"
     echo "Log File: $LOG_FILE"
+    echo "Threshold Parameters: $THRESHOLD_PARAMS_FILE"
     echo "============================================================"
     echo
 } | tee "$LOG_FILE"
@@ -320,6 +374,18 @@ process_folder() {
     local folder_name=$(basename "$folder_path")
     local scratch_folder="/scratch2/jsb92/$folder_name"
     
+    # Get threshold parameters for this folder
+    local threshold_params=($(get_threshold_params "$folder_path" "$wavelength"))
+    local pfa="${threshold_params[0]}"
+    local perc_threshold="${threshold_params[1]}"
+    local param_wavelength="${threshold_params[2]}"
+    
+    # Use parameter wavelength if available, fallback to passed wavelength
+    if [ "$param_wavelength" != "$wavelength" ] && [ -n "$param_wavelength" ]; then
+        wavelength="$param_wavelength"
+        log_message "Using wavelength from threshold parameters: $wavelength (overriding default $3)"
+    fi
+    
     increment_counter "total"
     local current_total=$(get_counter "total")
     
@@ -339,6 +405,8 @@ process_folder() {
         echo "Scratch Location: $scratch_folder"
         echo "Type: $folder_type"
         echo "Wavelength: $wavelength"
+        echo "PFA: $pfa"
+        echo "Percentile Threshold: $perc_threshold"
         echo "Started: $(date)"
         echo "========================================"
     } >> "$LOG_FILE"
@@ -411,7 +479,7 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" >> "$LOG_FILE" 2>&1; then
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$perc_threshold" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
     else

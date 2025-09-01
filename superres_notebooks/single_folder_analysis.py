@@ -23,16 +23,28 @@ import traceback
 
 def main():
     # Check arguments
-    if len(sys.argv) != 4:
-        print("Usage: python3 single_folder_analysis.py <type> <folder_path> <wavelength>")
+    if len(sys.argv) not in [4, 6]:
+        print("Usage: python3 single_folder_analysis.py <type> <folder_path> <wavelength> [<pfa> <perc_threshold>]")
         print("  type: 'sm' or 'imaging'")
         print("  folder_path: full path to folder to process")
         print("  wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)")
+        print("  pfa: (optional) false alarm probability (e.g., 1e-4)")
+        print("  perc_threshold: (optional) percentile threshold (e.g., 98.0)")
         sys.exit(1)
     
     folder_type = sys.argv[1]
     folder_path = sys.argv[2]
     peak_wavelength = float(sys.argv[3])
+    
+    # Use custom threshold parameters if provided, otherwise defaults
+    if len(sys.argv) == 6:
+        pfa = float(sys.argv[4])
+        perc_threshold = float(sys.argv[5])
+        print(f"Using custom threshold parameters: pfa={pfa}, perc_threshold={perc_threshold}")
+    else:
+        pfa = 1e-4
+        perc_threshold = 98.0
+        print(f"Using default threshold parameters: pfa={pfa}, perc_threshold={perc_threshold}")
     
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
     print(f"Processing: {folder_path}")
@@ -141,11 +153,12 @@ def main():
                 camera_data['rqe'],
                 camera_data['readnoise'],
                 variance=camera_data['variance'],
-                pfa=1e-4,
+                pfa=pfa,
                 ROI_size=12,
                 peak_wavelength=peak_wavelength,
                 NA=1.49,
                 pixel_size=0.069,
+                perc_threshold=perc_threshold,
                 image_type=".tif",
             )
             print("SM data processing completed")
@@ -160,11 +173,12 @@ def main():
                 camera_data['rqe'],
                 camera_data['readnoise'],
                 variance=camera_data['variance'],
-                pfa=1e-4,
+                pfa=pfa,
                 ROI_size=12,
                 peak_wavelength=peak_wavelength,
                 NA=1.49,
                 pixel_size=0.069,
+                perc_threshold=perc_threshold,
                 image_type=".tif",
             )
             print("Imaging data processing completed")
