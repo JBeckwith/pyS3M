@@ -44,7 +44,7 @@ PSF = PSFFunctions.PSF_Functions()
 sCMOS = sCMOSFunctions.sCMOS_Functions()
 SD = SpotDetectionFunctions.SpotDetection_Functions()
 MSF = Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
-SF = SpectralFunctions.Spectral_Functions()
+SF = SpectralFunctions.Spectral_Funcs()
 plotter = PlottingFunctions.Plotter()
 
 
