@@ -110,6 +110,7 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         perc_threshold: float = 98,
         bayer_image: bool = False,
+        hot_pixel_threshold: float = 8.0,
     ) -> np.ndarray:
         """
         function to fit puncta in parallel
@@ -166,6 +167,7 @@ class SpotDetection_Functions:
                         local_factor=local_factor,
                         perc_threshold=perc_threshold,
                         bayer_image=bayer_image,
+                        hot_pixel_threshold=hot_pixel_threshold,
                     )
                 )
         with ProgressUtils.analysis_progress_bar(
@@ -203,7 +205,7 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         perc_threshold: float = 98,
         bayer_image: bool = False,
-        hot_pixel_threshold: float = 20.0,
+        hot_pixel_threshold: float = 8.0,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -260,7 +262,7 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         perc_threshold: float = 98,
         bayer_image: bool = False,
-        hot_pixel_threshold: float = 20.0,
+        hot_pixel_threshold: float = 8.0,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -886,7 +888,7 @@ def _detect_puncta_in_images_standalone(
     local_factor: float = 3.0,
     perc_threshold: float = 98,
     bayer_image: bool = False,
-    hot_pixel_threshold: float = 20.0,
+    hot_pixel_threshold: float = 8.0,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
