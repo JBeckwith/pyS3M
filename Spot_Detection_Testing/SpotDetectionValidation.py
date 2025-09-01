@@ -278,70 +278,39 @@ class SpotDetectionValidator:
     def _load_spectral_data(
         self,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray]:
-        """Load spectral data for simulation using SpectralFunctions."""
-        print("Loading spectral data using SpectralFunctions...")
+        """Load synthetic spectral data for simulation validation."""
+        print("Creating synthetic spectral data for validation...")
 
-        # Load camera quantum efficiency using SpectralFunctions
-        try:
-            # Get camera QE data (filters) from database
-            wavelength, camera_qe_data = SF.get_dye_or_filter_data(
-                ["CS505CU_B", "CS505CU_G", "CS505CU_R"], is_dye=False
-            )
+        # Create synthetic wavelength grid (400-800nm)
+        wavelength = np.linspace(400, 800, 401)  # 1nm resolution
 
-            # Restructure to match expected format [B, G, R]
-            absolute_QYs = camera_qe_data.T  # Shape: (3, n_wavelengths) for B, G, R
+        # Create synthetic camera quantum efficiency curves (B, G, R)
+        # Blue channel: peak around 450nm
+        blue_curve = np.exp(-0.5 * ((wavelength - 450.0) / 50.0) ** 2) * 0.8
+        # Green channel: peak around 550nm  
+        green_curve = np.exp(-0.5 * ((wavelength - 550.0) / 60.0) ** 2) * 0.9
+        # Red channel: peak around 650nm
+        red_curve = np.exp(-0.5 * ((wavelength - 650.0) / 70.0) ** 2) * 0.7
 
-        except Exception as e:
-            print(f"Warning: Could not load camera QE from database: {e}")
-            print("Falling back to direct CSV loading...")
+        # Stack to create absolute_QYs array [B, G, R]
+        absolute_QYs = np.vstack([blue_curve, green_curve, red_curve])
 
-            # Fallback to direct loading
-            from Camera_QE import getpixelefficiency
-
-            gpe = getpixelefficiency.GPE()
-            R, G, B, wavelength = gpe.getpixelefficiency("Camera_QE/CS505CU_QE.csv")
-            absolute_QYs = np.vstack([B, G, R])
-
-        # Load ATTO550 dye spectrum using SpectralFunctions
-        try:
-            dye_wavelength, dye_emission_data = SF.get_dye_or_filter_data(
-                ["ATTO550"], is_dye=True
-            )
-
-            # Ensure wavelength grids match
-            if not np.array_equal(wavelength, dye_wavelength):
-                print("Interpolating dye spectrum to camera wavelength grid...")
-                dye_spectrum_interp = np.interp(
-                    wavelength, dye_wavelength, dye_emission_data[0, :]
-                )
-            else:
-                dye_spectrum_interp = dye_emission_data[0, :]
-
-        except Exception as e:
-            print(f"Warning: Could not load ATTO550 from database: {e}")
-            print("Using fallback synthetic spectrum...")
-
-            # Create a synthetic spectrum centered around 550nm
-            center_wl = 550.0
-            width = 30.0
-            dye_spectrum_interp = np.exp(-0.5 * ((wavelength - center_wl) / width) ** 2)
-
+        # Create synthetic ATTO550-like dye spectrum (peak around 570nm)
+        center_wl = 570.0
+        width = 35.0
+        dye_spectrum_interp = np.exp(-0.5 * ((wavelength - center_wl) / width) ** 2)
+        
         # Normalise dye spectrum
         dye_spectrum_interp = dye_spectrum_interp / np.sum(dye_spectrum_interp)
         dye_spectrum = np.array([dye_spectrum_interp])
 
         # Calculate average emission wavelength
-        average_emission_wavelength = np.trapz(
-            y=wavelength * (dye_spectrum.T / np.trapz(x=wavelength, y=dye_spectrum)).T,
-            x=wavelength,
-        )[0]
+        average_emission_wavelength = np.sum(wavelength * dye_spectrum_interp) / np.sum(dye_spectrum_interp)
 
         # Calculate dye pixel efficiency
         dye_pixel_efficiency = np.dot(dye_spectrum, absolute_QYs.T)
 
-        print(
-            f"  Loaded wavelength range: {wavelength.min():.0f}-{wavelength.max():.0f} nm"
-        )
+        print(f"  Wavelength range: {wavelength.min():.0f}-{wavelength.max():.0f} nm")
         print(f"  Average emission wavelength: {average_emission_wavelength:.1f} nm")
         print(f"  Dye pixel efficiency shape: {dye_pixel_efficiency.shape}")
 
@@ -687,6 +656,19 @@ class SpotDetectionValidator:
 
     def _generate_summary_report(self, results_df: pd.DataFrame, save_folder: str):
         """Generate summary statistics and visualisation."""
+        
+        # Check if DataFrame is empty or missing required columns
+        if len(results_df) == 0:
+            print("No results to analyse - all bootstrap samples failed.")
+            return
+            
+        required_columns = ["n_detected", "precision", "recall", "f1_score", "false_positive_rate"]
+        missing_columns = [col for col in required_columns if col not in results_df.columns]
+        
+        if missing_columns:
+            print(f"Warning: Missing required columns: {missing_columns}")
+            print("Available columns:", list(results_df.columns))
+            return
 
         # Check if we tested both Bayer processing conditions
         has_bayer_comparison = (
