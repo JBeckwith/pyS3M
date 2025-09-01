@@ -58,7 +58,7 @@ class ValidationConfig:
     grid_size: int = 10  # 10x10 grid
     grid_spacing_microns: float = 1.0  # 1 micron spacing
     pixel_size_nm: float = 69.0  # Pixel size in nanometers
-    image_size_pixels: int = 200  # Total image size in pixels
+    image_size_pixels: int = 300  # Total image size in pixels
 
     # Photon and noise parameters
     n_photons_range: Tuple[int, int] = (1000, 5000)  # Photon count range
@@ -66,7 +66,7 @@ class ValidationConfig:
 
     # Bootstrap sampling
     n_bootstrap: int = 50  # Number of bootstrap samples
-    camera_region_size: int = 50  # Size of camera regions to sample
+    camera_region_size: int = 300  # Size of camera regions to sample
 
     # Detection parameters
     pfa: float = 1e-4  # Probability of false alarm
