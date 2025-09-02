@@ -22,6 +22,7 @@ import IOFunctions
 import PSFFunctions
 import sCMOSFunctions
 import ImageAnalysisFunctions
+import SpectralFunctions
 from ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
 
 
@@ -291,7 +292,8 @@ class MultiC_Sim_Funcs_Refactored:
                  io_functions=None,
                  psf_functions=None,
                  scmos_functions=None,
-                 image_analysis_functions=None):
+                 image_analysis_functions=None,
+                 spectral_functions=None):
         """
         Initialize the simulation functions with dependency injection support.
 
@@ -301,6 +303,7 @@ class MultiC_Sim_Funcs_Refactored:
             psf_functions: PSF functions instance (default: creates new instance)
             scmos_functions: sCMOS functions instance (default: creates new instance)
             image_analysis_functions: Image analysis functions instance (default: creates new instance)
+            spectral_functions: Spectral functions instance (default: creates new instance)
         """
         self.mosaic_unit = mosaic_unit
         self.result_processor = FittingResultProcessor()
@@ -310,6 +313,7 @@ class MultiC_Sim_Funcs_Refactored:
         self.psf = psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
         self.scmos = scmos_functions if scmos_functions is not None else sCMOSFunctions.sCMOS_Functions()
         self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
+        self.spectral = spectral_functions if spectral_functions is not None else SpectralFunctions.Spectral_Funcs()
 
     def _validate_inputs(
         self,
@@ -452,10 +456,10 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Handle different demosaic strategies
         if strategy == FittingStrategy.DEMOSAIC_IG:
-            _, grayscale_photoelectron_data = sCMOS.bayer_demosaic_stack(
+            _, grayscale_photoelectron_data = self.scmos.bayer_demosaic_stack(
                 photoelectron_data, True
             )
-            _, grayscale_smoothed_data = sCMOS.bayer_demosaic_stack(smoothed_data, True)
+            _, grayscale_smoothed_data = self.scmos.bayer_demosaic_stack(smoothed_data, True)
             return (
                 photoelectron_data,
                 smoothed_data,
@@ -464,15 +468,15 @@ class MultiC_Sim_Funcs_Refactored:
 
         elif strategy in [FittingStrategy.DEMOSAIC_FAST, FittingStrategy.DEMOSAIC]:
             if strategy == FittingStrategy.DEMOSAIC_FAST:
-                photoelectron_data, grayscale_data = sCMOS.bayer_demosaic_stack(
+                photoelectron_data, grayscale_data = self.scmos.bayer_demosaic_stack(
                     photoelectron_data, True
                 )
-                smoothed_data, grayscale_smoothed = sCMOS.bayer_demosaic_stack(
+                smoothed_data, grayscale_smoothed = self.scmos.bayer_demosaic_stack(
                     smoothed_data, True
                 )
             else:
-                photoelectron_data = sCMOS.bayer_demosaic_stack(photoelectron_data)
-                smoothed_data = sCMOS.bayer_demosaic_stack(smoothed_data)
+                photoelectron_data = self.scmos.bayer_demosaic_stack(photoelectron_data)
+                smoothed_data = self.scmos.bayer_demosaic_stack(smoothed_data)
                 grayscale_data = grayscale_smoothed = None
 
             # Destack for colour fitting
@@ -1247,14 +1251,14 @@ class MultiC_Sim_Funcs_Refactored:
         # Get dye properties
         if "simulated_" in dye:
             average_emission_wavelength, dye_pixel_efficiency = (
-                S_F.get_pixel_fractions_rawspectra(
+                self.spectral.get_pixel_fractions_rawspectra(
                     single_dye_spectrum, wavelength, camera_params.pixel_QYs
                 )
             )
         else:
             average_emission_wavelength, dye_pixel_efficiency = (
-                S_F.get_pixel_fractions_dye_and_filters(
-                    dye, filters, wavelength, camera_params.pixel_QYs
+                self.spectral.get_pixel_fractions_dye_and_filters(
+                    [dye], filters, wavelength, camera_params.pixel_QYs
                 )
             )
 

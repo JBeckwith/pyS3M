@@ -9,6 +9,9 @@ import sys, os
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 
+import IOFunctions
+import Multicolour_Simulation_Functions
+
 
 class Photon_Stream_Functions:
     """Photon generation and streaming simulation functions.
@@ -17,9 +20,16 @@ class Photon_Stream_Functions:
     and time-resolved single-molecule behavior for SMLM applications.
     """
 
-    def __init__(self):
-        """Initialize Photon_Stream_Functions class."""
-        pass
+    def __init__(self, io_functions=None, simulation_functions=None):
+        """Initialize Photon_Stream_Functions class with dependency injection.
+        
+        Args:
+            io_functions: IO functions instance (default: creates new instance)
+            simulation_functions: Simulation functions instance (default: creates new instance)
+        """
+        # Dependency injection with sensible defaults
+        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        self.msf = simulation_functions if simulation_functions is not None else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
 
     def PAINT_array_generator(
         self,
@@ -126,7 +136,7 @@ class Photon_Stream_Functions:
             "background_photons": background_photons,
         }
 
-        IO.write_json(to_save, save_name + "_inputparameters.json")
+        self.io.write_json(to_save, save_name + "_inputparameters.json")
 
         h = camera_calibration["gain"].shape[0]
         w = camera_calibration["gain"].shape[1]
@@ -181,7 +191,7 @@ class Photon_Stream_Functions:
             np.vstack([x0.ravel(), y0.ravel()]).T, columns=["x_nm", "y_nm"]
         )
 
-        image_stack = MSF.gen_camera_image_stack(
+        image_stack = self.msf.gen_camera_image_stack(
             camera_calibration,
             wavelength,
             absolute_QYs,
@@ -193,7 +203,7 @@ class Photon_Stream_Functions:
             pixel_size=pixel_size,
         )
 
-        IO.write_tiff(
+        self.io.write_tiff(
             image_stack, save_name + "_imagestack.tif", bit=np.uint16
         )  # write images
 
