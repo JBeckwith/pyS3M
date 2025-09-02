@@ -166,6 +166,43 @@ camera_parameters = {
 
 Camera calibrations are stored in `Camera_Calibrations/` directory.
 
+## Threshold Parameter Optimization Workflow
+
+The codebase provides a complete system for optimizing spot detection parameters across datasets:
+
+### **Interactive Parameter Tuning**
+```bash
+# Activate virtual environment (required)
+source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
+
+# Run interactive threshold tuner
+python superres_notebooks/interactive_threshold_tuner.py
+```
+
+**Features:**
+- Real-time spot detection preview with parameter adjustment
+- Automatic dataset discovery matching batch analysis folder lists
+- GUI interface with tkinter or graceful fallback to file-based mode
+- Generates `threshold_parameters.txt` with format: `folder_path|pfa|perc_threshold|wavelength`
+
+### **Batch Analysis Integration**
+```bash
+# Run batch analysis with optimized parameters
+bash superres_notebooks/batch_analysis.sh
+```
+
+**Workflow:**
+1. `batch_analysis.sh` validates `threshold_parameters.txt` exists
+2. For each folder, custom parameters are loaded or defaults applied
+3. `single_folder_analysis.py` receives 5 arguments: `type folder wavelength pfa perc_threshold`
+4. `SR_Functions.py` applies parameters to `fit_SM_data()` and `fit_imaging_data()`
+5. All parameters logged for full traceability
+
+**Parameter Flow:**
+- **Interactive Tuner** → `threshold_parameters.txt` → **Batch Analysis** → **SR Functions** → **Spot Detection**
+- Graceful fallback to defaults (pfa=1e-4, perc_threshold=98) for unlisted folders
+- Parameter validation with clear error messages and instructions
+
 ## Testing and Development
 
 No formal test suite exists - testing is primarily done through Jupyter notebooks. When implementing new features, create corresponding test notebooks following existing patterns in `notebooks/`.
@@ -180,11 +217,18 @@ No formal test suite exists - testing is primarily done through Jupyter notebook
 - HDF5 compatibility testing in `test_hdf5_fix.py` for large frame number handling
 
 **Analysis Scripts:** Large-scale analysis scripts are located in `superres_notebooks/`. Available batch processing scripts:
-- `All_Analysis_OneBook_MemorySafe.py` - **RECOMMENDED**: Fixes all identified memory leaks, sequential processing, comprehensive resource cleanup
-- `All_Analysis_OneBook_Debug.py` - Maximum logging version with PID tracking, memory monitoring, step-by-step diagnostics
-- `crash_test.py` - Step-by-step diagnostic testing to identify crash sources
-- `All_Analysis_OneBook_Optimized.py` - **DEPRECATED**: Still has memory leak issues causing terminal crashes
-- `All_Analysis_OneBook_Fixed.py` - **DEPRECATED**: Memory-safe but outdated
+- `batch_analysis.sh` + `single_folder_analysis.py` - **RECOMMENDED**: Modern bash+python batch processing system with:
+  - Complete threshold parameter integration from `interactive_threshold_tuner.py`
+  - Memory-efficient scratch disk workflow with automatic cleanup
+  - Per-folder parameter customization with fallback to defaults
+  - Comprehensive logging and error handling with resource monitoring
+- `interactive_threshold_tuner.py` - **NEW**: Interactive parameter optimization tool:
+  - GUI-based threshold tuning with real-time spot detection preview
+  - Automatic folder discovery matching batch analysis datasets
+  - Generates `threshold_parameters.txt` for batch processing integration
+  - Graceful fallback to file-based mode for headless environments
+- `All_Analysis_OneBook_MemorySafe.py` - **LEGACY**: Sequential processing with comprehensive resource cleanup
+- `All_Analysis_OneBook_Debug.py` - **DIAGNOSTIC**: Maximum logging version for troubleshooting
 - `All_Analysis_OneBook.py` - **AVOID**: Original script causes terminal exits due to memory issues
 
 **Project TODO:** See `claude/TODO.md` for comprehensive analysis of completed refactoring work and remaining high-priority tasks.

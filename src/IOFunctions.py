@@ -69,6 +69,15 @@ class IO_Functions:
                 df.loc[mask, "A_B"] = df.loc[mask, "A_B"] / df.loc[mask, "photons"]
                 df.loc[mask, "A_G"] = df.loc[mask, "A_G"] / df.loc[mask, "photons"]
                 df.loc[mask, "A_R"] = df.loc[mask, "A_R"] / df.loc[mask, "photons"]
+                df.loc[mask, "A_B_err"] = (
+                    df.loc[mask, "A_B_err"] / df.loc[mask, "photons"]
+                )
+                df.loc[mask, "A_G_err"] = (
+                    df.loc[mask, "A_G_err"] / df.loc[mask, "photons"]
+                )
+                df.loc[mask, "A_R_err"] = (
+                    df.loc[mask, "A_R_err"] / df.loc[mask, "photons"]
+                )
 
         # Add background photons column and normalise bg_B, bg_G, bg_R if they exist
         if all(col in df.columns for col in ["bg_B", "bg_G", "bg_R"]):
@@ -85,6 +94,15 @@ class IO_Functions:
                 )
                 df.loc[mask, "bg_R"] = (
                     df.loc[mask, "bg_R"] / df.loc[mask, "background_photons"]
+                )
+                df.loc[mask, "bg_B_err"] = (
+                    df.loc[mask, "bg_B_err"] / df.loc[mask, "background_photons"]
+                )
+                df.loc[mask, "bg_G_err"] = (
+                    df.loc[mask, "bg_G_err"] / df.loc[mask, "background_photons"]
+                )
+                df.loc[mask, "bg_R_err"] = (
+                    df.loc[mask, "bg_R_err"] / df.loc[mask, "background_photons"]
                 )
 
         return df

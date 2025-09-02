@@ -302,8 +302,10 @@ class SpotDetection_Functions:
         )
         detected_puncta = detected_puncta[estimated_intensity > global_threshold]
         return detected_puncta
-    
-    def estimate_intensity(self, image, detected_puncta, guard_interval, reference_interval):
+
+    def estimate_intensity(
+        self, image, detected_puncta, guard_interval, reference_interval
+    ):
         """
         Estimate intensity values for each centroid in the image.
 
@@ -323,7 +325,9 @@ class SpotDetection_Functions:
             len(indices), dtype=float
         )  # Estimated sum intensity per punctum
 
-        x_in, y_in = self.intensity_pixel_indices(detected_puncta, image_size, guard_interval, reference_interval)
+        x_in, y_in = self.intensity_pixel_indices(
+            detected_puncta, image_size, guard_interval, reference_interval
+        )
 
         estimated_intensity = np.mean(image[x_in, y_in], axis=0)
 
@@ -331,8 +335,10 @@ class SpotDetection_Functions:
 
         # correct for averaged background; report background summed
         return estimated_intensity
-    
-    def intensity_pixel_indices(self, centroid_loc, image_size, guard_interval, reference_interval):
+
+    def intensity_pixel_indices(
+        self, centroid_loc, image_size, guard_interval, reference_interval
+    ):
         """
         Calculate pixel indices for inner and outer regions around the given index.
 
@@ -366,8 +372,8 @@ class SpotDetection_Functions:
         x_inner[x_inner >= image_size[0]] = image_size[0] - 1
         y_inner[y_inner >= image_size[1]] = image_size[1] - 1
 
-        return x_inner, y_inner    
-    
+        return x_inner, y_inner
+
     def get_mf(self, psf_fun, mf_sigma: float, mf_range: int) -> np.ndarray:
         """get_mf: Returns matched filter with PSF function given by parameter 'psf_fun'
 
@@ -787,7 +793,6 @@ class SpotDetection_Functions:
             mask = detector_type(T, pfa, local_max_range, kernel)
         points = self.mask2points(mask)
         return points
-    
 
     def cleanup_memory(self):
         """Clean up cached arrays and kernels to free memory."""
