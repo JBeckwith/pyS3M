@@ -28,14 +28,14 @@ sys.path.append(module_dir)
 import ProgressUtils
 
 try:
-    import render as _render
-    import imageprocess as _imageprocess
+    import render
+    import imageprocess
 except ImportError:
     warnings.warn(
         "Could not import render/imageprocess modules. RCC method may not work."
     )
-    _render = None
-    _imageprocess = None
+    render = None
+    imageprocess = None
 
 
 class DriftMethod(Enum):
@@ -341,7 +341,7 @@ class RCCDriftCorrector(DriftCorrector):
         Returns:
             RCC drift correction result
         """
-        if _render is None or _imageprocess is None:
+        if render is None or imageprocess is None:
             raise DriftCorrectionError(
                 "RCC method requires render and imageprocess modules"
             )
@@ -353,7 +353,7 @@ class RCCDriftCorrector(DriftCorrector):
         bounds, segments = self._generate_segments(locs, info, meta, params)
 
         # Calculate shifts using RCC
-        shift_y, shift_x = _imageprocess.rcc(
+        shift_y, shift_x = imageprocess.rcc(
             segments, params.rcc_max_shift, params.progress_callback
         )
 
@@ -409,7 +409,7 @@ class RCCDriftCorrector(DriftCorrector):
                     segment_locs = locs[
                         (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
                     ]
-                    _, segments[i] = _render.render(
+                    _, segments[i] = render.render(
                         segment_locs,
                         info,
                         blur_method=params.blur_method,
@@ -421,7 +421,7 @@ class RCCDriftCorrector(DriftCorrector):
                 segment_locs = locs[
                     (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
                 ]
-                _, segments[i] = _render.render(
+                _, segments[i] = render.render(
                     segment_locs,
                     info,
                     blur_method=params.blur_method,
@@ -1358,7 +1358,7 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             New localization array with group field added
         """
-        if _render is None or _imageprocess is None:
+        if render is None or imageprocess is None:
             raise DriftCorrectionError(
                 "Fiducial detection requires render and imageprocess modules"
             )
@@ -1369,7 +1369,7 @@ class FiducialDriftCorrector(DriftCorrector):
         n_frames = int(meta["n_frames"])
 
         # Render localizations to image for fiducial detection
-        image = _render.render(
+        image = render.render(
             locs=locs,
             info=info,
             oversampling=1,
@@ -1389,13 +1389,13 @@ class FiducialDriftCorrector(DriftCorrector):
 
         # Find local maxima (potential fiducials)
         try:
-            import localise as _localise  # Import here to handle potential issues
+            import localise  # Import here to handle potential issues
         except ImportError:
             raise DriftCorrectionError(
                 "localise module required for fiducial detection"
             )
 
-        y, x, _ = _localise.identify_in_image(image, threshold, box=box)
+        y, x, _ = localise.identify_in_image(image, threshold, box=box)
         picks = [(xi, yi) for xi, yi in zip(x, y)]
 
         if len(picks) == 0:
@@ -1407,7 +1407,7 @@ class FiducialDriftCorrector(DriftCorrector):
         min_n = params.fiducial_min_frames_fraction * n_frames
 
         try:
-            import postprocess as _postprocess  # Import here to handle potential issues
+            import postprocess  # Import here to handle potential issues
         except ImportError:
             raise DriftCorrectionError(
                 "postprocess module required for fiducial detection"
@@ -1416,7 +1416,7 @@ class FiducialDriftCorrector(DriftCorrector):
         # Get localizations for each pick
         width = int(meta["width"])
         height = int(meta["height"])
-        temp_picked_locs = _postprocess.picked_locs(
+        temp_picked_locs = postprocess.picked_locs(
             locs,
             width,
             height,
@@ -1521,7 +1521,7 @@ class AutoDriftCorrector(DriftCorrector):
         if avg_locs_per_segment > 1000:
             selected_method = DriftMethod.AIM
             corrector = self.aim_corrector
-        elif _render is not None and _imageprocess is not None:
+        elif render is not None and imageprocess is not None:
             selected_method = DriftMethod.RCC
             corrector = self.rcc_corrector
         else:

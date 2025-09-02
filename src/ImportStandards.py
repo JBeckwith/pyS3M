@@ -53,10 +53,10 @@ STANDARD_IMPORTS = {
     "pathlib": "from pathlib import Path",
 }
 
-# Legacy Picasso module imports (preserve _np pattern for compatibility)
+# Legacy Picasso module imports (deprecated - being standardized)
 LEGACY_IMPORTS = {
-    "numpy_legacy": "import numpy as _np",
-    "matplotlib_legacy": "import matplotlib.pyplot as _plt",
+    "numpy_legacy": "import numpy as np",  # Standardized from _np
+    "matplotlib_legacy": "import matplotlib.pyplot as plt",  # Standardized from _plt
 }
 
 

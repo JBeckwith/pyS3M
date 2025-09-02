@@ -15,9 +15,9 @@ import time
 import os
 import sys
 
-import numpy as _np
-import numba as _numba
-import scipy.signal as _signal
+import numpy as np
+import numba
+import scipy.signal as signal
 import matplotlib.pyplot as plt
 from matplotlib.colors import hsv_to_rgb, rgb_to_hsv
 
@@ -155,7 +155,7 @@ def render(
         raise Exception("blur_method not understood.")
 
 
-@_numba.njit
+@numba.njit
 def _render_colour_setup(
     locs,
     oversampling,
@@ -198,8 +198,8 @@ def _render_colour_setup(
         Indeces of locs to be rendered
     """
 
-    n_pixel_y = int(_np.ceil(oversampling * (y_max - y_min)))
-    n_pixel_x = int(_np.ceil(oversampling * (x_max - x_min)))
+    n_pixel_y = int(np.ceil(oversampling * (y_max - y_min)))
+    n_pixel_x = int(np.ceil(oversampling * (x_max - x_min)))
     x = locs.xc
     y = locs.yc
     in_view = (x > x_min) & (y > y_min) & (x < x_max) & (y < y_max)
@@ -207,12 +207,12 @@ def _render_colour_setup(
     y = y[in_view]
     x = oversampling * (x - x_min)
     y = oversampling * (y - y_min)
-    image_total = _np.zeros((n_pixel_y, n_pixel_x), dtype=_np.float32)
-    image_spectral = _np.zeros((n_pixel_y, n_pixel_x), dtype=_np.float32)
+    image_total = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
+    image_spectral = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
     return image_total, image_spectral, n_pixel_y, n_pixel_x, x, y, in_view
 
 
-@_numba.njit
+@numba.njit
 def _render_setup(
     locs,
     oversampling,
@@ -255,8 +255,8 @@ def _render_setup(
         Indeces of locs to be rendered
     """
 
-    n_pixel_y = int(_np.ceil(oversampling * (y_max - y_min)))
-    n_pixel_x = int(_np.ceil(oversampling * (x_max - x_min)))
+    n_pixel_y = int(np.ceil(oversampling * (y_max - y_min)))
+    n_pixel_x = int(np.ceil(oversampling * (x_max - x_min)))
     x = locs.xc
     y = locs.yc
     in_view = (x > x_min) & (y > y_min) & (x < x_max) & (y < y_max)
@@ -264,11 +264,11 @@ def _render_setup(
     y = y[in_view]
     x = oversampling * (x - x_min)
     y = oversampling * (y - y_min)
-    image = _np.zeros((n_pixel_y, n_pixel_x), dtype=_np.float32)
+    image = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
     return image, n_pixel_y, n_pixel_x, x, y, in_view
 
 
-@_numba.njit
+@numba.njit
 def _fill(image, x, y):
     """
     Fills image with x and y coordinates.
@@ -284,13 +284,13 @@ def _fill(image, x, y):
         y coordinates to be rendered
     """
 
-    x = x.astype(_np.int32)
-    y = y.astype(_np.int32)
+    x = x.astype(np.int32)
+    y = y.astype(np.int32)
     for i, j in zip(x, y):
         image[j, i] += 1
 
 
-@_numba.njit
+@numba.njit
 def _fill_colour_gaussian(
     image_total, image_spectral, x, y, sx, sy, colour, n_pixel_x, n_pixel_y
 ):
@@ -324,34 +324,34 @@ def _fill_colour_gaussian(
 
         # get min and max indeces to draw the given localization
         max_y = _DRAW_MAX_SIGMA * sy_
-        i_min = _np.int32(y_ - max_y)
+        i_min = np.int32(y_ - max_y)
         if i_min < 0:
             i_min = 0
-        i_max = _np.int32(y_ + max_y + 1)
+        i_max = np.int32(y_ + max_y + 1)
         if i_max > n_pixel_y:
             i_max = n_pixel_y
         max_x = _DRAW_MAX_SIGMA * sx_
-        j_min = _np.int32(x_ - max_x)
+        j_min = np.int32(x_ - max_x)
         if j_min < 0:
             j_min = 0
-        j_max = _np.int32(x_ + max_x) + 1
+        j_max = np.int32(x_ + max_x) + 1
         if j_max > n_pixel_x:
             j_max = n_pixel_x
 
         # draw a localization as a 2D guassian PDF
         for i in range(i_min, i_max):
             for j in range(j_min, j_max):
-                val = _np.exp(
+                val = np.exp(
                     -(
                         (j - x_ + 0.5) ** 2 / (2 * sx_**2)
                         + (i - y_ + 0.5) ** 2 / (2 * sy_**2)
                     )
-                ) / (2 * _np.pi * sx_ * sy_)
+                ) / (2 * np.pi * sx_ * sy_)
                 image_total[i, j] += val
                 image_spectral[i, j] += val * colour_
 
 
-@_numba.njit
+@numba.njit
 def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
     """
     Fills image with blurred x and y coordinates.
@@ -381,29 +381,29 @@ def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
 
         # get min and max indeces to draw the given localization
         max_y = _DRAW_MAX_SIGMA * sy_
-        i_min = _np.int32(y_ - max_y)
+        i_min = np.int32(y_ - max_y)
         if i_min < 0:
             i_min = 0
-        i_max = _np.int32(y_ + max_y + 1)
+        i_max = np.int32(y_ + max_y + 1)
         if i_max > n_pixel_y:
             i_max = n_pixel_y
         max_x = _DRAW_MAX_SIGMA * sx_
-        j_min = _np.int32(x_ - max_x)
+        j_min = np.int32(x_ - max_x)
         if j_min < 0:
             j_min = 0
-        j_max = _np.int32(x_ + max_x) + 1
+        j_max = np.int32(x_ + max_x) + 1
         if j_max > n_pixel_x:
             j_max = n_pixel_x
 
         # draw a localization as a 2D guassian PDF
         for i in range(i_min, i_max):
             for j in range(j_min, j_max):
-                image[i, j] += _np.exp(
+                image[i, j] += np.exp(
                     -(
                         (j - x_ + 0.5) ** 2 / (2 * sx_**2)
                         + (i - y_ + 0.5) ** 2 / (2 * sy_**2)
                     )
-                ) / (2 * _np.pi * sx_ * sy_)
+                ) / (2 * np.pi * sx_ * sy_)
 
 
 def render_hist(
@@ -511,8 +511,8 @@ def render_gaussian_colour(
         )
     )
 
-    blur_width = oversampling * _np.maximum(locs.xc_err, min_blur_width)
-    blur_height = oversampling * _np.maximum(locs.yc_err, min_blur_width)
+    blur_width = oversampling * np.maximum(locs.xc_err, min_blur_width)
+    blur_height = oversampling * np.maximum(locs.yc_err, min_blur_width)
     sy = blur_height[in_view]
     sx = blur_width[in_view]
     color = locs[cparam][in_view]
@@ -525,14 +525,14 @@ def render_gaussian_colour(
     image_spectral[non_zero] = image_spectral[non_zero] / image_total[non_zero]
     image_spectral[~non_zero] = 0
 
-    min_density = _np.percentile(image_total, mindensperc)
-    max_density = _np.percentile(image_total, maxdensperc)
+    min_density = np.percentile(image_total, mindensperc)
+    max_density = np.percentile(image_total, maxdensperc)
     cmap = plt.get_cmap(cmap_string)
-    normalised_density = _np.clip(
+    normalised_density = np.clip(
         (image_total - min_density) / (max_density - min_density), 0, 1
     )
 
-    normalised_wl = _np.clip((image_spectral - c_min) / (c_max - c_min), 0, 1)
+    normalised_wl = np.clip((image_spectral - c_min) / (c_max - c_min), 0, 1)
     rgb = cmap(normalised_wl)[..., :3]
     rgb[normalised_density < densitymin] = 0
     hsv = rgb_to_hsv(rgb)
@@ -592,8 +592,8 @@ def render_gaussian(
         x_max,
     )
 
-    blur_width = oversampling * _np.maximum(locs.xc_err, min_blur_width)
-    blur_height = oversampling * _np.maximum(locs.yc_err, min_blur_width)
+    blur_width = oversampling * np.maximum(locs.xc_err, min_blur_width)
+    blur_height = oversampling * np.maximum(locs.yc_err, min_blur_width)
     sy = blur_height[in_view]
     sx = blur_width[in_view]
 
@@ -652,8 +652,8 @@ def render_gaussian_iso(
         x_max,
     )
 
-    blur_width = oversampling * _np.maximum(locs.xc_err, min_blur_width)
-    blur_height = oversampling * _np.maximum(locs.yc_err, min_blur_width)
+    blur_width = oversampling * np.maximum(locs.xc_err, min_blur_width)
+    blur_height = oversampling * np.maximum(locs.yc_err, min_blur_width)
     sy = (blur_height[in_view] + blur_width[in_view]) / 2
     sx = sy
 
@@ -718,10 +718,10 @@ def render_convolve(
     else:
         _fill(image, x, y)
         blur_width = oversampling * max(
-            _np.median(locs.xc_err[in_view]), min_blur_width
+            np.median(locs.xc_err[in_view]), min_blur_width
         )
         blur_height = oversampling * max(
-            _np.median(locs.yc_err[in_view]), min_blur_width
+            np.median(locs.yc_err[in_view]), min_blur_width
         )
         return n, _fftconvolve(image, blur_width, blur_height)
 
@@ -800,10 +800,10 @@ def _fftconvolve(image, blur_width, blur_height):
         Blurred image
     """
 
-    kernel_width = 10 * int(_np.round(blur_width)) + 1
-    kernel_height = 10 * int(_np.round(blur_height)) + 1
-    kernel_y = _signal.windows.gaussian(kernel_height, blur_height)
-    kernel_x = _signal.windows.gaussian(kernel_width, blur_width)
-    kernel = _np.outer(kernel_y, kernel_x)
+    kernel_width = 10 * int(np.round(blur_width)) + 1
+    kernel_height = 10 * int(np.round(blur_height)) + 1
+    kernel_y = signal.windows.gaussian(kernel_height, blur_height)
+    kernel_x = signal.windows.gaussian(kernel_width, blur_width)
+    kernel = np.outer(kernel_y, kernel_x)
     kernel /= kernel.sum()
-    return _signal.fftconvolve(image, kernel, mode="same")
+    return signal.fftconvolve(image, kernel, mode="same")

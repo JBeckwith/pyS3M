@@ -14,7 +14,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
 
-import postprocess as _postprocess
+import postprocess
 from sklearn.cluster import DBSCAN, HDBSCAN
 
 
@@ -312,7 +312,7 @@ class extract_SMs:
         group = np.zeros(len(loc_array), dtype=np.int32)
 
         # Use postprocess linking function
-        link_groups = _postprocess.get_link_groups(
+        link_groups = postprocess.get_link_groups(
             loc_array, max_distance, max_frames, group
         )
 

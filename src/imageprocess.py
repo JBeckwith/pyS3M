@@ -13,31 +13,31 @@
 
 import os
 import sys
-import matplotlib.pyplot as _plt
-import numpy as _np
-from numpy import fft as _fft
-import lmfit as _lmfit
+import matplotlib.pyplot as plt
+import numpy as np
+from numpy import fft
+import lmfit
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import ProgressUtils
-import lib as _lib
-import render as _render
-import localise as _localise  # Changed from localize to localise
-import postprocess as _postprocess
+import lib
+import render
+import localise  # Changed from localize to localise
+import postprocess
 
 
 def xcorr(imageA, imageB):
-    FimageA = _fft.fft2(imageA)
-    CFimageB = _np.conj(_fft.fft2(imageB))
-    return _fft.fftshift(_np.real(_fft.ifft2((FimageA * CFimageB)))) / _np.sqrt(
+    FimageA = fft.fft2(imageA)
+    CFimageB = np.conj(fft.fft2(imageB))
+    return fft.fftshift(np.real(fft.ifft2((FimageA * CFimageB)))) / np.sqrt(
         imageA.size
     )
 
 
 def get_image_shift(imageA, imageB, box, roi=None, display=False):
     """Computes the shift from imageA to imageB"""
-    if (_np.sum(imageA) == 0) or (_np.sum(imageB) == 0):
+    if (np.sum(imageA) == 0) or (np.sum(imageB) == 0):
         return 0, 0
     # Compute image correlation
     XCorr = xcorr(imageA, imageB)
@@ -59,9 +59,9 @@ def get_image_shift(imageA, imageB, box, roi=None, display=False):
     # A quarter of the fit ROI
     fit_X = int(box / 2)
     # A coordinate grid for the fitting ROI
-    y, x = _np.mgrid[-fit_X : fit_X + 1, -fit_X : fit_X + 1]
+    y, x = np.mgrid[-fit_X : fit_X + 1, -fit_X : fit_X + 1]
     # Find the brightest pixel and cut out the fit ROI
-    y_max_, x_max_ = _np.unravel_index(XCorr.argmax(), XCorr.shape)
+    y_max_, x_max_ = np.unravel_index(XCorr.argmax(), XCorr.shape)
     FitROI = XCorr[
         y_max_ - fit_X : y_max_ + fit_X + 1,
         x_max_ - fit_X : x_max_ + fit_X + 1,
@@ -74,15 +74,15 @@ def get_image_shift(imageA, imageB, box, roi=None, display=False):
     else:
         # The fit model
         def flat_2d_gaussian(a, xc, yc, s, b):
-            A = a * _np.exp(-0.5 * ((x - xc) ** 2 + (y - yc) ** 2) / s**2) + b
+            A = a * np.exp(-0.5 * ((x - xc) ** 2 + (y - yc) ** 2) / s**2) + b
             return A.flatten()
 
-        gaussian2d = _lmfit.Model(
+        gaussian2d = lmfit.Model(
             flat_2d_gaussian, name="2D Gaussian", independent_vars=[]
         )
 
         # Set up initial parameters and fit
-        params = _lmfit.Parameters()
+        params = lmfit.Parameters()
         params.add("a", value=FitROI.max(), vary=True, min=0)
         params.add("xc", value=0, vary=True)
         params.add("yc", value=0, vary=True)
@@ -97,27 +97,27 @@ def get_image_shift(imageA, imageB, box, roi=None, display=False):
         yc += Y_ + y_max_
 
         if display:
-            _plt.figure(figsize=(17, 10))
-            _plt.subplot(1, 3, 1)
-            _plt.imshow(imageA, interpolation="none")
-            _plt.subplot(1, 3, 2)
-            _plt.imshow(imageB, interpolation="none")
-            _plt.subplot(1, 3, 3)
-            _plt.imshow(XCorr, interpolation="none")
-            _plt.plot(xc, yc, "x")
-            _plt.show()
-            _plt.close()
+            plt.figure(figsize=(17, 10))
+            plt.subplot(1, 3, 1)
+            plt.imshow(imageA, interpolation="none")
+            plt.subplot(1, 3, 2)
+            plt.imshow(imageB, interpolation="none")
+            plt.subplot(1, 3, 3)
+            plt.imshow(XCorr, interpolation="none")
+            plt.plot(xc, yc, "x")
+            plt.show()
+            plt.close()
 
-        xc -= _np.floor(X / 2)
-        yc -= _np.floor(Y / 2)
+        xc -= np.floor(X / 2)
+        yc -= np.floor(Y / 2)
 
     return -yc, -xc
 
 
 def rcc(segments, max_shift=None, callback=None):
     n_segments = len(segments)
-    shifts_x = _np.zeros((n_segments, n_segments))
-    shifts_y = _np.zeros((n_segments, n_segments))
+    shifts_x = np.zeros((n_segments, n_segments))
+    shifts_y = np.zeros((n_segments, n_segments))
     n_pairs = int(n_segments * (n_segments - 1) / 2)
     flag = 0
     if callback is None:
@@ -141,7 +141,7 @@ def rcc(segments, max_shift=None, callback=None):
                 flag += 1
                 callback(flag)
 
-    return _lib.minimize_shifts(shifts_x, shifts_y)
+    return lib.minimize_shifts(shifts_x, shifts_y)
 
 
 def find_fiducials(locs, info):
@@ -170,15 +170,15 @@ def find_fiducials(locs, info):
         Can be set as the pick diameter in pixels for undrifting.
     """
 
-    image = _render.render(
+    image = render.render(
         locs=locs,
         info=info,
         oversampling=1,
         viewport=None,
         blur_method="smooth",
     )[1]
-    hist = _np.histogram(image.flatten(), bins=256)
-    threshold = _np.percentile(hist[0], 99)
+    hist = np.histogram(image.flatten(), bins=256)
+    threshold = np.percentile(hist[0], 99)
     # box size should be an odd number, corresponding to approximately
     # 900 nm
     pixelsize = 130
@@ -186,11 +186,11 @@ def find_fiducials(locs, info):
         if val := inf.get("Pixelsize"):
             pixelsize = val
             break
-    box = int(_np.round(900 / pixelsize))
+    box = int(np.round(900 / pixelsize))
     box = box + 1 if box % 2 == 0 else box
 
     # find the local maxima and translate to pick coordinates
-    y, x, _ = _localise.identify_in_image(
+    y, x, _ = localise.identify_in_image(
         image, threshold, box=box
     )  # Changed from _localize to _localise
     picks = [(xi, yi) for xi, yi in zip(x, y)]
@@ -202,7 +202,7 @@ def find_fiducials(locs, info):
             n_frames = val
             break
     min_n = 0.8 * n_frames
-    picked_locs = _postprocess.picked_locs(
+    picked_locs = postprocess.picked_locs(
         locs,
         info,
         picks,

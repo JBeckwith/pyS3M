@@ -8,21 +8,19 @@
     :copyright: Copyright (c) 2016 Jungmann Lab, MPI of Biochemistry
 """
 
-import numba as _numba
-import numpy as _np
+import numba
+import numpy as np
 import sys
 import os
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 from Constants import ProcessingConstants
-from lmfit import Model as _Model
-from numpy.lib.recfunctions import append_fields as _append_fields
-from numpy.lib.recfunctions import drop_fields as _drop_fields
-from numpy.lib.recfunctions import stack_arrays as _stack_arrays
-import collections as _collections
-import glob as _glob
-import os.path as _ospath
+from lmfit import Model
+from numpy.lib.recfunctions import append_fields, drop_fields, stack_arrays
+import collections
+import glob
+import os.path
 
 # A global variable where we store all open progress and status dialogs.
 # In case of an exception, we close them all,
@@ -30,7 +28,7 @@ import os.path as _ospath
 _dialogs = []
 
 
-class AutoDict(_collections.defaultdict):
+class AutoDict(collections.defaultdict):
     """
     A defaultdict whose auto-generated values are defaultdicts itself.
     This allows for auto-generating nested values, e.g.
@@ -43,10 +41,10 @@ class AutoDict(_collections.defaultdict):
 
 
 def cumulative_exponential(x, a, t, c):
-    return a * (1 - _np.exp(-(x / t))) + c
+    return a * (1 - np.exp(-(x / t))) + c
 
 
-CumulativeExponentialModel = _Model(cumulative_exponential)
+CumulativeExponentialModel = Model(cumulative_exponential)
 
 
 def calculate_optimal_bins(data, max_n_bins=None):
@@ -65,7 +63,7 @@ def calculate_optimal_bins(data, max_n_bins=None):
         Bins for display.
     """
 
-    iqr = _np.subtract(*_np.percentile(data, [75, 25]))
+    iqr = np.subtract(*np.percentile(data, [75, 25]))
     bin_size = 2 * iqr * len(data) ** (-1 / 3)
     if data.dtype.kind in ("u", "i") and bin_size < 1:
         bin_size = 1
@@ -77,7 +75,7 @@ def calculate_optimal_bins(data, max_n_bins=None):
         n_bins = ProcessingConstants.N_BINS_FALLBACK
     if max_n_bins and n_bins > max_n_bins:
         n_bins = max_n_bins
-    bins = _np.linspace(bin_min, data.max(), n_bins)
+    bins = np.linspace(bin_min, data.max(), n_bins)
     return bins
 
 
@@ -101,7 +99,7 @@ def append_to_rec(rec_array, data, name):
 
     if hasattr(rec_array, name):
         rec_array = remove_from_rec(rec_array, name)
-    rec_array = _append_fields(
+    rec_array = append_fields(
         rec_array,
         name,
         data,
@@ -137,7 +135,7 @@ def merge_locs(locs_list, increment_frames=True):
             locs["frame"] += last_frame
             last_frame = locs["frame"][-1].max()
             locs_list[i] = locs
-    locs = _stack_arrays(locs_list, usemask=False, asrecarray=True)
+    locs = stack_arrays(locs_list, usemask=False, asrecarray=True)
     return locs
 
 
@@ -160,8 +158,8 @@ def ensure_sanity(locs, info):
 
     # no inf or nan:
     locs = locs[
-        _np.all(
-            _np.array([_np.isfinite(locs[_]) for _ in locs.dtype.names]),
+        np.all(
+            np.array([np.isfinite(locs[_]) for _ in locs.dtype.names]),
             axis=0,
         )
     ]
@@ -227,7 +225,7 @@ def locs_at(x, y, locs, r):
     return picked_locs
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def check_if_in_polygon(x, y, X, Y):
     """Checks if points (x, y) are in polygon defined by corners (X, Y).
     Uses the ray casting algorithm, see check_if_in_rectangle for
@@ -252,7 +250,7 @@ def check_if_in_polygon(x, y, X, Y):
 
     n_locs = len(x)
     n_polygon = len(X)
-    is_in_polygon = _np.zeros(n_locs, dtype=_np.bool_)
+    is_in_polygon = np.zeros(n_locs, dtype=np.bool_)
 
     for i in range(n_locs):
         count = 0
@@ -286,11 +284,11 @@ def locs_in_polygon(locs, X, Y):
         Localizations in polygon.
     """
 
-    is_in_polygon = check_if_in_polygon(locs.xc, locs.yc, _np.array(X), _np.array(Y))
+    is_in_polygon = check_if_in_polygon(locs.xc, locs.yc, np.array(X), np.array(Y))
     return locs[is_in_polygon]
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def check_if_in_rectangle(x, y, X, Y):
     """
     Checks if locs with coordinates (x, y) are in rectangle with corners (X, Y)
@@ -316,7 +314,7 @@ def check_if_in_rectangle(x, y, X, Y):
     """
 
     n_locs = len(x)
-    ray_hits_rectangle_side = _np.zeros((n_locs, 4))
+    ray_hits_rectangle_side = np.zeros((n_locs, 4))
     for i in range(4):
         # get two y coordinates of corner points forming one rectangle side
         y_corner_1 = Y[i]
@@ -338,7 +336,7 @@ def check_if_in_rectangle(x, y, X, Y):
                 if x_intersect >= x_loc:
                     # ray hits rectangle side on the right side
                     ray_hits_rectangle_side[j, i] = 1
-    n_sides_hit = _np.sum(ray_hits_rectangle_side, axis=1)
+    n_sides_hit = np.sum(ray_hits_rectangle_side, axis=1)
     is_in_rectangle = n_sides_hit % 2 == 1
     return is_in_rectangle
 
@@ -362,7 +360,7 @@ def locs_in_rectangle(locs, X, Y):
     """
 
     is_in_rectangle = check_if_in_rectangle(
-        locs.xc, locs.yc, _np.array(X), _np.array(Y)
+        locs.xc, locs.yc, np.array(X), np.array(Y)
     )
     picked_locs = locs[is_in_rectangle]
     return picked_locs
@@ -393,8 +391,8 @@ def minimize_shifts(shifts_x, shifts_y, shifts_z=None):
     n_channels = shifts_x.shape[0]
     n_pairs = int(n_channels * (n_channels - 1) / 2)
     n_dims = 2 if shifts_z is None else 3
-    rij = _np.zeros((n_pairs, n_dims))
-    A = _np.zeros((n_pairs, n_channels - 1))
+    rij = np.zeros((n_pairs, n_dims))
+    A = np.zeros((n_pairs, n_channels - 1))
     flag = 0
     for i in range(n_channels - 1):
         for j in range(i + 1, n_channels):
@@ -404,13 +402,13 @@ def minimize_shifts(shifts_x, shifts_y, shifts_z=None):
                 rij[flag, 2] = shifts_z[i, j]
             A[flag, i:j] = 1
             flag += 1
-    Dj = _np.dot(_np.linalg.pinv(A), rij)
-    shift_y = _np.insert(_np.cumsum(Dj[:, 0]), 0, 0)
-    shift_x = _np.insert(_np.cumsum(Dj[:, 1]), 0, 0)
+    Dj = np.dot(np.linalg.pinv(A), rij)
+    shift_y = np.insert(np.cumsum(Dj[:, 0]), 0, 0)
+    shift_x = np.insert(np.cumsum(Dj[:, 1]), 0, 0)
     if n_dims == 2:
         return shift_y, shift_x
     else:
-        shift_z = _np.insert(_np.cumsum(Dj[:, 2]), 0, 0)
+        shift_z = np.insert(np.cumsum(Dj[:, 2]), 0, 0)
         return shift_y, shift_x, shift_z
 
 
@@ -436,7 +434,7 @@ def remove_from_rec(rec_array, name):
         Recarray without the column.
     """
 
-    rec_array = _drop_fields(rec_array, name, usemask=False, asrecarray=True)
+    rec_array = drop_fields(rec_array, name, usemask=False, asrecarray=True)
     return rec_array
 
 
@@ -466,11 +464,11 @@ def get_pick_rectangle_corners(start_x, start_y, end_x, end_y, width):
     """
 
     if end_x == start_x:
-        alpha = _np.pi / 2
+        alpha = np.pi / 2
     else:
-        alpha = _np.arctan((end_y - start_y) / (end_x - start_x))
-    dx = width * _np.sin(alpha) / 2
-    dy = width * _np.cos(alpha) / 2
+        alpha = np.arctan((end_y - start_y) / (end_x - start_x))
+    dx = width * np.sin(alpha) / 2
+    dy = width * np.cos(alpha) / 2
     x1 = float(start_x - dx)
     x2 = float(start_x + dx)
     x4 = float(end_x - dx)
@@ -499,7 +497,7 @@ def get_pick_rectangle_corners(start_x, start_y, end_x, end_y, width):
 #         Pick areas, same units as r.
 #     """
 
-#     areas = _np.ones(len(picks)) * _np.pi * r**2
+#     areas = np.ones(len(picks)) * np.pi * r**2
 #     return areas
 
 
@@ -549,7 +547,7 @@ def pick_areas_polygon(picks):
             continue
         X, Y = get_pick_polygon_corners(pick)
         areas.append(polygon_area(X, Y))
-    areas = _np.array(areas)
+    areas = np.array(areas)
     areas = areas[areas > 0]  # remove open polygons #TODO: delete this line?
     return areas
 
@@ -571,8 +569,8 @@ def pick_areas_rectangle(picks, w):
         Pick areas, same units as w.
     """
 
-    areas = _np.zeros(len(picks))
+    areas = np.zeros(len(picks))
     for i, pick in enumerate(picks):
         (xs, ys), (xe, ye) = pick
-        areas[i] = w * _np.sqrt((xe - xs) ** 2 + (ye - ys) ** 2)
+        areas[i] = w * np.sqrt((xe - xs) ** 2 + (ye - ys) ** 2)
     return areas

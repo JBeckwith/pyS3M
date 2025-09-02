@@ -10,26 +10,26 @@
 
 import os
 import sys
-import numpy as _np
-import numba as _numba
+import numpy as np
+import numba
 
-from scipy import interpolate as _interpolate
-from scipy.special import iv as _iv
+from scipy import interpolate
+from scipy.special import iv
 from scipy.spatial import distance
 
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
-import multiprocessing as _multiprocessing
-import matplotlib.pyplot as _plt
-import itertools as _itertools
-import lmfit as _lmfit
-from collections import OrderedDict as _OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing as mp
+import matplotlib.pyplot as plt
+import itertools
+import lmfit
+from collections import OrderedDict
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
-import lib as _lib
-import render as _render
-import imageprocess as _imageprocess
-from threading import Thread as _Thread
+import lib
+import render
+import imageprocess
+from threading import Thread
 import ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
 from sklearn.neighbors import NearestNeighbors as NN
@@ -37,19 +37,19 @@ from sklearn.neighbors import NearestNeighbors as NN
 
 def get_index_blocks(locs, width, height, size, callback=None):
     # Sort locs by indices
-    x_index = _np.uint32(locs.xc / size)
-    y_index = _np.uint32(locs.yc / size)
-    sort_indices = _np.lexsort([x_index, y_index])
+    x_index = np.uint32(locs.xc / size)
+    y_index = np.uint32(locs.yc / size)
+    sort_indices = np.lexsort([x_index, y_index])
     locs = locs[sort_indices]
     x_index = x_index[sort_indices]
     y_index = y_index[sort_indices]
     # Allocate block info arrays
     n_blocks_y, n_blocks_x = index_blocks_shape(width, height, size)
-    block_starts = _np.zeros((n_blocks_y, n_blocks_x), dtype=_np.uint32)
-    block_ends = _np.zeros((n_blocks_y, n_blocks_x), dtype=_np.uint32)
+    block_starts = np.zeros((n_blocks_y, n_blocks_x), dtype=np.uint32)
+    block_ends = np.zeros((n_blocks_y, n_blocks_x), dtype=np.uint32)
     K, L = block_starts.shape
     # Fill in block starts and ends
-    thread = _Thread(
+    thread = Thread(
         target=_fill_index_blocks,
         args=(block_starts, block_ends, x_index, y_index),
     )
@@ -60,25 +60,25 @@ def get_index_blocks(locs, width, height, size, callback=None):
 
 def index_blocks_shape(width, height, size):
     """Returns the shape of the index grid, given the movie and grid sizes"""
-    n_blocks_x = int(_np.ceil(width / size))
-    n_blocks_y = int(_np.ceil(height / size))
+    n_blocks_x = int(np.ceil(width / size))
+    n_blocks_y = int(np.ceil(height / size))
     return n_blocks_y, n_blocks_x
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def n_block_locs_at(x, y, size, K, L, block_starts, block_ends):
-    x_index = _np.uint32(x / size)
-    y_index = _np.uint32(y / size)
+    x_index = np.uint32(x / size)
+    y_index = np.uint32(y / size)
     step = 0
     for k in range(y_index - 1, y_index + 2):
         if 0 < k < K:
             for l in range(x_index - 1, x_index + 2):
                 if 0 < l < L:
                     if step == 0:
-                        n_block_locs = _np.uint32(block_ends[k][l] - block_starts[k][l])
+                        n_block_locs = np.uint32(block_ends[k][l] - block_starts[k][l])
                         step = 1
                     else:
-                        n_block_locs += _np.uint32(
+                        n_block_locs += np.uint32(
                             block_ends[k][l] - block_starts[k][l]
                         )
     return n_block_locs
@@ -86,19 +86,19 @@ def n_block_locs_at(x, y, size, K, L, block_starts, block_ends):
 
 def get_block_locs_at(x, y, index_blocks):
     locs, size, _, _, block_starts, block_ends, K, L = index_blocks
-    x_index = _np.uint32(x / size)
-    y_index = _np.uint32(y / size)
+    x_index = np.uint32(x / size)
+    y_index = np.uint32(y / size)
     indices = []
     for k in range(y_index - 1, y_index + 2):
         if 0 <= k < K:
             for l in range(x_index - 1, x_index + 2):
                 if 0 <= l < L:
                     indices.append(list(range(block_starts[k, l], block_ends[k, l])))
-    indices = list(_itertools.chain(*indices))
+    indices = list(itertools.chain(*indices))
     return locs[indices]
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _fill_index_blocks(block_starts, block_ends, x_index, y_index):
     Y, X = block_starts.shape
     N = len(x_index)
@@ -110,7 +110,7 @@ def _fill_index_blocks(block_starts, block_ends, x_index, y_index):
             )
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _fill_index_block(block_starts, block_ends, N, x_index, y_index, i, j, k):
     block_starts[i, j] = k
     while k < N and y_index[k] == i and x_index[k] == j:
@@ -172,10 +172,10 @@ def picked_locs(
             for i, pick in enumerate(picks):
                 x, y = pick
                 block_locs = get_block_locs_at(x, y, index_blocks)
-                group_locs = _lib.locs_at(x, y, block_locs, pick_size)
+                group_locs = lib.locs_at(x, y, block_locs, pick_size)
                 if add_group:
-                    group = i * _np.ones(len(group_locs), dtype=_np.int32)
-                    group_locs = _lib.append_to_rec(group_locs, group, "group")
+                    group = i * np.ones(len(group_locs), dtype=np.int32)
+                    group_locs = lib.append_to_rec(group_locs, group, "group")
                 group_locs.sort(kind="mergesort", order="frame")
                 picked_locs.append(group_locs)
 
@@ -187,7 +187,7 @@ def picked_locs(
         elif pick_shape == "Rectangle":
             for i, pick in enumerate(picks):
                 (xs, ys), (xe, ye) = pick
-                X, Y = _lib.get_pick_rectangle_corners(xs, ys, xe, ye, pick_size)
+                X, Y = lib.get_pick_rectangle_corners(xs, ys, xe, ye, pick_size)
                 x_min = min(X)
                 x_max = max(X)
                 y_min = min(Y)
@@ -196,18 +196,18 @@ def picked_locs(
                 group_locs = group_locs[group_locs.xc < x_max]
                 group_locs = group_locs[group_locs.yc > y_min]
                 group_locs = group_locs[group_locs.yc < y_max]
-                group_locs = _lib.locs_in_rectangle(group_locs, X, Y)
+                group_locs = lib.locs_in_rectangle(group_locs, X, Y)
                 # store rotated coordinates in x_rot and y_rot
-                angle = 0.5 * _np.pi - _np.arctan2((ye - ys), (xe - xs))
+                angle = 0.5 * np.pi - np.arctan2((ye - ys), (xe - xs))
                 x_shifted = group_locs.xc - xs
                 y_shifted = group_locs.yc - ys
-                x_pick_rot = x_shifted * _np.cos(angle) - y_shifted * _np.sin(angle)
-                y_pick_rot = x_shifted * _np.sin(angle) + y_shifted * _np.cos(angle)
-                group_locs = _lib.append_to_rec(group_locs, x_pick_rot, "x_pick_rot")
-                group_locs = _lib.append_to_rec(group_locs, y_pick_rot, "y_pick_rot")
+                x_pick_rot = x_shifted * np.cos(angle) - y_shifted * np.sin(angle)
+                y_pick_rot = x_shifted * np.sin(angle) + y_shifted * np.cos(angle)
+                group_locs = lib.append_to_rec(group_locs, x_pick_rot, "x_pick_rot")
+                group_locs = lib.append_to_rec(group_locs, y_pick_rot, "y_pick_rot")
                 if add_group:
-                    group = i * _np.ones(len(group_locs), dtype=_np.int32)
-                    group_locs = _lib.append_to_rec(group_locs, group, "group")
+                    group = i * np.ones(len(group_locs), dtype=np.int32)
+                    group_locs = lib.append_to_rec(group_locs, group, "group")
                 group_locs.sort(kind="mergesort", order="frame")
                 picked_locs.append(group_locs)
 
@@ -218,7 +218,7 @@ def picked_locs(
 
         elif pick_shape == "Polygon":
             for i, pick in enumerate(picks):
-                X, Y = _lib.get_pick_polygon_corners(pick)
+                X, Y = lib.get_pick_polygon_corners(pick)
                 if X is None:
                     if callback == "console":
                         progress.update(1)
@@ -229,10 +229,10 @@ def picked_locs(
                 group_locs = group_locs[group_locs.xc < max(X)]
                 group_locs = group_locs[group_locs.yc > min(Y)]
                 group_locs = group_locs[group_locs.yc < max(Y)]
-                group_locs = _lib.locs_in_polygon(group_locs, X, Y)
+                group_locs = lib.locs_in_polygon(group_locs, X, Y)
                 if add_group:
-                    group = i * _np.ones(len(group_locs), dtype=_np.int32)
-                    group_locs = _lib.append_to_rec(group_locs, group, "group")
+                    group = i * np.ones(len(group_locs), dtype=np.int32)
+                    group_locs = lib.append_to_rec(group_locs, group, "group")
                 group_locs.sort(kind="mergesort", order="frame")
                 picked_locs.append(group_locs)
 
@@ -254,7 +254,7 @@ def picked_locs(
         return picked_locs
 
 
-@_numba.jit(nopython=True, nogil=True, cache=True)
+@numba.jit(nopython=True, nogil=True, cache=True)
 def pick_similar(
     x,
     y_shift,
@@ -305,12 +305,12 @@ def pick_similar(
                     # Move to COM peak
                     x_test_old = x_grid
                     y_test_old = y_grid
-                    x_test = _np.mean(picked_locs_xy[0])
-                    y_test = _np.mean(picked_locs_xy[1])
+                    x_test = np.mean(picked_locs_xy[0])
+                    y_test = np.mean(picked_locs_xy[1])
                     count = 0
                     while (
-                        _np.abs(x_test - x_test_old) > 1e-3
-                        or _np.abs(y_test - y_test_old) > 1e-3
+                        np.abs(x_test - x_test_old) > 1e-3
+                        or np.abs(y_test - y_test_old) > 1e-3
                     ):
                         count += 1
                         # skip the locs if the loop is too long
@@ -320,21 +320,21 @@ def pick_similar(
                         y_test_old = y_test
                         picked_locs_xy = _locs_at(x_test, y_test, block_locs_xy, r)
                         if picked_locs_xy.shape[1] > 1:
-                            x_test = _np.mean(picked_locs_xy[0])
-                            y_test = _np.mean(picked_locs_xy[1])
+                            x_test = np.mean(picked_locs_xy[0])
+                            y_test = np.mean(picked_locs_xy[1])
                         else:
                             break
-                    if _np.all(
+                    if np.all(
                         (x_similar - x_test) ** 2 + (y_similar - y_test) ** 2 > d2
                     ):
                         if min_n_locs <= picked_locs_xy.shape[1] <= max_n_locs:
                             if min_rmsd <= _rmsd_at_com(picked_locs_xy) <= max_rmsd:
-                                x_similar = _np.append(x_similar, x_test)
-                                y_similar = _np.append(y_similar, y_test)
+                                x_similar = np.append(x_similar, x_test)
+                                y_similar = np.append(y_similar, y_test)
     return x_similar, y_similar
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _n_block_locs_at(x_range, y_range, K, L, block_starts, block_ends, cache=True):
     step = 0
     for k in range(y_range - 1, y_range + 2):
@@ -342,16 +342,16 @@ def _n_block_locs_at(x_range, y_range, K, L, block_starts, block_ends, cache=Tru
             for l in range(x_range - 1, x_range + 2):
                 if 0 < l < L:
                     if step == 0:
-                        n_block_locs = _np.uint32(block_ends[k][l] - block_starts[k][l])
+                        n_block_locs = np.uint32(block_ends[k][l] - block_starts[k][l])
                         step = 1
                     else:
-                        n_block_locs += _np.uint32(
+                        n_block_locs += np.uint32(
                             block_ends[k][l] - block_starts[k][l]
                         )
     return n_block_locs
 
 
-@_numba.jit(nopython=True, nogil=True, cache=True)
+@numba.jit(nopython=True, nogil=True, cache=True)
 def _get_block_locs_at(
     x_range,
     y_range,
@@ -370,27 +370,27 @@ def _get_block_locs_at(
                         # numba does not work if you attach arange to an empty list so the first step is different
                         # this is because of dtype issues
                         if step == 0:
-                            indices = _np.arange(
+                            indices = np.arange(
                                 float(block_starts[k, l]),
                                 float(block_ends[k, l]),
-                                dtype=_np.uint32,
+                                dtype=np.uint32,
                             )
                             step = 1
                         else:
-                            indices = _np.concatenate(
+                            indices = np.concatenate(
                                 (
                                     indices,
-                                    _np.arange(
+                                    np.arange(
                                         float(block_starts[k, l]),
                                         float(block_ends[k, l]),
-                                        dtype=_np.uint32,
+                                        dtype=np.uint32,
                                     ),
                                 )
                             )
     return locs_xy[:, indices]
 
 
-@_numba.jit(nopython=True, nogil=True, cache=True)
+@numba.jit(nopython=True, nogil=True, cache=True)
 def _locs_at(x, y, locs_xy, r):
     dx = locs_xy[0] - x
     dy = locs_xy[1] - y
@@ -399,14 +399,14 @@ def _locs_at(x, y, locs_xy, r):
     return locs_xy[:, is_picked]
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _rmsd_at_com(locs_xy):
-    com_x = _np.mean(locs_xy[0])
-    com_y = _np.mean(locs_xy[1])
-    return _np.sqrt(_np.mean((locs_xy[0] - com_x) ** 2 + (locs_xy[1] - com_y) ** 2))
+    com_x = np.mean(locs_xy[0])
+    com_y = np.mean(locs_xy[1])
+    return np.sqrt(np.mean((locs_xy[0] - com_x) ** 2 + (locs_xy[1] - com_y) ** 2))
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _distance_histogram(
     locs,
     bin_size,
@@ -420,8 +420,8 @@ def _distance_histogram(
 ):
     x = locs.xc
     y = locs.yc
-    dh_len = _np.uint32(r_max / bin_size)
-    dh = _np.zeros(dh_len, dtype=_np.uint32)
+    dh_len = np.uint32(r_max / bin_size)
+    dh = np.zeros(dh_len, dtype=np.uint32)
     r_max_2 = r_max**2
     K, L = block_starts.shape
     end = min(start + chunk, len(locs))
@@ -440,9 +440,9 @@ def _distance_histogram(
                                 if dx2 < r_max_2:
                                     dy2 = (yi - y[j]) ** 2
                                     if dy2 < r_max_2:
-                                        d = _np.sqrt(dx2 + dy2)
+                                        d = np.sqrt(dx2 + dy2)
                                         if d < r_max:
-                                            bin = _np.uint32(d / bin_size)
+                                            bin = np.uint32(d / bin_size)
                                             if bin < dh_len:
                                                 dh[bin] += 1
     return dh
@@ -454,7 +454,7 @@ def distance_histogram(locs, info, bin_size, r_max):
     )
     N = len(locs)
     n_threads = min(
-        60, max(1, int(0.75 * _multiprocessing.cpu_count()))
+        60, max(1, int(0.75 * mp.cpu_count()))
     )  # Python crashes when using >64 cores
     chunk = int(N / n_threads)
     starts = range(0, N, chunk)
@@ -472,10 +472,10 @@ def distance_histogram(locs, info, bin_size, r_max):
         )
         for start in starts
     ]
-    with _ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor() as executor:
         futures = [executor.submit(_distance_histogram, *_) for _ in args]
     results = [future.result() for future in futures]
-    return _np.sum(results, axis=0)
+    return np.sum(results, axis=0)
 
 
 def nena(locs, info, callback=None):
@@ -483,17 +483,17 @@ def nena(locs, info, callback=None):
 
     def func(d, delta_a, s, ac, dc, sc):
         a = ac + delta_a  # make sure a >= ac
-        p_single = a * (d / (2 * s**2)) * _np.exp(-(d**2) / (4 * s**2))
+        p_single = a * (d / (2 * s**2)) * np.exp(-(d**2) / (4 * s**2))
         p_short = (
-            ac / (sc * _np.sqrt(2 * _np.pi)) * _np.exp(-0.5 * ((d - dc) / sc) ** 2)
+            ac / (sc * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((d - dc) / sc) ** 2)
         )
         return p_single + p_short
 
-    pdf_model = _lmfit.Model(func)
-    params = _lmfit.Parameters()
-    area = _np.trapz(dnfl_, bin_centers)
-    median_lp = _np.mean(
-        [_np.median(locs.xc_err), _np.median(locs.yc_err)]
+    pdf_model = lmfit.Model(func)
+    params = lmfit.Parameters()
+    area = np.trapz(dnfl_, bin_centers)
+    median_lp = np.mean(
+        [np.median(locs.xc_err), np.median(locs.yc_err)]
     )  # Changed to _err convention
     params.add("delta_a", value=0.8 * area, min=0)
     params.add("s", value=median_lp, min=0)
@@ -512,7 +512,7 @@ def next_frame_neighbor_distance_histogram(locs, callback=None):
     if hasattr(locs, "group"):
         group = locs.group
     else:
-        group = _np.zeros(len(locs), dtype=_np.int32)
+        group = np.zeros(len(locs), dtype=np.int32)
     bin_size = 0.001
     d_max = 1.0
     return _nfndh(frame, x, y, group, d_max, bin_size, callback)
@@ -520,10 +520,10 @@ def next_frame_neighbor_distance_histogram(locs, callback=None):
 
 def _nfndh(frame, x, y, group, d_max, bin_size, callback=None):
     N = len(frame)
-    bins = _np.arange(0, d_max, bin_size)
-    dnfl = _np.zeros(len(bins))
+    bins = np.arange(0, d_max, bin_size)
+    dnfl = np.zeros(len(bins))
     one_percent = int(N / 100)
-    starts = one_percent * _np.arange(100)
+    starts = one_percent * np.arange(100)
     for k, start in enumerate(starts):
         for i in range(start, start + one_percent):
             _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size)
@@ -533,7 +533,7 @@ def _nfndh(frame, x, y, group, d_max, bin_size, callback=None):
     return bin_centers, dnfl
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size):
     frame_i = frame[i]
     x_i = x[i]
@@ -554,7 +554,7 @@ def _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size):
             if dx2 <= d_max_2:
                 dy2 = (y_i - y[j]) ** 2
                 if dy2 <= d_max_2:
-                    d = _np.sqrt(dx2 + dy2)
+                    d = np.sqrt(dx2 + dy2)
                     if d <= d_max:
                         bin = int(d / bin_size)
                         dnfl[bin] += 1
@@ -563,15 +563,15 @@ def _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size):
 def pair_correlation(locs, info, bin_size, r_max):
     dh = distance_histogram(locs, info, bin_size, r_max)
     # Start with r-> otherwise area will be 0
-    bins_lower = _np.arange(bin_size, r_max + bin_size, bin_size)
+    bins_lower = np.arange(bin_size, r_max + bin_size, bin_size)
 
     if bins_lower.shape[0] > dh.shape[0]:
         bins_lower = bins_lower[:-1]
-    area = _np.pi * bin_size * (2 * bins_lower + bin_size)
+    area = np.pi * bin_size * (2 * bins_lower + bin_size)
     return bins_lower, dh / area
 
 
-@_numba.jit(nopython=True, nogil=True)
+@numba.jit(nopython=True, nogil=True)
 def _local_density(
     locs, radius, x_index, y_index, block_starts, block_ends, start, chunk
 ):
@@ -580,7 +580,7 @@ def _local_density(
     N = len(x)
     r2 = radius**2
     end = min(start + chunk, N)
-    density = _np.zeros(N, dtype=_np.uint32)
+    density = np.zeros(N, dtype=np.uint32)
     for i in range(start, end):
         yi = y[i]
         xi = x[i]
@@ -609,7 +609,7 @@ def compute_local_density(locs, info, radius):
     )
     N = len(locs)
     n_threads = min(
-        60, max(1, int(0.75 * _multiprocessing.cpu_count()))
+        60, max(1, int(0.75 * mp.cpu_count()))
     )  # Python crashes when using >64 cores
     chunk = int(N / n_threads)
     starts = range(0, N, chunk)
@@ -626,11 +626,11 @@ def compute_local_density(locs, info, radius):
         )
         for start in starts
     ]
-    with _ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor() as executor:
         futures = [executor.submit(_local_density, *_) for _ in args]
-    density = _np.sum([future.result() for future in futures], axis=0)
-    locs = _lib.remove_from_rec(locs, "density")
-    return _lib.append_to_rec(locs, density, "density")
+    density = np.sum([future.result() for future in futures], axis=0)
+    locs = lib.remove_from_rec(locs, "density")
+    return lib.append_to_rec(locs, density, "density")
 
 
 def compute_dark_times(locs, group=None):
@@ -638,7 +638,7 @@ def compute_dark_times(locs, group=None):
     if "len" not in locs.dtype.names:
         raise AttributeError("Length not found. Please link localizations first.")
     dark = dark_times(locs, group)
-    locs = _lib.append_to_rec(locs, _np.int32(dark), "dark")
+    locs = lib.append_to_rec(locs, np.int32(dark), "dark")
     locs = locs[locs.dark != -1]
     return locs
 
@@ -649,16 +649,16 @@ def dark_times(locs, group=None):
         if hasattr(locs, "group"):
             group = locs.group
         else:
-            group = _np.zeros(len(locs))
+            group = np.zeros(len(locs))
     dark = _dark_times(locs, group, last_frame)
     return dark
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _dark_times(locs, group, last_frame):
     N = len(locs)
     max_frame = locs.frame.max()
-    dark = max_frame * _np.ones(len(locs), dtype=_np.int32)
+    dark = max_frame * np.ones(len(locs), dtype=np.int32)
     for i in range(N):
         for j in range(N):
             if (group[i] == group[j]) and (i != j):
@@ -682,22 +682,22 @@ def link(
     if len(locs) == 0:
         linked_locs = locs.copy()
         if hasattr(locs, "frame"):
-            linked_locs = _lib.append_to_rec(
-                linked_locs, _np.array([], dtype=_np.int32), "len"
+            linked_locs = lib.append_to_rec(
+                linked_locs, np.array([], dtype=np.int32), "len"
             )
-            linked_locs = _lib.append_to_rec(
-                linked_locs, _np.array([], dtype=_np.int32), "n"
+            linked_locs = lib.append_to_rec(
+                linked_locs, np.array([], dtype=np.int32), "n"
             )
         if hasattr(locs, "photons"):
-            linked_locs = _lib.append_to_rec(
-                linked_locs, _np.array([], dtype=_np.float32), "photon_rate"
+            linked_locs = lib.append_to_rec(
+                linked_locs, np.array([], dtype=np.float32), "photon_rate"
             )
     else:
         locs.sort(kind="mergesort", order="frame")
         if hasattr(locs, "group"):
             group = locs.group
         else:
-            group = _np.zeros(len(locs), dtype=_np.int32)
+            group = np.zeros(len(locs), dtype=np.int32)
         link_group = get_link_groups(locs, r_max, max_dark_time, group)
         if combine_mode == "average":
             linked_locs = link_loc_groups(
@@ -716,10 +716,10 @@ def weighted_variance(locs):
     w = locs.photons
     x = locs.xc
     y = locs.yc
-    xWbarx = _np.average(locs.xc, weights=w)
-    xWbary = _np.average(locs.yc, weights=w)
-    wbarx = _np.mean(locs.xc_err)  # Changed to _err convention
-    wbary = _np.mean(locs.yc_err)  # Changed to _err convention
+    xWbarx = np.average(locs.xc, weights=w)
+    xWbary = np.average(locs.yc, weights=w)
+    wbarx = np.mean(locs.xc_err)  # Changed to _err convention
+    wbary = np.mean(locs.yc_err)  # Changed to _err convention
     variance_x = (
         n
         / ((n - 1) * sum(w) ** 2)
@@ -745,33 +745,33 @@ def weighted_variance(locs):
 def cluster_combine(locs):
     print("Combining localisations...")
     combined_locs = []
-    unique_groups = _np.unique(locs["group"])
+    unique_groups = np.unique(locs["group"])
     with ProgressUtils.analysis_progress_bar(
         total=len(unique_groups), desc="Combining localisations"
     ) as pbar:
         for group in unique_groups:
             temp = locs[locs["group"] == group]
-        cluster = _np.unique(temp["cluster"])
+        cluster = np.unique(temp["cluster"])
         n_cluster = len(cluster)
-        mean_frame = _np.zeros(n_cluster)
-        std_frame = _np.zeros(n_cluster)
-        com_x = _np.zeros(n_cluster)
-        com_y = _np.zeros(n_cluster)
-        std_x = _np.zeros(n_cluster)
-        std_y = _np.zeros(n_cluster)
-        group_id = _np.zeros(n_cluster)
-        n = _np.zeros(n_cluster, dtype=_np.int32)
+        mean_frame = np.zeros(n_cluster)
+        std_frame = np.zeros(n_cluster)
+        com_x = np.zeros(n_cluster)
+        com_y = np.zeros(n_cluster)
+        std_x = np.zeros(n_cluster)
+        std_y = np.zeros(n_cluster)
+        group_id = np.zeros(n_cluster)
+        n = np.zeros(n_cluster, dtype=np.int32)
         for i, clusterval in enumerate(cluster):
             cluster_locs = temp[temp["cluster"] == clusterval]
-            mean_frame[i] = _np.mean(cluster_locs.frame)
-            com_x[i] = _np.average(cluster_locs.xc, weights=cluster_locs.photons)
-            com_y[i] = _np.average(cluster_locs.yc, weights=cluster_locs.photons)
-            std_frame[i] = _np.std(cluster_locs.frame)
-            std_x[i] = _np.std(cluster_locs.xc) / _np.sqrt(len(cluster_locs))
-            std_y[i] = _np.std(cluster_locs.yc) / _np.sqrt(len(cluster_locs))
+            mean_frame[i] = np.mean(cluster_locs.frame)
+            com_x[i] = np.average(cluster_locs.xc, weights=cluster_locs.photons)
+            com_y[i] = np.average(cluster_locs.yc, weights=cluster_locs.photons)
+            std_frame[i] = np.std(cluster_locs.frame)
+            std_x[i] = np.std(cluster_locs.xc) / np.sqrt(len(cluster_locs))
+            std_y[i] = np.std(cluster_locs.yc) / np.sqrt(len(cluster_locs))
             n[i] = len(cluster_locs)
             group_id[i] = group
-        clusters = _np.rec.array(
+        clusters = np.rec.array(
             (
                 group_id,
                 cluster,
@@ -807,11 +807,11 @@ def cluster_combine_dist(locs):
     print("XY")
     combined_locs = []
     with ProgressUtils.analysis_progress_bar(
-        total=len(_np.unique(locs["group"])), desc="Calculating distances"
+        total=len(np.unique(locs["group"])), desc="Calculating distances"
     ) as pbar:
-        for group in _np.unique(locs["group"]):
+        for group in np.unique(locs["group"]):
             temp = locs[locs["group"] == group]
-            cluster = _np.unique(temp["cluster"])
+            cluster = np.unique(temp["cluster"])
             n_cluster = len(cluster)
             mean_frame = temp["mean_frame"]
             std_frame = temp["std_frame"]
@@ -821,20 +821,20 @@ def cluster_combine_dist(locs):
             std_y = temp["yc_err"]  # Changed from "lpy" to "yc_err"
             group_id = temp["group"]
             n = temp["n"]
-            min_dist = _np.zeros(n_cluster)
+            min_dist = np.zeros(n_cluster)
 
             for i, clusterval in enumerate(cluster):
                 # find nearest neighbor in xyz
                 group_locs = temp[temp["cluster"] != clusterval]
                 cluster_locs = temp[temp["cluster"] == clusterval]
-                ref_point_xy = _np.array([cluster_locs.xc, cluster_locs.yc])
-                all_points_xy = _np.array([group_locs.xc, group_locs.yc])
+                ref_point_xy = np.array([cluster_locs.xc, cluster_locs.yc])
+                all_points_xy = np.array([group_locs.xc, group_locs.yc])
                 distances_xy = distance.cdist(
                     ref_point_xy.transpose(), all_points_xy.transpose()
                 )
-                min_dist[i] = _np.amin(distances_xy)
+                min_dist[i] = np.amin(distances_xy)
 
-            clusters = _np.rec.array(
+            clusters = np.rec.array(
                 (
                     group_id,
                     cluster,
@@ -867,14 +867,14 @@ def cluster_combine_dist(locs):
     return combined_locs
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def get_link_groups(locs, d_max, max_dark_time, group):
     """Assumes that locs are sorted by frame"""
     frame = locs.frame
     x = locs.xc
     y = locs.yc
     N = len(x)
-    link_group = -_np.ones(N, dtype=_np.int32)
+    link_group = -np.ones(N, dtype=np.int32)
     current_link_group = -1
     for i in range(N):
         if link_group[i] == -1:  # loc has no group yet
@@ -909,7 +909,7 @@ def get_link_groups(locs, d_max, max_dark_time, group):
     return link_group
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _get_next_loc_index_in_link_group(
     current_index, link_group, N, frame, x, y, d_max, max_dark_time, group
 ):
@@ -940,35 +940,35 @@ def _get_next_loc_index_in_link_group(
     return -1
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_count(link_group, n_locs, n_groups):
-    result = _np.zeros(n_groups, dtype=_np.uint32)
+    result = np.zeros(n_groups, dtype=np.uint32)
     for i in range(n_locs):
         i_ = link_group[i]
         result[i_] += 1
     return result
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_sum(column, link_group, n_locs, n_groups):
-    result = _np.zeros(n_groups, dtype=column.dtype)
+    result = np.zeros(n_groups, dtype=column.dtype)
     for i in range(n_locs):
         i_ = link_group[i]
         result[i_] += column[i]
     return result
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_mean(column, link_group, n_locs, n_groups, n_locs_per_group):
     group_sum = _link_group_sum(column, link_group, n_locs, n_groups)
-    result = _np.empty(
-        n_groups, dtype=_np.float32
+    result = np.empty(
+        n_groups, dtype=np.float32
     )  # this ensures float32 after the division
     result[:] = group_sum / n_locs_per_group
     return result
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_weighted_mean(
     column, weights, link_group, n_locs, n_groups, n_locs_per_group
 ):
@@ -979,10 +979,10 @@ def _link_group_weighted_mean(
     )
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_min_max(column, link_group, n_locs, n_groups):
-    min_ = _np.empty(n_groups, dtype=column.dtype)
-    max_ = _np.empty(n_groups, dtype=column.dtype)
+    min_ = np.empty(n_groups, dtype=column.dtype)
+    max_ = np.empty(n_groups, dtype=column.dtype)
     min_[:] = column.max()
     max_[:] = column.min()
     for i in range(n_locs):
@@ -995,9 +995,9 @@ def _link_group_min_max(column, link_group, n_locs, n_groups):
     return min_, max_
 
 
-@_numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _link_group_last(column, link_group, n_locs, n_groups):
-    result = _np.zeros(n_groups, dtype=column.dtype)
+    result = np.zeros(n_groups, dtype=column.dtype)
     for i in range(n_locs):
         i_ = link_group[i]
         result[i_] = column[i]
@@ -1008,7 +1008,7 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
     n_locs = len(link_group)
     n_groups = link_group.max() + 1
     n_ = _link_group_count(link_group, n_locs, n_groups)
-    columns = _OrderedDict()
+    columns = OrderedDict()
     if hasattr(locs, "frame"):
         first_frame_, last_frame_ = _link_group_min_max(
             locs.frame, link_group, n_locs, n_groups
@@ -1033,11 +1033,11 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
     if hasattr(locs, "bg"):
         columns["bg"] = _link_group_sum(locs.bg, link_group, n_locs, n_groups)
     if hasattr(locs, "xc"):  # Changed from "x" to "xc"
-        columns["xc_err"] = _np.sqrt(
+        columns["xc_err"] = np.sqrt(
             1 / sum_weights_x_
         )  # Changed from "lpx" to "xc_err"
     if hasattr(locs, "yc"):  # Changed from "y" to "yc"
-        columns["yc_err"] = _np.sqrt(
+        columns["yc_err"] = np.sqrt(
             1 / sum_weights_y_
         )  # Changed from "lpy" to "yc_err"
     if hasattr(locs, "ellipticity"):
@@ -1068,10 +1068,10 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
         columns["len"] = last_frame_ - first_frame_ + 1
     columns["n"] = n_
     if hasattr(locs, "photons"):
-        columns["photon_rate"] = _np.float32(columns["photons"] / n_)
-    linked_locs = _np.rec.array(list(columns.values()), names=list(columns.keys()))
+        columns["photon_rate"] = np.float32(columns["photons"] / n_)
+    linked_locs = np.rec.array(list(columns.values()), names=list(columns.keys()))
     if remove_ambiguous_lengths:
-        valid = _np.logical_and(first_frame_ > 0, last_frame_ < info[0]["Frames"])
+        valid = np.logical_and(first_frame_ > 0, last_frame_ < info[0]["Frames"])
         linked_locs = linked_locs[valid]
     return linked_locs
 
@@ -1083,16 +1083,16 @@ def localization_precision(photons, s, bg, em):
     """
     s2 = s**2
     sa2 = s2 + 1 / 12
-    v = sa2 * (16 / 9 + (8 * _np.pi * sa2 * bg) / photons) / photons
+    v = sa2 * (16 / 9 + (8 * np.pi * sa2 * bg) / photons) / photons
     if em:
         v *= 2
-    with _np.errstate(invalid="ignore"):
-        return _np.sqrt(v)
+    with np.errstate(invalid="ignore"):
+        return np.sqrt(v)
 
 
 def n_segments(info, segmentation):
     n_frames = info[0]["Frames"]
-    return int(_np.round(n_frames / segmentation))
+    return int(np.round(n_frames / segmentation))
 
 
 def segment(locs, info, segmentation, kwargs={}, callback=None):
@@ -1100,8 +1100,8 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
     X = info[0]["Width"]
     n_frames = info[0]["Frames"]
     n_seg = n_segments(info, segmentation)
-    bounds = _np.linspace(0, n_frames - 1, n_seg + 1, dtype=_np.uint32)
-    segments = _np.zeros((n_seg, Y, X))
+    bounds = np.linspace(0, n_frames - 1, n_seg + 1, dtype=np.uint32)
+    segments = np.zeros((n_seg, Y, X))
     if callback is None:
         with ProgressUtils.analysis_progress_bar(
             total=n_seg, desc="Generating segments"
@@ -1110,7 +1110,7 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
                 segment_locs = locs[
                     (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
                 ]
-                _, segments[i] = _render.render(segment_locs, info, **kwargs)
+                _, segments[i] = render.render(segment_locs, info, **kwargs)
                 pbar.update(1)
     else:
         callback(0)
@@ -1118,7 +1118,7 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
             segment_locs = locs[
                 (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
             ]
-            _, segments[i] = _render.render(segment_locs, info, **kwargs)
+            _, segments[i] = render.render(segment_locs, info, **kwargs)
             callback(i + 1)
     return bounds, segments
 
@@ -1140,54 +1140,54 @@ def undrift(
         {"blur_method": "gaussian", "min_blur_width": 1},
         segmentation_callback,
     )
-    shift_y, shift_x = _imageprocess.rcc(segments, 32, rcc_callback)
+    shift_y, shift_x = imageprocess.rcc(segments, 32, rcc_callback)
     t = (bounds[1:] + bounds[:-1]) / 2
-    drift_x_pol = _interpolate.InterpolatedUnivariateSpline(t, shift_x, k=3)
-    drift_y_pol = _interpolate.InterpolatedUnivariateSpline(t, shift_y, k=3)
-    t_inter = _np.arange(info[0]["Frames"])
+    drift_x_pol = interpolate.InterpolatedUnivariateSpline(t, shift_x, k=3)
+    drift_y_pol = interpolate.InterpolatedUnivariateSpline(t, shift_y, k=3)
+    t_inter = np.arange(info[0]["Frames"])
     drift = (drift_x_pol(t_inter), drift_y_pol(t_inter))
-    drift = _np.rec.array(drift, dtype=[("x", "f"), ("y", "f")])
+    drift = np.rec.array(drift, dtype=[("x", "f"), ("y", "f")])
     if display:
-        fig1 = _plt.figure(figsize=(17, 6))
-        _plt.suptitle("Estimated drift")
-        _plt.subplot(1, 2, 1)
-        _plt.plot(drift.x, label="x interpolated")
-        _plt.plot(drift.y, label="y interpolated")
+        fig1 = plt.figure(figsize=(17, 6))
+        plt.suptitle("Estimated drift")
+        plt.subplot(1, 2, 1)
+        plt.plot(drift.x, label="x interpolated")
+        plt.plot(drift.y, label="y interpolated")
         t = (bounds[1:] + bounds[:-1]) / 2
-        _plt.plot(
+        plt.plot(
             t,
             shift_x,
             "o",
-            color=list(_plt.rcParams["axes.prop_cycle"])[0]["color"],
+            color=list(plt.rcParams["axes.prop_cycle"])[0]["color"],
             label="x",
         )
-        _plt.plot(
+        plt.plot(
             t,
             shift_y,
             "o",
-            color=list(_plt.rcParams["axes.prop_cycle"])[1]["color"],
+            color=list(plt.rcParams["axes.prop_cycle"])[1]["color"],
             label="y",
         )
-        _plt.legend(loc="best")
-        _plt.xlabel("Frame")
-        _plt.ylabel("Drift (pixel)")
-        _plt.subplot(1, 2, 2)
-        _plt.plot(
+        plt.legend(loc="best")
+        plt.xlabel("Frame")
+        plt.ylabel("Drift (pixel)")
+        plt.subplot(1, 2, 2)
+        plt.plot(
             drift.x,
             drift.y,
-            color=list(_plt.rcParams["axes.prop_cycle"])[2]["color"],
+            color=list(plt.rcParams["axes.prop_cycle"])[2]["color"],
         )
-        _plt.plot(
+        plt.plot(
             shift_x,
             shift_y,
             "o",
-            color=list(_plt.rcParams["axes.prop_cycle"])[2]["color"],
+            color=list(plt.rcParams["axes.prop_cycle"])[2]["color"],
         )
-        _plt.axis("equal")
-        _plt.xlabel("x")
-        _plt.ylabel("y")
+        plt.axis("equal")
+        plt.xlabel("x")
+        plt.ylabel("y")
         fig1.show()
-        _plt.close(fig1)
+        plt.close(fig1)
     locs.xc -= drift.x[locs.frame]
     locs.yc -= drift.y[locs.frame]
     return drift, locs
@@ -1203,7 +1203,7 @@ def undrift_from_picked(picked_locs, n_frames):
 
     # A rec array to store the applied drift
     drift = (drift_x, drift_y)
-    drift = _np.rec.array(drift, dtype=[("xc", "f"), ("yc", "f")])
+    drift = np.rec.array(drift, dtype=[("xc", "f"), ("yc", "f")])
     return drift
 
 
@@ -1227,42 +1227,42 @@ def _undrift_from_picked_coordinate(picked_locs, n_frames, coordinate):
     n_picks = len(picked_locs)
 
     # Drift per pick per frame
-    drift = _np.empty((n_picks, n_frames))
-    drift.fill(_np.nan)
+    drift = np.empty((n_picks, n_frames))
+    drift.fill(np.nan)
 
     # Remove center of mass offset
     for i, locs in enumerate(picked_locs):
         coordinates = getattr(locs, coordinate)
-        drift[i, locs.frame.astype(int)] = coordinates - _np.mean(coordinates)
+        drift[i, locs.frame.astype(int)] = coordinates - np.mean(coordinates)
 
     # Mean drift over picks
-    drift_mean = _np.nanmean(drift, 0)
+    drift_mean = np.nanmean(drift, 0)
     # Square deviation of each pick's drift to mean drift along frames
     sd = (drift - drift_mean) ** 2
     # Mean of square deviation for each pick
-    msd = _np.nanmean(sd, 1)
+    msd = np.nanmean(sd, 1)
     # New mean drift over picks
     # where each pick is weighted according to its msd
-    nan_mask = _np.isnan(drift)
-    drift = _np.ma.MaskedArray(drift, mask=nan_mask)
-    drift_mean = _np.ma.average(drift, axis=0, weights=1 / msd)
-    drift_mean = drift_mean.filled(_np.nan)
+    nan_mask = np.isnan(drift)
+    drift = np.ma.MaskedArray(drift, mask=nan_mask)
+    drift_mean = np.ma.average(drift, axis=0, weights=1 / msd)
+    drift_mean = drift_mean.filled(np.nan)
 
     # Linear interpolation for frames without localizations
     def nan_helper(y):
-        return _np.isnan(y), lambda z: z.nonzero()[0]
+        return np.isnan(y), lambda z: z.nonzero()[0]
 
     nans, nonzero = nan_helper(drift_mean)
-    drift_mean[nans] = _np.interp(nonzero(nans), nonzero(~nans), drift_mean[~nans])
+    drift_mean[nans] = np.interp(nonzero(nans), nonzero(~nans), drift_mean[~nans])
     return drift_mean
 
 
 def align(locs, infos, display=False):
     images = []
     for i, (locs_, info_) in enumerate(zip(locs, infos)):
-        _, image = _render.render(locs_, info_, blur_method="smooth")
+        _, image = render.render(locs_, info_, blur_method="smooth")
         images.append(image)
-    shift_y, shift_x = _imageprocess.rcc(images)
+    shift_y, shift_x = imageprocess.rcc(images)
     print("Image x shifts: {}".format(shift_x))
     print("Image y shifts: {}".format(shift_y))
     for i, (locs_, dx, dy) in enumerate(zip(locs, shift_x, shift_y)):
@@ -1276,14 +1276,14 @@ def groupprops(locs, callback=None):
         locs = locs[locs.dark != -1]
     except AttributeError:
         pass
-    group_ids = _np.unique(locs.group)
+    group_ids = np.unique(locs.group)
     n = len(group_ids)
     n_cols = len(locs.dtype)
     names = ["group", "n_events"] + list(
-        _itertools.chain(*[(_ + "_mean", _ + "_std") for _ in locs.dtype.names])
+        itertools.chain(*[(_ + "_mean", _ + "_std") for _ in locs.dtype.names])
     )
     formats = ["i4", "i4"] + 2 * n_cols * ["f4"]
-    groups = _np.recarray(n, formats=formats, names=names)
+    groups = np.recarray(n, formats=formats, names=names)
     if callback is not None:
         callback(0)
         for i, group_id in enumerate(group_ids):
@@ -1291,8 +1291,8 @@ def groupprops(locs, callback=None):
             groups["group"][i] = group_id
             groups["n_events"][i] = len(group_locs)
             for name in locs.dtype.names:
-                groups[name + "_mean"][i] = _np.mean(group_locs[name])
-                groups[name + "_std"][i] = _np.std(group_locs[name])
+                groups[name + "_mean"][i] = np.mean(group_locs[name])
+                groups[name + "_std"][i] = np.std(group_locs[name])
             callback(i + 1)
     else:
         with ProgressUtils.analysis_progress_bar(
@@ -1303,8 +1303,8 @@ def groupprops(locs, callback=None):
                 groups["group"][i] = group_id
                 groups["n_events"][i] = len(group_locs)
                 for name in locs.dtype.names:
-                    groups[name + "_mean"][i] = _np.mean(group_locs[name])
-                    groups[name + "_std"][i] = _np.std(group_locs[name])
+                    groups[name + "_mean"][i] = np.mean(group_locs[name])
+                    groups[name + "_std"][i] = np.std(group_locs[name])
                 pbar.update(1)
     return groups
 
@@ -1321,11 +1321,11 @@ def nn_analysis(
 ):
     # coordinates are in nm
     if z1 is not None:  # 3D
-        input1 = _np.stack((x1, y1, z1)).T
-        input2 = _np.stack((x2, y2, z2)).T
+        input1 = np.stack((x1, y1, z1)).T
+        input2 = np.stack((x2, y2, z2)).T
     else:  # 2D
-        input1 = _np.stack((x1, y1)).T
-        input2 = _np.stack((x2, y2)).T
+        input1 = np.stack((x1, y1)).T
+        input2 = np.stack((x2, y2)).T
     if same_channel:
         model = NN(n_neighbors=nn_count + 1)
     else:

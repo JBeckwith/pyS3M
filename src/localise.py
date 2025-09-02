@@ -10,26 +10,26 @@
 
 import os
 import sys
-import numpy as _np
-import dask.array as _da
-import numba as _numba
-import multiprocessing as _multiprocessing
-import ctypes as _ctypes
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
-import threading as _threading
-from itertools import chain as _chain
-import matplotlib.pyplot as _plt
+import numpy as np
+import dask.array as da
+import numba
+import multiprocessing as mp
+import ctypes
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from itertools import chain
+import matplotlib.pyplot as plt
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
-import postprocess as _postprocess
+import postprocess
 import os
 from datetime import datetime
 import pandas as pd
 
 MAX_LOCS = int(1e6)
 
-_C_FLOAT_POINTER = _ctypes.POINTER(_ctypes.c_float)
+_C_FLOAT_POINTER = ctypes.POINTER(ctypes.c_float)
 LOCS_DTYPE = [
     ("frame", "u4"),
     ("xc", "f4"),  # Changed from "x" to "xc" for consistency
@@ -69,11 +69,11 @@ MEAN_COLS = [
 SET_COLS = ["Frames", "Height", "Width", "Box Size", "Min. Net Gradient", "Pixelsize"]
 
 
-@_numba.jit(nopython=True, nogil=True, cache=False)
+@numba.jit(nopython=True, nogil=True, cache=False)
 def local_maxima(frame, box):
     """Finds pixels with maximum value within a region of interest"""
     Y, X = frame.shape
-    maxima_map = _np.zeros(frame.shape, _np.uint8)
+    maxima_map = np.zeros(frame.shape, np.uint8)
     box_half = int(box / 2)
     box_half_1 = box_half + 1
     for i in range(box_half, Y - box_half_1):
@@ -82,26 +82,26 @@ def local_maxima(frame, box):
                 i - box_half : i + box_half + 1,
                 j - box_half : j + box_half + 1,
             ]
-            flat_max = _np.argmax(local_frame)
+            flat_max = np.argmax(local_frame)
             i_local_max = int(flat_max / box)
             j_local_max = int(flat_max % box)
             if (i_local_max == box_half) and (j_local_max == box_half):
                 maxima_map[i, j] = 1
-    y, x = _np.where(maxima_map)
+    y, x = np.where(maxima_map)
     return y, x
 
 
-@_numba.jit(nopython=True, nogil=True, cache=False)
+@numba.jit(nopython=True, nogil=True, cache=False)
 def gradient_at(frame, y, x, i):
     gy = frame[y + 1, x] - frame[y - 1, x]
     gx = frame[y, x + 1] - frame[y, x - 1]
     return gy, gx
 
 
-@_numba.jit(nopython=True, nogil=True, cache=False)
+@numba.jit(nopython=True, nogil=True, cache=False)
 def net_gradient(frame, y, x, box, uy, ux):
     box_half = int(box / 2)
-    ng = _np.zeros(len(x), dtype=_np.float32)
+    ng = np.zeros(len(x), dtype=np.float32)
     for i, (yi, xi) in enumerate(zip(y, x)):
         for k_index, k in enumerate(range(yi - box_half, yi + box_half + 1)):
             for l_index, m in enumerate(range(xi - box_half, xi + box_half + 1)):
@@ -111,17 +111,17 @@ def net_gradient(frame, y, x, box, uy, ux):
     return ng
 
 
-@_numba.jit(nopython=True, nogil=True, cache=False)
+@numba.jit(nopython=True, nogil=True, cache=False)
 def identify_in_image(image, minimum_ng, box):
     y, x = local_maxima(image, box)
     box_half = int(box / 2)
     # Now comes basically a meshgrid
-    ux = _np.zeros((box, box), dtype=_np.float32)
-    uy = _np.zeros((box, box), dtype=_np.float32)
+    ux = np.zeros((box, box), dtype=np.float32)
+    uy = np.zeros((box, box), dtype=np.float32)
     for i in range(box):
         val = box_half - i
         ux[:, i] = uy[i, :] = val
-    unorm = _np.sqrt(ux**2 + uy**2)
+    unorm = np.sqrt(ux**2 + uy**2)
     ux /= unorm
     uy /= unorm
     ng = net_gradient(image, y, x, box, uy, ux)
@@ -135,7 +135,7 @@ def identify_in_image(image, minimum_ng, box):
 def identify_in_frame(frame, minimum_ng, box, roi=None):
     if roi is not None:
         frame = frame[roi[0][0] : roi[1][0], roi[0][1] : roi[1][1]]
-    image = _np.float32(frame)  # otherwise numba goes crazy
+    image = np.float32(frame)  # otherwise numba goes crazy
     y, x, net_gradient = identify_in_image(image, minimum_ng, box)
     if roi is not None:
         y += roi[0][0]
@@ -145,8 +145,8 @@ def identify_in_frame(frame, minimum_ng, box, roi=None):
 
 def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=None):
     y, x, net_gradient = identify_in_frame(frame, minimum_ng, box, roi)
-    frame = frame_number * _np.ones(len(x))
-    result = _np.rec.array(
+    frame = frame_number * np.ones(len(x))
+    result = np.rec.array(
         (frame, x, y, net_gradient),
         dtype=[
             ("frame", "i"),
@@ -167,8 +167,8 @@ def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None, loc
     else:
         frame = movie[frame_number]
     y, x, net_gradient = identify_in_frame(frame, minimum_ng, box, roi)
-    frame = frame_number * _np.ones(len(x))
-    return _np.rec.array(
+    frame = frame_number * np.ones(len(x))
+    return np.rec.array(
         (frame, x, y, net_gradient),
         dtype=[
             ("frame", "i"),
@@ -195,23 +195,23 @@ def _identify_worker(movie, current, minimum_ng, box, roi, lock):
 
 def identifications_from_futures(futures):
     ids_list_of_lists = [_.result() for _ in futures]
-    ids_list = list(_chain(*ids_list_of_lists))
-    ids = _np.hstack(ids_list).view(_np.recarray)
+    ids_list = list(chain(*ids_list_of_lists))
+    ids = np.hstack(ids_list).view(np.recarray)
     ids.sort(kind="mergesort", order="frame")
     return ids
 
 
-@_numba.jit(nopython=True, cache=False)
+@numba.jit(nopython=True, cache=False)
 def _cut_spots_numba(movie, ids_frame, ids_x, ids_y, box):
     n_spots = len(ids_x)
     r = int(box / 2)
-    spots = _np.zeros((n_spots, box, box), dtype=movie.dtype)
+    spots = np.zeros((n_spots, box, box), dtype=movie.dtype)
     for id, (frame, xc, yc) in enumerate(zip(ids_frame, ids_x, ids_y)):
         spots[id] = movie[frame, yc - r : yc + r + 1, xc - r : xc + r + 1]
     return spots
 
 
-@_numba.jit(nopython=True, cache=False)
+@numba.jit(nopython=True, cache=False)
 def _cut_spots_frame(frame, frame_number, ids_frame, ids_x, ids_y, r, start, N, spots):
     for j in range(start, N):
         if ids_frame[j] > frame_number:
@@ -224,7 +224,7 @@ def _cut_spots_frame(frame, frame_number, ids_frame, ids_x, ids_y, r, start, N, 
     return j
 
 
-@_numba.jit(nopython=True, cache=False)
+@numba.jit(nopython=True, cache=False)
 def _cut_spots_daskmov(movie, l_mov, ids_frame, ids_x, ids_y, box, spots):
     """Cuts the spots out of a movie frame by frame.
 
@@ -301,7 +301,7 @@ def _cut_spots_framebyframe(movie, ids_frame, ids_x, ids_y, box, spots):
 
 def _cut_spots(movie, ids, box):
     N = len(ids.frame)
-    if isinstance(movie, _np.ndarray):
+    if isinstance(movie, np.ndarray):
         return _cut_spots_numba(
             movie, ids.frame, ids.xc, ids.yc, box
         )  # Changed from .x, .y to .xc, .yc
@@ -309,7 +309,7 @@ def _cut_spots(movie, ids, box):
         """Assumes that identifications are in order of frames!"""
 
         N = len(ids.frame)
-        spots = _np.zeros((N, box, box), dtype=movie.dtype)
+        spots = np.zeros((N, box, box), dtype=movie.dtype)
         spots = _cut_spots_framebyframe(
             movie, ids.frame, ids.xc, ids.yc, box, spots
         )  # Changed from .x, .y to .xc, .yc
@@ -317,7 +317,7 @@ def _cut_spots(movie, ids, box):
 
 
 def _to_photons(spots, camera_info):
-    spots = _np.float32(spots)
+    spots = np.float32(spots)
     baseline = camera_info["Baseline"]
     sensitivity = camera_info["Sensitivity"]
     gain = camera_info["Gain"]
@@ -335,9 +335,9 @@ def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
     box_offset = int(box / 2)
     y = theta[:, 0] + identifications.yc - box_offset  # Changed from .y to .yc
     x = theta[:, 1] + identifications.xc - box_offset  # Changed from .x to .xc
-    yc_err = _np.sqrt(CRLBs[:, 0])  # Changed from lpy to yc_err
-    xc_err = _np.sqrt(CRLBs[:, 1])  # Changed from lpx to xc_err
-    locs = _np.rec.array(
+    yc_err = np.sqrt(CRLBs[:, 0])  # Changed from lpy to yc_err
+    xc_err = np.sqrt(CRLBs[:, 1])  # Changed from lpx to xc_err
+    locs = np.rec.array(
         (
             identifications.frame,
             x,
@@ -363,7 +363,7 @@ def check_nena(locs, info, callback=None):
     print("Calculating NeNA.. ", end="")
     locs = locs[0:MAX_LOCS]
     try:
-        result, best_result = _postprocess.nena(locs, info, callback=callback)
+        result, best_result = postprocess.nena(locs, info, callback=callback)
         nena_px = best_result
     except Exception as e:
         print(e)
@@ -377,7 +377,7 @@ def check_nena(locs, info, callback=None):
 def check_kinetics(locs, info):
     print("Linking.. ", end="")
     locs = locs[0:MAX_LOCS]
-    locs = _postprocess.link(locs, info=info)
+    locs = postprocess.link(locs, info=info)
     len_mean = locs.len.mean()
     print(f"Mean lenght {len_mean:.2f} frames.")
 
@@ -395,7 +395,7 @@ def check_drift(locs, info, callback=None):
     segmentation = max(1, int(n_frames // 10))
 
     print(f"Estimating drift with segmentation {segmentation}")
-    drift, locs = _postprocess.undrift(
+    drift, locs = postprocess.undrift(
         locs,
         info,
         segmentation,
