@@ -17,9 +17,6 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
 from Constants import CalibrationConstants
-
-IO = IOFunctions.IO_Functions()
-
 import MaskFunctions
 
 
@@ -30,20 +27,25 @@ class Calibration_Functions:
     gain/offset/variance maps, and handling Bayer pattern configurations.
     """
 
-    def __init__(self, mosaic_unit=None, high_memory=False):
+    def __init__(self, mosaic_unit=None, high_memory=False, io_functions=None, mask_functions=None):
         """Initialize Calibration_Functions class.
 
         Args:
             mosaic_unit: Optional custom Bayer mosaic pattern.
                         Defaults to standard [["B", "G"], ["G", "R"]] pattern.
             high_memory: Whether to use high-memory processing mode.
+            io_functions: IO functions instance (default: creates new instance)
+            mask_functions: Mask functions instance (default: creates new instance)
         """
         self.high_memory = high_memory
         if isinstance(mosaic_unit, type(None)):
             self.mosaic_unit = np.array([["B", "G"], ["G", "R"]])
         else:
             self.mosaic_unit = mosaic_unit
-        self.Mask = MaskFunctions.Mask_Functions()
+            
+        # Dependency injection with sensible defaults
+        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        self.Mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
 
     def filesearch(self, directory, string1, string2):
         files = os.listdir(directory)
@@ -148,13 +150,13 @@ class Calibration_Functions:
 
         A_filepath = os.path.join(directory, "A.tif")
         B_filepath = os.path.join(directory, "B.tif")
-        IO.write_tiff(
+        self.io.write_tiff(
             np.swapaxes(np.swapaxes(A, -1, 0), -1, -2),
             A_filepath,
             bit=float,
             pixel_size=CalibrationConstants.PIXEL_SIZE,
         )
-        IO.write_tiff(
+        self.io.write_tiff(
             np.swapaxes(np.swapaxes(B, -1, 0), -1, -2),
             B_filepath,
             bit=float,
@@ -184,11 +186,11 @@ class Calibration_Functions:
         rqe_file_path = os.path.join(directory, "rqe.tif")
 
         # write tiffs
-        IO.write_tiff(offset, offset_file_path, bit=float, pixel_size=3.45)
-        IO.write_tiff(variance, variance_file_path, bit=float, pixel_size=3.45)
-        IO.write_tiff(gain, gain_file_path, bit=float, pixel_size=3.45)
-        IO.write_tiff(readnoise, readnoise_file_path, bit=float, pixel_size=3.45)
-        IO.write_tiff(rqe, rqe_file_path, bit=float, pixel_size=3.45)
+        self.io.write_tiff(offset, offset_file_path, bit=float, pixel_size=3.45)
+        self.io.write_tiff(variance, variance_file_path, bit=float, pixel_size=3.45)
+        self.io.write_tiff(gain, gain_file_path, bit=float, pixel_size=3.45)
+        self.io.write_tiff(readnoise, readnoise_file_path, bit=float, pixel_size=3.45)
+        self.io.write_tiff(rqe, rqe_file_path, bit=float, pixel_size=3.45)
 
         print(
             "The average offset is {:.3f} +- {:.3f} ADU counts".format(
@@ -262,7 +264,7 @@ class Calibration_Functions:
         """
         filelist = self.filesearch(directory, imtype, intensity_string)
 
-        frame0_shape = IO.read_tiff(os.path.join(directory, filelist[0]), 0).shape
+        frame0_shape = self.io.read_tiff(os.path.join(directory, filelist[0]), 0).shape
         width = frame0_shape[0]
         height = frame0_shape[1]
         framesCounter = 0
@@ -285,7 +287,7 @@ class Calibration_Functions:
         start = time.time()
         for i, file in enumerate(filelist):
             if self.high_memory == True:
-                image = IO.read_tiff(os.path.join(directory, file))
+                image = self.io.read_tiff(os.path.join(directory, file))
                 if len(image.shape) == 2:
                     n_frames = 1
                 else:
@@ -299,7 +301,7 @@ class Calibration_Functions:
                 finished = 0
                 while finished == 0:
                     try:
-                        frame = IO.read_tiff(os.path.join(directory, file), n_frames)
+                        frame = self.io.read_tiff(os.path.join(directory, file), n_frames)
                         n_frames += 1
                         offset = np.add(offset, frame)
                     except (IOError, OSError, IndexError, ValueError) as e:
@@ -368,7 +370,7 @@ class Calibration_Functions:
         start = time.time()
         for i, file in enumerate(filelist):
             if self.high_memory == True:
-                image = IO.read_tiff(os.path.join(directory, file))
+                image = self.io.read_tiff(os.path.join(directory, file))
                 if len(image.shape) == 2:
                     n_frames = 1
                 else:
@@ -390,7 +392,7 @@ class Calibration_Functions:
                 finished = 0
                 while finished == 0:
                     try:
-                        frame = IO.read_tiff(os.path.join(directory, file), n_frames)
+                        frame = self.io.read_tiff(os.path.join(directory, file), n_frames)
                         n_frames += 1
                         variance = np.add(
                             variance, np.subtract(np.square(frame), offset_sq)

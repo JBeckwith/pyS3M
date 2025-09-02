@@ -32,12 +32,7 @@ except ImportError:
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import PSFFunctions
-
-PSF = PSFFunctions.PSF_Functions()
-
 import sCMOSFunctions
-
-sCMOS = sCMOSFunctions.sCMOS_Functions()
 
 
 class ArrayPool:
@@ -90,10 +85,21 @@ class SpotDetection_Functions:
     Nat Commun 16, 601 (2025).
 
     Optimised version with vectorisation, JIT compilation, and caching.
+    REFACTORED: Uses dependency injection instead of global object instantiation.
     """
 
-    def __init__(self):
-        """Initialize SpotDetection_Functions class with optimisation components."""
+    def __init__(self, psf_functions=None, scmos_functions=None):
+        """Initialize SpotDetection_Functions class with dependency injection.
+        
+        Args:
+            psf_functions: PSF calculation functions (default: creates new instance)
+            scmos_functions: sCMOS camera functions (default: creates new instance)
+        """
+        # Dependency injection with sensible defaults
+        self.psf = psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
+        self.scmos = scmos_functions if scmos_functions is not None else sCMOSFunctions.sCMOS_Functions()
+        
+        # Initialize optimisation components
         self.array_pool = ArrayPool()
         self.kernel_cache = KernelCache()
 
@@ -279,10 +285,10 @@ class SpotDetection_Functions:
         else:
             image_for_detection = image
         if bayer_image:
-            image_for_detection = sCMOS.bayer_bin_stack(image_for_detection)
+            image_for_detection = self.scmos.bayer_bin_stack(image_for_detection)
         if psf_fun is None:
             psf_fun = self.gauss2d
-        sigma = np.divide(PSF.sigma_PSF(wavelength, NA), pixel_size)
+        sigma = np.divide(self.psf.sigma_PSF(wavelength, NA), pixel_size)
 
         # one-sided range of matched filter kernel in pixels
         mf_range = int(np.ceil(mf_factor * sigma))

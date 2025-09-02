@@ -13,28 +13,9 @@ import numpy as np
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 
-import IOFunctions
-
-IO = IOFunctions.IO_Functions()
-import PSFFunctions
-
-PSF = PSFFunctions.PSF_Functions()
-
-import sCMOSFunctions
-
-sCMOS = sCMOSFunctions.sCMOS_Functions()
-
 import Multicolour_Simulation_Functions
-
-MSF = Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
-
 import MaskFunctions
-
-Mask = MaskFunctions.Mask_Functions()
-
 import SpectralFunctions
-
-S_F = SpectralFunctions.Spectral_Funcs()
 
 
 class ToyModel_Functions:
@@ -44,9 +25,21 @@ class ToyModel_Functions:
     multicolour SMLM analysis pipelines and algorithms.
     """
 
-    def __init__(self):
-        """Initialize ToyModel_Functions class."""
-        pass
+    def __init__(self, 
+                 simulation_functions=None,
+                 mask_functions=None, 
+                 spectral_functions=None):
+        """Initialize ToyModel_Functions class.
+        
+        Args:
+            simulation_functions: Multicolour simulation functions instance (default: creates new instance)
+            mask_functions: Mask functions instance (default: creates new instance)
+            spectral_functions: Spectral functions instance (default: creates new instance)
+        """
+        # Lightweight dependency injection with sensible defaults
+        self.msf = simulation_functions if simulation_functions is not None else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
+        self.mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
+        self.spectral = spectral_functions if spectral_functions is not None else SpectralFunctions.Spectral_Funcs()
 
     def simulate_npixel_ndye_toymodel(
         self,
@@ -130,8 +123,8 @@ class ToyModel_Functions:
             return sorted_from_middle(lst[1:-1], reverse) + tail
 
         if pixel_arrangement == "diagonal":
-            masks = Mask.get_masks(
-                Mask.return_diagonal_patterns(np.arange(n_pixelcolours), image_size),
+            masks = self.mask.get_masks(
+                self.mask.return_diagonal_patterns(np.arange(n_pixelcolours), image_size),
                 image_size,
                 image_size,
             )
@@ -142,8 +135,8 @@ class ToyModel_Functions:
                 "B-bayer": lambda x: np.arange(x)[::-1],
             }
             colour_arrangement = color_arrangements[pixel_arrangement](n_pixelcolours)
-            masks = Mask.get_masks(
-                Mask.return_custom_bayer_patterns(colour_arrangement),
+            masks = self.mask.get_masks(
+                self.mask.return_custom_bayer_patterns(colour_arrangement),
                 image_size,
                 image_size,
             )
@@ -168,14 +161,14 @@ class ToyModel_Functions:
         ]
 
         dye_spectra = np.zeros([n_dyes, len(wavelength)])
-        sigma = S_F.FHWM_sigma_conversion(dye_FWHM, False)
+        sigma = self.spectral.FHWM_sigma_conversion(dye_FWHM, False)
         for d in np.arange(n_dyes):
             params = (
                 1,
                 dye_centers[d],
                 sigma,
             )
-            dye_spectra[d, :] = S_F.gaussian_model(params, wavelength)
+            dye_spectra[d, :] = self.spectral.gaussian_model(params, wavelength)
             dye_spectra[d, :] /= np.sum(dye_spectra[d, :])
 
         # Set camera parameters
@@ -222,7 +215,7 @@ class ToyModel_Functions:
             )
             fitter.single_dye_spectrum = dye_spectra[i, :]
             fitter.dye_library = dye_spectra
-            MSF.test_single_dye_fit_method(
+            self.msf.test_single_dye_fit_method(
                 dye,
                 [],
                 wavelength,

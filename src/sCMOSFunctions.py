@@ -17,9 +17,6 @@ from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
-import IOFunctions
-
-IO = IOFunctions.IO_Functions()
 
 
 class sCMOS_Functions:

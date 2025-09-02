@@ -14,24 +14,19 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
 
-IO = IOFunctions.IO_Functions()
-
-import HelperFunctions
-
-H_F = HelperFunctions.Helper_Functions()
-
-import PlottingFunctions
-
-plotter = PlottingFunctions.Plotter()
-
 import postprocess as _postprocess
 from sklearn.cluster import DBSCAN, HDBSCAN
 
 
 class extract_SMs:
-    def __init__(self) -> None:
-        """Single molecule extraction functions for clustering localizations into single molecules."""
-        pass
+    def __init__(self, io_functions=None) -> None:
+        """Single molecule extraction functions for clustering localizations into single molecules.
+        
+        Args:
+            io_functions: IO functions instance (default: creates new instance)
+        """
+        # Dependency injection with sensible defaults
+        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
 
     def filter_quality_localizations(
         self,
@@ -65,7 +60,7 @@ class extract_SMs:
 
         # Add photons column using centralized method and apply photon count filters
         if "photons" not in filtered_data.columns:
-            filtered_data = IO._add_photon_columns(filtered_data, normalise=True)
+            filtered_data = self.io._add_photon_columns(filtered_data, normalise=True)
         filtered_data = filtered_data[filtered_data["photons"] < max_photons]
         filtered_data = filtered_data[filtered_data["photons"] > min_photons]
 

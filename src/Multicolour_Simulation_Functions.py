@@ -24,11 +24,6 @@ import sCMOSFunctions
 import ImageAnalysisFunctions
 from ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
 
-IO = IOFunctions.IO_Functions()
-PSF = PSFFunctions.PSF_Functions()
-sCMOS = sCMOSFunctions.sCMOS_Functions()
-I_AF = ImageAnalysisFunctions.Image_Analysis_Functions()
-
 
 class FittingStrategy(Enum):
     """
@@ -291,15 +286,30 @@ class MultiC_Sim_Funcs_Refactored:
     backward compatibility with the original implementation.
     """
 
-    def __init__(self, mosaic_unit=None):
+    def __init__(self, 
+                 mosaic_unit=None,
+                 io_functions=None,
+                 psf_functions=None,
+                 scmos_functions=None,
+                 image_analysis_functions=None):
         """
-        Initialize the simulation functions with optional mosaic unit parameter.
+        Initialize the simulation functions with dependency injection support.
 
         Args:
             mosaic_unit: Optional parameter for mosaic configuration (currently unused)
+            io_functions: IO functions instance (default: creates new instance)
+            psf_functions: PSF functions instance (default: creates new instance)
+            scmos_functions: sCMOS functions instance (default: creates new instance)
+            image_analysis_functions: Image analysis functions instance (default: creates new instance)
         """
         self.mosaic_unit = mosaic_unit
         self.result_processor = FittingResultProcessor()
+        
+        # Dependency injection with sensible defaults
+        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        self.psf = psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
+        self.scmos = scmos_functions if scmos_functions is not None else sCMOSFunctions.sCMOS_Functions()
+        self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
 
     def _validate_inputs(
         self,
@@ -374,7 +384,7 @@ class MultiC_Sim_Funcs_Refactored:
         )
 
         # Calculate expected parameters for validation
-        sigma_PSF = PSF.sigma_PSF(average_emission_wavelength, config.NA)
+        sigma_PSF = self.psf.sigma_PSF(average_emission_wavelength, config.NA)
         dye_fit_expectation = dye_pixel_efficiency / np.sum(dye_pixel_efficiency)
 
         expected_parameters = np.array(
@@ -632,7 +642,7 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
 
         # Perform fitting
-        fit_results, _ = I_AF.fit_puncta_parallel_method(
+        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -715,7 +725,7 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
 
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_puncta_parallel_method(
+        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -752,7 +762,7 @@ class MultiC_Sim_Funcs_Refactored:
         del photoelectron_data, smoothed_data, weights_map
         gc.collect()
 
-        fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
+        fit_results_colour, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -845,7 +855,7 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
 
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_puncta_parallel_method(
+        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -883,7 +893,7 @@ class MultiC_Sim_Funcs_Refactored:
         del photoelectron_data, smoothed_data, weights_map
         gc.collect()
 
-        fit_results_colour, _ = I_AF.fit_puncta_parallel_method(
+        fit_results_colour, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -939,7 +949,7 @@ class MultiC_Sim_Funcs_Refactored:
         gc.collect()
 
         default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = I_AF.fit_puncta_parallel_method(
+        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -1063,7 +1073,7 @@ class MultiC_Sim_Funcs_Refactored:
         variance = camera_calibration["variance"]
         relative_QE = camera_calibration["rqe"]
 
-        sigma_x = PSF.sigma_PSF(average_emission_wavelengths, NA)
+        sigma_x = self.psf.sigma_PSF(average_emission_wavelengths, NA)
         sigma_y = sigma_x
         pixel_colours = camera_calibration["pixel_order"]
 
@@ -1156,7 +1166,7 @@ class MultiC_Sim_Funcs_Refactored:
                     except (IndexError, TypeError):
                         x0, y0 = x0y0[dye][0, :], x0y0[dye][1, :]
 
-                    photon_spatial_pdf = PSF.gen_spatial_PSF(
+                    photon_spatial_pdf = self.psf.gen_spatial_PSF(
                         x,
                         sigma_x,
                         sigma_y,
@@ -1167,15 +1177,15 @@ class MultiC_Sim_Funcs_Refactored:
                     )
 
                     n_photons_hitting_detector[:, :, j] = (
-                        PSF.gen_photons_hitting_detector(
+                        self.psf.gen_photons_hitting_detector(
                             photon_spatial_pdf, background_photons_matrix[:, :, j]
                         )
                     )
-                    n_photoelectrons[:, :, j] = PSF.gen_photoelectrons(
+                    n_photoelectrons[:, :, j] = self.psf.gen_photoelectrons(
                         n_photons_hitting_detector[:, :, j], abs_QE[:, :, j]
                     )
 
-            bayer_image[frame, :, :] = PSF.photoelectrons_to_image(
+            bayer_image[frame, :, :] = self.psf.photoelectrons_to_image(
                 np.sum(n_photoelectrons, axis=-1), gain, offset, variance
             )
 
@@ -1346,7 +1356,7 @@ class MultiC_Sim_Funcs_Refactored:
             # Save raw images if requested
             if config.saverawimages:
                 filename = f"{starting_flag}LM_method_{dyestr}_{str(np.around(n_photon, 2)).replace('.', 'p').zfill(10)}_rawbayerimage.tiff"
-                IO.write_tiff(bayer_image, os.path.join(save_folder, filename))
+                self.io.write_tiff(bayer_image, os.path.join(save_folder, filename))
 
             # Prepare fitting data
             photoelectron_data, smoothed_data, grayscale_data = (
@@ -1395,7 +1405,7 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Save final results
         save_params = analysis_save_params[:-2] + ["colour_distance"]
-        IO.save_simulation_results(
+        self.io.save_simulation_results(
             save_folder,
             starting_flag,
             save_params,

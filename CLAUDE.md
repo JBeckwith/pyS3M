@@ -552,3 +552,52 @@ Core modules updated include MaskFunctions.py, IOFunctions.py, SpotDetectionFunc
 - **Maintainability:** Clear spelling standards for future development
 - **Professionalism:** Consistent with British English scientific publications
 - **Zero Breaking Changes:** All functionality preserved with external library compatibility maintained
+
+## Global Object Instantiation Anti-Pattern Analysis [IDENTIFIED - September 2025]
+
+### **Anti-Pattern Identified**
+The codebase contains 18 global object instantiations across 7 core modules, creating tight coupling and testing difficulties:
+
+```python
+# Current anti-pattern (problematic):
+import IOFunctions
+import PSFFunctions
+IO = IOFunctions.IO_Functions()          # Global - tight coupling
+PSF = PSFFunctions.PSF_Functions()       # Global - hard to test
+```
+
+### **Files Affected:**
+- **SR_Functions.py**: 5 global objects (IO, H_F, M_F, I_AF, SD_F)
+- **Multicolour_Simulation_Functions.py**: 3 global objects (IO, PSF, I_AF)
+- **Toy_Model_Functions.py**: 5 global objects (IO, PSF, MSF, Mask, S_F)
+- **SpotDetectionFunctions.py**: 2 global objects (PSF, sCMOS)
+- **sCMOSFunctions.py, CalibrationFunctions.py**: 1 global object each (IO)
+
+### **Proposed Solution - Dependency Injection:**
+```python
+# Dependency injection with sensible defaults (best practice):
+import IOFunctions
+import PSFFunctions
+
+class SpotDetection_Functions:
+    def __init__(self, psf_functions=None, io_functions=None):
+        self.psf = psf_functions or PSFFunctions.PSF_Functions()
+        self.io = io_functions or IOFunctions.IO_Functions()
+    
+    def some_method(self):
+        return self.psf.sigma_PSF(...)  # Uses injected dependency
+```
+
+### **Benefits:**
+- **Testability**: Enable mock injection for unit testing
+- **Modularity**: Reduce tight coupling between modules
+- **Flexibility**: Allow custom implementations of dependencies
+- **Performance**: Lazy loading and instance sharing opportunities
+- **Maintainability**: Explicit dependency relationships
+
+### **Implementation Priority:**
+1. **High Impact, Low Complexity**: SpotDetectionFunctions.py, sCMOSFunctions.py (2-4 hours)
+2. **Medium Impact**: CalibrationFunctions.py, SM_extractionfunctions.py (4-6 hours)  
+3. **High Complexity**: SR_Functions.py, Multicolour_Simulation_Functions.py (8-12 hours)
+
+**Analysis complete** - Detailed refactoring plan available in `claude/global_instantiation_refactor_plan.py`

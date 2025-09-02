@@ -13,30 +13,12 @@ import gc
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
-
-IO = IOFunctions.IO_Functions()
-
-
 import HelperFunctions
-
-H_F = HelperFunctions.Helper_Functions()
-
 import MaskFunctions
-
-M_F = MaskFunctions.Mask_Functions()
-
 import ImageAnalysisFunctions
 from ImageAnalysisFunctions import FittingStrategy
-
-I_AF = ImageAnalysisFunctions.Image_Analysis_Functions()
-
 import SpotDetectionFunctions
-
-SD_F = SpotDetectionFunctions.SpotDetection_Functions()
-
 import PlottingFunctions
-
-plotter = PlottingFunctions.Plotter()
 
 
 class SuperRes_Functions:
@@ -46,14 +28,35 @@ class SuperRes_Functions:
     localization processing, and analysis for Bayer filter SMLM systems.
     """
 
-    def __init__(self, mosaic_unit=np.array([["B", "G"], ["G", "R"]])):
+    def __init__(self, 
+                 mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
+                 io_functions=None,
+                 helper_functions=None,
+                 mask_functions=None,
+                 image_analysis_functions=None,
+                 spot_detection_functions=None,
+                 plotter=None):
         """Initialize SuperRes_Functions class.
 
         Args:
             mosaic_unit: Bayer mosaic pattern array. Defaults to standard
                         [["B", "G"], ["G", "R"]] pattern.
+            io_functions: IO functions instance (default: creates new instance)
+            helper_functions: Helper functions instance (default: creates new instance)
+            mask_functions: Mask functions instance (default: creates new instance)
+            image_analysis_functions: Image analysis functions instance (default: creates new instance)
+            spot_detection_functions: Spot detection functions instance (default: creates new instance)
+            plotter: Plotter instance (default: creates new instance)
         """
         self.mosaic_unit = mosaic_unit
+        
+        # Dependency injection with sensible defaults
+        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        self.helper = helper_functions if helper_functions is not None else HelperFunctions.Helper_Functions()
+        self.mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
+        self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
+        self.spot_detection = spot_detection_functions if spot_detection_functions is not None else SpotDetectionFunctions.SpotDetection_Functions()
+        self.plotter = plotter if plotter is not None else PlottingFunctions.Plotter()
 
     def _filter_fit_results(self, fit_results, width, height):
         fit_results = fit_results[~np.isnan(fit_results)]
@@ -144,10 +147,10 @@ class SuperRes_Functions:
         )
 
         # Generate smoothed and weights only for this ROI
-        smoothed_roi = IO.apply_smoothing(
+        smoothed_roi = self.io.apply_smoothing(
             photoelectron_roi, smoothing_function, dtype="float32"
         )
-        weights_roi = IO.generate_weights(
+        weights_roi = self.io.generate_weights(
             smoothed_roi, read_noise=read_noise_roi, dtype="float32"
         )
 
@@ -202,11 +205,11 @@ class SuperRes_Functions:
         Returns:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
-        image_files = H_F.file_search(image_folder, image_type, "")
-        metadatafiles = H_F.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = IO.metadata_reader_imageJ(metadatafiles[0])
+        image_files = self.helper.file_search(image_folder, image_type, "")
+        metadatafiles = self.helper.file_search(image_folder, "metadata", "")
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
 
-        masks = M_F.get_ROI_mask(
+        masks = self.mask.get_ROI_mask(
             ROI_x_start=start_x,
             ROI_y_start=start_y,
             width=width,
@@ -228,7 +231,7 @@ class SuperRes_Functions:
         relative_coords = []
 
         # Load photoelectron data using updated workflow
-        photoelectron_data = IO.read_tiff_tophotoelectrons(
+        photoelectron_data = self.io.read_tiff_tophotoelectrons(
             file,
             dtype="float32",
             gain_map=gain_map,
@@ -237,7 +240,7 @@ class SuperRes_Functions:
             frame=1,
         )
 
-        detected_puncta = SD_F.detect_puncta_in_image(
+        detected_puncta = self.spot_detection.detect_puncta_in_image(
             photoelectron_data,
             pfa=pfa,
             variance=variance,
@@ -278,7 +281,7 @@ class SuperRes_Functions:
             relative_coords.append(coords)
         gc.collect()
 
-        fit_results, _ = I_AF.fit_puncta_parallel_method(
+        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -306,10 +309,10 @@ class SuperRes_Functions:
         # Photoelectron data already available for plotting
         # No need to reload - photoelectron_data already exists from detection step
 
-        fig, axs = plotter.two_column_plot(
+        fig, axs = self.plotter.two_column_plot(
             ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
         )
-        axs[0, 0] = plotter.image_scatter_plot(
+        axs[0, 0] = self.plotter.image_scatter_plot(
             axs=axs[0, 0],
             data=photoelectron_data,
             xdata=detected_puncta[:, 0],
@@ -319,7 +322,7 @@ class SuperRes_Functions:
             s=s,
         )
 
-        axs[0, 1] = plotter.image_scatter_plot(
+        axs[0, 1] = self.plotter.image_scatter_plot(
             axs=axs[0, 1],
             data=photoelectron_data,
             xdata=fit_results["xc"].to_numpy(),
@@ -343,7 +346,7 @@ class SuperRes_Functions:
         max_x = int(yedges[max_density[1]]) + 100
         min_x = max_x - 200
 
-        axs[1, 0] = plotter.image_scatter_plot(
+        axs[1, 0] = self.plotter.image_scatter_plot(
             axs=axs[1, 0],
             data=photoelectron_data,
             vmin=np.percentile(photoelectron_data, 1),
@@ -354,7 +357,7 @@ class SuperRes_Functions:
         )
         axs[1, 0].set_ylim([min_y, max_y])
         axs[1, 0].set_xlim([min_x, max_x])
-        axs[1, 1] = plotter.image_scatter_plot(
+        axs[1, 1] = self.plotter.image_scatter_plot(
             axs=axs[1, 1],
             data=photoelectron_data,
             vmin=np.percentile(photoelectron_data, 1),
@@ -467,7 +470,7 @@ class SuperRes_Functions:
         del photoelectron_data, smoothed_data, weights, detected_puncta
         gc.collect()
 
-        fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
+        fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
@@ -535,11 +538,11 @@ class SuperRes_Functions:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
 
-        image_files = H_F.file_search(image_folder, image_type, "")
-        metadatafiles = H_F.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = IO.metadata_reader_imageJ(metadatafiles[0])
+        image_files = self.helper.file_search(image_folder, image_type, "")
+        metadatafiles = self.helper.file_search(image_folder, "metadata", "")
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
 
-        masks = M_F.get_ROI_mask(
+        masks = self.mask.get_ROI_mask(
             ROI_x_start=start_x,
             ROI_y_start=start_y,
             width=width,
@@ -589,11 +592,11 @@ class SuperRes_Functions:
             fit_savename = file.split(".")[0] + ".h5"
 
             # Load photoelectron data using updated workflow
-            photoelectron_data = IO.read_tiff_tophotoelectrons(
+            photoelectron_data = self.io.read_tiff_tophotoelectrons(
                 file, dtype="float32", gain_map=gain_map, offset_map=offset_map, rqe=rqe
             )
 
-            detected_puncta = SD_F.detect_puncta_in_stack_parallel(
+            detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                 photoelectron_data,
                 pfa=pfa,
                 variance=variance,
@@ -641,7 +644,7 @@ class SuperRes_Functions:
             del photoelectron_data, detected_puncta
             gc.collect()
 
-            fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
+            fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
                 weights_tofit,
@@ -656,7 +659,7 @@ class SuperRes_Functions:
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
 
-            IO._write_h5_database(fit_results, fit_savename, append=False)
+            self.io._write_h5_database(fit_results, fit_savename, append=False)
             del (
                 fit_tosave,
                 fit_results,
@@ -711,14 +714,14 @@ class SuperRes_Functions:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
 
-        image_files = H_F.file_search(image_folder, image_type, "")
-        metadatafiles = H_F.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = IO.metadata_reader_imageJ(metadatafiles[0])
+        image_files = self.helper.file_search(image_folder, image_type, "")
+        metadatafiles = self.helper.file_search(image_folder, "metadata", "")
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
 
         fit_savename = os.path.join(
             os.path.split(metadatafiles[0])[0], "Localisations.h5"
         )
-        masks = M_F.get_ROI_mask(
+        masks = self.mask.get_ROI_mask(
             ROI_x_start=start_x,
             ROI_y_start=start_y,
             width=width,
@@ -767,11 +770,11 @@ class SuperRes_Functions:
             planes = []
 
             # Load photoelectron data using updated workflow
-            photoelectron_data = IO.read_tiff_tophotoelectrons(
+            photoelectron_data = self.io.read_tiff_tophotoelectrons(
                 file, dtype="float32", gain_map=gain_map, offset_map=offset_map, rqe=rqe
             )
 
-            detected_puncta = SD_F.detect_puncta_in_stack_parallel(
+            detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                 photoelectron_data,
                 pfa=pfa,
                 wavelength=peak_wavelength,
@@ -825,7 +828,7 @@ class SuperRes_Functions:
             del photoelectron_data, detected_puncta
             gc.collect()
 
-            fit_results, fit_errors = I_AF.fit_puncta_parallel_method(
+            fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
                 weights_tofit,
@@ -841,9 +844,9 @@ class SuperRes_Functions:
             fit_results = self._filter_fit_results(fit_results, width, height)
 
             if FOVn == 0:
-                IO._write_h5_database(fit_results, fit_savename, append=False)
+                self.io._write_h5_database(fit_results, fit_savename, append=False)
             else:
-                IO._write_h5_database(fit_results, fit_savename, append=True)
+                self.io._write_h5_database(fit_results, fit_savename, append=True)
             del (
                 fit_tosave,
                 fit_results,
