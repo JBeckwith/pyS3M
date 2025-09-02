@@ -632,11 +632,12 @@ class Spectral_Funcs:
         if spectra.ndim == 1:
             spectra = spectra[np.newaxis, :]
         # Normalize spectra
-        spectra_normalized = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
+        spectra_normalised = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
+        spectra_normalised = spectra_normalised.T
 
         # Calculate average emission wavelengths
-        weighted_wavelengths = wavelength * spectra_normalized
-        average_wavelengths = np.trapz(y=weighted_wavelengths, x=wavelength, axis=0)
+        weighted_wavelengths = wavelength * spectra_normalised
+        average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
 
         # Calculate pixel efficiencies
         pixel_efficiencies = np.dot(spectra, pixel_QYs.T)
