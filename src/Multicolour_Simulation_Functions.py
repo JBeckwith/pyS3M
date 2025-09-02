@@ -1442,11 +1442,17 @@ class MultiC_Sim_Funcs_Refactored:
                 fit_results, setup_data, config, analysis_save_params
             )
 
-            # Progress update
+            # Progress update - use carriage return to update in place
             elapsed = (time.time() - start) / 60.0
-            logger.info(
-                f"Analysed photon flux {i + 1}/{len(n_photon_space)}    Time elapsed: {elapsed:.3f} min"
+            print(
+                f"Analysed photon flux {i + 1}/{len(n_photon_space)}    Time elapsed: {elapsed:.3f} min",
+                end='\r',
+                flush=True
             )
+
+        # Clear the progress line and show completion
+        total_elapsed = (time.time() - start) / 60.0
+        print(f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min")
 
         # Save final results
         save_params = analysis_save_params[:-2] + ["colour_distance"]
