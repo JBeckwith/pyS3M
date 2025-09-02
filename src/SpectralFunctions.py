@@ -628,6 +628,9 @@ class Spectral_Funcs:
                 - Average emission wavelengths for each spectrum
                 - Pixel efficiencies for each spectrum and pixel type
         """
+        # handle single spectrum case
+        if spectra.ndim == 1:
+            spectra = spectra[np.newaxis, :]
         # Normalize spectra
         spectra_normalized = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
 
