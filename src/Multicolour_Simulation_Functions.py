@@ -235,6 +235,30 @@ class FittingResultProcessor:
         extracted_arrays = {
             param: fit_results[param].to_numpy() for param in arrays_to_extract
         }
+        
+        # Validate that we have enough data
+        expected_total_length = n_bootstrap * 3
+        actual_length = len(extracted_arrays["xc"]) if "xc" in extracted_arrays else 0
+        if actual_length < expected_total_length:
+            import logging
+            logging.warning(f"fit_averager: Expected {expected_total_length} data points but got {actual_length}")
+            if actual_length == 0:
+                logging.warning("fit_averager: No valid fitting results - all data is NaN or empty")
+                # Return DataFrame with NaN values
+                return pd.DataFrame({
+                    "xc": np.full(n_bootstrap, np.nan),
+                    "yc": np.full(n_bootstrap, np.nan),
+                    "s_x": np.full(n_bootstrap, np.nan),
+                    "s_y": np.full(n_bootstrap, np.nan),
+                    "A_B": np.full(n_bootstrap, np.nan),
+                    "A_G": np.full(n_bootstrap, np.nan), 
+                    "A_R": np.full(n_bootstrap, np.nan),
+                    "bg_B": np.full(n_bootstrap, np.nan),
+                    "bg_G": np.full(n_bootstrap, np.nan),
+                    "bg_R": np.full(n_bootstrap, np.nan),
+                    "chi_sqr": np.full(n_bootstrap, np.nan),
+                    "frame": np.arange(n_bootstrap)
+                })
 
         # Initialize result arrays
         result_data = {
@@ -255,25 +279,42 @@ class FittingResultProcessor:
         for i, index in enumerate(indices[:-1]):
             # Average positional and shape parameters
             for param in ["xc", "yc", "s_x", "s_y", "chi_sqr"]:
-                result_data[param][i] = np.nanmean(
-                    extracted_arrays[param][index : indices[i + 1]]
-                )
+                slice_data = extracted_arrays[param][index : indices[i + 1]]
+                if len(slice_data) > 0:
+                    result_data[param][i] = np.nanmean(slice_data)
+                else:
+                    result_data[param][i] = np.nan
 
             # Handle amplitude and background
-            A = np.nansum(extracted_arrays["A"][index : indices[i + 1]])
-            b = np.nansum(extracted_arrays["b"][index : indices[i + 1]])
+            A_slice = extracted_arrays["A"][index : indices[i + 1]]
+            b_slice = extracted_arrays["b"][index : indices[i + 1]]
+            
+            if len(A_slice) > 0:
+                A = np.nansum(A_slice)
+                b = np.nansum(b_slice)
+            else:
+                A = np.nan
+                b = np.nan
 
-            if b != 0:
+            if not np.isnan(b) and b != 0 and len(b_slice) >= 3:
                 result_data["bg_B"][i] = extracted_arrays["b"][index] / b
-                result_data["bg_G"][i] = extracted_arrays["b"][index + 1] / b
+                result_data["bg_G"][i] = extracted_arrays["b"][index + 1] / b  
                 result_data["bg_R"][i] = extracted_arrays["b"][index + 2] / b
+            else:
+                result_data["bg_B"][i] = np.nan
+                result_data["bg_G"][i] = np.nan
+                result_data["bg_R"][i] = np.nan
 
-            if A != 0:
+            if not np.isnan(A) and A != 0 and len(A_slice) >= 3:
                 result_data["A_B"][i] = extracted_arrays["A"][index] / A
                 result_data["A_G"][i] = extracted_arrays["A"][index + 1] / A
                 result_data["A_R"][i] = extracted_arrays["A"][index + 2] / A
+            else:
+                result_data["A_B"][i] = np.nan
+                result_data["A_G"][i] = np.nan
+                result_data["A_R"][i] = np.nan
 
-        result_data["frame"] = np.arange(n_bootstrap)
+        result_data["frame"] = np.arange(n_bootstrap, dtype=float)
         return pd.DataFrame(result_data)
 
 
@@ -475,8 +516,8 @@ class MultiC_Sim_Funcs_Refactored:
                     smoothed_data, True
                 )
             else:
-                photoelectron_data = self.scmos.bayer_demosaic_stack(photoelectron_data)
-                smoothed_data = self.scmos.bayer_demosaic_stack(smoothed_data)
+                photoelectron_data, _ = self.scmos.bayer_demosaic_stack(photoelectron_data)
+                smoothed_data, _ = self.scmos.bayer_demosaic_stack(smoothed_data)
                 grayscale_data = grayscale_smoothed = None
 
             # Destack for colour fitting

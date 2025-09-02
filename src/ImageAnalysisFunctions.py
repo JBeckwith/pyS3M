@@ -471,17 +471,16 @@ class NoColourFittingProcessor(FittingProcessor):
         centre = np.array(smoothed_punctum.shape) // 2
         max_val = np.max(smoothed_punctum)
 
-        # 8-parameter guess: [x, y, sx, sy, A, bg, theta, offset]
+        # 6-parameter guess for no-colour: [x, y, sx, sy, bg, A]
+        # Note: WLS_nocolour_model_nobounds expects params[4]=background, params[5]=amplitude
         initial_guess = np.array(
             [
-                centre[1],
-                centre[0],  # x, y centres
-                1.0,
-                1.0,  # sigma_x, sigma_y
-                max_val,  # Amplitude
-                np.min(smoothed_punctum),  # Background
-                0.0,
-                0.0,  # theta, offset
+                centre[1],                   # params[0] = x centre
+                centre[0],                   # params[1] = y centre  
+                1.0,                        # params[2] = sigma_x
+                1.0,                        # params[3] = sigma_y
+                np.min(smoothed_punctum),   # params[4] = background
+                max_val,                    # params[5] = amplitude
             ]
         )
 
@@ -505,13 +504,15 @@ class NoColourFittingProcessor(FittingProcessor):
         Returns:
             Tuple of (fit_parameters, parameter_errors).
         """
+        size = int(data.shape[0])
+        ravelsize = int(np.prod(data.shape))
+
         try:
-            # This would call the appropriate no-colour fitting function
-            # For now, using a placeholder implementation
+            # Perform no-colour fitting using weighted least squares optimization
             pfit, pcov, infodict, errmsg, success = leastsq(
-                gaussoptfuncs.WLS_chi_nocolour_nobounds,  # Placeholder function name
+                gaussoptfuncs.WLS_chi_nocolour_nobounds,
                 x0=initial_guess,
-                args=(data, weights),
+                args=(data, weights, size, ravelsize),
                 full_output=True,
                 ftol=FittingConstants.DEFAULT_FTOL,
                 xtol=FittingConstants.DEFAULT_XTOL,
