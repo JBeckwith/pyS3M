@@ -244,9 +244,9 @@ class SuperRes_Functions:
         )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
-            photoelectron_data,
+            self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             pfa=pfa,
-            variance=variance,
+            variance=np.ones_like(photoelectron_data),
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
