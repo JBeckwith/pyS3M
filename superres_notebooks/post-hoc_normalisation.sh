@@ -8,7 +8,7 @@
 set -e  # Exit on any error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_SCRIPT="$SCRIPT_DIR/post-hoc_normalisation.py"
+PYTHON_SCRIPT="$SCRIPT_DIR/post_hoc_normalisation_single.py"
 LOG_FILE="post-hoc_normalisation_$(date +%Y%m%d_%H%M%S).log"
 
 # Check if Python script exists
@@ -274,26 +274,15 @@ process_folder() {
     # Step 2: Run normalisation on scratch folder
     log_message "STEP 2: Running normalisation on scratch folder"
     
-    # Create a simple Python script call for just this folder
-    if python3 -c "
-import sys
-sys.path.append('$SCRIPT_DIR/../src')
-from post_hoc_normalisation_single import normalise_folder
-normalise_folder('$scratch_folder')
-" >> "$LOG_FILE" 2>&1; then
+    # Run the single folder Python script
+    if python3 "$PYTHON_SCRIPT" "$scratch_folder" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Normalisation completed on scratch folder"
     else
-        # If the function doesn't exist, fall back to the full script with folder filter
-        log_message "Falling back to full script processing"
-        if python3 "$PYTHON_SCRIPT" --single-folder "$scratch_folder" >> "$LOG_FILE" 2>&1; then
-            log_message "SUCCESS: Normalisation completed on scratch folder (fallback)"
-        else
-            echo "ERROR - Normalisation failed"
-            log_message "ERROR: Normalisation failed on scratch folder"
-            safe_cleanup "$scratch_folder"
-            ERROR_FOLDERS=$((ERROR_FOLDERS + 1))
-            return 1
-        fi
+        echo "ERROR - Normalisation failed"
+        log_message "ERROR: Normalisation failed on scratch folder"
+        safe_cleanup "$scratch_folder"
+        ERROR_FOLDERS=$((ERROR_FOLDERS + 1))
+        return 1
     fi
     
     # Step 3: Copy .h5 results back

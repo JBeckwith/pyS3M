@@ -121,11 +121,8 @@ def process_h5_file(h5_file_path: str) -> bool:
         # Normalise error terms
         df_normalised = normalise_error_terms(df)
         
-        # Create backup
-        backup_path = h5_file_path + '.backup'
-        if not os.path.exists(backup_path):
-            import shutil
-            shutil.copy2(h5_file_path, backup_path)
+        # No backup needed - we're working on copies in scratch folder
+        # Original files on /scratch serve as the backup
         
         # Use IOFunctions to write the database properly
         from IOFunctions import IO_Functions
