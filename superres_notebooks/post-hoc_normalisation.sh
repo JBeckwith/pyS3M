@@ -284,20 +284,22 @@ process_folder() {
         return 1
     fi
     
-    # Copy all .h5 files with retry logic
-    local h5_files=($(find "$folder_path" -name "*.h5" -type f))
+    # Copy all .h5 files with retry logic (handle paths with spaces properly)
     local copy_success=true
     
-    for h5_file in "${h5_files[@]}"; do
+    # Use while read to handle paths with spaces correctly
+    while IFS= read -r -d '' h5_file; do
         local filename=$(basename "$h5_file")
         local dest_file="$scratch_folder/$filename"
+        
+        log_message "Copying file: $h5_file"
         
         if ! robust_copy_file "$h5_file" "$dest_file"; then
             log_message "ERROR: Failed to copy $filename to scratch"
             copy_success=false
             break
         fi
-    done
+    done < <(find "$folder_path" -name "*.h5" -type f -print0)
     
     if [ "$copy_success" = false ]; then
         echo "ERROR - Copy to scratch failed"
