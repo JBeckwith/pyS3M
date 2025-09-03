@@ -100,7 +100,7 @@ TOTAL_H5_FILES=0
 SUCCESS_H5_FILES=0
 ERROR_H5_FILES=0
 
-# Robust copy with retry logic
+# Robust copy with retry logic for directories (kept for potential future use)
 robust_copy() {
     local src="$1"
     local dst="$2"
@@ -123,6 +123,32 @@ robust_copy() {
     done
     
     log_message "ERROR: Copy failed after $max_attempts attempts"
+    return 1
+}
+
+# Robust copy with retry logic for single files
+robust_copy_file() {
+    local src="$1"
+    local dst="$2"
+    local max_attempts=5
+    local wait_time=5
+    
+    for attempt in $(seq 1 $max_attempts); do
+        log_message "File copy attempt $attempt/$max_attempts: $(basename "$src")"
+        
+        if cp "$src" "$dst" 2>> "$LOG_FILE"; then
+            log_message "File copy successful on attempt $attempt"
+            return 0
+        else
+            log_message "File copy failed on attempt $attempt, waiting ${wait_time}s before retry"
+            if [ $attempt -lt $max_attempts ]; then
+                sleep $wait_time
+                wait_time=$((wait_time + 2))  # Linear backoff for files
+            fi
+        fi
+    done
+    
+    log_message "ERROR: File copy failed after $max_attempts attempts"
     return 1
 }
 
@@ -247,29 +273,41 @@ process_folder() {
         safe_cleanup "$scratch_folder"
     fi
     
-    # Step 1: Copy folder to scratch
-    log_message "STEP 1: Copying folder to scratch"
+    # Step 1: Copy only .h5 files to scratch
+    log_message "STEP 1: Copying .h5 files to scratch"
     
-    if ! robust_copy "$folder_path" "/scratch2/jsb92/"; then
+    # Create scratch folder
+    if ! mkdir -p "$scratch_folder" 2>> "$LOG_FILE"; then
+        echo "ERROR - Cannot create scratch folder"
+        log_message "ERROR: Cannot create scratch folder: $scratch_folder"
+        ERROR_FOLDERS=$((ERROR_FOLDERS + 1))
+        return 1
+    fi
+    
+    # Copy all .h5 files with retry logic
+    local h5_files=($(find "$folder_path" -name "*.h5" -type f))
+    local copy_success=true
+    
+    for h5_file in "${h5_files[@]}"; do
+        local filename=$(basename "$h5_file")
+        local dest_file="$scratch_folder/$filename"
+        
+        if ! robust_copy_file "$h5_file" "$dest_file"; then
+            log_message "ERROR: Failed to copy $filename to scratch"
+            copy_success=false
+            break
+        fi
+    done
+    
+    if [ "$copy_success" = false ]; then
         echo "ERROR - Copy to scratch failed"
-        log_message "ERROR: Failed to copy folder to scratch"
+        log_message "ERROR: Failed to copy .h5 files to scratch"
+        safe_cleanup "$scratch_folder"
         ERROR_FOLDERS=$((ERROR_FOLDERS + 1))
         return 1
     fi
     
-    # Rename to avoid conflicts
-    if [ -d "/scratch2/jsb92/$folder_name" ]; then
-        mv "/scratch2/jsb92/$folder_name" "$scratch_folder"
-        log_message "Renamed scratch folder to: $scratch_folder"
-    fi
-    
-    # Verify scratch folder exists
-    if [ ! -d "$scratch_folder" ]; then
-        echo "ERROR - Scratch folder missing"
-        log_message "ERROR: Scratch folder does not exist after copy: $scratch_folder"
-        ERROR_FOLDERS=$((ERROR_FOLDERS + 1))
-        return 1
-    fi
+    log_message "Successfully copied $h5_count .h5 files to scratch"
     
     # Step 2: Run normalisation on scratch folder
     log_message "STEP 2: Running normalisation on scratch folder"
