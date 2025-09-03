@@ -328,11 +328,11 @@ class SuperRes_Functions:
 
         axs[0, 1] = self.plotter.image_scatter_plot(
             axs=axs[0, 1],
-            data=image_to_show,
+            data=photoelectron_data,
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
-            vmin=np.percentile(image_to_show, 1),
-            vmax=np.percentile(image_to_show, 99),
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             s=s,
             scattercolor="#32cd32",
         )
@@ -345,10 +345,10 @@ class SuperRes_Functions:
         max_density = np.unravel_index(
             np.argmax(density_values), shape=density_values.shape
         )
-        max_y = int(xedges[max_density[0]]) + 100
-        min_y = max_y - 200
-        max_x = int(yedges[max_density[1]]) + 100
-        min_x = max_x - 200
+        max_y = int(xedges[max_density[0]]) + 50
+        min_y = max_y - 100
+        max_x = int(yedges[max_density[1]]) + 50
+        min_x = max_x - 100
 
         import matplotlib.patches as patches
 
@@ -379,9 +379,9 @@ class SuperRes_Functions:
         axs[1, 0].set_xlim([min_x, max_x])
         axs[1, 1] = self.plotter.image_scatter_plot(
             axs=axs[1, 1],
-            data=image_to_show,
-            vmin=np.percentile(image_to_show, 1),
-            vmax=np.percentile(image_to_show, 99),
+            data=photoelectron_data,
+            vmin=np.percentile(photoelectron_data, 1),
+            vmax=np.percentile(photoelectron_data, 99),
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
             s=s * 5,
