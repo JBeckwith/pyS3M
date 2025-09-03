@@ -234,9 +234,12 @@ class SuperRes_Functions:
         relative_coords = []
 
         # Load photoelectron data using updated workflow
-        photoelectron_data = self.io.read_tiff(
+        photoelectron_data = self.io.read_tiff_tophotoelectrons(
             file,
             dtype="float32",
+            gain_map=gain_map,
+            offset_map=offset_map,
+            rqe=rqe,
             frame=1,
         )
 
@@ -245,7 +248,7 @@ class SuperRes_Functions:
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
             pfa=pfa,
-            variance=variance,
+            variance=,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
