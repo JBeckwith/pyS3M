@@ -19,7 +19,6 @@ import ImageAnalysisFunctions
 from ImageAnalysisFunctions import FittingStrategy
 import SpotDetectionFunctions
 import PlottingFunctions
-import sCMOSFunctions
 
 
 class SuperRes_Functions:
@@ -36,8 +35,7 @@ class SuperRes_Functions:
                  mask_functions=None,
                  image_analysis_functions=None,
                  spot_detection_functions=None,
-                 plotter=None,
-                 scmos=None):
+                 plotter=None):
         """Initialize SuperRes_Functions class.
 
         Args:
@@ -59,7 +57,6 @@ class SuperRes_Functions:
         self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
         self.spot_detection = spot_detection_functions if spot_detection_functions is not None else SpotDetectionFunctions.SpotDetection_Functions()
         self.plotter = plotter if plotter is not None else PlottingFunctions.Plotter()
-        self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
 
     def _filter_fit_results(self, fit_results, width, height):
         fit_results = fit_results[~np.isnan(fit_results)]
@@ -244,9 +241,9 @@ class SuperRes_Functions:
         )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
-            self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
+            photoelectron_data,
             pfa=pfa,
-            variance=np.ones_like(variance),
+            variance=variance,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
