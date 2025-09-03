@@ -253,8 +253,14 @@ def process_h5_file(folder_path: str, h5_file_path: str, dry_run: bool = False) 
         # Read the HDF5 file
         logger.info(f"Processing: {h5_file_path}")
         
-        # Try to read with pandas
-        df = pd.read_hdf(h5_file_path, key='df')
+        # Try to read the HDF5 file without specifying a key
+        try:
+            df = pd.read_hdf(h5_file_path)
+            logger.info(f"Successfully read data without specifying key")
+        except Exception as e:
+            logger.error(f"Could not read data from {h5_file_path}: {e}")
+            return False
+            
         original_shape = df.shape
         
         # Check if error terms are already normalised by looking for typical pre-normalisation values
@@ -292,9 +298,11 @@ def process_h5_file(folder_path: str, h5_file_path: str, dry_run: bool = False) 
                 import shutil
                 shutil.copy2(h5_file_path, backup_path)
             
-            # Save normalised data back to the file
-            df_normalised.to_hdf(h5_file_path, key='df', mode='w', format='table')
-            logger.info(f"Saved normalised data to: {h5_file_path}")
+            # Use IOFunctions to write the database properly
+            from IOFunctions import IO_Functions
+            io_func = IO_Functions()
+            io_func._write_h5_database(df_normalised, h5_file_path, append=False, normalise_photons=False)
+            logger.info(f"Saved normalised data to: {h5_file_path} using IOFunctions")
         else:
             logger.info(f"DRY RUN: Would normalise and save {original_shape} -> {df_normalised.shape}")
         
