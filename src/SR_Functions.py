@@ -374,6 +374,8 @@ class SuperRes_Functions:
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s * 5,
+            scalebarsize=1000,
+            scalebarlabel="1 µm",
         )
         axs[1, 0].set_ylim([min_y, max_y])
         axs[1, 0].set_xlim([min_x, max_x])
@@ -386,6 +388,8 @@ class SuperRes_Functions:
             ydata=fit_results["yc"].to_numpy(),
             s=s * 5,
             scattercolor="#32cd32",
+            scalebarsize=1000,
+            scalebarlabel="1 µm",
         )
         axs[1, 1].set_ylim([min_y, max_y])
         axs[1, 1].set_xlim([min_x, max_x])
