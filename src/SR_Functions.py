@@ -358,6 +358,11 @@ class SuperRes_Functions:
 
         # Add the patch to the Axes
         axs[0,0].add_patch(rect)
+
+        rect = patches.Rectangle(
+            (min_x, min_y), np.abs(max_x-min_x), np.abs(max_y-min_y), linewidth=0.5, edgecolor="white", facecolor="none"
+        )
+
         axs[0,1].add_patch(rect)
 
 
