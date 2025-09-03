@@ -234,16 +234,19 @@ class SuperRes_Functions:
         relative_coords = []
 
         # Load photoelectron data using updated workflow
-        photoelectron_data = self.io.read_tiff(
+        photoelectron_data = self.io.read_tiff_tophotoelectrons(
             file,
             dtype="float32",
+            gain_map=gain_map,
+            offset_map=offset_map,
+            rqe=rqe,
             frame=1,
         )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             pfa=pfa,
-            variance=np.ones_like(variance),  # uniform variance for detection
+            variance=np.ones_like(variance),
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
