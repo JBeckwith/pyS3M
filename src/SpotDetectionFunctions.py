@@ -22,13 +22,6 @@ import numba
 from functools import lru_cache
 from typing import Union, Tuple
 
-try:
-    import cv2
-
-    HAS_OPENCV = True
-except ImportError:
-    HAS_OPENCV = False
-
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import PSFFunctions
@@ -524,7 +517,6 @@ class SpotDetection_Functions:
     def filter_image(self, image: np.ndarray, w: np.ndarray) -> np.ndarray:
         """filter_image: Returns filtered image
 
-        OPTIMISED VERSION: Uses OpenCV when available for 3-5x speedup.
 
         Args:
             image (np.ndarray): image to be filtered
@@ -532,17 +524,7 @@ class SpotDetection_Functions:
 
         Returns:
             T (np.ndarray): filtered image"""
-        if HAS_OPENCV and image.dtype in [np.float32, np.float64]:
-            # Use OpenCV for better performance
-            return cv2.filter2D(
-                image.astype(np.float32),
-                -1,
-                w.astype(np.float32),
-                borderType=cv2.BORDER_REFLECT,
-            )
-        else:
-            # Fallback to scipy
-            return convolve(image.astype("float32"), w.astype("float32"), mode="mirror")
+        return convolve(image.astype("float32"), w.astype("float32"), mode="mirror")
 
     def get_square_annulus(
         self, guard_interval: int, reference_interval: int
@@ -810,7 +792,6 @@ class SpotDetection_Functions:
         return {
             "kernel_cache_size": len(self.kernel_cache.cache),
             "array_pool_sizes": {k: len(v) for k, v in self.array_pool.pools.items()},
-            "has_opencv": HAS_OPENCV,
         }
 
 
