@@ -315,23 +315,24 @@ class SuperRes_Functions:
         fig, axs = self.plotter.two_column_plot(
             ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
         )
+        image_to_show = self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2)
         axs[0, 0] = self.plotter.image_scatter_plot(
             axs=axs[0, 0],
-            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
+            data=image_to_show,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            vmin=np.percentile(image_to_show, 1),
+            vmax=np.percentile(image_to_show, 99),
             s=s,
         )
 
         axs[0, 1] = self.plotter.image_scatter_plot(
             axs=axs[0, 1],
-            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
+            data=image_to_show,
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            vmin=np.percentile(image_to_show, 1),
+            vmax=np.percentile(image_to_show, 99),
             s=s,
             scattercolor="#32cd32",
         )
@@ -349,11 +350,22 @@ class SuperRes_Functions:
         max_x = int(yedges[max_density[1]]) + 100
         min_x = max_x - 200
 
+        import matplotlib.patches as patches
+
+        rect = patches.Rectangle(
+            (min_x, min_y), np.abs(max_x-min_x), np.abs(max_y-min_y), linewidth=0.5, edgecolor="white", facecolor="none"
+        )
+
+        # Add the patch to the Axes
+        axs[0,0].add_patch(rect)
+        axs[0,1].add_patch(rect)
+
+
         axs[1, 0] = self.plotter.image_scatter_plot(
             axs=axs[1, 0],
-            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            data=image_to_show,
+            vmin=np.percentile(image_to_show, 1),
+            vmax=np.percentile(image_to_show, 99),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s * 5,
@@ -362,9 +374,9 @@ class SuperRes_Functions:
         axs[1, 0].set_xlim([min_x, max_x])
         axs[1, 1] = self.plotter.image_scatter_plot(
             axs=axs[1, 1],
-            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            data=image_to_show,
+            vmin=np.percentile(image_to_show, 1),
+            vmax=np.percentile(image_to_show, 99),
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
             s=s * 5,
