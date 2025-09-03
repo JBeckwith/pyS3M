@@ -240,12 +240,12 @@ class SuperRes_Functions:
             frame=1,
         )
 
-        _, image_to_analyse = self.scmos.bayer_demosaic_stack(photoelectron_data/variance, grayscale=True)
+        _, image_to_analyse = self.scmos.bayer_demosaic_stack(photoelectron_data, grayscale=True)
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
             pfa=pfa,
-            variance=np.ones_like(image_to_analyse),
+            variance=variance,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
