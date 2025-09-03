@@ -243,10 +243,12 @@ class SuperRes_Functions:
             frame=1,
         )
 
+        _, image_to_analyse = self.scmos.bayer_demosaic_stack(photoelectron_data, grayscale=True)
+
         detected_puncta = self.spot_detection.detect_puncta_in_image(
-            self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
+            image_to_analyse,
             pfa=pfa,
-            variance=np.ones_like(photoelectron_data),
+            variance=variance,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
