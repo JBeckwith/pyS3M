@@ -248,7 +248,7 @@ class SuperRes_Functions:
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
             pfa=pfa,
-            variance=,
+            variance=variance,
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
