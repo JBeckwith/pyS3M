@@ -18,28 +18,34 @@ import os
 try:
     # Check if we're in a Jupyter notebook
     if "ipykernel" in sys.modules:
-        from tqdm.notebook import tqdm as base_tqdm
+        from tqdm.notebook import tqdm as notebook_tqdm
+        from tqdm import tqdm as text_tqdm
 
         NOTEBOOK_ENV = True
     else:
-        from tqdm import tqdm as base_tqdm
+        from tqdm import tqdm as text_tqdm
+        notebook_tqdm = None
 
         NOTEBOOK_ENV = False
 except ImportError:
     # Fallback if tqdm not available
-    from tqdm import tqdm as base_tqdm
+    from tqdm import tqdm as text_tqdm
+    notebook_tqdm = None
 
     NOTEBOOK_ENV = False
+
+# Default to text-based tqdm for better compatibility with carriage return updates
+base_tqdm = text_tqdm
 
 
 class ProgressBarConfig:
     """Configuration constants for consistent progress bar styling."""
 
     # Default styling
-    DEFAULT_LEAVE = False  # Don't leave progress bars after completion
+    DEFAULT_LEAVE = False  # Don't leave progress bars after completion in terminal
     DEFAULT_DYNAMIC_NCOLS = True  # Adapt to terminal width
     DEFAULT_MINITERS = 1  # Update frequency
-    DEFAULT_MININTERVAL = 0.1  # Minimum time between updates (seconds)
+    DEFAULT_MININTERVAL = 0.05  # Minimum time between updates (seconds) - faster for notebooks
 
     # Color and styling (if terminal supports it)
     DEFAULT_COLOUR = "green"
@@ -53,14 +59,19 @@ class ProgressBarConfig:
     @classmethod
     def get_default_kwargs(cls) -> Dict[str, Any]:
         """Get default keyword arguments for tqdm progress bars."""
-        return {
+        base_kwargs = {
             "leave": cls.DEFAULT_LEAVE,
             "dynamic_ncols": cls.DEFAULT_DYNAMIC_NCOLS,
             "miniters": cls.DEFAULT_MINITERS,
             "mininterval": cls.DEFAULT_MININTERVAL,
             "smoothing": cls.DEFAULT_SMOOTHING,
-            "file": sys.stdout,
         }
+        
+        # Configure for both notebook and terminal environments using text-based tqdm
+        base_kwargs["file"] = sys.stdout
+        base_kwargs["leave"] = False  # Don't leave progress bars to avoid line interference
+            
+        return base_kwargs
 
     @classmethod
     def get_styled_kwargs(cls, colour: Optional[str] = None) -> Dict[str, Any]:
@@ -132,7 +143,8 @@ def clean_progress_bar(
     # Override defaults with provided arguments
     if leave is not None:
         pbar_kwargs["leave"] = leave
-    if colour is not None and not NOTEBOOK_ENV:
+    if colour is not None:
+        # Apply colour in both notebook and terminal environments
         pbar_kwargs["colour"] = colour
     if position is not None:
         pbar_kwargs["position"] = position
@@ -166,6 +178,8 @@ def clean_progress_bar(
         # Always clean up progress bar
         if pbar is not None:
             pbar.close()
+            
+        # Don't add newline in notebooks - let the calling code handle line management
 
         # Force flush to ensure clean terminal state
         sys.stdout.flush()

@@ -226,8 +226,8 @@ class IO_Functions:
             return df_compatible
 
         except Exception as e:
-            print(f"Warning: Could not check HDF5 compatibility: {e}")
-            print("Proceeding with original DataFrame")
+            print(f"Warning: Could not check HDF5 compatibility: {e}", flush=True)
+            print("Proceeding with original DataFrame", flush=True)
             return df
 
     def _write_csv_dataframe(self, df, filepath, append=False, normalise_photons=False):

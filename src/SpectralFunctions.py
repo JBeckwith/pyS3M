@@ -747,7 +747,7 @@ class Spectral_Funcs:
 
             except Exception as e:
                 # Log warning but continue processing other items
-                print(f"Warning: Failed to process {data_type.value} '{name}': {e}")
+                print(f"Warning: Failed to process {data_type.value} '{name}': {e}", flush=True)
                 continue
 
         return spectra

@@ -1452,7 +1452,7 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Clear the progress line and show completion
         total_elapsed = (time.time() - start) / 60.0
-        print(f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min")
+        print(f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min", flush=True)
 
         # Save final results
         save_params = analysis_save_params[:-2] + ["colour_distance"]
