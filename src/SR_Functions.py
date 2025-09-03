@@ -237,6 +237,9 @@ class SuperRes_Functions:
         photoelectron_data = self.io.read_tiff(
             file,
             dtype="float32",
+            gain_map=gain_map,
+            offset_map=offset_map,
+            rqe=rqe,
             frame=1,
         )
 
