@@ -19,6 +19,7 @@ import ImageAnalysisFunctions
 from ImageAnalysisFunctions import FittingStrategy
 import SpotDetectionFunctions
 import PlottingFunctions
+import sCMOSFunctions
 
 
 class SuperRes_Functions:
@@ -35,7 +36,8 @@ class SuperRes_Functions:
                  mask_functions=None,
                  image_analysis_functions=None,
                  spot_detection_functions=None,
-                 plotter=None):
+                 plotter=None,
+                 scmos=None):
         """Initialize SuperRes_Functions class.
 
         Args:
@@ -57,6 +59,7 @@ class SuperRes_Functions:
         self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
         self.spot_detection = spot_detection_functions if spot_detection_functions is not None else SpotDetectionFunctions.SpotDetection_Functions()
         self.plotter = plotter if plotter is not None else PlottingFunctions.Plotter()
+        self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
 
     def _filter_fit_results(self, fit_results, width, height):
         fit_results = fit_results[~np.isnan(fit_results)]
@@ -314,7 +317,7 @@ class SuperRes_Functions:
         )
         axs[0, 0] = self.plotter.image_scatter_plot(
             axs=axs[0, 0],
-            data=photoelectron_data,
+            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             vmin=np.percentile(photoelectron_data, 1),
@@ -324,7 +327,7 @@ class SuperRes_Functions:
 
         axs[0, 1] = self.plotter.image_scatter_plot(
             axs=axs[0, 1],
-            data=photoelectron_data,
+            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
             vmin=np.percentile(photoelectron_data, 1),
@@ -348,7 +351,7 @@ class SuperRes_Functions:
 
         axs[1, 0] = self.plotter.image_scatter_plot(
             axs=axs[1, 0],
-            data=photoelectron_data,
+            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             vmin=np.percentile(photoelectron_data, 1),
             vmax=np.percentile(photoelectron_data, 99),
             xdata=detected_puncta[:, 0],
@@ -359,7 +362,7 @@ class SuperRes_Functions:
         axs[1, 0].set_xlim([min_x, max_x])
         axs[1, 1] = self.plotter.image_scatter_plot(
             axs=axs[1, 1],
-            data=photoelectron_data,
+            data=scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2),
             vmin=np.percentile(photoelectron_data, 1),
             vmax=np.percentile(photoelectron_data, 99),
             xdata=fit_results["xc"].to_numpy(),
