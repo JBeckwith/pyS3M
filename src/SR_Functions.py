@@ -317,14 +317,13 @@ class SuperRes_Functions:
         fig, axs = self.plotter.two_column_plot(
             ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
         )
-        image_to_show = self.scmos.var_weighted_uniform_filter(photoelectron_data, variance_map=variance, kernel_size=2)
         axs[0, 0] = self.plotter.image_scatter_plot(
             axs=axs[0, 0],
-            data=image_to_show,
+            data=image_to_analyse,
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
-            vmin=np.percentile(image_to_show, 1),
-            vmax=np.percentile(image_to_show, 99),
+            vmin=np.percentile(image_to_analyse, 1),
+            vmax=np.percentile(image_to_analyse, 99),
             s=s,
         )
 
@@ -370,9 +369,9 @@ class SuperRes_Functions:
 
         axs[1, 0] = self.plotter.image_scatter_plot(
             axs=axs[1, 0],
-            data=image_to_show,
-            vmin=np.percentile(image_to_show, 1),
-            vmax=np.percentile(image_to_show, 99),
+            data=image_to_analyse,
+            vmin=np.percentile(image_to_analyse, 1),
+            vmax=np.percentile(image_to_analyse, 99),
             xdata=detected_puncta[:, 0],
             ydata=detected_puncta[:, 1],
             s=s * 5,
