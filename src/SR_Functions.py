@@ -234,12 +234,9 @@ class SuperRes_Functions:
         relative_coords = []
 
         # Load photoelectron data using updated workflow
-        photoelectron_data = self.io.read_tiff_tophotoelectrons(
+        photoelectron_data = self.io.read_tiff(
             file,
             dtype="float32",
-            gain_map=gain_map,
-            offset_map=offset_map,
-            rqe=rqe,
             frame=1,
         )
 
