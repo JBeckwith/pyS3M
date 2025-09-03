@@ -314,6 +314,30 @@ copy_results_back() {
     
     log_message "Found ${#h5_files[@]} .h5 files to copy back"
     
+    # Clean up existing .h5 and .h5.backup files in the destination folder first
+    log_message "Cleaning up existing .h5 and .h5.backup files in destination"
+    
+    local existing_h5_files=($(find "$original_folder" -maxdepth 1 -name "*.h5" -type f 2>/dev/null))
+    local existing_backup_files=($(find "$original_folder" -maxdepth 1 -name "*.h5.backup" -type f 2>/dev/null))
+    
+    # Remove existing .h5 files
+    for existing_file in "${existing_h5_files[@]}"; do
+        if rm "$existing_file" 2>> "$LOG_FILE"; then
+            log_message "Removed existing .h5 file: $(basename "$existing_file")"
+        else
+            log_message "WARNING: Could not remove existing .h5 file: $(basename "$existing_file")"
+        fi
+    done
+    
+    # Remove existing .h5.backup files
+    for backup_file in "${existing_backup_files[@]}"; do
+        if rm "$backup_file" 2>> "$LOG_FILE"; then
+            log_message "Removed existing .h5.backup file: $(basename "$backup_file")"
+        else
+            log_message "WARNING: Could not remove existing .h5.backup file: $(basename "$backup_file")"
+        fi
+    done
+    
     for h5_file in "${h5_files[@]}"; do
         local filename=$(basename "$h5_file")
         local dest_file="$original_folder/$filename"

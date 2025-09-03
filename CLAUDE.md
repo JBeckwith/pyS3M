@@ -296,6 +296,47 @@ with ProgressUtils.fitting_progress_bar(total=n) as pbar:
         pbar.update(1)
 ```
 
+## Post-hoc Error Term Normalisation System [COMPLETED - September 3, 2025]
+
+### **New Normalisation Tools**
+
+**Location:** `superres_notebooks/`
+
+A complete system for post-hoc normalisation of error terms in .h5 files from batch analysis:
+
+#### **Files Created:**
+- **`post-hoc_normalisation.sh`** - Main bash script with scratch disk workflow  
+- **`post_hoc_normalisation_single.py`** - Helper script for single folder processing
+
+#### **Features:**
+- ✅ **Scratch disk workflow**: Copies .h5 files to `/scratch2/` to avoid network filesystem permission issues
+- ✅ **Robust error handling**: Retry logic, exponential backoff, comprehensive logging
+- ✅ **Space-efficient**: Only copies .h5 files (not entire folders with TIFF stacks)  
+- ✅ **Path-safe**: Handles folder names with spaces using null-terminated strings
+- ✅ **IOFunctions integration**: Uses `_write_h5_database()` with `append=False, normalise_photons=False`
+- ✅ **Smart detection**: Only processes files with error terms >100 (unnormalised)
+- ✅ **Exact folder matching**: Uses same folder lists as `batch_analysis.sh`
+
+#### **Usage:**
+```bash
+# Activate virtual environment (required)
+source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate
+
+# Run normalisation across all batch analysis folders
+./superres_notebooks/post-hoc_normalisation.sh
+```
+
+#### **Normalisation Logic:**
+Following `IOFunctions.py` lines 72-80 and 98-106:
+- **A_R_err, A_G_err, A_B_err** ÷ **photons**
+- **bg_R_err, bg_G_err, bg_B_err** ÷ **background_photons**
+
+#### **Architecture:**
+1. **Bash script** handles network filesystem issues and provides robust file operations
+2. **Python script** performs the actual normalisation using pyBayerSMLM IOFunctions  
+3. **Scratch workflow** avoids "Operation not permitted" errors on network storage
+4. **Original files preserved** as natural backups during processing
+
 ## Recent Major Refactoring (August 15, 2025)
 
 ### **Latest Updates (August 28, 2025)**
