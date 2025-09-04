@@ -306,6 +306,7 @@ optimize_system_memory() {
 }
 
 # Robust copy with retry logic for temporary resource issues
+# Excludes .h5.backup files from being copied
 robust_copy() {
     local src="$1"
     local dst="$2"
@@ -313,9 +314,10 @@ robust_copy() {
     local wait_time=10
     
     for attempt in $(seq 1 $max_attempts); do
-        log_message "Copy attempt $attempt/$max_attempts: $src -> $dst"
+        log_message "Copy attempt $attempt/$max_attempts: $src -> $dst (excluding .h5.backup files)"
         
-        if cp -r "$src" "$dst" 2>> "$LOG_FILE"; then
+        # Use rsync to exclude .h5.backup files
+        if rsync -av --exclude='*.h5.backup' "$src" "$dst" 2>> "$LOG_FILE"; then
             log_message "Copy successful on attempt $attempt"
             return 0
         else
@@ -337,6 +339,17 @@ copy_results_back() {
     local original_folder="$2"
     local max_attempts=3
     local wait_time=5
+    
+    # First, clean up any .h5.backup files that might exist in scratch folder
+    log_message "Cleaning up .h5.backup files from scratch folder"
+    local scratch_backup_files=($(find "$scratch_folder" -name "*.h5.backup" -type f 2>/dev/null))
+    for backup_file in "${scratch_backup_files[@]}"; do
+        if rm "$backup_file" 2>> "$LOG_FILE"; then
+            log_message "Removed scratch .h5.backup file: $(basename "$backup_file")"
+        else
+            log_message "WARNING: Could not remove scratch .h5.backup file: $(basename "$backup_file")"
+        fi
+    done
     
     # Find all .h5 files in scratch folder
     local h5_files=($(find "$scratch_folder" -name "*.h5" -type f))

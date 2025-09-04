@@ -211,34 +211,40 @@ class InteractiveThresholdTuner:
             with tifffile.TiffFile(tiff_file) as tif:
                 total_frames = len(tif.pages)
                 print(f"Total frames available: {total_frames}")
-                
+
                 # Select frame indices: 1, 10, 20 (or available alternatives)
                 target_frames = [1, 10, 20]
                 selected_frames = []
                 actual_indices = []
-                
+
                 for target_idx in target_frames:
                     # Use 0-based indexing, but ensure we don't exceed available frames
                     frame_idx = min(target_idx - 1, total_frames - 1)
                     if frame_idx < 0:
                         frame_idx = 0
-                    
+
                     # Avoid duplicate indices
                     if frame_idx not in actual_indices:
                         actual_indices.append(frame_idx)
                         frame = tif.pages[frame_idx].asarray()
                         selected_frames.append(frame.astype(np.float64))
-                        print(f"Loaded frame {frame_idx + 1}: shape {frame.shape}, dtype {frame.dtype}")
-                
+                        print(
+                            f"Loaded frame {frame_idx + 1}: shape {frame.shape}, dtype {frame.dtype}"
+                        )
+
                 # If we have fewer than 3 frames, duplicate the last one
                 while len(selected_frames) < 3 and selected_frames:
                     selected_frames.append(selected_frames[-1].copy())
-                    print(f"Duplicated frame for display (total frames available: {total_frames})")
-                
+                    print(
+                        f"Duplicated frame for display (total frames available: {total_frames})"
+                    )
+
                 if selected_frames:
                     print(f"Loaded {len(selected_frames)} frames from: {tiff_file}")
                     for i, frame in enumerate(selected_frames):
-                        print(f"Frame {i+1}: Intensity range {frame.min():.0f} - {frame.max():.0f}")
+                        print(
+                            f"Frame {i+1}: Intensity range {frame.min():.0f} - {frame.max():.0f}"
+                        )
                     return selected_frames
                 else:
                     print(f"No frames could be loaded from {tiff_file}")
@@ -285,7 +291,7 @@ class InteractiveThresholdTuner:
     ) -> List[Tuple[np.ndarray, int]]:
         """Test spot detection on multiple frames with given parameters"""
         results = []
-        
+
         for i, frame in enumerate(frames):
             try:
                 detected_spots = self.sdf.detect_puncta_in_image(
@@ -300,13 +306,15 @@ class InteractiveThresholdTuner:
                     local_factor=3.0,  # Standard local factor
                 )
                 num_spots = len(detected_spots) if detected_spots is not None else 0
-                valid_spots = detected_spots if detected_spots is not None else np.array([])
+                valid_spots = (
+                    detected_spots if detected_spots is not None else np.array([])
+                )
                 results.append((valid_spots, num_spots))
-                
+
             except Exception as e:
                 print(f"Error in spot detection for frame {i+1}: {e}")
                 results.append((np.array([]), 0))
-                
+
         return results
 
     def plot_detection_results(
@@ -398,18 +406,18 @@ class InteractiveThresholdTuner:
 
         # Create a 3-row column plot using PlottingFunctions
         fig, axs = self.pf.one_column_plot(npanels=3, ratios=[1, 1, 1], height=15)
-        
+
         # Ensure axs is always a list for consistent indexing
         if not isinstance(axs, (list, np.ndarray)):
             axs = [axs]
-        
+
         frame_labels = ["Frame 1", "Frame 10", "Frame 20"]
         total_spots = sum(num_spots for _, num_spots in detection_results)
-        
+
         for i, (frame, (spots, num_spots)) in enumerate(zip(frames, detection_results)):
             if i >= len(axs):  # Safety check
                 break
-                
+
             # Plot image with detected spots overlaid
             if len(spots) > 0:
                 self.pf.image_scatter_plot(
@@ -435,7 +443,7 @@ class InteractiveThresholdTuner:
                     cmap="gist_gray",
                     cbar="off",
                 )
-            
+
             axs[i].set_title(f"{frame_labels[i]} - {num_spots} spots")
             axs[i].axis("off")
 
@@ -453,7 +461,9 @@ class InteractiveThresholdTuner:
             return fig
         else:
             # Save to file
-            safe_name = os.path.basename(folder_name).replace(" ", "_").replace("/", "_")
+            safe_name = (
+                os.path.basename(folder_name).replace(" ", "_").replace("/", "_")
+            )
             filename = f"threshold_test_{safe_name}_multiframe.png"
             plt.savefig(filename, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -494,7 +504,7 @@ class InteractiveThresholdTuner:
                 current_fraction_true,
                 current_wavelength,
             )
-            
+
             # Calculate total spots across all frames
             total_spots = sum(num_spots for _, num_spots in detection_results)
 
@@ -697,13 +707,17 @@ class InteractiveThresholdTuner:
 
             # Show parameter distribution
             pfa_values = [params["pfa"] for params in self.threshold_results.values()]
-            perc_values = [
-                params["perc_threshold"] for params in self.threshold_results.values()
+            sigma_values = [
+                params["sigma"] for params in self.threshold_results.values()
+            ]
+            fraction_true_values = [
+                params["fraction_true"] for params in self.threshold_results.values()
             ]
 
             print(f"PFA range: {min(pfa_values):.0e} - {max(pfa_values):.0e}")
+            print(f"Sigma range: {min(sigma_values):.1f} - {max(sigma_values):.1f}")
             print(
-                f"Percentile threshold range: {min(perc_values):.1f}% - {max(perc_values):.1f}%"
+                f"Fraction true range: {min(fraction_true_values):.3f} - {max(fraction_true_values):.3f}"
             )
 
         else:
