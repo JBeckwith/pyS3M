@@ -542,7 +542,7 @@ class InteractiveThresholdTuner:
             elif choice == "2":
                 try:
                     new_sigma = float(
-                        input(f"Enter new sigma (current: {current_sigma}%): ").strip()
+                        input(f"Enter new sigma (current: {current_sigma}): ").strip()
                     )
                     if 0 <= new_sigma <= 100:
                         current_sigma = new_sigma

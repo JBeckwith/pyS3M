@@ -337,6 +337,10 @@ class SpotDetection_Functions:
         image_size = image.shape
 
         annulus = self.get_square_annulus(guard_interval, reference_interval)
+        n_pixels = int(
+            np.sum(np.where((annulus == 0) | (annulus == 1), annulus ^ 1, annulus))
+            * fraction_true
+        )
 
         x_in, y_in, x_out, y_out = self.intensity_pixel_indices(
             detected_puncta, image_size, annulus
@@ -345,12 +349,7 @@ class SpotDetection_Functions:
         background_std_est = np.std(image[x_out, y_out], axis=0)
         threshold = background_est + sigma * background_std_est
         intensity_est = image[x_in, y_in]
-        true_puncta = np.sum(intensity_est > threshold, axis=0) > int(
-            np.sum(np.where((annulus == 0) | (annulus == 1), annulus ^ 1, annulus))
-            * fraction_true
-        )
-
-        # correct for averaged background; report background summed
+        true_puncta = np.sum(intensity_est > threshold, axis=0) > n_pixels
         return true_puncta
 
     def intensity_pixel_indices(self, centroid_loc, image_size, annulus):
