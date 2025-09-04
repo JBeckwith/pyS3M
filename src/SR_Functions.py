@@ -106,7 +106,7 @@ class SuperRes_Functions:
 
     def _process_roi(
         self,
-        photoelectron_data,
+        raw_data,
         detected_puncta,
         i,
         width,
@@ -115,6 +115,9 @@ class SuperRes_Functions:
         smoothing_function,
         read_noise,
         masks,
+        gain_map=1.0,
+        offset_map=0.0,
+        rqe=1.0,
         frame_offset=0,
         is_multi_frame=False,
     ):
@@ -122,7 +125,7 @@ class SuperRes_Functions:
         Process a single detected ROI to extract photoelectron data, smoothed data, and weights.
 
         Args:
-            photoelectron_data (np.ndarray): Full photoelectron image data
+            raw_data (np.ndarray): Full raw camera image data in ADU
             detected_puncta (np.ndarray): Array of detected puncta coordinates
             i (int): Index of current puncta to process
             width (int): Image width
@@ -131,6 +134,9 @@ class SuperRes_Functions:
             smoothing_function: Function for smoothing data
             read_noise: Read noise map or scalar
             masks (np.ndarray): Color masks
+            gain_map (matrix or float): Gain map for ADU to photoelectron conversion
+            offset_map (matrix or float): Offset map for ADU to photoelectron conversion
+            rqe (matrix or float): Relative quantum efficiency map
             frame_offset (int): Frame offset for plane labeling
             is_multi_frame (bool): Whether data has multiple frames
 
@@ -152,15 +158,37 @@ class SuperRes_Functions:
         if xmax - xmin != ymax - ymin:
             return None
 
-        # Extract photoelectron ROI
+        # Extract raw ROI
         if is_multi_frame:
-            photoelectron_roi = (
-                photoelectron_data[frame, xmin:xmax, ymin:ymax]
-                if len(photoelectron_data.shape) > 2
-                else photoelectron_data[xmin:xmax, ymin:ymax]
+            raw_roi = (
+                raw_data[frame, xmin:xmax, ymin:ymax]
+                if len(raw_data.shape) > 2
+                else raw_data[xmin:xmax, ymin:ymax]
             )
         else:
-            photoelectron_roi = photoelectron_data[xmin:xmax, ymin:ymax]
+            raw_roi = raw_data[xmin:xmax, ymin:ymax]
+
+        # Extract camera parameter ROIs for conversion
+        gain_roi = (
+            gain_map[xmin:xmax, ymin:ymax]
+            if not isinstance(gain_map, (int, float))
+            else gain_map
+        )
+        offset_roi = (
+            offset_map[xmin:xmax, ymin:ymax]
+            if not isinstance(offset_map, (int, float))
+            else offset_map
+        )
+        rqe_roi = (
+            rqe[xmin:xmax, ymin:ymax]
+            if not isinstance(rqe, (int, float))
+            else rqe
+        )
+
+        # Convert raw ROI to photoelectrons
+        photoelectron_roi = self.io.convert_to_photoelectrons(
+            raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
+        )
 
         # Extract read_noise ROI for weights calculation
         read_noise_roi = (
@@ -204,8 +232,8 @@ class SuperRes_Functions:
         NA=1.49,
         pixel_size=0.069,
         s=5,
-        perc_threshold=95,
-        bayer_image=False,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
     ):
         """example_spots_singleframe function
             analyses where fiducials are for images in image folder given boxes
@@ -256,14 +284,14 @@ class SuperRes_Functions:
         relative_coords = []
 
         # Load photoelectron data using updated workflow
-        photoelectron_data = self.io.read_tiff(
+        raw_data = self.io.read_tiff(
             file,
             dtype="float32",
             frame=1,
         )
 
         _, image_to_analyse = self.scmos.bayer_demosaic_stack(
-            photoelectron_data, grayscale=True
+            raw_data, grayscale=True
         )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
@@ -273,16 +301,16 @@ class SuperRes_Functions:
             wavelength=peak_wavelength,
             pixel_size=pixel_size,
             NA=NA,
-            bayer_image=bayer_image,
             mf_factor=mf_factor,
             local_factor=local_factor,
-            perc_threshold=perc_threshold,
+            sigma=sigma,
+            fraction_true=fraction_true,
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
         for i in np.arange(len(detected_puncta)):
             result = self._process_roi(
-                photoelectron_data,
+                raw_data,
                 detected_puncta,
                 i,
                 width,
@@ -291,6 +319,9 @@ class SuperRes_Functions:
                 smoothing_function,
                 read_noise,
                 masks,
+                gain_map=gain_map,
+                offset_map=offset_map,
+                rqe=rqe,
                 frame_offset=0,
                 is_multi_frame=False,
             )
@@ -350,11 +381,11 @@ class SuperRes_Functions:
 
         axs[0, 1] = self.plotter.image_scatter_plot(
             axs=axs[0, 1],
-            data=photoelectron_data,
+            data=raw_data,
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            vmin=np.percentile(raw_data, 1),
+            vmax=np.percentile(raw_data, 99),
             s=s,
             scattercolor="#32cd32",
         )
@@ -412,9 +443,9 @@ class SuperRes_Functions:
         axs[1, 0].set_xlim([min_x, max_x])
         axs[1, 1] = self.plotter.image_scatter_plot(
             axs=axs[1, 1],
-            data=photoelectron_data,
-            vmin=np.percentile(photoelectron_data, 1),
-            vmax=np.percentile(photoelectron_data, 99),
+            data=raw_data,
+            vmin=np.percentile(raw_data, 1),
+            vmax=np.percentile(raw_data, 99),
             xdata=fit_results["xc"].to_numpy(),
             ydata=fit_results["yc"].to_numpy(),
             s=s * 5,
@@ -426,7 +457,7 @@ class SuperRes_Functions:
         axs[1, 1].set_xlim([min_x, max_x])
 
         # Clean up plotting data
-        del photoelectron_data
+        del raw_data
         gc.collect()
 
         return fig, axs
@@ -567,7 +598,8 @@ class SuperRes_Functions:
         peak_wavelength=0.638,
         NA=1.49,
         pixel_size=0.069,
-        perc_threshold=98,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
         image_type=".tif",
     ):
         """Single-molecule data fitting function.
@@ -648,25 +680,28 @@ class SuperRes_Functions:
 
             fit_savename = file.split(".")[0] + ".h5"
 
-            # Load photoelectron data using updated workflow
-            photoelectron_data = self.io.read_tiff_tophotoelectrons(
-                file, dtype="float32", gain_map=gain_map, offset_map=offset_map, rqe=rqe
+            # Load raw data for efficient ROI-based processing
+            raw_data = self.io.read_tiff(file, dtype="float32")
+
+            _, image_to_analyse = self.scmos.bayer_demosaic_stack(
+                raw_data, grayscale=True
             )
 
             detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
-                photoelectron_data,
+                image_to_analyse,
                 pfa=pfa,
                 variance=variance,
                 wavelength=peak_wavelength,
                 pixel_size=pixel_size,
                 NA=NA,
-                perc_threshold=perc_threshold,
+                sigma=sigma,
+                fraction_true=fraction_true
             )
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
             for i in np.arange(len(detected_puncta)):
                 result = self._process_roi(
-                    photoelectron_data,
+                    raw_data,
                     detected_puncta,
                     i,
                     width,
@@ -675,6 +710,9 @@ class SuperRes_Functions:
                     smoothing_function,
                     read_noise,
                     masks,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    rqe=rqe,
                     frame_offset=0,
                     is_multi_frame=True,
                 )
@@ -698,7 +736,7 @@ class SuperRes_Functions:
                 relative_coords.append(coords)
                 planes.append(plane)
 
-            del photoelectron_data, detected_puncta
+            del raw_data, detected_puncta, image_to_analyse
             gc.collect()
 
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
@@ -745,7 +783,8 @@ class SuperRes_Functions:
         peak_wavelength=0.638,
         NA=1.49,
         pixel_size=0.069,
-        perc_threshold=98,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
         image_type=".tif",
     ):
         """Cross-file imaging data fitting function.
@@ -828,30 +867,32 @@ class SuperRes_Functions:
             relative_coords = []
             planes = []
 
-            # Load photoelectron data using updated workflow
-            photoelectron_data = self.io.read_tiff_tophotoelectrons(
-                file, dtype="float32", gain_map=gain_map, offset_map=offset_map, rqe=rqe
+            # Load raw data for efficient ROI-based processing
+            raw_data = self.io.read_tiff(file, dtype="float32")
+            _, image_to_analyse = self.scmos.bayer_demosaic_stack(
+                raw_data, grayscale=True
             )
 
             detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
-                photoelectron_data,
+                image_to_analyse,
                 pfa=pfa,
                 wavelength=peak_wavelength,
                 variance=variance,
                 pixel_size=pixel_size,
                 NA=NA,
-                perc_threshold=perc_threshold,
+                sigma=sigma,
+                fraction_true=fraction_true
             )
 
             # Track the highest frame number for this file
             file_frames = (
-                photoelectron_data.shape[0] if len(photoelectron_data.shape) > 2 else 1
+                raw_data.shape[0] if len(raw_data.shape) > 2 else 1
             )
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
             for i in np.arange(len(detected_puncta)):
                 result = self._process_roi(
-                    photoelectron_data,
+                    raw_data,
                     detected_puncta,
                     i,
                     width,
@@ -860,6 +901,9 @@ class SuperRes_Functions:
                     smoothing_function,
                     read_noise,
                     masks,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    rqe=rqe,
                     frame_offset=total_frames,
                     is_multi_frame=True,
                 )
@@ -884,7 +928,7 @@ class SuperRes_Functions:
                 planes.append(plane)
 
             total_frames += file_frames
-            del photoelectron_data, detected_puncta
+            del raw_data, detected_puncta, image_to_analyse
             gc.collect()
 
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
