@@ -2,10 +2,10 @@
 """
 Interactive Threshold Tuner for pyBayerSMLM Batch Analysis
 
-This script helps determine optimal intensity thresholds (pfa and perc_threshold) 
-for spot detection across different datasets. It interactively loads one frame 
-from each folder in the batch analysis workflow, allows the user to test different 
-parameters, and saves the results for use by batch_analysis.sh.
+This script helps determine optimal spot detection parameters (pfa, sigma, fraction_true) 
+for spot detection across different datasets. It interactively loads 3 test frames 
+(1, 10, 20) from each folder in the batch analysis workflow, displays detection results 
+in a column layout, and saves the optimized parameters for use by batch_analysis.sh.
 
 Usage:
     python claude/interactive_threshold_tuner.py
@@ -198,8 +198,8 @@ class InteractiveThresholdTuner:
 
         return None
 
-    def load_test_frame(self, folder_path: str) -> Optional[np.ndarray]:
-        """Load one frame from the first TIFF file found in the folder"""
+    def load_test_frames(self, folder_path: str) -> Optional[List[np.ndarray]]:
+        """Load 3 test frames (1, 10, 20) from the first TIFF file found in the folder"""
         tiff_file = self.find_first_tiff_file(folder_path)
 
         if not tiff_file:
@@ -209,12 +209,40 @@ class InteractiveThresholdTuner:
         try:
             # Load the TIFF file
             with tifffile.TiffFile(tiff_file) as tif:
-                # Get the first frame
-                frame = tif.pages[0].asarray()
-                print(f"Loaded frame from: {tiff_file}")
-                print(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
-                print(f"Intensity range: {frame.min()} - {frame.max()}")
-                return frame.astype(np.float64)
+                total_frames = len(tif.pages)
+                print(f"Total frames available: {total_frames}")
+                
+                # Select frame indices: 1, 10, 20 (or available alternatives)
+                target_frames = [1, 10, 20]
+                selected_frames = []
+                actual_indices = []
+                
+                for target_idx in target_frames:
+                    # Use 0-based indexing, but ensure we don't exceed available frames
+                    frame_idx = min(target_idx - 1, total_frames - 1)
+                    if frame_idx < 0:
+                        frame_idx = 0
+                    
+                    # Avoid duplicate indices
+                    if frame_idx not in actual_indices:
+                        actual_indices.append(frame_idx)
+                        frame = tif.pages[frame_idx].asarray()
+                        selected_frames.append(frame.astype(np.float64))
+                        print(f"Loaded frame {frame_idx + 1}: shape {frame.shape}, dtype {frame.dtype}")
+                
+                # If we have fewer than 3 frames, duplicate the last one
+                while len(selected_frames) < 3 and selected_frames:
+                    selected_frames.append(selected_frames[-1].copy())
+                    print(f"Duplicated frame for display (total frames available: {total_frames})")
+                
+                if selected_frames:
+                    print(f"Loaded {len(selected_frames)} frames from: {tiff_file}")
+                    for i, frame in enumerate(selected_frames):
+                        print(f"Frame {i+1}: Intensity range {frame.min():.0f} - {frame.max():.0f}")
+                    return selected_frames
+                else:
+                    print(f"No frames could be loaded from {tiff_file}")
+                    return None
 
         except Exception as e:
             print(f"Error loading {tiff_file}: {e}")
@@ -246,6 +274,40 @@ class InteractiveThresholdTuner:
         except Exception as e:
             print(f"Error in spot detection: {e}")
             return np.array([]), 0
+
+    def test_spot_detection_multi_frame(
+        self,
+        frames: List[np.ndarray],
+        pfa: float,
+        sigma: float,
+        fraction_true: float,
+        wavelength: float,
+    ) -> List[Tuple[np.ndarray, int]]:
+        """Test spot detection on multiple frames with given parameters"""
+        results = []
+        
+        for i, frame in enumerate(frames):
+            try:
+                detected_spots = self.sdf.detect_puncta_in_image(
+                    image=frame,
+                    pfa=pfa,
+                    wavelength=wavelength,
+                    sigma=sigma,
+                    fraction_true=fraction_true,
+                    pixel_size=0.069,  # Standard pixel size
+                    NA=1.49,  # Standard NA
+                    mf_factor=3.0,  # Standard match filter factor
+                    local_factor=3.0,  # Standard local factor
+                )
+                num_spots = len(detected_spots) if detected_spots is not None else 0
+                valid_spots = detected_spots if detected_spots is not None else np.array([])
+                results.append((valid_spots, num_spots))
+                
+            except Exception as e:
+                print(f"Error in spot detection for frame {i+1}: {e}")
+                results.append((np.array([]), 0))
+                
+        return results
 
     def plot_detection_results(
         self,
@@ -302,7 +364,7 @@ class InteractiveThresholdTuner:
 
         ax2.set_title(
             f"Detected Spots ({len(spots)} found)\n"
-            f"PFA: {pfa:.0e}, Perc Threshold: {perc_threshold}%"
+            f"PFA: {pfa:.0e}, σ: {sigma}, fraction_true: {fraction_true}"
         )
         ax2.axis("off")
 
@@ -322,6 +384,82 @@ class InteractiveThresholdTuner:
             plt.close(fig)
             return filename
 
+    def plot_detection_results_multi_frame(
+        self,
+        frames: List[np.ndarray],
+        detection_results: List[Tuple[np.ndarray, int]],
+        pfa: float,
+        sigma: float,
+        fraction_true: float,
+        folder_name: str,
+    ):
+        """Plot the detection results for multiple frames using PlottingFunctions column layout"""
+        global INTERACTIVE_DISPLAY
+
+        # Create a 3-row column plot using PlottingFunctions
+        fig, axs = self.pf.one_column_plot(npanels=3, ratios=[1, 1, 1], height=15)
+        
+        # Ensure axs is always a list for consistent indexing
+        if not isinstance(axs, (list, np.ndarray)):
+            axs = [axs]
+        
+        frame_labels = ["Frame 1", "Frame 10", "Frame 20"]
+        total_spots = sum(num_spots for _, num_spots in detection_results)
+        
+        for i, (frame, (spots, num_spots)) in enumerate(zip(frames, detection_results)):
+            if i >= len(axs):  # Safety check
+                break
+                
+            # Plot image with detected spots overlaid
+            if len(spots) > 0:
+                self.pf.image_scatter_plot(
+                    axs=axs[i],
+                    data=frame,
+                    xdata=spots[:, 0],
+                    ydata=spots[:, 1],
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    s=30,  # Smaller spots for cleaner display
+                    scattercolor="red",
+                    cmap="gist_gray",
+                    cbar="off",
+                    scatteralpha=0.8,
+                )
+            else:
+                # No spots detected, just show image
+                self.pf.image_plot(
+                    axs=axs[i],
+                    data=frame,
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    cmap="gist_gray",
+                    cbar="off",
+                )
+            
+            axs[i].set_title(f"{frame_labels[i]} - {num_spots} spots")
+            axs[i].axis("off")
+
+        # Add overall title with parameters
+        fig.suptitle(
+            f"{os.path.basename(folder_name)} - Total: {total_spots} spots\n"
+            f"PFA: {pfa:.0e}, σ: {sigma}, fraction_true: {fraction_true}",
+            fontsize=14,
+            y=0.98,
+        )
+
+        if INTERACTIVE_DISPLAY:
+            plt.tight_layout()
+            plt.show(block=False)
+            return fig
+        else:
+            # Save to file
+            safe_name = os.path.basename(folder_name).replace(" ", "_").replace("/", "_")
+            filename = f"threshold_test_{safe_name}_multiframe.png"
+            plt.savefig(filename, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            print(f"📸 Multi-frame detection preview saved: {filename}")
+            return filename
+
     def interactive_parameter_tuning(
         self, folder_path: str, folder_type: str, default_wavelength: float
     ) -> Union[Dict, None, str]:
@@ -333,10 +471,10 @@ class InteractiveThresholdTuner:
         print(f"Type: {folder_type}, Wavelength: {default_wavelength}")
         print(f"{'='*80}")
 
-        # Load test frame
-        frame = self.load_test_frame(folder_path)
-        if frame is None:
-            print("Could not load test frame, skipping...")
+        # Load test frames
+        frames = self.load_test_frames(folder_path)
+        if frames is None:
+            print("Could not load test frames, skipping...")
             return None
 
         # Start with default parameters
@@ -348,23 +486,26 @@ class InteractiveThresholdTuner:
         fig_or_file = None
 
         while True:
-            # Test current parameters
-            spots, num_spots = self.test_spot_detection(
-                frame,
+            # Test current parameters on all frames
+            detection_results = self.test_spot_detection_multi_frame(
+                frames,
                 current_pfa,
                 current_sigma,
                 current_fraction_true,
                 current_wavelength,
             )
+            
+            # Calculate total spots across all frames
+            total_spots = sum(num_spots for _, num_spots in detection_results)
 
             # Close previous plot if interactive mode
             if INTERACTIVE_DISPLAY and fig_or_file is not None:
                 plt.close(fig_or_file)
 
-            # Plot results
-            fig_or_file = self.plot_detection_results(
-                frame,
-                spots,
+            # Plot results using multi-frame display
+            fig_or_file = self.plot_detection_results_multi_frame(
+                frames,
+                detection_results,
                 current_pfa,
                 current_sigma,
                 current_fraction_true,
@@ -376,7 +517,7 @@ class InteractiveThresholdTuner:
             print(f"  Sigma : {current_sigma}%")
             print(f"  Fraction true : {current_fraction_true}%")
             print(f"  Wavelength: {current_wavelength}")
-            print(f"  Detected spots: {num_spots}")
+            print(f"  Detected spots: {total_spots} (across 3 frames)")
 
             print(f"\nOptions:")
             print(f"  1. Adjust PFA (current: {current_pfa:.0e})")
@@ -443,7 +584,7 @@ class InteractiveThresholdTuner:
                     "sigma": current_sigma,
                     "fraction_true": current_fraction_true,
                     "wavelength": current_wavelength,
-                    "detected_spots": num_spots,
+                    "detected_spots": total_spots,
                 }
 
             elif choice == "6":
