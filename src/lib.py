@@ -359,9 +359,7 @@ def locs_in_rectangle(locs, X, Y):
         Localizations in rectangle.
     """
 
-    is_in_rectangle = check_if_in_rectangle(
-        locs.xc, locs.yc, np.array(X), np.array(Y)
-    )
+    is_in_rectangle = check_if_in_rectangle(locs.xc, locs.yc, np.array(X), np.array(Y))
     picked_locs = locs[is_in_rectangle]
     return picked_locs
 

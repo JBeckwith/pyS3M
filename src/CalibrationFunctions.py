@@ -27,7 +27,13 @@ class Calibration_Functions:
     gain/offset/variance maps, and handling Bayer pattern configurations.
     """
 
-    def __init__(self, mosaic_unit=None, high_memory=False, io_functions=None, mask_functions=None):
+    def __init__(
+        self,
+        mosaic_unit=None,
+        high_memory=False,
+        io_functions=None,
+        mask_functions=None,
+    ):
         """Initialize Calibration_Functions class.
 
         Args:
@@ -42,10 +48,16 @@ class Calibration_Functions:
             self.mosaic_unit = np.array([["B", "G"], ["G", "R"]])
         else:
             self.mosaic_unit = mosaic_unit
-            
+
         # Dependency injection with sensible defaults
-        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
-        self.Mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
+        self.io = (
+            io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        )
+        self.Mask = (
+            mask_functions
+            if mask_functions is not None
+            else MaskFunctions.Mask_Functions()
+        )
 
     def filesearch(self, directory, string1, string2):
         files = os.listdir(directory)
@@ -301,7 +313,9 @@ class Calibration_Functions:
                 finished = 0
                 while finished == 0:
                     try:
-                        frame = self.io.read_tiff(os.path.join(directory, file), n_frames)
+                        frame = self.io.read_tiff(
+                            os.path.join(directory, file), n_frames
+                        )
                         n_frames += 1
                         offset = np.add(offset, frame)
                     except (IOError, OSError, IndexError, ValueError) as e:
@@ -392,7 +406,9 @@ class Calibration_Functions:
                 finished = 0
                 while finished == 0:
                     try:
-                        frame = self.io.read_tiff(os.path.join(directory, file), n_frames)
+                        frame = self.io.read_tiff(
+                            os.path.join(directory, file), n_frames
+                        )
                         n_frames += 1
                         variance = np.add(
                             variance, np.subtract(np.square(frame), offset_sq)

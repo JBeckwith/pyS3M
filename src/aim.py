@@ -375,9 +375,7 @@ def get_fft_peak_z(roi_cc: np.ndarray, roi_size: int) -> float:
     fft_values = np.fft.fft(roi_cc)
     ang_z = np.angle(fft_values[1])
     ang_z = ang_z - 2 * np.pi * (ang_z > 0)  # normalise
-    pz = (
-        np.abs(ang_z) / (2 * np.pi / roi_cc.size) - (roi_cc.size - 1) / 2
-    )  # peak in z
+    pz = np.abs(ang_z) / (2 * np.pi / roi_cc.size) - (roi_cc.size - 1) / 2  # peak in z
     pz *= roi_size / roi_cc.size  # convert to intersect_d units
     return pz
 

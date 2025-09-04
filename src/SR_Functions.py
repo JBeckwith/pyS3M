@@ -29,15 +29,17 @@ class SuperRes_Functions:
     localization processing, and analysis for Bayer filter SMLM systems.
     """
 
-    def __init__(self, 
-                 mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
-                 io_functions=None,
-                 helper_functions=None,
-                 mask_functions=None,
-                 image_analysis_functions=None,
-                 spot_detection_functions=None,
-                 plotter=None,
-                 scmos=None):
+    def __init__(
+        self,
+        mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
+        io_functions=None,
+        helper_functions=None,
+        mask_functions=None,
+        image_analysis_functions=None,
+        spot_detection_functions=None,
+        plotter=None,
+        scmos=None,
+    ):
         """Initialize SuperRes_Functions class.
 
         Args:
@@ -51,13 +53,31 @@ class SuperRes_Functions:
             plotter: Plotter instance (default: creates new instance)
         """
         self.mosaic_unit = mosaic_unit
-        
+
         # Dependency injection with sensible defaults
-        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
-        self.helper = helper_functions if helper_functions is not None else HelperFunctions.Helper_Functions()
-        self.mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
-        self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
-        self.spot_detection = spot_detection_functions if spot_detection_functions is not None else SpotDetectionFunctions.SpotDetection_Functions()
+        self.io = (
+            io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        )
+        self.helper = (
+            helper_functions
+            if helper_functions is not None
+            else HelperFunctions.Helper_Functions()
+        )
+        self.mask = (
+            mask_functions
+            if mask_functions is not None
+            else MaskFunctions.Mask_Functions()
+        )
+        self.image_analysis = (
+            image_analysis_functions
+            if image_analysis_functions is not None
+            else ImageAnalysisFunctions.Image_Analysis_Functions()
+        )
+        self.spot_detection = (
+            spot_detection_functions
+            if spot_detection_functions is not None
+            else SpotDetectionFunctions.SpotDetection_Functions()
+        )
         self.plotter = plotter if plotter is not None else PlottingFunctions.Plotter()
         self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
 
@@ -210,7 +230,9 @@ class SuperRes_Functions:
         """
         image_files = self.helper.file_search(image_folder, image_type, "")
         metadatafiles = self.helper.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(
+            metadatafiles[0]
+        )
 
         masks = self.mask.get_ROI_mask(
             ROI_x_start=start_x,
@@ -240,7 +262,9 @@ class SuperRes_Functions:
             frame=1,
         )
 
-        _, image_to_analyse = self.scmos.bayer_demosaic_stack(photoelectron_data, grayscale=True)
+        _, image_to_analyse = self.scmos.bayer_demosaic_stack(
+            photoelectron_data, grayscale=True
+        )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
@@ -351,18 +375,27 @@ class SuperRes_Functions:
         import matplotlib.patches as patches
 
         rect = patches.Rectangle(
-            (min_x, min_y), np.abs(max_x-min_x), np.abs(max_y-min_y), linewidth=0.5, edgecolor="white", facecolor="none"
+            (min_x, min_y),
+            np.abs(max_x - min_x),
+            np.abs(max_y - min_y),
+            linewidth=0.5,
+            edgecolor="white",
+            facecolor="none",
         )
 
         # Add the patch to the Axes
-        axs[0,0].add_patch(rect)
+        axs[0, 0].add_patch(rect)
 
         rect = patches.Rectangle(
-            (min_x, min_y), np.abs(max_x-min_x), np.abs(max_y-min_y), linewidth=0.5, edgecolor="white", facecolor="none"
+            (min_x, min_y),
+            np.abs(max_x - min_x),
+            np.abs(max_y - min_y),
+            linewidth=0.5,
+            edgecolor="white",
+            facecolor="none",
         )
 
-        axs[0,1].add_patch(rect)
-
+        axs[0, 1].add_patch(rect)
 
         axs[1, 0] = self.plotter.image_scatter_plot(
             axs=axs[1, 0],
@@ -562,7 +595,9 @@ class SuperRes_Functions:
 
         image_files = self.helper.file_search(image_folder, image_type, "")
         metadatafiles = self.helper.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(
+            metadatafiles[0]
+        )
 
         masks = self.mask.get_ROI_mask(
             ROI_x_start=start_x,
@@ -738,7 +773,9 @@ class SuperRes_Functions:
 
         image_files = self.helper.file_search(image_folder, image_type, "")
         metadatafiles = self.helper.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = self.io.metadata_reader_imageJ(metadatafiles[0])
+        start_x, start_y, width, height = self.io.metadata_reader_imageJ(
+            metadatafiles[0]
+        )
 
         fit_savename = os.path.join(
             os.path.split(metadatafiles[0])[0], "Localisations.h5"

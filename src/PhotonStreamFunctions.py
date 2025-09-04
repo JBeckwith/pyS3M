@@ -22,14 +22,20 @@ class Photon_Stream_Functions:
 
     def __init__(self, io_functions=None, simulation_functions=None):
         """Initialize Photon_Stream_Functions class with dependency injection.
-        
+
         Args:
             io_functions: IO functions instance (default: creates new instance)
             simulation_functions: Simulation functions instance (default: creates new instance)
         """
         # Dependency injection with sensible defaults
-        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
-        self.msf = simulation_functions if simulation_functions is not None else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
+        self.io = (
+            io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        )
+        self.msf = (
+            simulation_functions
+            if simulation_functions is not None
+            else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
+        )
 
     def PAINT_array_generator(
         self,

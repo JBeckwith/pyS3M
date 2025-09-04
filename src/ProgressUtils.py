@@ -24,12 +24,14 @@ try:
         NOTEBOOK_ENV = True
     else:
         from tqdm import tqdm as text_tqdm
+
         notebook_tqdm = None
 
         NOTEBOOK_ENV = False
 except ImportError:
     # Fallback if tqdm not available
     from tqdm import tqdm as text_tqdm
+
     notebook_tqdm = None
 
     NOTEBOOK_ENV = False
@@ -45,7 +47,9 @@ class ProgressBarConfig:
     DEFAULT_LEAVE = False  # Don't leave progress bars after completion in terminal
     DEFAULT_DYNAMIC_NCOLS = True  # Adapt to terminal width
     DEFAULT_MINITERS = 1  # Update frequency
-    DEFAULT_MININTERVAL = 0.05  # Minimum time between updates (seconds) - faster for notebooks
+    DEFAULT_MININTERVAL = (
+        0.05  # Minimum time between updates (seconds) - faster for notebooks
+    )
 
     # Color and styling (if terminal supports it)
     DEFAULT_COLOUR = "green"
@@ -66,11 +70,13 @@ class ProgressBarConfig:
             "mininterval": cls.DEFAULT_MININTERVAL,
             "smoothing": cls.DEFAULT_SMOOTHING,
         }
-        
+
         # Configure for both notebook and terminal environments using text-based tqdm
         base_kwargs["file"] = sys.stdout
-        base_kwargs["leave"] = False  # Don't leave progress bars to avoid line interference
-            
+        base_kwargs["leave"] = (
+            False  # Don't leave progress bars to avoid line interference
+        )
+
         return base_kwargs
 
     @classmethod
@@ -178,7 +184,7 @@ def clean_progress_bar(
         # Always clean up progress bar
         if pbar is not None:
             pbar.close()
-            
+
         # Don't add newline in notebooks - let the calling code handle line management
 
         # Force flush to ensure clean terminal state

@@ -25,21 +25,32 @@ class ToyModel_Functions:
     multicolour SMLM analysis pipelines and algorithms.
     """
 
-    def __init__(self, 
-                 simulation_functions=None,
-                 mask_functions=None, 
-                 spectral_functions=None):
+    def __init__(
+        self, simulation_functions=None, mask_functions=None, spectral_functions=None
+    ):
         """Initialize ToyModel_Functions class.
-        
+
         Args:
             simulation_functions: Multicolour simulation functions instance (default: creates new instance)
             mask_functions: Mask functions instance (default: creates new instance)
             spectral_functions: Spectral functions instance (default: creates new instance)
         """
         # Lightweight dependency injection with sensible defaults
-        self.msf = simulation_functions if simulation_functions is not None else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
-        self.mask = mask_functions if mask_functions is not None else MaskFunctions.Mask_Functions()
-        self.spectral = spectral_functions if spectral_functions is not None else SpectralFunctions.Spectral_Funcs()
+        self.msf = (
+            simulation_functions
+            if simulation_functions is not None
+            else Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
+        )
+        self.mask = (
+            mask_functions
+            if mask_functions is not None
+            else MaskFunctions.Mask_Functions()
+        )
+        self.spectral = (
+            spectral_functions
+            if spectral_functions is not None
+            else SpectralFunctions.Spectral_Funcs()
+        )
 
     def simulate_npixel_ndye_toymodel(
         self,
@@ -124,7 +135,9 @@ class ToyModel_Functions:
 
         if pixel_arrangement == "diagonal":
             masks = self.mask.get_masks(
-                self.mask.return_diagonal_patterns(np.arange(n_pixelcolours), image_size),
+                self.mask.return_diagonal_patterns(
+                    np.arange(n_pixelcolours), image_size
+                ),
                 image_size,
                 image_size,
             )

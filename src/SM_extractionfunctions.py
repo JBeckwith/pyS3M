@@ -21,12 +21,14 @@ from sklearn.cluster import DBSCAN, HDBSCAN
 class extract_SMs:
     def __init__(self, io_functions=None) -> None:
         """Single molecule extraction functions for clustering localizations into single molecules.
-        
+
         Args:
             io_functions: IO functions instance (default: creates new instance)
         """
         # Dependency injection with sensible defaults
-        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        self.io = (
+            io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        )
 
     def filter_quality_localizations(
         self,

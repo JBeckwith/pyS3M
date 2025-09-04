@@ -154,7 +154,7 @@ class DriftResult:
 @dataclass
 class FiducialDetectionResult:
     """Results from fiducial detection process.
-    
+
     Attributes:
         picks: List of (x, y) coordinates for detected fiducials
         picked_localizations: List of localization arrays, one per fiducial
@@ -164,6 +164,7 @@ class FiducialDetectionResult:
         detection_params: Parameters used for detection
         metadata: Additional detection metadata
     """
+
     picks: List[Tuple[float, float]]
     picked_localizations: List[np.recarray]
     detection_image: np.ndarray
@@ -1766,10 +1767,10 @@ class Drift_Correction_Functions:
         save_plot: Optional[str] = None,
     ) -> FiducialDetectionResult:
         """Detect fiducial markers in localization data.
-        
-        This function automatically detects fiducial markers and creates a visualization 
+
+        This function automatically detects fiducial markers and creates a visualization
         using PlottingFunctions. The detected fiducials can then be used for drift correction.
-        
+
         Args:
             locs: Localization data (group field not required)
             info: Metadata list containing frame count and image dimensions
@@ -1779,19 +1780,19 @@ class Drift_Correction_Functions:
             histogram_bins: Number of bins for histogram analysis
             plot_results: Whether to create and display a plot of detected fiducials
             save_plot: Optional path to save the plot
-            
+
         Returns:
             FiducialDetectionResult containing detected fiducials and metadata
-            
+
         Raises:
             DriftCorrectionError: If fiducial detection fails
-            
+
         Example:
             >>> DCF = Drift_Correction_Functions()
             >>> # Detect fiducials with visualization
             >>> detection_result = DCF.detect_fiducials(locs, info, plot_results=True)
             >>> print(f"Found {detection_result.n_fiducials} fiducials")
-            >>> 
+            >>>
             >>> # Use detected fiducials for drift correction
             >>> corrected, drift = DCF.undrift_with_detected_fiducials(detection_result)
         """
@@ -1799,14 +1800,14 @@ class Drift_Correction_Functions:
             raise DriftCorrectionError(
                 "Fiducial detection requires render and imageprocess modules"
             )
-            
+
         # Extract metadata
         meta = CoordinateProcessor.extract_metadata(info)
         pixelsize = meta.get("pixelsize", 130.0)  # Default fallback in nm
         n_frames = int(meta["n_frames"])
         width = int(meta["width"])
         height = int(meta["height"])
-        
+
         # Store detection parameters
         detection_params = {
             "threshold_percentile": threshold_percentile,
@@ -1815,7 +1816,7 @@ class Drift_Correction_Functions:
             "histogram_bins": histogram_bins,
             "pixelsize": pixelsize,
         }
-        
+
         try:
             # Render localizations to image for fiducial detection
             image = render.render(
@@ -1825,17 +1826,17 @@ class Drift_Correction_Functions:
                 viewport=None,
                 blur_method="smooth",
             )[1]
-            
+
             # Create histogram with user-specified number of bins
             hist = np.histogram(image.flatten(), bins=histogram_bins)
-            
+
             # Use user-specified threshold percentile
             threshold = np.percentile(hist[0], threshold_percentile)
-            
+
             # Calculate box size from nanometer specification
             box = int(np.round(box_size_nm / pixelsize))
             box = box + 1 if box % 2 == 0 else box  # Ensure odd
-            
+
             # Find local maxima (potential fiducials)
             try:
                 import localise
@@ -1843,26 +1844,26 @@ class Drift_Correction_Functions:
                 raise DriftCorrectionError(
                     "localise module required for fiducial detection"
                 )
-            
+
             y, x, _ = localise.identify_in_image(image, threshold, box=box)
             picks = [(xi, yi) for xi, yi in zip(x, y)]
-            
+
             if len(picks) == 0:
                 raise DriftCorrectionError(
                     f"No fiducial candidates detected with threshold percentile {threshold_percentile}%. "
                     "Try lowering threshold_percentile."
                 )
-            
+
             # Filter picks by minimum localizations per fiducial
             min_n = min_frames_fraction * n_frames
-            
+
             try:
                 import postprocess
             except ImportError:
                 raise DriftCorrectionError(
                     "postprocess module required for fiducial detection"
                 )
-            
+
             # Get localizations for each pick
             temp_picked_locs = postprocess.picked_locs(
                 locs,
@@ -1873,7 +1874,7 @@ class Drift_Correction_Functions:
                 pick_size=box / 2,
                 add_group=False,
             )
-            
+
             # Keep only picks with sufficient localizations
             valid_picks = []
             valid_picked_locs = []
@@ -1881,17 +1882,17 @@ class Drift_Correction_Functions:
                 if len(temp_picked_locs[i]) > min_n:
                     valid_picks.append(pick)
                     valid_picked_locs.append(temp_picked_locs[i])
-            
+
             if len(valid_picks) == 0:
                 raise DriftCorrectionError(
                     f"No fiducials found with minimum {min_n:.0f} localizations. "
                     f"Try lowering min_frames_fraction (currently {min_frames_fraction}) "
                     f"or threshold_percentile (currently {threshold_percentile}%)."
                 )
-            
+
             # Create localization array with group field
             locs_with_groups = self._add_group_field_to_locs(locs, valid_picked_locs)
-            
+
             # Create result object
             result = FiducialDetectionResult(
                 picks=valid_picks,
@@ -1905,27 +1906,31 @@ class Drift_Correction_Functions:
                     "threshold_used": threshold,
                     "box_size_pixels": box,
                     "min_localizations_required": min_n,
-                    "localizations_per_fiducial": [len(locs) for locs in valid_picked_locs],
-                }
+                    "localizations_per_fiducial": [
+                        len(locs) for locs in valid_picked_locs
+                    ],
+                },
             )
-            
+
             # Create plot if requested
             if plot_results:
                 self._plot_fiducial_detection_results(result, info, save_plot)
-            
+
             return result
-            
+
         except Exception as e:
             if isinstance(e, DriftCorrectionError):
                 raise
             else:
                 raise DriftCorrectionError(f"Fiducial detection failed: {str(e)}")
-    
-    def _add_group_field_to_locs(self, locs: np.recarray, picked_locs_list: List[np.recarray]) -> np.recarray:
+
+    def _add_group_field_to_locs(
+        self, locs: np.recarray, picked_locs_list: List[np.recarray]
+    ) -> np.recarray:
         """Add group field to localizations based on fiducial assignments."""
         # Create group field array, initialize with -1 (non-fiducial)
         group = np.full(len(locs), -1, dtype=np.int32)
-        
+
         # Assign group IDs to fiducial localizations
         for group_id, fiducial_locs in enumerate(picked_locs_list):
             # Find indices of these localizations in original array
@@ -1937,52 +1942,55 @@ class Drift_Correction_Functions:
                     & (np.abs(locs.yc - fid_loc.yc) < 0.1)
                 )
                 group[matches] = group_id
-        
+
         # Create new dtype with group field
         original_dtype = locs.dtype
         group_dtype = np.dtype(original_dtype.descr + [("group", "i4")])
-        
+
         # Create new recarray with group field
         new_locs = np.empty(len(locs), dtype=group_dtype)
-        
+
         # Copy original data
         for field in original_dtype.names:
             new_locs[field] = locs[field]
-            
+
         # Add group data
         new_locs["group"] = group
-        
+
         # Convert to recarray
         return new_locs.view(np.recarray)
-    
+
     def _plot_fiducial_detection_results(
-        self, 
-        result: FiducialDetectionResult, 
+        self,
+        result: FiducialDetectionResult,
         info: List[dict],
-        save_path: Optional[str] = None
+        save_path: Optional[str] = None,
     ) -> None:
         """Create a plot of fiducial detection results using PlottingFunctions."""
         if PlottingFunctions is None:
             print("⚠️ PlottingFunctions not available, skipping plot creation")
             return
-            
+
         try:
             # Create plotter instance
             plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
-            
+
             # Extract metadata for plotting
             meta = CoordinateProcessor.extract_metadata(info)
             pixelsize = meta.get("pixelsize", 130.0)  # nm
-            
+
             # Create figure
             import matplotlib.pyplot as plt
+
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-            
+
             # Left plot: Detection image with fiducial markers
             # Get fiducial coordinates for scatter overlay
-            fiducial_x = [pick[1] for pick in result.picks]  # Note: coordinates may be swapped
+            fiducial_x = [
+                pick[1] for pick in result.picks
+            ]  # Note: coordinates may be swapped
             fiducial_y = [pick[0] for pick in result.picks]
-            
+
             plotter.image_scatter_plot(
                 ax1,
                 data=result.detection_image,
@@ -1998,36 +2006,36 @@ class Drift_Correction_Functions:
                 scalebarlabel="1 μm",
                 scattercolor="cyan",
                 s=100,  # Larger marker size
-                scatteralpha=0.8
+                scatteralpha=0.8,
             )
             ax1.set_title("Fiducial Detection Results")
-            
+
             # Right plot: Fiducial localizations colored by group
             fiducial_locs = result.locs_with_groups[result.locs_with_groups.group >= 0]
-            
+
             if len(fiducial_locs) > 0:
                 unique_groups = np.unique(fiducial_locs.group)
                 colors = plt.cm.Set1(np.linspace(0, 1, len(unique_groups)))
-                
+
                 for i, group_id in enumerate(unique_groups):
                     group_locs = fiducial_locs[fiducial_locs.group == group_id]
                     ax2.scatter(
                         group_locs.xc * 1000,  # Convert to nm for plotting
-                        group_locs.yc * 1000, 
-                        s=2, 
-                        alpha=0.6, 
-                        c=[colors[i]], 
-                        label=f'Fiducial {group_id+1} ({len(group_locs)} locs)',
-                        rasterized=True
+                        group_locs.yc * 1000,
+                        s=2,
+                        alpha=0.6,
+                        c=[colors[i]],
+                        label=f"Fiducial {group_id+1} ({len(group_locs)} locs)",
+                        rasterized=True,
                     )
-            
-            ax2.set_xlabel('X (nm)')
-            ax2.set_ylabel('Y (nm)')
-            ax2.set_title('Fiducial Localizations by Group')
-            ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-            ax2.set_aspect('equal')
+
+            ax2.set_xlabel("X (nm)")
+            ax2.set_ylabel("Y (nm)")
+            ax2.set_title("Fiducial Localizations by Group")
+            ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+            ax2.set_aspect("equal")
             ax2.grid(True, alpha=0.3)
-            
+
             # Add summary text
             summary_text = (
                 f"Detection Summary:\n"
@@ -2037,37 +2045,41 @@ class Drift_Correction_Functions:
                 f"• Candidates found: {result.metadata['total_candidates']}\n"
                 f"• Valid fiducials: {result.n_fiducials}"
             )
-            
-            fig.text(0.02, 0.98, summary_text, transform=fig.transFigure, 
-                    verticalalignment='top', fontsize=9,
-                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
-            
+
+            fig.text(
+                0.02,
+                0.98,
+                summary_text,
+                transform=fig.transFigure,
+                verticalalignment="top",
+                fontsize=9,
+                bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.8),
+            )
+
             plt.tight_layout()
             plt.subplots_adjust(left=0.15)  # Make room for summary text
-            
+
             if save_path:
-                plt.savefig(save_path, dpi=150, bbox_inches='tight')
+                plt.savefig(save_path, dpi=150, bbox_inches="tight")
                 print(f"✅ Fiducial detection plot saved to: {save_path}")
-            
+
             plt.show()
-            
+
         except Exception as e:
             print(f"⚠️ Failed to create fiducial detection plot: {e}")
-    
+
     def undrift_with_detected_fiducials(
-        self, 
-        detection_result: FiducialDetectionResult,
-        **params
+        self, detection_result: FiducialDetectionResult, **params
     ) -> Tuple[np.recarray, DriftResult]:
         """Perform drift correction using previously detected fiducials.
-        
+
         Args:
             detection_result: Result from detect_fiducials()
             **params: Additional drift correction parameters
-            
+
         Returns:
             Tuple of (corrected_locs, drift_result)
-            
+
         Example:
             >>> DCF = Drift_Correction_Functions()
             >>> # First detect fiducials
@@ -2078,14 +2090,17 @@ class Drift_Correction_Functions:
         # Use the localizations with group field for drift correction
         return self.undrift(
             locs=detection_result.locs_with_groups,
-            info=[{
-                "Width": detection_result.detection_image.shape[1],
-                "Height": detection_result.detection_image.shape[0], 
-                "Frames": len(np.unique(detection_result.locs_with_groups.frame)),
-                "Pixelsize": detection_result.detection_params["pixelsize"] / 1000  # Convert nm to μm
-            }],
+            info=[
+                {
+                    "Width": detection_result.detection_image.shape[1],
+                    "Height": detection_result.detection_image.shape[0],
+                    "Frames": len(np.unique(detection_result.locs_with_groups.frame)),
+                    "Pixelsize": detection_result.detection_params["pixelsize"]
+                    / 1000,  # Convert nm to μm
+                }
+            ],
             method="fiducial",
-            **params
+            **params,
         )
 
     def undrift_with_fiducial_detection(
@@ -2156,13 +2171,12 @@ class Drift_Correction_Functions:
                 min_frames_fraction=min_frames_fraction,
                 histogram_bins=histogram_bins,
                 plot_results=False,  # No plot for the combined workflow
-                save_plot=None
+                save_plot=None,
             )
-            
+
             # Step 2: Apply drift correction using detected fiducials
             corrected_locs, drift_result = self.undrift_with_detected_fiducials(
-                detection_result=detection_result,
-                **params
+                detection_result=detection_result, **params
             )
 
             # Create detection info for backward compatibility
@@ -2170,7 +2184,9 @@ class Drift_Correction_Functions:
                 "detection_params": detection_params,
                 "n_fiducials": detection_result.n_fiducials,
                 "fiducial_groups": list(range(detection_result.n_fiducials)),
-                "frames_per_fiducial": detection_result.metadata["localizations_per_fiducial"],
+                "frames_per_fiducial": detection_result.metadata[
+                    "localizations_per_fiducial"
+                ],
                 "success": True,
                 "message": f"Successfully detected {detection_result.n_fiducials} fiducials",
                 "total_candidates": detection_result.metadata["total_candidates"],

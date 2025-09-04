@@ -235,30 +235,37 @@ class FittingResultProcessor:
         extracted_arrays = {
             param: fit_results[param].to_numpy() for param in arrays_to_extract
         }
-        
+
         # Validate that we have enough data
         expected_total_length = n_bootstrap * 3
         actual_length = len(extracted_arrays["xc"]) if "xc" in extracted_arrays else 0
         if actual_length < expected_total_length:
             import logging
-            logging.warning(f"fit_averager: Expected {expected_total_length} data points but got {actual_length}")
+
+            logging.warning(
+                f"fit_averager: Expected {expected_total_length} data points but got {actual_length}"
+            )
             if actual_length == 0:
-                logging.warning("fit_averager: No valid fitting results - all data is NaN or empty")
+                logging.warning(
+                    "fit_averager: No valid fitting results - all data is NaN or empty"
+                )
                 # Return DataFrame with NaN values
-                return pd.DataFrame({
-                    "xc": np.full(n_bootstrap, np.nan),
-                    "yc": np.full(n_bootstrap, np.nan),
-                    "s_x": np.full(n_bootstrap, np.nan),
-                    "s_y": np.full(n_bootstrap, np.nan),
-                    "A_B": np.full(n_bootstrap, np.nan),
-                    "A_G": np.full(n_bootstrap, np.nan), 
-                    "A_R": np.full(n_bootstrap, np.nan),
-                    "bg_B": np.full(n_bootstrap, np.nan),
-                    "bg_G": np.full(n_bootstrap, np.nan),
-                    "bg_R": np.full(n_bootstrap, np.nan),
-                    "chi_sqr": np.full(n_bootstrap, np.nan),
-                    "frame": np.arange(n_bootstrap)
-                })
+                return pd.DataFrame(
+                    {
+                        "xc": np.full(n_bootstrap, np.nan),
+                        "yc": np.full(n_bootstrap, np.nan),
+                        "s_x": np.full(n_bootstrap, np.nan),
+                        "s_y": np.full(n_bootstrap, np.nan),
+                        "A_B": np.full(n_bootstrap, np.nan),
+                        "A_G": np.full(n_bootstrap, np.nan),
+                        "A_R": np.full(n_bootstrap, np.nan),
+                        "bg_B": np.full(n_bootstrap, np.nan),
+                        "bg_G": np.full(n_bootstrap, np.nan),
+                        "bg_R": np.full(n_bootstrap, np.nan),
+                        "chi_sqr": np.full(n_bootstrap, np.nan),
+                        "frame": np.arange(n_bootstrap),
+                    }
+                )
 
         # Initialize result arrays
         result_data = {
@@ -288,7 +295,7 @@ class FittingResultProcessor:
             # Handle amplitude and background
             A_slice = extracted_arrays["A"][index : indices[i + 1]]
             b_slice = extracted_arrays["b"][index : indices[i + 1]]
-            
+
             if len(A_slice) > 0:
                 A = np.nansum(A_slice)
                 b = np.nansum(b_slice)
@@ -298,7 +305,7 @@ class FittingResultProcessor:
 
             if not np.isnan(b) and b != 0 and len(b_slice) >= 3:
                 result_data["bg_B"][i] = extracted_arrays["b"][index] / b
-                result_data["bg_G"][i] = extracted_arrays["b"][index + 1] / b  
+                result_data["bg_G"][i] = extracted_arrays["b"][index + 1] / b
                 result_data["bg_R"][i] = extracted_arrays["b"][index + 2] / b
             else:
                 result_data["bg_B"][i] = np.nan
@@ -328,13 +335,15 @@ class MultiC_Sim_Funcs_Refactored:
     backward compatibility with the original implementation.
     """
 
-    def __init__(self, 
-                 mosaic_unit=None,
-                 io_functions=None,
-                 psf_functions=None,
-                 scmos_functions=None,
-                 image_analysis_functions=None,
-                 spectral_functions=None):
+    def __init__(
+        self,
+        mosaic_unit=None,
+        io_functions=None,
+        psf_functions=None,
+        scmos_functions=None,
+        image_analysis_functions=None,
+        spectral_functions=None,
+    ):
         """
         Initialize the simulation functions with dependency injection support.
 
@@ -348,13 +357,29 @@ class MultiC_Sim_Funcs_Refactored:
         """
         self.mosaic_unit = mosaic_unit
         self.result_processor = FittingResultProcessor()
-        
+
         # Dependency injection with sensible defaults
-        self.io = io_functions if io_functions is not None else IOFunctions.IO_Functions()
-        self.psf = psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
-        self.scmos = scmos_functions if scmos_functions is not None else sCMOSFunctions.sCMOS_Functions()
-        self.image_analysis = image_analysis_functions if image_analysis_functions is not None else ImageAnalysisFunctions.Image_Analysis_Functions()
-        self.spectral = spectral_functions if spectral_functions is not None else SpectralFunctions.Spectral_Funcs()
+        self.io = (
+            io_functions if io_functions is not None else IOFunctions.IO_Functions()
+        )
+        self.psf = (
+            psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
+        )
+        self.scmos = (
+            scmos_functions
+            if scmos_functions is not None
+            else sCMOSFunctions.sCMOS_Functions()
+        )
+        self.image_analysis = (
+            image_analysis_functions
+            if image_analysis_functions is not None
+            else ImageAnalysisFunctions.Image_Analysis_Functions()
+        )
+        self.spectral = (
+            spectral_functions
+            if spectral_functions is not None
+            else SpectralFunctions.Spectral_Funcs()
+        )
 
     def _validate_inputs(
         self,
@@ -500,7 +525,9 @@ class MultiC_Sim_Funcs_Refactored:
             _, grayscale_photoelectron_data = self.scmos.bayer_demosaic_stack(
                 photoelectron_data, True
             )
-            _, grayscale_smoothed_data = self.scmos.bayer_demosaic_stack(smoothed_data, True)
+            _, grayscale_smoothed_data = self.scmos.bayer_demosaic_stack(
+                smoothed_data, True
+            )
             return (
                 photoelectron_data,
                 smoothed_data,
@@ -516,7 +543,9 @@ class MultiC_Sim_Funcs_Refactored:
                     smoothed_data, True
                 )
             else:
-                photoelectron_data, _ = self.scmos.bayer_demosaic_stack(photoelectron_data)
+                photoelectron_data, _ = self.scmos.bayer_demosaic_stack(
+                    photoelectron_data
+                )
                 smoothed_data, _ = self.scmos.bayer_demosaic_stack(smoothed_data)
                 grayscale_data = grayscale_smoothed = None
 
@@ -1446,13 +1475,16 @@ class MultiC_Sim_Funcs_Refactored:
             elapsed = (time.time() - start) / 60.0
             print(
                 f"Analysed photon flux {i + 1}/{len(n_photon_space)}    Time elapsed: {elapsed:.3f} min",
-                end='\r',
-                flush=True
+                end="\r",
+                flush=True,
             )
 
         # Clear the progress line and show completion
         total_elapsed = (time.time() - start) / 60.0
-        print(f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min", flush=True)
+        print(
+            f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min",
+            flush=True,
+        )
 
         # Save final results
         save_params = analysis_save_params[:-2] + ["colour_distance"]

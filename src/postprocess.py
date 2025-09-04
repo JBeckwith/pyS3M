@@ -78,9 +78,7 @@ def n_block_locs_at(x, y, size, K, L, block_starts, block_ends):
                         n_block_locs = np.uint32(block_ends[k][l] - block_starts[k][l])
                         step = 1
                     else:
-                        n_block_locs += np.uint32(
-                            block_ends[k][l] - block_starts[k][l]
-                        )
+                        n_block_locs += np.uint32(block_ends[k][l] - block_starts[k][l])
     return n_block_locs
 
 
@@ -345,9 +343,7 @@ def _n_block_locs_at(x_range, y_range, K, L, block_starts, block_ends, cache=Tru
                         n_block_locs = np.uint32(block_ends[k][l] - block_starts[k][l])
                         step = 1
                     else:
-                        n_block_locs += np.uint32(
-                            block_ends[k][l] - block_starts[k][l]
-                        )
+                        n_block_locs += np.uint32(block_ends[k][l] - block_starts[k][l])
     return n_block_locs
 
 
@@ -484,9 +480,7 @@ def nena(locs, info, callback=None):
     def func(d, delta_a, s, ac, dc, sc):
         a = ac + delta_a  # make sure a >= ac
         p_single = a * (d / (2 * s**2)) * np.exp(-(d**2) / (4 * s**2))
-        p_short = (
-            ac / (sc * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((d - dc) / sc) ** 2)
-        )
+        p_short = ac / (sc * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((d - dc) / sc) ** 2)
         return p_single + p_short
 
     pdf_model = lmfit.Model(func)

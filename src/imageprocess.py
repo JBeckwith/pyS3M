@@ -30,9 +30,7 @@ import postprocess
 def xcorr(imageA, imageB):
     FimageA = fft.fft2(imageA)
     CFimageB = np.conj(fft.fft2(imageB))
-    return fft.fftshift(np.real(fft.ifft2((FimageA * CFimageB)))) / np.sqrt(
-        imageA.size
-    )
+    return fft.fftshift(np.real(fft.ifft2((FimageA * CFimageB)))) / np.sqrt(imageA.size)
 
 
 def get_image_shift(imageA, imageB, box, roi=None, display=False):

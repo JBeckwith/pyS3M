@@ -475,12 +475,12 @@ class NoColourFittingProcessor(FittingProcessor):
         # Note: WLS_nocolour_model_nobounds expects params[4]=background, params[5]=amplitude
         initial_guess = np.array(
             [
-                centre[1],                   # params[0] = x centre
-                centre[0],                   # params[1] = y centre  
-                1.0,                        # params[2] = sigma_x
-                1.0,                        # params[3] = sigma_y
-                np.min(smoothed_punctum),   # params[4] = background
-                max_val,                    # params[5] = amplitude
+                centre[1],  # params[0] = x centre
+                centre[0],  # params[1] = y centre
+                1.0,  # params[2] = sigma_x
+                1.0,  # params[3] = sigma_y
+                np.min(smoothed_punctum),  # params[4] = background
+                max_val,  # params[5] = amplitude
             ]
         )
 

@@ -83,15 +83,21 @@ class SpotDetection_Functions:
 
     def __init__(self, psf_functions=None, scmos_functions=None):
         """Initialize SpotDetection_Functions class with dependency injection.
-        
+
         Args:
             psf_functions: PSF calculation functions (default: creates new instance)
             scmos_functions: sCMOS camera functions (default: creates new instance)
         """
         # Dependency injection with sensible defaults
-        self.psf = psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
-        self.scmos = scmos_functions if scmos_functions is not None else sCMOSFunctions.sCMOS_Functions()
-        
+        self.psf = (
+            psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
+        )
+        self.scmos = (
+            scmos_functions
+            if scmos_functions is not None
+            else sCMOSFunctions.sCMOS_Functions()
+        )
+
         # Initialize optimisation components
         self.array_pool = ArrayPool()
         self.kernel_cache = KernelCache()
@@ -107,7 +113,8 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        perc_threshold: float = 98,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
     ) -> np.ndarray:
         """
         function to fit puncta in parallel
@@ -127,6 +134,8 @@ class SpotDetection_Functions:
             NA (float): numerical aperture of microscope
             mf_factor (float): match filter factor
             local_factor (float): local max factor
+            sigma (float): sigma threshold for true puncta
+            fraction_true (float): fraction of pixels in inner region above threshold
 
         Returns:
             puncta_detected (list): list of puncta detected
@@ -161,7 +170,8 @@ class SpotDetection_Functions:
                         NA=NA,
                         mf_factor=mf_factor,
                         local_factor=local_factor,
-                        perc_threshold=perc_threshold,
+                        sigma=sigma,
+                        fraction_true=fraction_true,
                     )
                 )
         with ProgressUtils.analysis_progress_bar(
@@ -196,7 +206,8 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        perc_threshold: float = 98,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -210,8 +221,8 @@ class SpotDetection_Functions:
             NA (float): numerical aperture of microscope
             multispot_marginfactor (float): multi spot margin factor
             mf_factor (float): match filter factor
-            local_factor (float): local max factor
-            bayer_image (bool): if True, image is assumed to be a bayer image
+            sigma (float): sigma threshold for true puncta
+            fraction_true (float): fraction of pixels in inner region above threshold
 
         Returns:
             detected_puncta (np.ndarray): xy coordinates of detected puncta"""
@@ -227,7 +238,8 @@ class SpotDetection_Functions:
                 NA=NA,
                 mf_factor=mf_factor,
                 local_factor=local_factor,
-                perc_threshold=perc_threshold,
+                sigma=sigma,
+                fraction_true=fraction_true,
             )
             detected_puncta.append(
                 np.vstack(
@@ -247,7 +259,8 @@ class SpotDetection_Functions:
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        perc_threshold: float = 98,
+        sigma: float = 1.5,
+        fraction_true: float = 0.15,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -262,7 +275,8 @@ class SpotDetection_Functions:
             multispot_marginfactor (float): multi spot margin factor
             mf_factor (float): match filter factor
             local_factor (float): local max factor
-            perc_threshold (float): percentile threshold for post-filtering
+            sigma (float): sigma threshold for true puncta
+            fraction_true (float): fraction of pixels in inner region above threshold
 
         Returns:
             detected_puncta (np.ndarray): xy coordinates of detected puncta"""
@@ -282,19 +296,30 @@ class SpotDetection_Functions:
 
         w = self.get_mf(psf_fun, sigma, mf_range)
         filtered_image = self.filter_image(image_for_detection, w)
-        global_threshold = np.percentile(filtered_image, perc_threshold)
         square_annulus = self.get_square_annulus(guard_interval, reference_interval)
         detected_puncta = self.get_detection_points(
             filtered_image, self.cacfar, pfa, local_max_range, kernel=square_annulus
         )
-        estimated_intensity = self.estimate_intensity(
-            filtered_image, detected_puncta, guard_interval, reference_interval
-        )
-        detected_puncta = detected_puncta[estimated_intensity > global_threshold]
+        detected_puncta = detected_puncta[
+            self.real_puncta_indices(
+                image_for_detection,
+                detected_puncta,
+                guard_interval,
+                reference_interval,
+                sigma,
+                fraction_true,
+            )
+        ]
         return detected_puncta
 
-    def estimate_intensity(
-        self, image, detected_puncta, guard_interval, reference_interval
+    def real_puncta_indices(
+        self,
+        image,
+        detected_puncta,
+        guard_interval,
+        reference_interval,
+        sigma=1.5,
+        fraction_true=0.15,
     ):
         """
         Estimate intensity values for each centroid in the image.
@@ -310,25 +335,25 @@ class SpotDetection_Functions:
         """
         detected_puncta = np.asarray(detected_puncta, dtype=int)
         image_size = image.shape
-        indices = np.ravel_multi_index(detected_puncta.T, image_size, order="F")
-        estimated_intensity = np.zeros(
-            len(indices), dtype=float
-        )  # Estimated sum intensity per punctum
+
+        annulus = self.get_square_annulus(guard_interval, reference_interval)
 
         x_in, y_in, x_out, y_out = self.intensity_pixel_indices(
-            detected_puncta, image_size, guard_interval, reference_interval
+            detected_puncta, image_size, annulus
+        )
+        background_est = np.median(image[x_out, y_out], axis=0)
+        background_std_est = np.std(image[x_out, y_out], axis=0)
+        threshold = background_est + sigma * background_std_est
+        intensity_est = image[x_in, y_in]
+        true_puncta = np.sum(intensity_est > threshold, axis=0) > int(
+            np.sum(np.where((annulus == 0) | (annulus == 1), annulus ^ 1, annulus))
+            * fraction_true
         )
 
-        estimated_intensity = np.mean(image[x_in, y_in], axis=0)
-
-        estimated_intensity[estimated_intensity < 0] = 0
-
         # correct for averaged background; report background summed
-        return estimated_intensity
+        return true_puncta
 
-    def intensity_pixel_indices(
-        self, centroid_loc, image_size, guard_interval, reference_interval
-    ):
+    def intensity_pixel_indices(self, centroid_loc, image_size, annulus):
         """
         Calculate pixel indices for inner and outer regions around the given index.
 
@@ -349,8 +374,7 @@ class SpotDetection_Functions:
             y -= int(annular_shape.shape[1] / 2)
             return x, y
 
-        annulus = self.get_square_annulus(guard_interval, reference_interval)
-        inner_ind = np.where((annulus==0)|(annulus==1), annulus^1, annulus)
+        inner_ind = np.where((annulus == 0) | (annulus == 1), annulus ^ 1, annulus)
         outer_ind = annulus
 
         x_inner, y_inner = calculate_offsets(inner_ind)
@@ -806,7 +830,8 @@ def _detect_puncta_in_images_standalone(
     NA: float = 1.49,
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
-    perc_threshold: float = 98,
+    sigma: float = 1.5,
+    fraction_true: float = 0.15,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
@@ -836,7 +861,8 @@ def _detect_puncta_in_images_standalone(
             NA=NA,
             mf_factor=mf_factor,
             local_factor=local_factor,
-            perc_threshold=perc_threshold,
+            sigma=sigma,
+            fraction_true=fraction_true,
         )
     except Exception:
         # Return empty array if detection fails to prevent crash

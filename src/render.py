@@ -717,9 +717,7 @@ def render_convolve(
         return 0, image
     else:
         _fill(image, x, y)
-        blur_width = oversampling * max(
-            np.median(locs.xc_err[in_view]), min_blur_width
-        )
+        blur_width = oversampling * max(np.median(locs.xc_err[in_view]), min_blur_width)
         blur_height = oversampling * max(
             np.median(locs.yc_err[in_view]), min_blur_width
         )
