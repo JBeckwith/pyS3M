@@ -1,3 +1,0 @@
-bootstrap_idx,bayer_processing,camera_start_row,camera_start_col,n_photons,n_ground_truth,n_detected,true_positives,false_positives,false_negatives,precision,recall,f1_score,true_positive_rate,false_positive_rate
-0,True,145,771,2923,9,14,0,14,9,0.0,0.0,0.0,0.0,1.0
-1,True,797,470,2965,9,11,0,11,9,0.0,0.0,0.0,0.0,1.0

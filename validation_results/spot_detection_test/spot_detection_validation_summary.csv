@@ -1,2 +1,0 @@
-total_samples,successful_samples,bayer_processing_tested,mean_precision,std_precision,mean_recall,std_recall,mean_f1_score,std_f1_score,mean_false_positive_rate,std_false_positive_rate,median_false_positives,median_false_negatives
-2,2,False,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,12.5,9.0
