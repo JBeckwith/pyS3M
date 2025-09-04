@@ -1266,12 +1266,16 @@ class MultiC_Sim_Funcs_Refactored:
         # Check for bit depth overflow and automatically scale to appropriate bit depth
         max_value = np.max(bayer_image)
         min_value = np.min(bayer_image)
-        
+
         # Determine appropriate bit depth based on actual data range
         if max_value > 65535 or min_value < 0:
             # Values exceed uint16 range, use float32 for full dynamic range
-            print(f"WARNING: Pixel values exceed uint16 range (min: {min_value:.1f}, max: {max_value:.1f})")
-            print("Automatically using float32 bit depth to preserve high photon count data")
+            print(
+                f"WARNING: Pixel values exceed uint16 range (min: {min_value:.1f}, max: {max_value:.1f})"
+            )
+            print(
+                "Automatically using float32 bit depth to preserve high photon count data"
+            )
             bayer_image = bayer_image.astype(np.float32)
         elif max_value > 255:
             # Values exceed uint8 but fit in uint16

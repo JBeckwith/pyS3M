@@ -1036,7 +1036,9 @@ class Image_Analysis_Functions:
         max_value = np.max([np.max(p) for p in puncta])
         precision_dtype = np.float64 if max_value > 50000 else np.float32
         if max_value > 50000:
-            print(f"High photon count detected (max: {max_value:.0f}), using float64 for fitting precision")
+            print(
+                f"High photon count detected (max: {max_value:.0f}), using float64 for fitting precision"
+            )
 
         # Pre-allocate result arrays with appropriate precision
         n_puncta = len(puncta)
