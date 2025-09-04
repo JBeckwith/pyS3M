@@ -73,7 +73,8 @@ class InteractiveThresholdTuner:
         
         # Default parameters
         self.default_pfa = 1e-4
-        self.default_perc_threshold = 98.0
+        self.default_sigma = 1.5
+        self.default_true_fraction = 0.15
         self.default_wavelength = 0.7
         
         # Results storage
@@ -219,14 +220,15 @@ class InteractiveThresholdTuner:
             return None
     
     def test_spot_detection(self, image: np.ndarray, pfa: float, 
-                          perc_threshold: float, wavelength: float) -> Tuple[np.ndarray, int]:
+                          sigma: float, fraction_true: float, wavelength: float) -> Tuple[np.ndarray, int]:
         """Test spot detection with given parameters"""
         try:
             detected_spots = self.sdf.detect_puncta_in_image(
                 image=image,
                 pfa=pfa,
                 wavelength=wavelength,
-                perc_threshold=perc_threshold,
+                sigma=sigma,
+                fraction_true=fraction_true,
                 pixel_size=0.069,  # Standard pixel size
                 NA=1.49,          # Standard NA
                 mf_factor=3.0,    # Standard match filter factor
@@ -239,7 +241,7 @@ class InteractiveThresholdTuner:
             return np.array([]), 0
     
     def plot_detection_results(self, image: np.ndarray, spots: np.ndarray, 
-                             pfa: float, perc_threshold: float, folder_name: str):
+                             pfa: float, sigma: float, fraction_true: float, folder_name: str):
         """Plot the detection results using PlottingFunctions (interactive or file-based)"""
         global INTERACTIVE_DISPLAY
         
@@ -316,7 +318,8 @@ class InteractiveThresholdTuner:
         
         # Start with default parameters
         current_pfa = self.default_pfa
-        current_perc_threshold = self.default_perc_threshold
+        current_sigma = self.default_sigma
+        current_fraction_true = self.default_true_fraction
         current_wavelength = default_wavelength
         
         fig_or_file = None
@@ -324,7 +327,7 @@ class InteractiveThresholdTuner:
         while True:
             # Test current parameters
             spots, num_spots = self.test_spot_detection(
-                frame, current_pfa, current_perc_threshold, current_wavelength)
+                frame, current_pfa, current_sigma, current_fraction_true, current_wavelength)
             
             # Close previous plot if interactive mode
             if INTERACTIVE_DISPLAY and fig_or_file is not None:
@@ -332,23 +335,25 @@ class InteractiveThresholdTuner:
             
             # Plot results
             fig_or_file = self.plot_detection_results(
-                frame, spots, current_pfa, current_perc_threshold, folder_name)
+                frame, spots, current_pfa, current_sigma, current_fraction_true, folder_name)
             
             print(f"\nCurrent parameters:")
             print(f"  PFA (probability of false alarm): {current_pfa:.0e}")
-            print(f"  Percentile threshold: {current_perc_threshold}%")
+            print(f"  Sigma : {current_sigma}%")
+            print(f"  Fraction true : {current_fraction_true}%")
             print(f"  Wavelength: {current_wavelength}")
             print(f"  Detected spots: {num_spots}")
             
             print(f"\nOptions:")
             print(f"  1. Adjust PFA (current: {current_pfa:.0e})")
-            print(f"  2. Adjust percentile threshold (current: {current_perc_threshold}%)")
-            print(f"  3. Adjust wavelength (current: {current_wavelength})")
-            print(f"  4. Accept current parameters")
-            print(f"  5. Skip this folder")
+            print(f"  2. Adjust sigma (current: {current_sigma}%)")
+            print(f"  3. Adjust Fraction true (current: {current_fraction_true}%)")
+            print(f"  4. Adjust wavelength (current: {current_wavelength})")
+            print(f"  5. Accept current parameters")
+            print(f"  6. Skip this folder")
             print(f"  q. Quit")
             
-            choice = input("Enter choice (1-5 or q): ").strip()
+            choice = input("Enter choice (1-6 or q): ").strip()
             
             if choice == '1':
                 try:
@@ -359,22 +364,29 @@ class InteractiveThresholdTuner:
                     
             elif choice == '2':
                 try:
-                    new_perc = float(input(f"Enter new percentile threshold (current: {current_perc_threshold}%): ").strip())
-                    if 0 <= new_perc <= 100:
-                        current_perc_threshold = new_perc
+                    new_sigma = float(input(f"Enter new sigma (current: {current_sigma}%): ").strip())
+                    if 0 <= new_sigma <= 100:
+                        current_sigma = new_sigma
                     else:
-                        print("Percentile must be between 0 and 100")
+                        print("Sigma must be between 0 and 100")
                 except ValueError:
                     print("Invalid input, keeping current value")
-                    
+
             elif choice == '3':
+                try:
+                    new_fraction_true = float(input(f"Enter new Fraction True (current: {current_fraction_true}): ").strip())
+                    current_fraction_true = new_fraction_true
+                except ValueError:
+                    print("Invalid input, keeping current value")
+                   
+            elif choice == '4':
                 try:
                     new_wavelength = float(input(f"Enter new wavelength (current: {current_wavelength}): ").strip())
                     current_wavelength = new_wavelength
                 except ValueError:
                     print("Invalid input, keeping current value")
                     
-            elif choice == '4':
+            elif choice == '5':
                 # Accept parameters
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     plt.close(fig_or_file)
@@ -382,12 +394,13 @@ class InteractiveThresholdTuner:
                     'folder_path': folder_path,
                     'folder_type': folder_type,
                     'pfa': current_pfa,
-                    'perc_threshold': current_perc_threshold,
+                    'sigma': current_sigma,
+                    'fraction_true': current_fraction_true,
                     'wavelength': current_wavelength,
                     'detected_spots': num_spots
                 }
-                
-            elif choice == '5':
+
+            elif choice == '6':
                 # Skip folder
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     plt.close(fig_or_file)
@@ -419,8 +432,8 @@ class InteractiveThresholdTuner:
             f.write("#\n")
             
             for folder_path, params in self.threshold_results.items():
-                f.write(f"{folder_path}|{params['pfa']:.0e}|{params['perc_threshold']:.1f}|{params['wavelength']:.3f}\n")
-        
+                f.write(f"{folder_path}|{params['pfa']:.0e}|{params['sigma']:.1f}|{params['fraction_true']:.1f}|{params['wavelength']:.3f}\n")
+
         print(f"\nThreshold parameters saved to:")
         print(f"  JSON format: {json_output}")
         print(f"  Text format: {output_path}")
