@@ -1032,10 +1032,16 @@ class Image_Analysis_Functions:
         # Get array dimensions for this strategy
         dims = FittingConstants.PARAM_DIMENSIONS[strategy]
 
-        # Pre-allocate result arrays
+        # Auto-detect precision requirements based on data range
+        max_value = np.max([np.max(p) for p in puncta])
+        precision_dtype = np.float64 if max_value > 50000 else np.float32
+        if max_value > 50000:
+            print(f"High photon count detected (max: {max_value:.0f}), using float64 for fitting precision")
+
+        # Pre-allocate result arrays with appropriate precision
         n_puncta = len(puncta)
-        pfit_leastsq = np.empty((n_puncta, dims["fit"]), dtype=np.float32)
-        perr_leastsq = np.empty((n_puncta, dims["error"]), dtype=np.float32)
+        pfit_leastsq = np.empty((n_puncta, dims["fit"]), dtype=precision_dtype)
+        perr_leastsq = np.empty((n_puncta, dims["error"]), dtype=precision_dtype)
 
         # Initialize with NaN
         pfit_leastsq.fill(np.nan)
@@ -1223,9 +1229,9 @@ class Image_Analysis_Functions:
             combined_fits = np.vstack(all_fits)
             combined_errors = np.vstack(all_errors)
         else:
-            # No successful results
-            combined_fits = np.empty((0, dims["fit"]), dtype=np.float32)
-            combined_errors = np.empty((0, dims["error"]), dtype=np.float32)
+            # No successful results - use float64 for compatibility with high photon counts
+            combined_fits = np.empty((0, dims["fit"]), dtype=np.float64)
+            combined_errors = np.empty((0, dims["error"]), dtype=np.float64)
 
         return combined_fits, combined_errors
 
@@ -1270,6 +1276,7 @@ def _fit_puncta_method_standalone(
         # Return empty arrays if fitting fails to prevent crash
         dims = FittingConstants.PARAM_DIMENSIONS[strategy]
         n_puncta = len(puncta)
-        empty_fits = np.full((n_puncta, dims["fit"]), np.nan, dtype=np.float32)
-        empty_errors = np.full((n_puncta, dims["error"]), np.nan, dtype=np.float32)
+        # Use float64 to handle high photon count cases gracefully
+        empty_fits = np.full((n_puncta, dims["fit"]), np.nan, dtype=np.float64)
+        empty_errors = np.full((n_puncta, dims["error"]), np.nan, dtype=np.float64)
         return empty_fits, empty_errors
