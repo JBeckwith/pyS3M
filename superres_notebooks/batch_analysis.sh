@@ -32,10 +32,26 @@ check_threshold_params() {
         exit 1
     fi
     
-    # Validate file format (check for pipe-delimited content)
+    # Validate file format (check for pipe-delimited content with 5 fields: folder|pfa|sigma|fraction_true|wavelength)
     if ! grep -q "|" "$THRESHOLD_PARAMS_FILE"; then
         echo "WARNING: threshold_parameters.txt format may be invalid (no pipe delimiters found)"
         log_message "WARNING: threshold_parameters.txt format validation failed - no pipe delimiters"
+    fi
+    
+    # Check if format has new parameters (sigma and fraction_true)
+    local sample_line=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | head -1)
+    if [ -n "$sample_line" ]; then
+        local field_count=$(echo "$sample_line" | tr '|' '\n' | wc -l)
+        if [ "$field_count" -eq 4 ]; then
+            echo "INFO: Using legacy format (folder|pfa|perc_threshold|wavelength)"
+            log_message "INFO: Legacy threshold_parameters.txt format detected (4 fields)"
+        elif [ "$field_count" -eq 5 ]; then
+            echo "INFO: Using enhanced format (folder|pfa|sigma|fraction_true|wavelength)"
+            log_message "INFO: Enhanced threshold_parameters.txt format detected (5 fields)"
+        else
+            echo "WARNING: Unexpected threshold_parameters.txt format ($field_count fields)"
+            log_message "WARNING: Unexpected threshold_parameters.txt format with $field_count fields"
+        fi
     fi
     
     local param_count=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | wc -l)
@@ -47,23 +63,41 @@ check_threshold_params() {
 get_threshold_params() {
     local folder_path="$1"
     local default_pfa="1e-4"
-    local default_perc="98.0" 
+    local default_sigma="1.5"
+    local default_fraction_true="0.15" 
     local default_wavelength="$2"
     
     # Look for exact match first
     local params_line=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | grep "^$folder_path|" | head -1)
     
     if [ -n "$params_line" ]; then
-        # Parse the parameters: folder_path|pfa|perc_threshold|wavelength
-        local pfa=$(echo "$params_line" | cut -d'|' -f2)
-        local perc_threshold=$(echo "$params_line" | cut -d'|' -f3)
-        local wavelength=$(echo "$params_line" | cut -d'|' -f4)
-        echo "$pfa $perc_threshold $wavelength"
-        log_message "Using custom parameters for $folder_path: pfa=$pfa, perc_threshold=$perc_threshold, wavelength=$wavelength"
+        # Check format based on field count
+        local field_count=$(echo "$params_line" | tr '|' '\n' | wc -l)
+        
+        if [ "$field_count" -eq 5 ]; then
+            # Enhanced format: folder_path|pfa|sigma|fraction_true|wavelength
+            local pfa=$(echo "$params_line" | cut -d'|' -f2)
+            local sigma=$(echo "$params_line" | cut -d'|' -f3)
+            local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
+            local wavelength=$(echo "$params_line" | cut -d'|' -f5)
+            echo "$pfa $sigma $fraction_true $wavelength"
+            log_message "Using enhanced parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength"
+        elif [ "$field_count" -eq 4 ]; then
+            # Legacy format: folder_path|pfa|perc_threshold|wavelength (convert perc_threshold to defaults)
+            local pfa=$(echo "$params_line" | cut -d'|' -f2)
+            local perc_threshold=$(echo "$params_line" | cut -d'|' -f3)  # Ignored in new format
+            local wavelength=$(echo "$params_line" | cut -d'|' -f4)
+            echo "$pfa $default_sigma $default_fraction_true $wavelength"
+            log_message "Using legacy parameters for $folder_path: pfa=$pfa, sigma=$default_sigma (default), fraction_true=$default_fraction_true (default), wavelength=$wavelength"
+        else
+            # Invalid format, use defaults
+            echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength"
+            log_message "Invalid parameter format for $folder_path, using defaults: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength"
+        fi
     else
         # Use defaults
-        echo "$default_pfa $default_perc $default_wavelength"
-        log_message "Using default parameters for $folder_path: pfa=$default_pfa, perc_threshold=$default_perc, wavelength=$default_wavelength"
+        echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength"
+        log_message "Using default parameters for $folder_path: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength"
     fi
 }
 
@@ -398,8 +432,9 @@ process_folder() {
     # Get threshold parameters for this folder
     local threshold_params=($(get_threshold_params "$folder_path" "$wavelength"))
     local pfa="${threshold_params[0]}"
-    local perc_threshold="${threshold_params[1]}"
-    local param_wavelength="${threshold_params[2]}"
+    local sigma="${threshold_params[1]}"
+    local fraction_true="${threshold_params[2]}"
+    local param_wavelength="${threshold_params[3]}"
     
     # Use parameter wavelength if available, fallback to passed wavelength
     if [ "$param_wavelength" != "$wavelength" ] && [ -n "$param_wavelength" ]; then
@@ -427,7 +462,8 @@ process_folder() {
         echo "Type: $folder_type"
         echo "Wavelength: $wavelength"
         echo "PFA: $pfa"
-        echo "Percentile Threshold: $perc_threshold"
+        echo "Sigma: $sigma"
+        echo "Fraction True: $fraction_true"
         echo "Started: $(date)"
         echo "========================================"
     } >> "$LOG_FILE"
@@ -500,7 +536,7 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$perc_threshold" >> "$LOG_FILE" 2>&1; then
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
     else

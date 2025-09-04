@@ -26,7 +26,7 @@ import warnings
 from scipy.spatial.distance import cdist
 
 # Add src module directory to path
-src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
+src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.append(src_dir)
 
 # Import project modules
@@ -186,11 +186,11 @@ class SpotDetectionValidator:
         # Use default Bayer mosaic unit: [["B", "G"], ["G", "R"]]
         mosaic_unit = np.array([["B", "G"], ["G", "R"]])
         region_params["masks"] = Mask.get_masks(size, size, mosaic_unit)
-        
+
         # Load spectral data if not already loaded
         if self.spectral_data is None:
             self.spectral_data = self._load_spectral_data()
-        
+
         # Add required parameters for gen_camera_image_stack
         region_params["pixel_QYs"] = self.spectral_data[2]  # absolute_QYs
         region_params["pixel_order"] = ["B", "G", "R"]
@@ -261,12 +261,13 @@ class SpotDetectionValidator:
 
         # Create proper smoothing function object (following notebook examples)
         import types
+
         smoothing_function = types.SimpleNamespace()
         smoothing_function.args = {"sigma": 1.5}
         smoothing_function.extent = 1.5
         smoothing_function.smoothing_function = sCMOS.gaussian_filter_stack
         smoothing_function.data_arg = "image"
-        
+
         # Generate camera image
         try:
             bayer_image, smoothed_image, normal_image = MSF.gen_camera_image_stack(
@@ -304,7 +305,7 @@ class SpotDetectionValidator:
         # Create synthetic camera quantum efficiency curves (B, G, R)
         # Blue channel: peak around 450nm
         blue_curve = np.exp(-0.5 * ((wavelength - 450.0) / 50.0) ** 2) * 0.8
-        # Green channel: peak around 550nm  
+        # Green channel: peak around 550nm
         green_curve = np.exp(-0.5 * ((wavelength - 550.0) / 60.0) ** 2) * 0.9
         # Red channel: peak around 650nm
         red_curve = np.exp(-0.5 * ((wavelength - 650.0) / 70.0) ** 2) * 0.7
@@ -316,13 +317,15 @@ class SpotDetectionValidator:
         center_wl = 570.0
         width = 35.0
         dye_spectrum_interp = np.exp(-0.5 * ((wavelength - center_wl) / width) ** 2)
-        
+
         # Normalise dye spectrum
         dye_spectrum_interp = dye_spectrum_interp / np.sum(dye_spectrum_interp)
         dye_spectrum = np.array([dye_spectrum_interp])
 
         # Calculate average emission wavelength
-        average_emission_wavelength = np.sum(wavelength * dye_spectrum_interp) / np.sum(dye_spectrum_interp)
+        average_emission_wavelength = np.sum(wavelength * dye_spectrum_interp) / np.sum(
+            dye_spectrum_interp
+        )
 
         # Calculate dye pixel efficiency
         dye_pixel_efficiency = np.dot(dye_spectrum, absolute_QYs.T)
@@ -673,15 +676,23 @@ class SpotDetectionValidator:
 
     def _generate_summary_report(self, results_df: pd.DataFrame, save_folder: str):
         """Generate summary statistics and visualisation."""
-        
+
         # Check if DataFrame is empty or missing required columns
         if len(results_df) == 0:
             print("No results to analyse - all bootstrap samples failed.")
             return
-            
-        required_columns = ["n_detected", "precision", "recall", "f1_score", "false_positive_rate"]
-        missing_columns = [col for col in required_columns if col not in results_df.columns]
-        
+
+        required_columns = [
+            "n_detected",
+            "precision",
+            "recall",
+            "f1_score",
+            "false_positive_rate",
+        ]
+        missing_columns = [
+            col for col in required_columns if col not in results_df.columns
+        ]
+
         if missing_columns:
             print(f"Warning: Missing required columns: {missing_columns}")
             print("Available columns:", list(results_df.columns))

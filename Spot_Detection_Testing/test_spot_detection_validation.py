@@ -12,7 +12,7 @@ import numpy as np
 import warnings
 
 # Add src module directory to path
-src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
+src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.append(src_dir)
 # Also add current directory for SpotDetectionValidation import
 current_dir = os.path.abspath(os.path.dirname(__file__))

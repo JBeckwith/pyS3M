@@ -47,7 +47,10 @@ class TestMaskFunctions:
 
         # Each mask should have the correct shape
         for color, mask in masks.items():
-            assert mask.shape == (size_x, size_y)  # Note: first arg is x (width), second is y (height)
+            assert mask.shape == (
+                size_x,
+                size_y,
+            )  # Note: first arg is x (width), second is y (height)
             assert mask.dtype == bool or mask.dtype == np.uint8
 
     @pytest.mark.unit
@@ -79,20 +82,20 @@ class TestMaskFunctions:
         for color, mask in masks.items():
             assert mask.shape == (size_x, size_y)
 
-    @pytest.mark.unit  
+    @pytest.mark.unit
     def test_get_roi_mask_basic(self, mask_functions):
         """Test ROI mask generation with basic parameters."""
         # get_ROI_mask signature: (ROI_x_start, ROI_y_start, width, height, mosaic_unit)
         ROI_x_start, ROI_y_start = 2, 3
         width, height = 10, 8
-        
+
         masks = mask_functions.get_ROI_mask(ROI_x_start, ROI_y_start, width, height)
 
         # Should return dictionary of masks
         assert isinstance(masks, dict)
         expected_keys = {"B", "G", "R"}
         assert set(masks.keys()) == expected_keys
-        
+
         # Check mask properties
         for color, mask in masks.items():
             assert isinstance(mask, np.ndarray)
@@ -128,9 +131,9 @@ class TestMaskFunctions:
         """Test matrix symmetry optimization with numeric values."""
         numbers = np.array([1, 2, 3, 4])
         N = 2
-        
+
         result = mask_functions.optimise_matrix_symmetry(numbers, N)
-        
+
         # Should return 2x2 matrix
         assert result.shape == (N, N)
         # Should contain values from numbers array
@@ -143,13 +146,13 @@ class TestMaskFunctions:
         # Generate basic masks
         size_x, size_y = 16, 12
         masks = mask_functions.get_masks(size_x, size_y)
-        
+
         # Extract ROI masks
         roi_masks = mask_functions.get_ROI_mask(2, 2, 8, 6)
-        
+
         # Both should have same color keys
         assert set(masks.keys()) == set(roi_masks.keys())
-        
+
         # All masks should be valid arrays
         all_masks = list(masks.values()) + list(roi_masks.values())
         for mask in all_masks:
@@ -160,21 +163,21 @@ class TestMaskFunctions:
     def test_mosaic_unit_validation(self, mask_functions):
         """Test that custom mosaic units work correctly."""
         size_x, size_y = 6, 6
-        
+
         # Test with different mosaic patterns
         patterns = [
             np.array([["B", "G"], ["G", "R"]]),  # Standard BGGR
             np.array([["R", "G"], ["G", "B"]]),  # RGGB
             np.array([["G", "B"], ["R", "G"]]),  # GBRG
         ]
-        
+
         for pattern in patterns:
             masks = mask_functions.get_masks(size_x, size_y, mosaic_unit=pattern)
-            
+
             # Should always have B, G, R keys regardless of pattern
             expected_keys = {"B", "G", "R"}
             assert set(masks.keys()) == expected_keys
-            
+
             # Each mask should have correct shape and non-zero elements
             for color, mask in masks.items():
                 assert mask.shape == (size_x, size_y)

@@ -180,9 +180,7 @@ class SuperRes_Functions:
             else offset_map
         )
         rqe_roi = (
-            rqe[xmin:xmax, ymin:ymax]
-            if not isinstance(rqe, (int, float))
-            else rqe
+            rqe[xmin:xmax, ymin:ymax] if not isinstance(rqe, (int, float)) else rqe
         )
 
         # Convert raw ROI to photoelectrons
@@ -290,9 +288,7 @@ class SuperRes_Functions:
             frame=1,
         )
 
-        _, image_to_analyse = self.scmos.bayer_demosaic_stack(
-            raw_data, grayscale=True
-        )
+        _, image_to_analyse = self.scmos.bayer_demosaic_stack(raw_data, grayscale=True)
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
@@ -695,7 +691,7 @@ class SuperRes_Functions:
                 pixel_size=pixel_size,
                 NA=NA,
                 sigma=sigma,
-                fraction_true=fraction_true
+                fraction_true=fraction_true,
             )
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
@@ -881,13 +877,11 @@ class SuperRes_Functions:
                 pixel_size=pixel_size,
                 NA=NA,
                 sigma=sigma,
-                fraction_true=fraction_true
+                fraction_true=fraction_true,
             )
 
             # Track the highest frame number for this file
-            file_frames = (
-                raw_data.shape[0] if len(raw_data.shape) > 2 else 1
-            )
+            file_frames = raw_data.shape[0] if len(raw_data.shape) > 2 else 1
 
             # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
             for i in np.arange(len(detected_puncta)):
