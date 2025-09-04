@@ -75,7 +75,7 @@ class InteractiveThresholdTuner:
         # Default parameters
         self.default_pfa = 1e-4
         self.default_sigma = 1.5
-        self.default_true_fraction = 0.15
+        self.default_true_fraction = 0.2
         self.default_wavelength = 0.7
 
         # Results storage
@@ -531,7 +531,7 @@ class InteractiveThresholdTuner:
 
             print(f"\nOptions:")
             print(f"  1. Adjust PFA (current: {current_pfa:.0e})")
-            print(f"  2. Adjust sigma (current: {current_sigma})")
+            print(f"  2. Adjust sigma (current: {current_sigma} pixels)")
             print(f"  3. Adjust Fraction true (current: {current_fraction_true})")
             print(f"  4. Adjust wavelength (current: {current_wavelength})")
             print(f"  5. Accept current parameters")
@@ -554,10 +554,12 @@ class InteractiveThresholdTuner:
                     new_sigma = float(
                         input(f"Enter new sigma (current: {current_sigma}): ").strip()
                     )
-                    if 0 <= new_sigma <= 100:
+                    if 0.1 <= new_sigma <= 10.0:
                         current_sigma = new_sigma
                     else:
-                        print("Sigma must be between 0 and 100")
+                        print(
+                            "Sigma must be between 0.1 and 10.0 (PSF standard deviation in pixels)"
+                        )
                 except ValueError:
                     print("Invalid input, keeping current value")
 

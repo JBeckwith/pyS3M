@@ -114,7 +114,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
     ) -> np.ndarray:
         """
         function to fit puncta in parallel
@@ -207,7 +207,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -260,7 +260,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
     ) -> np.ndarray:
         """detect_puncta_in_image: Returns spots from an image supplied
 
@@ -286,15 +286,19 @@ class SpotDetection_Functions:
             image_for_detection = image
         if psf_fun is None:
             psf_fun = self.gauss2d
-        sigma = np.divide(self.psf.sigma_PSF(wavelength, NA), pixel_size)
+        # Keep the threshold sigma parameter separate from PSF sigma
+        threshold_sigma = sigma  # This is the background threshold multiplier
+        psf_sigma = np.divide(
+            self.psf.sigma_PSF(wavelength, NA), pixel_size
+        )  # This is for PSF width
 
-        # one-sided range of matched filter kernel in pixels
-        mf_range = int(np.ceil(mf_factor * sigma))
-        guard_interval = int(np.ceil(mf_factor * sigma))
-        reference_interval = int(np.ceil(mf_factor * sigma))
-        local_max_range = int(np.ceil(local_factor * sigma))
+        # one-sided range of matched filter kernel in pixels (uses PSF sigma)
+        mf_range = int(np.ceil(mf_factor * psf_sigma))
+        guard_interval = int(np.ceil(mf_factor * psf_sigma))
+        reference_interval = int(np.ceil(mf_factor * psf_sigma))
+        local_max_range = int(np.ceil(local_factor * psf_sigma))
 
-        w = self.get_mf(psf_fun, sigma, mf_range)
+        w = self.get_mf(psf_fun, psf_sigma, mf_range)
         filtered_image = self.filter_image(image_for_detection, w)
         square_annulus = self.get_square_annulus(guard_interval, reference_interval)
         detected_puncta = self.get_detection_points(
@@ -306,7 +310,7 @@ class SpotDetection_Functions:
                 detected_puncta,
                 guard_interval,
                 reference_interval,
-                sigma,
+                threshold_sigma,
                 fraction_true,
             )
         ]
@@ -319,7 +323,7 @@ class SpotDetection_Functions:
         guard_interval,
         reference_interval,
         sigma=1.5,
-        fraction_true=0.15,
+        fraction_true=0.2,
     ):
         """
         Estimate intensity values for each centroid in the image.
@@ -830,7 +834,7 @@ def _detect_puncta_in_images_standalone(
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
     sigma: float = 1.5,
-    fraction_true: float = 0.15,
+    fraction_true: float = 0.2,
 ) -> np.ndarray:
     """Standalone version of detect_puncta_in_images for multiprocessing.
 

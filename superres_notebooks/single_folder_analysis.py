@@ -13,7 +13,7 @@ Usage:
     wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)
     pfa: false alarm probability (e.g., 1e-4)
     sigma: sigma parameter (e.g., 1.5)
-    fraction_true: fraction true parameter (e.g., 0.15)
+    fraction_true: fraction true parameter (e.g., 0.2)
 
 Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
 """
@@ -36,7 +36,7 @@ def main():
         print("  wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)")
         print("  pfa: false alarm probability (e.g., 1e-4)")
         print("  sigma: sigma parameter (e.g., 1.5)")
-        print("  fraction_true: fraction true parameter (e.g., 0.15)")
+        print("  fraction_true: fraction true parameter (e.g., 0.2)")
         sys.exit(1)
 
     folder_type = sys.argv[1]

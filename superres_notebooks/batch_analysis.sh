@@ -64,7 +64,7 @@ get_threshold_params() {
     local folder_path="$1"
     local default_pfa="1e-4"
     local default_sigma="1.5"
-    local default_fraction_true="0.15" 
+    local default_fraction_true="0.2" 
     local default_wavelength="$2"
     
     # Look for exact match first

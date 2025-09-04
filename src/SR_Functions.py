@@ -231,7 +231,7 @@ class SuperRes_Functions:
         pixel_size=0.069,
         s=5,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
     ):
         """example_spots_singleframe function
             analyses where fiducials are for images in image folder given boxes
@@ -595,7 +595,7 @@ class SuperRes_Functions:
         NA=1.49,
         pixel_size=0.069,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
         image_type=".tif",
     ):
         """Single-molecule data fitting function.
@@ -780,7 +780,7 @@ class SuperRes_Functions:
         NA=1.49,
         pixel_size=0.069,
         sigma: float = 1.5,
-        fraction_true: float = 0.15,
+        fraction_true: float = 0.2,
         image_type=".tif",
     ):
         """Cross-file imaging data fitting function.
