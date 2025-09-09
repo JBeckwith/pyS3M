@@ -641,13 +641,11 @@ process_folder() {
     fi
     
     # Run Python analysis with explicit garbage collection and memory monitoring using nocache
-    if $NOCACHE_CMD bash -c "PYTHONHASHSEED=0 python3 -c \"
-import gc, sys, os
-sys.path.insert(0, '$SCRIPT_DIR')
-gc.set_threshold(100, 5, 5)  # More aggressive GC
-os.environ['MALLOC_TRIM_THRESHOLD_'] = '65536'  # Force malloc trim
-exec(open('$PYTHON_SCRIPT').read())
-\" '$folder_type' '$scratch_folder' '$wavelength' '$pfa' '$sigma' '$fraction_true'" >> "$LOG_FILE" 2>&1; then
+    # Set environment variables for the Python process
+    export PYTHONHASHSEED=0
+    export MALLOC_TRIM_THRESHOLD_=65536
+    
+    if $NOCACHE_CMD python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis
