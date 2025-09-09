@@ -677,7 +677,7 @@ class SuperRes_Functions:
             fit_savename = file.split(".")[0] + ".h5"
 
             # Load raw data for efficient ROI-based processing
-            raw_data = self.io.read_tiff(file, dtype="float32")
+            raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
 
             _, image_to_analyse = self.scmos.bayer_demosaic_stack(
                 raw_data, grayscale=True
@@ -864,7 +864,7 @@ class SuperRes_Functions:
             planes = []
 
             # Load raw data for efficient ROI-based processing
-            raw_data = self.io.read_tiff(file, dtype="float32")
+            raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
             _, image_to_analyse = self.scmos.bayer_demosaic_stack(
                 raw_data, grayscale=True
             )

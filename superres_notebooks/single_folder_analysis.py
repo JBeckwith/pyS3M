@@ -117,6 +117,31 @@ def main():
         # Import modules (do this late to avoid import overhead for skipped folders)
         print("Importing modules...")
         import IOFunctions
+        
+        # Optimize TIFF reading performance with aggressive memory mapping
+        print("Configuring memory-efficient TIFF reading...")
+        # Set environment variables for faster TIFF reading
+        os.environ['TIFFFILE_NUM_THREADS'] = '8'  # Use multiple threads for TIFF reading
+        os.environ['OMP_NUM_THREADS'] = '8'        # Optimize OpenMP for image processing
+        
+        # Force all IOFunctions to use memory mapping to avoid loading entire stacks into RAM
+        original_read_tiff = None
+        
+        def patch_io_functions():
+            import IOFunctions
+            global original_read_tiff
+            io_instance = IOFunctions.IO_Functions()
+            original_read_tiff = io_instance.read_tiff
+            
+            def memory_mapped_read_tiff(file_path, frame=None, dtype="float32", memmap=True):
+                # Force memory mapping to be always True for large files
+                return original_read_tiff(file_path, frame=frame, dtype=dtype, memmap=True)
+            
+            # Patch the instance method
+            io_instance.read_tiff = memory_mapped_read_tiff.__get__(io_instance, IOFunctions.IO_Functions)
+            return io_instance
+        
+        print("Memory mapping optimization configured")
         import sCMOSFunctions
         import SpectralFunctions
         import MaskFunctions
