@@ -675,6 +675,22 @@ check_threshold_params
 
 console_message "Starting folder discovery and processing..."
 
+# Process imaging folders first - DNA origami files (550nm default)
+console_message "Processing DNA origami and general imaging folders first (${#IMAGING_FOLDERS[@]} folders)..."
+for folder in "${IMAGING_FOLDERS[@]}"; do
+    if [ -d "$folder" ]; then
+        process_folder "imaging" "$folder" "0.55"
+    else
+        log_message "WARNING: Imaging folder not found: $folder"
+    fi
+done
+
+# Process hierarchical imaging directories - may contain more DNA origami
+console_message "Processing hierarchical imaging directories (${#HIERARCHICAL_DIRS[@]} base directories)..."
+for base_dir in "${HIERARCHICAL_DIRS[@]}"; do
+    process_hierarchical "$base_dir" "imaging" "0.55"
+done
+
 # Process SM data hierarchical directories
 console_message "Processing SM data directories (${#SM_DATA_DIRS[@]} base directories)..."
 for base_dir in "${SM_DATA_DIRS[@]}"; do
@@ -689,22 +705,6 @@ for folder in "${HELA_FOLDERS[@]}"; do
     else
         log_message "WARNING: HeLa folder not found: $folder"
     fi
-done
-
-# Process imaging folders directly (550nm default)
-console_message "Processing general imaging folders (${#IMAGING_FOLDERS[@]} folders)..."
-for folder in "${IMAGING_FOLDERS[@]}"; do
-    if [ -d "$folder" ]; then
-        process_folder "imaging" "$folder" "0.55"
-    else
-        log_message "WARNING: Imaging folder not found: $folder"
-    fi
-done
-
-# Process hierarchical imaging directories
-console_message "Processing hierarchical imaging directories (${#HIERARCHICAL_DIRS[@]} base directories)..."
-for base_dir in "${HIERARCHICAL_DIRS[@]}"; do
-    process_hierarchical "$base_dir" "imaging" "0.55"
 done
 
 echo  # New line after progress output
