@@ -715,7 +715,7 @@ sort_folders_by_date() {
     local -n folder_array=$1  # Pass array by reference
     local temp_file="/tmp/folder_dates_$$"
     
-    # Create temporary file with folder paths and modification times
+    # Create temporary file with folder paths and modification times using null separator
     for folder in "${folder_array[@]}"; do
         if [ -d "$folder" ]; then
             # Get the modification time of the most recent file in the folder
@@ -726,10 +726,11 @@ sort_folders_by_date() {
                 # If no files found, use folder modification time
                 local mod_time=$(stat -c '%Y' "$folder" 2>/dev/null || echo "0")
             fi
-            echo "$mod_time $folder" >> "$temp_file"
+            # Use tab separator to handle paths with spaces
+            printf "%s\t%s\n" "$mod_time" "$folder" >> "$temp_file"
         else
             # Non-existent folders get timestamp 0 (will be processed last)
-            echo "0 $folder" >> "$temp_file"
+            printf "%s\t%s\n" "0" "$folder" >> "$temp_file"
         fi
     done
     
@@ -738,10 +739,10 @@ sort_folders_by_date() {
         # Clear the original array
         folder_array=()
         
-        # Read sorted folders back into array
-        while IFS=' ' read -r timestamp folder_path; do
+        # Read sorted folders back into array using tab separator
+        while IFS=$'\t' read -r timestamp folder_path; do
             folder_array+=("$folder_path")
-        done < <(sort -nr "$temp_file" | cut -d' ' -f2-)
+        done < <(sort -nr "$temp_file")
         
         # Clean up temporary file
         rm -f "$temp_file"
