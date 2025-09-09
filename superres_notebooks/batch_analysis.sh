@@ -18,6 +18,15 @@ MAX_SWAP_USAGE_MB=1024   # Maximum swap usage before pausing (1GB - more conserv
 MAX_MEMORY_USAGE_PCT=75  # Maximum RAM usage percentage before pausing (more conservative)
 COOLDOWN_TIME=20         # seconds to wait when memory usage is high (shorter)
 
+# Check for nocache availability to reduce filesystem cache pressure
+NOCACHE_CMD=""
+if command -v nocache >/dev/null 2>&1; then
+    NOCACHE_CMD="nocache"
+    log_message "nocache command available - will use for file operations"
+else
+    log_message "nocache command not available - using standard file operations"
+fi
+
 # Check for threshold parameters file
 check_threshold_params() {
     if [ ! -f "$THRESHOLD_PARAMS_FILE" ]; then
@@ -280,10 +289,10 @@ wait_for_memory_relief() {
             # Force Python garbage collection for any running processes
             pkill -SIGUSR1 python3 2>/dev/null || true
             
-            # Clear user-space caches that we can control
+            # Clear user-space caches that we can control using nocache
             # Clear any temporary files older than 1 hour in common temp locations
-            find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
-            find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
+            $NOCACHE_CMD find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
+            $NOCACHE_CMD find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
             
             # Force malloc to return memory to system
             export MALLOC_TRIM_THRESHOLD_=65536
@@ -327,8 +336,8 @@ optimize_system_memory() {
     log_message "System memory optimization complete"
 }
 
-# Selective copy with retry logic - only copy necessary files to reduce scratch usage
-# Copies .h5 files (for date checking), .tif/.tiff files (for analysis), and essential metadata
+# Selective copy with retry logic - only copy files needed for analysis
+# Copies .tif/.tiff files (for analysis) and essential metadata (NO .h5 files - date check done earlier)
 selective_copy() {
     local src="$1"
     local dst="$2"
@@ -341,41 +350,29 @@ selective_copy() {
     mkdir -p "$target_dir" || return 1
     
     for attempt in $(seq 1 $max_attempts); do
-        log_message "Selective copy attempt $attempt/$max_attempts: copying only essential files"
+        log_message "Selective copy attempt $attempt/$max_attempts: copying only TIFF files and metadata"
         
         local copy_success=true
         
-        # Copy .h5 files (needed for date checking)
-        find "$src" -name "*.h5" -type f | while read -r h5_file; do
-            local rel_path=$(realpath --relative-to="$src" "$h5_file")
-            local dest_file="$target_dir/$rel_path"
-            local dest_dir=$(dirname "$dest_file")
-            mkdir -p "$dest_dir"
-            if ! cp "$h5_file" "$dest_file" 2>> "$LOG_FILE"; then
-                log_message "Failed to copy .h5 file: $h5_file"
-                copy_success=false
-            fi
-        done
-        
-        # Copy TIFF files (needed for analysis)
+        # Copy TIFF files (needed for analysis) using nocache to reduce cache pressure
         find "$src" -name "*.tif" -o -name "*.tiff" -type f | while read -r tiff_file; do
             local rel_path=$(realpath --relative-to="$src" "$tiff_file")
             local dest_file="$target_dir/$rel_path"
             local dest_dir=$(dirname "$dest_file")
             mkdir -p "$dest_dir"
-            if ! cp "$tiff_file" "$dest_file" 2>> "$LOG_FILE"; then
+            if ! $NOCACHE_CMD cp "$tiff_file" "$dest_file" 2>> "$LOG_FILE"; then
                 log_message "Failed to copy TIFF file: $tiff_file"
                 copy_success=false
             fi
         done
         
-        # Copy essential metadata files (small files)
+        # Copy essential metadata files (small files) using nocache
         find "$src" -name "*.txt" -o -name "*.json" -o -name "*.csv" -o -name "*.xml" -type f -size -1M | while read -r meta_file; do
             local rel_path=$(realpath --relative-to="$src" "$meta_file")
             local dest_file="$target_dir/$rel_path"
             local dest_dir=$(dirname "$dest_file")
             mkdir -p "$dest_dir"
-            cp "$meta_file" "$dest_file" 2>> "$LOG_FILE" || true  # Non-critical files
+            $NOCACHE_CMD cp "$meta_file" "$dest_file" 2>> "$LOG_FILE" || true  # Non-critical files
         done
         
         if [ "$copy_success" = true ]; then
@@ -651,14 +648,14 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    # Run Python analysis with explicit garbage collection and memory monitoring
-    if PYTHONHASHSEED=0 python3 -c "
+    # Run Python analysis with explicit garbage collection and memory monitoring using nocache
+    if $NOCACHE_CMD bash -c "PYTHONHASHSEED=0 python3 -c \"
 import gc, sys, os
 sys.path.insert(0, '$SCRIPT_DIR')
 gc.set_threshold(100, 5, 5)  # More aggressive GC
 os.environ['MALLOC_TRIM_THRESHOLD_'] = '65536'  # Force malloc trim
 exec(open('$PYTHON_SCRIPT').read())
-" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
+\" '$folder_type' '$scratch_folder' '$wavelength' '$pfa' '$sigma' '$fraction_true'" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis
@@ -672,25 +669,22 @@ exec(open('$PYTHON_SCRIPT').read())
     log_message "Forcing post-analysis memory cleanup"
     sync
     
-    # Step 3: Copy .h5 results back to original location
+    # Step 3: Analysis generates new .h5 files directly in original location (no copying back needed)
     if [ "$analysis_success" = true ]; then
-        log_message "STEP 3: Copying results back to original location"
+        log_message "STEP 3: Analysis completed - new .h5 files generated in original location"
         
-        # Force memory cleanup before copying back results
+        # Force memory cleanup after successful analysis
         sync
-        echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
         
-        copy_results_back "$scratch_folder" "$folder_path"
-        
-        # Verify results were copied back
+        # Verify new results exist in original location
         local h5_count=$(find "$folder_path" -name "*.h5" -type f | wc -l)
         if [ $h5_count -gt 0 ]; then
-            echo "✅ SUCCESS ($h5_count .h5 files)"
-            log_message "SUCCESS: Processing completed, $h5_count .h5 files copied back"
+            echo "✅ SUCCESS ($h5_count .h5 files generated)"
+            log_message "SUCCESS: Processing completed, $h5_count new .h5 files generated"
             increment_counter "success"
         else
-            echo "⚠️  PARTIAL SUCCESS (no .h5 files)"
-            log_message "WARNING: Analysis completed but no .h5 files found to copy back"
+            echo "⚠️  PARTIAL SUCCESS (no .h5 files generated)"
+            log_message "WARNING: Analysis completed but no .h5 files generated"
             increment_counter "success"  # Still count as success since analysis ran
         fi
     else
@@ -699,9 +693,9 @@ exec(open('$PYTHON_SCRIPT').read())
         increment_counter "error"
     fi
     
-    # Step 4: Cleanup scratch folder
+    # Step 4: Cleanup scratch folder using nocache to avoid caching deleted files
     log_message "STEP 4: Cleaning up scratch folder"
-    safe_cleanup "$scratch_folder"
+    $NOCACHE_CMD bash -c "$(declare -f safe_cleanup); safe_cleanup '$scratch_folder'" || safe_cleanup "$scratch_folder"
     
     # Force final memory cleanup after each folder to prevent accumulation
     sync
