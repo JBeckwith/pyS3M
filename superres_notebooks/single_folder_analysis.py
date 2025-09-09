@@ -26,13 +26,14 @@ import traceback
 
 
 def main():
-    # Check arguments - now expects 7 arguments (including script name)
-    if len(sys.argv) != 7:
+    # Check arguments - now expects 8 arguments (including script name) to separate scratch and original paths
+    if len(sys.argv) != 8:
         print(
-            "Usage: python3 single_folder_analysis.py <type> <folder_path> <wavelength> <pfa> <sigma> <fraction_true>"
+            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true>"
         )
         print("  type: 'sm' or 'imaging'")
-        print("  folder_path: full path to folder to process")
+        print("  scratch_folder_path: full path to scratch folder (for processing)")
+        print("  original_folder_path: full path to original folder (for .h5 output)")
         print("  wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)")
         print("  pfa: false alarm probability (e.g., 1e-4)")
         print("  sigma: sigma parameter (e.g., 1.5)")
@@ -40,18 +41,20 @@ def main():
         sys.exit(1)
 
     folder_type = sys.argv[1]
-    folder_path = sys.argv[2]
-    peak_wavelength = float(sys.argv[3])
-    pfa = float(sys.argv[4])
-    sigma = float(sys.argv[5])
-    fraction_true = float(sys.argv[6])
+    scratch_folder_path = sys.argv[2]
+    original_folder_path = sys.argv[3]
+    peak_wavelength = float(sys.argv[4])
+    pfa = float(sys.argv[5])
+    sigma = float(sys.argv[6])
+    fraction_true = float(sys.argv[7])
 
     print(
         f"Using threshold parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
 
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
-    print(f"Processing: {folder_path}")
+    print(f"Processing: {scratch_folder_path}")
+    print(f"Original folder: {original_folder_path}")
     print(f"Type: {folder_type}, Wavelength: {peak_wavelength}")
     print(
         f"Threshold Parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
@@ -69,33 +72,41 @@ def main():
 
     try:
         # Basic validation
-        if not os.path.exists(folder_path):
-            print(f"ERROR: Folder does not exist: {folder_path}")
+        if not os.path.exists(scratch_folder_path):
+            print(f"ERROR: Scratch folder does not exist: {scratch_folder_path}")
             sys.exit(1)
 
-        if not os.path.isdir(folder_path):
-            print(f"ERROR: Path is not a directory: {folder_path}")
+        if not os.path.isdir(scratch_folder_path):
+            print(f"ERROR: Scratch path is not a directory: {scratch_folder_path}")
+            sys.exit(1)
+            
+        if not os.path.exists(original_folder_path):
+            print(f"ERROR: Original folder does not exist: {original_folder_path}")
             sys.exit(1)
 
-        # Check for required files
-        tif_files = [f for f in os.listdir(folder_path) if f.endswith(".tif")]
+        if not os.path.isdir(original_folder_path):
+            print(f"ERROR: Original path is not a directory: {original_folder_path}")
+            sys.exit(1)
+
+        # Check for required files in scratch folder
+        tif_files = [f for f in os.listdir(scratch_folder_path) if f.endswith(".tif")]
         if not tif_files:
-            print(f"SKIP: No .tif files found in {folder_path}")
+            print(f"SKIP: No .tif files found in {scratch_folder_path}")
             sys.exit(0)  # Not an error, just skip
 
-        metadata_files = [f for f in os.listdir(folder_path) if "metadata" in f.lower()]
+        metadata_files = [f for f in os.listdir(scratch_folder_path) if "metadata" in f.lower()]
         if not metadata_files:
-            print(f"SKIP: No metadata files found in {folder_path}")
+            print(f"SKIP: No metadata files found in {scratch_folder_path}")
             sys.exit(0)  # Not an error, just skip
 
         print(
             f"Found {len(tif_files)} .tif files and {len(metadata_files)} metadata files"
         )
 
-        # Clean existing .h5 files
-        h5_files = glob.glob(os.path.join(folder_path, "*.h5"))
+        # Clean existing .h5 files from ORIGINAL folder (where we want to write new ones)
+        h5_files = glob.glob(os.path.join(original_folder_path, "*.h5"))
         if h5_files:
-            print(f"Removing {len(h5_files)} existing .h5 files...")
+            print(f"Removing {len(h5_files)} existing .h5 files from original folder...")
             for h5_file in h5_files:
                 try:
                     os.remove(h5_file)
@@ -158,10 +169,10 @@ def main():
         SupRes_F = functions["SupRes_F"]
 
         if folder_type == "sm":
-            # SM data processing
+            # SM data processing - process files from scratch, .h5 files will be created there
             print(f"Processing as SM data with wavelength {peak_wavelength}")
             SupRes_F.fit_SM_data(
-                folder_path,
+                scratch_folder_path,  # Process files from scratch
                 smoothing_function,
                 camera_data["gain"],
                 camera_data["offset"],
@@ -179,10 +190,10 @@ def main():
             )
             print("SM data processing completed")
         else:
-            # Imaging data processing
+            # Imaging data processing - process files from scratch, .h5 files will be created there
             print(f"Processing as imaging data with wavelength {peak_wavelength}")
             SupRes_F.fit_imaging_data(
-                folder_path,
+                scratch_folder_path,  # Process files from scratch
                 smoothing_function,
                 camera_data["gain"],
                 camera_data["offset"],
@@ -199,9 +210,24 @@ def main():
                 image_type=".tif",
             )
             print("Imaging data processing completed")
+            
+        # Move .h5 files from scratch folder to original folder
+        scratch_h5_files = glob.glob(os.path.join(scratch_folder_path, "*.h5"))
+        if scratch_h5_files:
+            print(f"Moving {len(scratch_h5_files)} .h5 files from scratch to original folder...")
+            for h5_file in scratch_h5_files:
+                filename = os.path.basename(h5_file)
+                dest_file = os.path.join(original_folder_path, filename)
+                try:
+                    # Use move instead of copy to avoid leaving files in scratch
+                    import shutil
+                    shutil.move(h5_file, dest_file)
+                    print(f"Moved: {filename}")
+                except Exception as e:
+                    print(f"Failed to move {filename}: {e}")
 
-        # Check results
-        final_h5_files = glob.glob(os.path.join(folder_path, "*.h5"))
+        # Check results in original folder
+        final_h5_files = glob.glob(os.path.join(original_folder_path, "*.h5"))
         if final_h5_files:
             print(f"SUCCESS: Created {len(final_h5_files)} .h5 files")
             for h5_file in final_h5_files:

@@ -640,12 +640,12 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    # Run Python analysis with explicit garbage collection and memory monitoring using nocache
-    # Set environment variables for the Python process
+    # Run Python analysis with explicit garbage collection and memory monitoring 
+    # Don't use nocache for analysis - we want TIFF files cached for faster processing
     export PYTHONHASHSEED=0
     export MALLOC_TRIM_THRESHOLD_=65536
     
-    if $NOCACHE_CMD python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis
