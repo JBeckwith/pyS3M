@@ -434,6 +434,34 @@ safe_cleanup() {
     fi
 }
 
+# Function to check if .h5 files were generated after September 4th, 2025
+check_h5_file_dates() {
+    local scratch_folder="$1"
+    local cutoff_date="2025-09-04"
+    
+    # Find all .h5 files in scratch folder
+    local h5_files=($(find "$scratch_folder" -name "*.h5" -type f 2>/dev/null))
+    
+    if [ ${#h5_files[@]} -eq 0 ]; then
+        # No .h5 files found, proceed with analysis
+        return 0
+    fi
+    
+    # Check modification date of each .h5 file
+    for h5_file in "${h5_files[@]}"; do
+        local file_date=$(stat -c '%Y' "$h5_file" 2>/dev/null)
+        if [ -n "$file_date" ]; then
+            local file_date_str=$(date -d "@$file_date" '+%Y-%m-%d')
+            if [[ "$file_date_str" > "$cutoff_date" ]]; then
+                log_message "Found .h5 file newer than $cutoff_date: $(basename "$h5_file") (created $file_date_str)"
+                return 1  # Skip this folder
+            fi
+        fi
+    done
+    
+    return 0  # All .h5 files are from September 4th or earlier
+}
+
 # Function to process single folder with scratch workflow
 process_folder() {
     local folder_type="$1"
@@ -539,6 +567,15 @@ process_folder() {
     
     local file_count=$(find "$scratch_folder" -type f | wc -l)
     log_message "Scratch folder created with $file_count files"
+    
+    # Check if .h5 files were generated after September 4th, 2025
+    if ! check_h5_file_dates "$scratch_folder"; then
+        echo "⏭️  SKIP (recent .h5 files)"
+        log_message "SKIP: Folder contains .h5 files generated after September 4th, 2025"
+        increment_counter "skip"
+        # Don't cleanup scratch folder - preserve existing .h5 files
+        return 0
+    fi
     
     # Step 2: Run analysis on scratch folder with memory monitoring
     log_message "STEP 2: Running analysis on scratch folder"
