@@ -28,6 +28,91 @@ class sCMOS_Functions:
         """
         return
 
+    def variance_aware_malvar_demosaic(
+        self,
+        CFA: np.ndarray,
+        variance_map: np.ndarray,
+        offset_map: np.ndarray | None = None,
+        gain: float | np.ndarray = 1.0,
+        grayscale: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """
+        Alternative approach to variance-aware Malvar demosaicing.
+        Applies variance weighting to the input before standard Malvar demosaicing.
+
+        Args:
+            CFA: Input CFA data, shape (H, W) or (frames, H, W)
+            variance_map: Variance map, shape (H, W) - same spatial dimensions as CFA
+            offset_map: Offset map, shape (H, W) - same spatial dimensions as CFA
+            gain: Conversion gain from ADU to photoelectrons, scalar or array of shape (H, W)
+            grayscale: Whether to return grayscale image
+
+        Returns:
+            result: Demosaiced image
+            grayscale: Grayscale image if requested, None otherwise
+        """
+        CFA = np.asarray(CFA, dtype=np.float32)
+        variance_map = np.asarray(variance_map, dtype=np.float32)
+
+        # Ensure variance_map is 2D
+        if variance_map.ndim > 2:
+            variance_map = np.squeeze(variance_map)
+
+        # Handle gain matrix (can be scalar or 2D array)
+        if isinstance(gain, np.ndarray):
+            gain = np.asarray(gain, dtype=np.float32)
+            # Ensure gain is 2D if it's an array
+            if gain.ndim > 2:
+                gain = np.squeeze(gain)
+
+        # Apply offset correction if provided
+        if offset_map is not None:
+            offset_map = np.asarray(offset_map, dtype=np.float32)
+            # Ensure offset_map is 2D
+            if offset_map.ndim > 2:
+                offset_map = np.squeeze(offset_map)
+
+            # Handle dimensional broadcasting for offset subtraction
+            if CFA.ndim == 3:  # (frames, H, W)
+                CFA = CFA - offset_map[np.newaxis, :, :]
+            else:  # (H, W)
+                CFA = CFA - offset_map
+
+        # Convert from ADU to photoelectrons with proper broadcasting
+        if isinstance(gain, np.ndarray) and CFA.ndim == 3:
+            # Broadcast gain matrix for 3D CFA
+            CFA_pe = CFA / gain[np.newaxis, :, :]
+            variance_pe = variance_map / (gain**2)
+        elif isinstance(gain, np.ndarray):
+            # 2D CFA with 2D gain
+            CFA_pe = CFA / gain
+            variance_pe = variance_map / (gain**2)
+        else:
+            # Scalar gain
+            CFA_pe = CFA / gain
+            variance_pe = variance_map / (gain**2)
+
+        # Calculate weights from variance (inverse variance weighting)
+        weights = 1.0 / (variance_pe + 1e-12)
+
+        # Handle dimensional broadcasting for variance weighting
+        if CFA_pe.ndim == 3:  # (frames, H, W)
+            # Apply variance weighting with proper broadcasting
+            weighted_CFA = CFA_pe * weights[np.newaxis, :, :]
+        else:  # (H, W)
+            weighted_CFA = CFA_pe * weights
+
+        # Normalize by the average weight to maintain overall intensity
+        avg_weight = np.mean(weights)
+        weighted_CFA = weighted_CFA / avg_weight
+
+        # Now apply standard Malvar demosaicing to the weighted CFA
+        result, grayscale_result = self.bayer_demosaic_stack(
+            weighted_CFA, grayscale=grayscale
+        )
+
+        return result, grayscale_result
+
     def bayer_demosaic_stack(self, image, grayscale=False):
         """
         Apply colour demosaicking across an entire image stack.

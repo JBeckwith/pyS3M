@@ -12,11 +12,11 @@ PYTHON_SCRIPT="$SCRIPT_DIR/single_folder_analysis.py"
 LOG_FILE="batch_analysis_$(date +%Y%m%d_%H%M%S).log"
 THRESHOLD_PARAMS_FILE="$SCRIPT_DIR/threshold_parameters.txt"
 
-# Memory management configuration
-MEMORY_CHECK_INTERVAL=5  # seconds between memory checks
-MAX_SWAP_USAGE_MB=2048   # Maximum swap usage before pausing (2GB)
-MAX_MEMORY_USAGE_PCT=85  # Maximum RAM usage percentage before pausing
-COOLDOWN_TIME=30         # seconds to wait when memory usage is high
+# Memory management configuration - more aggressive settings
+MEMORY_CHECK_INTERVAL=3  # seconds between memory checks (more frequent)
+MAX_SWAP_USAGE_MB=1024   # Maximum swap usage before pausing (1GB - more conservative)
+MAX_MEMORY_USAGE_PCT=75  # Maximum RAM usage percentage before pausing (more conservative)
+COOLDOWN_TIME=20         # seconds to wait when memory usage is high (shorter)
 
 # Check for threshold parameters file
 check_threshold_params() {
@@ -267,17 +267,39 @@ wait_for_memory_relief() {
         # Show progress dots
         echo -n "."
         
-        # Force garbage collection and memory cleanup every 30 seconds
-        if [ $((wait_count % 30)) -eq 0 ]; then
+        # Aggressive memory cleanup every 15 seconds
+        if [ $((wait_count % 15)) -eq 0 ]; then
             echo -n " [cleanup] "
+            
+            # Force filesystem sync to reduce buffer cache
             sync
+            
+            # Try to clear system caches (may fail without root, but try anyway)
             echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+            
+            # Force Python garbage collection for any running processes
+            pkill -SIGUSR1 python3 2>/dev/null || true
+            
+            # Clear user-space caches that we can control
+            # Clear any temporary files older than 1 hour in common temp locations
+            find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
+            find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
+            
+            # Force malloc to return memory to system
+            export MALLOC_TRIM_THRESHOLD_=65536
+            
+            log_message "Performed aggressive cleanup cycle (${wait_count}s elapsed)"
         fi
         
-        # Timeout after 10 minutes
-        if [ "$wait_count" -gt 600 ]; then
+        # More frequent lighter cleanup every 6 seconds
+        if [ $((wait_count % 6)) -eq 0 ]; then
+            sync
+        fi
+        
+        # Timeout after 8 minutes (reduced from 10 minutes)
+        if [ "$wait_count" -gt 480 ]; then
             echo " ⏰ TIMEOUT"
-            log_message "WARNING: Memory pressure timeout after 10 minutes, continuing anyway"
+            log_message "WARNING: Memory pressure timeout after 8 minutes, continuing anyway"
             break
         fi
     done
@@ -305,31 +327,73 @@ optimize_system_memory() {
     log_message "System memory optimization complete"
 }
 
-# Robust copy with retry logic for temporary resource issues
-# Excludes .h5.backup files from being copied
-robust_copy() {
+# Selective copy with retry logic - only copy necessary files to reduce scratch usage
+# Copies .h5 files (for date checking), .tif/.tiff files (for analysis), and essential metadata
+selective_copy() {
     local src="$1"
     local dst="$2"
     local max_attempts=5
     local wait_time=10
+    local folder_name=$(basename "$src")
+    local target_dir="$dst/$folder_name"
+    
+    # Create target directory
+    mkdir -p "$target_dir" || return 1
     
     for attempt in $(seq 1 $max_attempts); do
-        log_message "Copy attempt $attempt/$max_attempts: $src -> $dst (excluding .h5.backup files)"
+        log_message "Selective copy attempt $attempt/$max_attempts: copying only essential files"
         
-        # Use rsync to exclude .h5.backup files
-        if rsync -av --exclude='*.h5.backup' "$src" "$dst" 2>> "$LOG_FILE"; then
-            log_message "Copy successful on attempt $attempt"
+        local copy_success=true
+        
+        # Copy .h5 files (needed for date checking)
+        find "$src" -name "*.h5" -type f | while read -r h5_file; do
+            local rel_path=$(realpath --relative-to="$src" "$h5_file")
+            local dest_file="$target_dir/$rel_path"
+            local dest_dir=$(dirname "$dest_file")
+            mkdir -p "$dest_dir"
+            if ! cp "$h5_file" "$dest_file" 2>> "$LOG_FILE"; then
+                log_message "Failed to copy .h5 file: $h5_file"
+                copy_success=false
+            fi
+        done
+        
+        # Copy TIFF files (needed for analysis)
+        find "$src" -name "*.tif" -o -name "*.tiff" -type f | while read -r tiff_file; do
+            local rel_path=$(realpath --relative-to="$src" "$tiff_file")
+            local dest_file="$target_dir/$rel_path"
+            local dest_dir=$(dirname "$dest_file")
+            mkdir -p "$dest_dir"
+            if ! cp "$tiff_file" "$dest_file" 2>> "$LOG_FILE"; then
+                log_message "Failed to copy TIFF file: $tiff_file"
+                copy_success=false
+            fi
+        done
+        
+        # Copy essential metadata files (small files)
+        find "$src" -name "*.txt" -o -name "*.json" -o -name "*.csv" -o -name "*.xml" -type f -size -1M | while read -r meta_file; do
+            local rel_path=$(realpath --relative-to="$src" "$meta_file")
+            local dest_file="$target_dir/$rel_path"
+            local dest_dir=$(dirname "$dest_file")
+            mkdir -p "$dest_dir"
+            cp "$meta_file" "$dest_file" 2>> "$LOG_FILE" || true  # Non-critical files
+        done
+        
+        if [ "$copy_success" = true ]; then
+            log_message "Selective copy successful on attempt $attempt"
             return 0
         else
-            log_message "Copy failed on attempt $attempt, waiting ${wait_time}s before retry"
+            log_message "Selective copy failed on attempt $attempt, waiting ${wait_time}s before retry"
             if [ $attempt -lt $max_attempts ]; then
                 sleep $wait_time
                 wait_time=$((wait_time * 2))  # Exponential backoff
+                # Clean up partial copy before retry
+                rm -rf "$target_dir" 2>/dev/null || true
+                mkdir -p "$target_dir"
             fi
         fi
     done
     
-    log_message "ERROR: Copy failed after $max_attempts attempts"
+    log_message "ERROR: Selective copy failed after $max_attempts attempts"
     return 1
 }
 
@@ -556,9 +620,9 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    if ! robust_copy "$folder_path" "/scratch2/jsb92/"; then
+    if ! selective_copy "$folder_path" "/scratch2/jsb92"; then
         echo "ERROR - Copy to scratch failed"
-        log_message "ERROR: Failed to copy folder to scratch after all retry attempts"
+        log_message "ERROR: Failed to selectively copy folder to scratch after all retry attempts"
         increment_counter "error"
         return 1
     fi
@@ -574,6 +638,10 @@ process_folder() {
     local file_count=$(find "$scratch_folder" -type f | wc -l)
     log_message "Scratch folder created with $file_count files"
     
+    # Force aggressive memory cleanup before analysis
+    log_message "Forcing memory cleanup before analysis"
+    sync
+    
     # Step 2: Run analysis on scratch folder with memory monitoring
     log_message "STEP 2: Running analysis on scratch folder"
     local analysis_success=false
@@ -583,13 +651,26 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
+    # Run Python analysis with explicit garbage collection and memory monitoring
+    if PYTHONHASHSEED=0 python3 -c "
+import gc, sys, os
+sys.path.insert(0, '$SCRIPT_DIR')
+gc.set_threshold(100, 5, 5)  # More aggressive GC
+os.environ['MALLOC_TRIM_THRESHOLD_'] = '65536'  # Force malloc trim
+exec(open('$PYTHON_SCRIPT').read())
+" "$folder_type" "$scratch_folder" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
+        # Force immediate garbage collection after successful analysis
+        sync
     else
         log_message "ERROR: Analysis failed on scratch folder"
         analysis_success=false
     fi
+    
+    # Force memory cleanup after analysis regardless of success/failure
+    log_message "Forcing post-analysis memory cleanup"
+    sync
     
     # Step 3: Copy .h5 results back to original location
     if [ "$analysis_success" = true ]; then
