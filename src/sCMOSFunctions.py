@@ -9,6 +9,7 @@ Created on Mon Sep 23 16:27:38 2024
 import numpy as np
 import os
 import sys
+from concurrent import futures
 from scipy.ndimage import uniform_filter
 from skimage.filters import gaussian, median
 from skimage.measure import block_reduce
@@ -17,6 +18,11 @@ from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+
+try:
+    import ProgressUtils
+except ImportError:
+    ProgressUtils = None
 
 
 class sCMOS_Functions:
@@ -115,27 +121,68 @@ class sCMOS_Functions:
     
     def bayer_demosaic_stack_grayscale(self, image):
         """
-        Apply colour demosaicking across an entire image stack.
+        Apply colour demosaicking across an entire image stack with parallel processing.
 
         Args:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
                                 where H is height, W is width, and C is the number of channels.
 
         Returns:
-            RGB_image (np.ndarray): binned image
+            grayscale_image (np.ndarray): Grayscale demosaiced image
         """
-
         image = image.astype(np.float32)
-        if len(image.shape) > 2:
-            RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
-            for i in np.arange(image.shape[0]):
-                RGB_image[i, :, :, :] = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
+        
+        if len(image.shape) <= 2:
+            # Single frame - process directly
+            rgb_image = demosaicing_CFA_Bayer_Malvar2004(image)
+            return np.sum(rgb_image, axis=-1)
+        
+        # Multi-frame processing with parallel execution
+        n_frames = image.shape[0]
+        n_workers = min(os.cpu_count() or 1, 24)  # Limit to reasonable number
+        
+        # Create task distribution similar to spot detection
+        n_tasks = min(100 * n_workers, n_frames)
+        frames_per_task = [
+            (
+                int(n_frames / n_tasks + 1)
+                if _ < n_frames % n_tasks
+                else int(n_frames / n_tasks)
+            )
+            for _ in range(n_tasks)
+        ]
+        start_indices = np.cumsum([0] + frames_per_task[:-1])
+        
+        # Submit parallel tasks
+        fs = []
+        with futures.ProcessPoolExecutor(n_workers) as executor:
+            for i, n_frame_task in zip(start_indices, frames_per_task):
+                if n_frame_task > 0:  # Only submit if there are frames to process
+                    fs.append(
+                        executor.submit(
+                            _demosaic_frames_standalone,
+                            image[i : i + n_frame_task, :, :]
+                        )
+                    )
+        
+        # Collect results in correct order
+        results = []
+        if ProgressUtils is not None:
+            with ProgressUtils.analysis_progress_bar(
+                total=len(fs), desc="Demosaicing frames"
+            ) as progress_bar:
+                for f in fs:
+                    results.append(f.result())
+                    progress_bar.update(1)
         else:
-            BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
-            RGB_image = np.zeros_like(BGR_image)
-            RGB_image = BGR_image
-            # Convert to grayscale by summing the RGB channels
-        return np.sum(RGB_image, axis=-1)
+            # Fallback without progress bar - preserve order
+            for f in fs:
+                results.append(f.result())
+        
+        # Concatenate results in correct order
+        grayscale_image = np.concatenate(results, axis=0)
+        
+        return grayscale_image
 
     def bayer_demosaic_stack(self, image, grayscale=False):
         """
@@ -305,3 +352,26 @@ class sCMOS_Functions:
         uniform_image = np.divide(convolved_image, weight_map)
 
         return uniform_image
+
+
+# Module-level standalone function for multiprocessing (pickleable)
+def _demosaic_frames_standalone(image_chunk: np.ndarray) -> np.ndarray:
+    """
+    Standalone function for demosaicing a chunk of frames.
+    
+    Args:
+        image_chunk: Image chunk of shape (n_frames, H, W)
+        
+    Returns:
+        Grayscale demosaiced images of shape (n_frames, H, W)
+    """
+    n_frames, height, width = image_chunk.shape
+    results = np.zeros((n_frames, height, width), dtype=np.float32)
+    
+    for i in range(n_frames):
+        # Demosaic to RGB
+        rgb_image = demosaicing_CFA_Bayer_Malvar2004(image_chunk[i, :, :])
+        # Convert to grayscale by summing RGB channels
+        results[i, :, :] = np.sum(rgb_image, axis=-1)
+    
+    return results
