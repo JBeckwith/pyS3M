@@ -283,16 +283,18 @@ wait_for_memory_relief() {
             # Force filesystem sync to reduce buffer cache
             sync
             
-            # Try to clear system caches (may fail without root, but try anyway)
-            echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
-            
             # Force Python garbage collection for any running processes
             pkill -SIGUSR1 python3 2>/dev/null || true
             
             # Clear user-space caches that we can control using nocache
             # Clear any temporary files older than 1 hour in common temp locations
-            $NOCACHE_CMD find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
-            $NOCACHE_CMD find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
+            if [ -n "$NOCACHE_CMD" ]; then
+                $NOCACHE_CMD find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
+                $NOCACHE_CMD find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
+            else
+                find /tmp -user "$(whoami)" -type f -mmin +60 -delete 2>/dev/null || true
+                find /scratch2/jsb92 -name "*.tmp" -mmin +30 -delete 2>/dev/null || true
+            fi
             
             # Force malloc to return memory to system
             export MALLOC_TRIM_THRESHOLD_=65536
@@ -318,22 +320,12 @@ wait_for_memory_relief() {
 }
 
 optimize_system_memory() {
-    log_message "Optimizing system memory settings for batch processing"
+    log_message "Optimizing user-space memory settings for batch processing"
     
-    # Reduce swap tendency (prefer RAM over swap)
-    echo 10 > /proc/sys/vm/swappiness 2>/dev/null || log_message "Cannot adjust swappiness (non-root)"
-    
-    # Increase dirty ratio to reduce I/O pressure
-    echo 15 > /proc/sys/vm/dirty_ratio 2>/dev/null || log_message "Cannot adjust dirty_ratio (non-root)"
-    
-    # Reduce memory overcommit
-    echo 2 > /proc/sys/vm/overcommit_memory 2>/dev/null || log_message "Cannot adjust overcommit_memory (non-root)"
-    
-    # Force initial cleanup
+    # Only do user-space optimizations that don't require root
     sync
-    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || log_message "Cannot drop caches (non-root)"
     
-    log_message "System memory optimization complete"
+    log_message "User-space memory optimization complete"
 }
 
 # Selective copy with retry logic - only copy files needed for analysis
@@ -695,11 +687,20 @@ exec(open('$PYTHON_SCRIPT').read())
     
     # Step 4: Cleanup scratch folder using nocache to avoid caching deleted files
     log_message "STEP 4: Cleaning up scratch folder"
-    $NOCACHE_CMD bash -c "$(declare -f safe_cleanup); safe_cleanup '$scratch_folder'" || safe_cleanup "$scratch_folder"
+    # Export the log function and variables needed by safe_cleanup
+    if [ -n "$NOCACHE_CMD" ]; then
+        $NOCACHE_CMD bash -c "
+        LOG_FILE='$LOG_FILE'
+        log_message() { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] \$1\" >> \"\$LOG_FILE\"; }
+        $(declare -f safe_cleanup)
+        safe_cleanup '$scratch_folder'
+        " || safe_cleanup "$scratch_folder"
+    else
+        safe_cleanup "$scratch_folder"
+    fi
     
     # Force final memory cleanup after each folder to prevent accumulation
     sync
-    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
     
     log_message "Folder processing complete: $folder_path"
     
