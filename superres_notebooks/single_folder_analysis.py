@@ -79,7 +79,7 @@ def main():
         if not os.path.isdir(scratch_folder_path):
             print(f"ERROR: Scratch path is not a directory: {scratch_folder_path}")
             sys.exit(1)
-            
+
         if not os.path.exists(original_folder_path):
             print(f"ERROR: Original folder does not exist: {original_folder_path}")
             sys.exit(1)
@@ -94,7 +94,9 @@ def main():
             print(f"SKIP: No .tif files found in {scratch_folder_path}")
             sys.exit(0)  # Not an error, just skip
 
-        metadata_files = [f for f in os.listdir(scratch_folder_path) if "metadata" in f.lower()]
+        metadata_files = [
+            f for f in os.listdir(scratch_folder_path) if "metadata" in f.lower()
+        ]
         if not metadata_files:
             print(f"SKIP: No metadata files found in {scratch_folder_path}")
             sys.exit(0)  # Not an error, just skip
@@ -106,7 +108,9 @@ def main():
         # Clean existing .h5 files from ORIGINAL folder (where we want to write new ones)
         h5_files = glob.glob(os.path.join(original_folder_path, "*.h5"))
         if h5_files:
-            print(f"Removing {len(h5_files)} existing .h5 files from original folder...")
+            print(
+                f"Removing {len(h5_files)} existing .h5 files from original folder..."
+            )
             for h5_file in h5_files:
                 try:
                     os.remove(h5_file)
@@ -117,30 +121,39 @@ def main():
         # Import modules (do this late to avoid import overhead for skipped folders)
         print("Importing modules...")
         import IOFunctions
-        
+
         # Optimize TIFF reading performance with aggressive memory mapping
         print("Configuring memory-efficient TIFF reading...")
         # Set environment variables for faster TIFF reading
-        os.environ['TIFFFILE_NUM_THREADS'] = '8'  # Use multiple threads for TIFF reading
-        os.environ['OMP_NUM_THREADS'] = '8'        # Optimize OpenMP for image processing
-        
+        os.environ["TIFFFILE_NUM_THREADS"] = (
+            "8"  # Use multiple threads for TIFF reading
+        )
+        os.environ["OMP_NUM_THREADS"] = "8"  # Optimize OpenMP for image processing
+
         # Force all IOFunctions to use memory mapping to avoid loading entire stacks into RAM
         original_read_tiff = None
-        
+
         def patch_io_functions():
             import IOFunctions
+
             global original_read_tiff
             io_instance = IOFunctions.IO_Functions()
             original_read_tiff = io_instance.read_tiff
-            
-            def memory_mapped_read_tiff(file_path, frame=None, dtype="float32", memmap=True):
+
+            def memory_mapped_read_tiff(
+                file_path, frame=None, dtype="float32", memmap=True
+            ):
                 # Force memory mapping to be always True for large files
-                return original_read_tiff(file_path, frame=frame, dtype=dtype, memmap=True)
-            
+                return original_read_tiff(
+                    file_path, frame=frame, dtype=dtype, memmap=True
+                )
+
             # Patch the instance method
-            io_instance.read_tiff = memory_mapped_read_tiff.__get__(io_instance, IOFunctions.IO_Functions)
+            io_instance.read_tiff = memory_mapped_read_tiff.__get__(
+                io_instance, IOFunctions.IO_Functions
+            )
             return io_instance
-        
+
         print("Memory mapping optimization configured")
         import sCMOSFunctions
         import SpectralFunctions
@@ -235,17 +248,20 @@ def main():
                 image_type=".tif",
             )
             print("Imaging data processing completed")
-            
+
         # Move .h5 files from scratch folder to original folder
         scratch_h5_files = glob.glob(os.path.join(scratch_folder_path, "*.h5"))
         if scratch_h5_files:
-            print(f"Moving {len(scratch_h5_files)} .h5 files from scratch to original folder...")
+            print(
+                f"Moving {len(scratch_h5_files)} .h5 files from scratch to original folder..."
+            )
             for h5_file in scratch_h5_files:
                 filename = os.path.basename(h5_file)
                 dest_file = os.path.join(original_folder_path, filename)
                 try:
                     # Use move instead of copy to avoid leaving files in scratch
                     import shutil
+
                     shutil.move(h5_file, dest_file)
                     print(f"Moved: {filename}")
                 except Exception as e:
