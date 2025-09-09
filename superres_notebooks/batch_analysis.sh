@@ -484,6 +484,14 @@ process_folder() {
     increment_counter "total"
     local current_total=$(get_counter "total")
     
+    # Check if .h5 files were generated after 9am on September 4th, 2025 BEFORE copying
+    if ! check_h5_file_dates "$folder_path"; then
+        echo "[$current_total] $folder_name... ⏭️  SKIP (recent .h5 files)"
+        log_message "SKIP: Folder contains .h5 files generated after 9am on September 4th, 2025"
+        increment_counter "skip"
+        return 0
+    fi
+    
     # Check memory pressure before processing
     if ! check_memory_pressure; then
         wait_for_memory_relief
@@ -565,16 +573,6 @@ process_folder() {
     
     local file_count=$(find "$scratch_folder" -type f | wc -l)
     log_message "Scratch folder created with $file_count files"
-    
-    # Check if .h5 files were generated after 9am on September 4th, 2025
-    if ! check_h5_file_dates "$scratch_folder"; then
-        echo "⏭️  SKIP (recent .h5 files)"
-        log_message "SKIP: Folder contains .h5 files generated after 9am on September 4th, 2025"
-        increment_counter "skip"
-        # Clean up scratch folder since we're skipping this analysis
-        safe_cleanup "$scratch_folder"
-        return 0
-    fi
     
     # Step 2: Run analysis on scratch folder with memory monitoring
     log_message "STEP 2: Running analysis on scratch folder"
