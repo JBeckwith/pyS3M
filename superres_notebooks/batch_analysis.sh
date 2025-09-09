@@ -18,15 +18,6 @@ MAX_SWAP_USAGE_MB=1024   # Maximum swap usage before pausing (1GB - more conserv
 MAX_MEMORY_USAGE_PCT=75  # Maximum RAM usage percentage before pausing (more conservative)
 COOLDOWN_TIME=20         # seconds to wait when memory usage is high (shorter)
 
-# Check for nocache availability to reduce filesystem cache pressure
-NOCACHE_CMD=""
-if command -v nocache >/dev/null 2>&1; then
-    NOCACHE_CMD="nocache"
-    log_message "nocache command available - will use for file operations"
-else
-    log_message "nocache command not available - using standard file operations"
-fi
-
 # Check for threshold parameters file
 check_threshold_params() {
     if [ ! -f "$THRESHOLD_PARAMS_FILE" ]; then
@@ -134,6 +125,15 @@ console_message() {
     echo "$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
+
+# Check for nocache availability to reduce filesystem cache pressure (after log functions defined)
+NOCACHE_CMD=""
+if command -v nocache >/dev/null 2>&1; then
+    NOCACHE_CMD="nocache"
+    log_message "nocache command available - will use for file operations"
+else
+    log_message "nocache command not available - using standard file operations"
+fi
 
 # Define all folder lists exactly from MemorySafe script
 declare -a SM_DATA_DIRS=(
