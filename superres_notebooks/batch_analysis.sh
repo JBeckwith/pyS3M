@@ -163,7 +163,8 @@ declare -a HELA_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250523_HeLa_STORM/Cell1_HILO_190mW_638_ximea638_setting/Lp638_190_mw_40ms_exosure_HILO_2'
 )
 
-declare -a IMAGING_FOLDERS=(
+# DNA origami folders - processed first (highest priority)
+declare -a DNA_ORIGAMI_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250717_Origami/F1F2F3F4Cy3B500pM/10perc561_LP561_BP586-64_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250717_Origami/F1F2F3F4Cy3B500pM_LowConcOrigami/10perc561_LP561_BP586-64_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250514_DNANanoruler/data/DNANanoRuler_10perc561_30mW488_50mW638/F1CF640CF550R_F2ATTO488AF647_F3ATTO565ATTO655_F4Cy3BCF488A_MultiNotch_488LP_758SP_1'
@@ -176,6 +177,10 @@ declare -a IMAGING_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1AF647_F2ATTO565_F3Cy3B_F4ATTO655_500pMEach/15percent_561_100mWEach_638_NotchFilter_785SP_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1AF647_F2ATTO565_F3Cy3B_F4CF488A_500pMEach/30mW_488_15percent_561_100mWEach_638_NotchFilter_785SP_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250723 DNA Origami/FourColour_F1CF550R_F2ATTO565_F3Cy3B_F4CF488A_500pMEach/30mW_488_15percent_561_NotchFilter_785SP_1'
+)
+
+# iPSC folders - processed after DNA origami (lower priority)
+declare -a IPSC_FOLDERS=(
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250716_iPSCJamesEvans/40mW488_30perc561_50mW638_NF_488LP_785SP_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/JSB/20250716_iPSCJamesEvans/250pMCy3B_250pM565_250pMCF550_250pM647/20perc561_40mW638_NF_488LP_785SP_1'
 )
@@ -810,24 +815,36 @@ console_message "Starting folder discovery and processing..."
 console_message "Sorting folders by modification time (most recent first)..."
 
 # Create local copies of arrays for sorting
-IMAGING_FOLDERS_SORTED=("${IMAGING_FOLDERS[@]}")
+DNA_ORIGAMI_FOLDERS_SORTED=("${DNA_ORIGAMI_FOLDERS[@]}")
+IPSC_FOLDERS_SORTED=("${IPSC_FOLDERS[@]}")
 SM_DATA_DIRS_SORTED=("${SM_DATA_DIRS[@]}")  
 HELA_FOLDERS_SORTED=("${HELA_FOLDERS[@]}")
 HIERARCHICAL_DIRS_SORTED=("${HIERARCHICAL_DIRS[@]}")
 
 # Sort each array by date
-sort_folders_by_date IMAGING_FOLDERS_SORTED
+sort_folders_by_date DNA_ORIGAMI_FOLDERS_SORTED
+sort_folders_by_date IPSC_FOLDERS_SORTED
 sort_folders_by_date SM_DATA_DIRS_SORTED
 sort_folders_by_date HELA_FOLDERS_SORTED
 sort_folders_by_date HIERARCHICAL_DIRS_SORTED
 
-# Process imaging folders first - DNA origami files (550nm default) - NOW SORTED BY DATE
-console_message "Processing DNA origami and general imaging folders first (${#IMAGING_FOLDERS_SORTED[@]} folders, most recent first)..."
-for folder in "${IMAGING_FOLDERS_SORTED[@]}"; do
+# Process DNA origami folders first (highest priority) - 550nm default - NOW SORTED BY DATE
+console_message "Processing DNA origami folders first (${#DNA_ORIGAMI_FOLDERS_SORTED[@]} folders, most recent first)..."
+for folder in "${DNA_ORIGAMI_FOLDERS_SORTED[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.55"
     else
-        log_message "WARNING: Imaging folder not found: $folder"
+        log_message "WARNING: DNA origami folder not found: $folder"
+    fi
+done
+
+# Process iPSC folders after DNA origami (lower priority) - 550nm default - NOW SORTED BY DATE
+console_message "Processing iPSC folders (${#IPSC_FOLDERS_SORTED[@]} folders, most recent first)..."
+for folder in "${IPSC_FOLDERS_SORTED[@]}"; do
+    if [ -d "$folder" ]; then
+        process_folder "imaging" "$folder" "0.55"
+    else
+        log_message "WARNING: iPSC folder not found: $folder"
     fi
 done
 
