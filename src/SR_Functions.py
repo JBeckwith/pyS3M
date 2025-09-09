@@ -667,73 +667,112 @@ class SuperRes_Functions:
         ]
 
         for FOVn, file in enumerate(image_files):
-            puncta_tofit = []
-            smoothed_puncta_tofit = []
-            masks_tofit = []
-            weights_tofit = []
-            relative_coords = []
-            planes = []
-
             fit_savename = file.split(".")[0] + ".h5"
+            
+            # Get total frame count without loading entire file
+            import tifffile
+            with tifffile.TiffFile(file, is_ome=False, is_mmstack=False, is_imagej=False) as tif:
+                total_frames = len(tif.pages)
+            
+            chunk_size = 1000
+            all_puncta_tofit = []
+            all_smoothed_puncta_tofit = []
+            all_masks_tofit = []
+            all_weights_tofit = []
+            all_relative_coords = []
+            all_planes = []
+            
+            print(f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}")
+            
+            # Process file in chunks
+            for chunk_start in range(0, total_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, total_frames)
+                chunk_frames = list(range(chunk_start, chunk_end))
+                
+                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+                
+                # Load chunk of raw data
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+                
+                # Ensure raw_data is 3D even for single frame chunks
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
 
-            # Load raw data for efficient ROI-based processing
-            raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
-
-            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                raw_data
-            )
-
-            detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
-                image_to_analyse,
-                pfa=pfa,
-                variance=variance,
-                wavelength=peak_wavelength,
-                pixel_size=pixel_size,
-                NA=NA,
-                sigma=sigma,
-                fraction_true=fraction_true,
-            )
-
-            # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
-            for i in np.arange(len(detected_puncta)):
-                result = self._process_roi(
-                    raw_data,
-                    detected_puncta,
-                    i,
-                    width,
-                    height,
-                    ROI_size,
-                    smoothing_function,
-                    read_noise,
-                    masks,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    rqe=rqe,
-                    frame_offset=0,
-                    is_multi_frame=True,
+                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                    raw_data
                 )
 
-                if result is None:
-                    continue
+                detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
+                    image_to_analyse,
+                    pfa=pfa,
+                    variance=variance,
+                    wavelength=peak_wavelength,
+                    pixel_size=pixel_size,
+                    NA=NA,
+                    sigma=sigma,
+                    fraction_true=fraction_true,
+                )
+                
+                # Adjust frame numbers in detected_puncta to account for chunk offset
+                if len(detected_puncta) > 0:
+                    detected_puncta[:, 2] += chunk_start  # Add chunk offset to frame numbers
+                
+                # Process ROIs for this chunk
+                for i in np.arange(len(detected_puncta)):
+                    result = self._process_roi(
+                        raw_data,
+                        detected_puncta,
+                        i,
+                        width,
+                        height,
+                        ROI_size,
+                        smoothing_function,
+                        read_noise,
+                        masks,
+                        gain_map=gain_map,
+                        offset_map=offset_map,
+                        rqe=rqe,
+                        frame_offset=0,
+                        is_multi_frame=True,
+                    )
 
-                (
-                    photoelectron_roi,
-                    smoothed_roi,
-                    weights_roi,
-                    mask_roi,
-                    coords,
-                    plane,
-                ) = result
+                    if result is None:
+                        continue
 
-                puncta_tofit.append(photoelectron_roi)
-                smoothed_puncta_tofit.append(smoothed_roi)
-                masks_tofit.append(mask_roi)
-                weights_tofit.append(weights_roi)
-                relative_coords.append(coords)
-                planes.append(plane)
+                    (
+                        photoelectron_roi,
+                        smoothed_roi,
+                        weights_roi,
+                        mask_roi,
+                        coords,
+                        plane,
+                    ) = result
+                    
+                    # Adjust plane number for chunk offset
+                    plane += chunk_start
 
-            del raw_data, detected_puncta, image_to_analyse
-            gc.collect()
+                    all_puncta_tofit.append(photoelectron_roi)
+                    all_smoothed_puncta_tofit.append(smoothed_roi)
+                    all_masks_tofit.append(mask_roi)
+                    all_weights_tofit.append(weights_roi)
+                    all_relative_coords.append(coords)
+                    all_planes.append(plane)
+
+                # Clean up chunk data
+                del raw_data, detected_puncta, image_to_analyse
+                gc.collect()
+            
+            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+            
+            # Move all data to final arrays for fitting
+            puncta_tofit = all_puncta_tofit
+            smoothed_puncta_tofit = all_smoothed_puncta_tofit
+            masks_tofit = all_masks_tofit
+            weights_tofit = all_weights_tofit
+            relative_coords = all_relative_coords
+            planes = all_planes
+
+            # ROI processing already done in chunks above
 
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
@@ -856,74 +895,111 @@ class SuperRes_Functions:
 
         total_frames = 0
         for FOVn, file in enumerate(image_files):
-            puncta_tofit = []
-            smoothed_puncta_tofit = []
-            masks_tofit = []
-            weights_tofit = []
-            relative_coords = []
-            planes = []
+            # Get total frame count without loading entire file
+            import tifffile
+            with tifffile.TiffFile(file, is_ome=False, is_mmstack=False, is_imagej=False) as tif:
+                file_frames = len(tif.pages)
+            
+            chunk_size = 1000
+            all_puncta_tofit = []
+            all_smoothed_puncta_tofit = []
+            all_masks_tofit = []
+            all_weights_tofit = []
+            all_relative_coords = []
+            all_planes = []
+            
+            print(f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}")
+            
+            # Process file in chunks
+            for chunk_start in range(0, file_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, file_frames)
+                chunk_frames = list(range(chunk_start, chunk_end))
+                
+                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+                
+                # Load chunk of raw data
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+                
+                # Ensure raw_data is 3D even for single frame chunks
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
 
-            # Load raw data for efficient ROI-based processing
-            raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
-            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                raw_data
-            )
-
-            detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
-                image_to_analyse,
-                pfa=pfa,
-                wavelength=peak_wavelength,
-                variance=variance,
-                pixel_size=pixel_size,
-                NA=NA,
-                sigma=sigma,
-                fraction_true=fraction_true,
-            )
-
-            # Track the highest frame number for this file
-            file_frames = raw_data.shape[0] if len(raw_data.shape) > 2 else 1
-
-            # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
-            for i in np.arange(len(detected_puncta)):
-                result = self._process_roi(
-                    raw_data,
-                    detected_puncta,
-                    i,
-                    width,
-                    height,
-                    ROI_size,
-                    smoothing_function,
-                    read_noise,
-                    masks,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    rqe=rqe,
-                    frame_offset=total_frames,
-                    is_multi_frame=True,
+                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                    raw_data
                 )
 
-                if result is None:
-                    continue
+                detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
+                    image_to_analyse,
+                    pfa=pfa,
+                    wavelength=peak_wavelength,
+                    variance=variance,
+                    pixel_size=pixel_size,
+                    NA=NA,
+                    sigma=sigma,
+                    fraction_true=fraction_true,
+                )
+                
+                # Adjust frame numbers in detected_puncta to account for total_frames offset
+                if len(detected_puncta) > 0:
+                    detected_puncta[:, 2] += chunk_start  # Add chunk offset within file
+                
+                # Process ROIs for this chunk
+                for i in np.arange(len(detected_puncta)):
+                    result = self._process_roi(
+                        raw_data,
+                        detected_puncta,
+                        i,
+                        width,
+                        height,
+                        ROI_size,
+                        smoothing_function,
+                        read_noise,
+                        masks,
+                        gain_map=gain_map,
+                        offset_map=offset_map,
+                        rqe=rqe,
+                        frame_offset=total_frames,  # Global frame offset across files
+                        is_multi_frame=True,
+                    )
 
-                (
-                    photoelectron_roi,
-                    smoothed_roi,
-                    weights_roi,
-                    mask_roi,
-                    coords,
-                    plane,
-                ) = result
+                    if result is None:
+                        continue
 
-                puncta_tofit.append(photoelectron_roi)
-                smoothed_puncta_tofit.append(smoothed_roi)
-                masks_tofit.append(mask_roi)
-                weights_tofit.append(weights_roi)
-                relative_coords.append(coords)
-                planes.append(plane)
+                    (
+                        photoelectron_roi,
+                        smoothed_roi,
+                        weights_roi,
+                        mask_roi,
+                        coords,
+                        plane,
+                    ) = result
+                    
+                    # Adjust plane number for chunk offset within current file
+                    plane += chunk_start
 
+                    all_puncta_tofit.append(photoelectron_roi)
+                    all_smoothed_puncta_tofit.append(smoothed_roi)
+                    all_masks_tofit.append(mask_roi)
+                    all_weights_tofit.append(weights_roi)
+                    all_relative_coords.append(coords)
+                    all_planes.append(plane)
+
+                # Clean up chunk data
+                del raw_data, detected_puncta, image_to_analyse
+                gc.collect()
+            
+            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+            
+            # Move all data to final arrays for fitting
+            puncta_tofit = all_puncta_tofit
+            smoothed_puncta_tofit = all_smoothed_puncta_tofit
+            masks_tofit = all_masks_tofit
+            weights_tofit = all_weights_tofit
+            relative_coords = all_relative_coords
+            planes = all_planes
+
+            # ROI processing already done in chunks above
             total_frames += file_frames
-            del raw_data, detected_puncta, image_to_analyse
-            gc.collect()
 
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
