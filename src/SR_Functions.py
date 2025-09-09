@@ -679,8 +679,8 @@ class SuperRes_Functions:
             # Load raw data for efficient ROI-based processing
             raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
 
-            _, image_to_analyse = self.scmos.bayer_demosaic_stack(
-                raw_data, grayscale=True
+            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                raw_data
             )
 
             detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
@@ -865,8 +865,8 @@ class SuperRes_Functions:
 
             # Load raw data for efficient ROI-based processing
             raw_data = self.io.read_tiff(file, dtype="float32", frame=None)
-            _, image_to_analyse = self.scmos.bayer_demosaic_stack(
-                raw_data, grayscale=True
+            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                raw_data
             )
 
             detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(

@@ -112,6 +112,31 @@ class sCMOS_Functions:
         )
 
         return result, grayscale_result
+    
+    def bayer_demosaic_stack_grayscale(self, image):
+        """
+        Apply colour demosaicking across an entire image stack.
+
+        Args:
+            image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
+                                where H is height, W is width, and C is the number of channels.
+
+        Returns:
+            RGB_image (np.ndarray): binned image
+        """
+
+        image = image.astype(np.float32)
+        if len(image.shape) > 2:
+            RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
+            for i in np.arange(image.shape[0]):
+                RGB_image[i, :, :, :] = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
+        else:
+            BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
+            RGB_image = np.zeros_like(BGR_image)
+            RGB_image = BGR_image
+            # Convert to grayscale by summing the RGB channels
+        grayscale_image = np.sum(RGB_image, axis=-1)
+        return grayscale_image
 
     def bayer_demosaic_stack(self, image, grayscale=False):
         """
