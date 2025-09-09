@@ -668,12 +668,15 @@ class SuperRes_Functions:
 
         for FOVn, file in enumerate(image_files):
             fit_savename = file.split(".")[0] + ".h5"
-            
+
             # Get total frame count without loading entire file
             import tifffile
-            with tifffile.TiffFile(file, is_ome=False, is_mmstack=False, is_imagej=False) as tif:
+
+            with tifffile.TiffFile(
+                file, is_ome=False, is_mmstack=False, is_imagej=False
+            ) as tif:
                 total_frames = len(tif.pages)
-            
+
             chunk_size = 1000
             all_puncta_tofit = []
             all_smoothed_puncta_tofit = []
@@ -681,26 +684,26 @@ class SuperRes_Functions:
             all_weights_tofit = []
             all_relative_coords = []
             all_planes = []
-            
-            print(f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}")
-            
+
+            print(
+                f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}"
+            )
+
             # Process file in chunks
             for chunk_start in range(0, total_frames, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, total_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
-                
+
                 print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
-                
+
                 # Load chunk of raw data
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
-                
+
                 # Ensure raw_data is 3D even for single frame chunks
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                    raw_data
-                )
+                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -712,7 +715,7 @@ class SuperRes_Functions:
                     sigma=sigma,
                     fraction_true=fraction_true,
                 )
-                
+
                 # Process ROIs for this chunk (keep original frame indices for raw_data access)
                 for i in np.arange(len(detected_puncta)):
                     result = self._process_roi(
@@ -743,7 +746,7 @@ class SuperRes_Functions:
                         coords,
                         plane,
                     ) = result
-                    
+
                     # plane is already correctly offset by _process_roi frame_offset
 
                     all_puncta_tofit.append(photoelectron_roi)
@@ -756,9 +759,9 @@ class SuperRes_Functions:
                 # Clean up chunk data
                 del raw_data, detected_puncta, image_to_analyse
                 gc.collect()
-            
+
             print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
-            
+
             # Move all data to final arrays for fitting
             puncta_tofit = all_puncta_tofit
             smoothed_puncta_tofit = all_smoothed_puncta_tofit
@@ -892,9 +895,12 @@ class SuperRes_Functions:
         for FOVn, file in enumerate(image_files):
             # Get total frame count without loading entire file
             import tifffile
-            with tifffile.TiffFile(file, is_ome=False, is_mmstack=False, is_imagej=False) as tif:
+
+            with tifffile.TiffFile(
+                file, is_ome=False, is_mmstack=False, is_imagej=False
+            ) as tif:
                 file_frames = len(tif.pages)
-            
+
             chunk_size = 1000
             all_puncta_tofit = []
             all_smoothed_puncta_tofit = []
@@ -902,26 +908,26 @@ class SuperRes_Functions:
             all_weights_tofit = []
             all_relative_coords = []
             all_planes = []
-            
-            print(f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}")
-            
+
+            print(
+                f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}"
+            )
+
             # Process file in chunks
             for chunk_start in range(0, file_frames, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, file_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
-                
+
                 print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
-                
+
                 # Load chunk of raw data
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
-                
+
                 # Ensure raw_data is 3D even for single frame chunks
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                    raw_data
-                )
+                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -933,7 +939,7 @@ class SuperRes_Functions:
                     sigma=sigma,
                     fraction_true=fraction_true,
                 )
-                
+
                 # Process ROIs for this chunk (keep original frame indices for raw_data access)
                 for i in np.arange(len(detected_puncta)):
                     result = self._process_roi(
@@ -949,7 +955,8 @@ class SuperRes_Functions:
                         gain_map=gain_map,
                         offset_map=offset_map,
                         rqe=rqe,
-                        frame_offset=total_frames + chunk_start,  # Global frame offset including chunk
+                        frame_offset=total_frames
+                        + chunk_start,  # Global frame offset including chunk
                         is_multi_frame=True,
                     )
 
@@ -964,7 +971,7 @@ class SuperRes_Functions:
                         coords,
                         plane,
                     ) = result
-                    
+
                     # plane is already correctly offset by _process_roi frame_offset
 
                     all_puncta_tofit.append(photoelectron_roi)
@@ -977,9 +984,9 @@ class SuperRes_Functions:
                 # Clean up chunk data
                 del raw_data, detected_puncta, image_to_analyse
                 gc.collect()
-            
+
             print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
-            
+
             # Move all data to final arrays for fitting
             puncta_tofit = all_puncta_tofit
             smoothed_puncta_tofit = all_smoothed_puncta_tofit

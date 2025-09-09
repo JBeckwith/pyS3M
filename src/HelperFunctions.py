@@ -56,10 +56,12 @@ class Helper_Functions:
             file_list (list): A sorted list of file paths matching the search criteria.
         """
         import re
+
         def sorted_alphanumeric(data):
             convert = lambda text: int(text) if text.isdigit() else text.lower()
-            alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
+            alphanum_key = lambda key: [convert(c) for c in re.split("([0-9]+)", key)]
             return sorted(data, key=alphanum_key)
+
         # Get a list of all files containing 'string1' in their names within 'folder'
         file_list = [
             os.path.join(dirpath, f)

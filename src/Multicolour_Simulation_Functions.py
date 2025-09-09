@@ -1241,13 +1241,13 @@ class MultiC_Sim_Funcs_Refactored:
                         x0, y0 = x0y0[dye][0, :], x0y0[dye][1, :]
 
                     # Ensure n_photons array matches the number of molecules
-                    if hasattr(x0, '__len__') and len(x0) > 1:
+                    if hasattr(x0, "__len__") and len(x0) > 1:
                         # Multiple molecules - create array with same photon count for each
                         n_photons_array = np.full(len(x0), int(n_photons_this_frame))
                     else:
                         # Single molecule or scalar position
                         n_photons_array = np.array([int(n_photons_this_frame)])
-                    
+
                     photon_spatial_pdf = self.psf.gen_spatial_PSF(
                         x,
                         sigma_x,
