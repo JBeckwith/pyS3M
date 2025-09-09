@@ -571,7 +571,8 @@ process_folder() {
         echo "⏭️  SKIP (recent .h5 files)"
         log_message "SKIP: Folder contains .h5 files generated after 9am on September 4th, 2025"
         increment_counter "skip"
-        # Don't cleanup scratch folder - preserve existing .h5 files
+        # Clean up scratch folder since we're skipping this analysis
+        safe_cleanup "$scratch_folder"
         return 0
     fi
     
