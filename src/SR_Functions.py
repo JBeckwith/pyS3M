@@ -713,15 +713,11 @@ class SuperRes_Functions:
                     fraction_true=fraction_true,
                 )
                 
-                # Adjust frame numbers in detected_puncta to account for chunk offset
-                if len(detected_puncta) > 0:
-                    detected_puncta[:, 2] += chunk_start  # Add chunk offset to frame numbers
-                
-                # Process ROIs for this chunk
+                # Process ROIs for this chunk (keep original frame indices for raw_data access)
                 for i in np.arange(len(detected_puncta)):
                     result = self._process_roi(
                         raw_data,
-                        detected_puncta,
+                        detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
                         i,
                         width,
                         height,
@@ -732,7 +728,7 @@ class SuperRes_Functions:
                         gain_map=gain_map,
                         offset_map=offset_map,
                         rqe=rqe,
-                        frame_offset=0,
+                        frame_offset=chunk_start,  # Frame offset for this chunk
                         is_multi_frame=True,
                     )
 
@@ -748,8 +744,7 @@ class SuperRes_Functions:
                         plane,
                     ) = result
                     
-                    # Adjust plane number for chunk offset
-                    plane += chunk_start
+                    # plane is already correctly offset by _process_roi frame_offset
 
                     all_puncta_tofit.append(photoelectron_roi)
                     all_smoothed_puncta_tofit.append(smoothed_roi)
@@ -939,15 +934,11 @@ class SuperRes_Functions:
                     fraction_true=fraction_true,
                 )
                 
-                # Adjust frame numbers in detected_puncta to account for total_frames offset
-                if len(detected_puncta) > 0:
-                    detected_puncta[:, 2] += chunk_start  # Add chunk offset within file
-                
-                # Process ROIs for this chunk
+                # Process ROIs for this chunk (keep original frame indices for raw_data access)
                 for i in np.arange(len(detected_puncta)):
                     result = self._process_roi(
                         raw_data,
-                        detected_puncta,
+                        detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
                         i,
                         width,
                         height,
@@ -958,7 +949,7 @@ class SuperRes_Functions:
                         gain_map=gain_map,
                         offset_map=offset_map,
                         rqe=rqe,
-                        frame_offset=total_frames,  # Global frame offset across files
+                        frame_offset=total_frames + chunk_start,  # Global frame offset including chunk
                         is_multi_frame=True,
                     )
 
@@ -974,8 +965,7 @@ class SuperRes_Functions:
                         plane,
                     ) = result
                     
-                    # Adjust plane number for chunk offset within current file
-                    plane += chunk_start
+                    # plane is already correctly offset by _process_roi frame_offset
 
                     all_puncta_tofit.append(photoelectron_roi)
                     all_smoothed_puncta_tofit.append(smoothed_roi)

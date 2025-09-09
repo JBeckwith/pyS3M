@@ -135,8 +135,7 @@ class sCMOS_Functions:
             RGB_image = np.zeros_like(BGR_image)
             RGB_image = BGR_image
             # Convert to grayscale by summing the RGB channels
-        grayscale_image = np.sum(RGB_image, axis=-1)
-        return grayscale_image
+        return np.sum(RGB_image, axis=-1)
 
     def bayer_demosaic_stack(self, image, grayscale=False):
         """
