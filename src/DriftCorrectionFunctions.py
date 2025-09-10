@@ -853,15 +853,37 @@ class AIMDriftCorrector(DriftCorrector):
         drift_x_pol = InterpolatedUnivariateSpline(t, drift_x, k=3)
         drift_y_pol = InterpolatedUnivariateSpline(t, drift_y, k=3)
         
-        # Create interpolation points for frames 1 to max_frame (inclusive)
+        # Determine frame range from the actual data
         max_frame = int(seg_bounds[-1])
-        t_inter = np.arange(1, max_frame + 1)  # 1-indexed frame numbers
-        drift_x = drift_x_pol(t_inter)
-        drift_y = drift_y_pol(t_inter)
-
-        # undrift the localizations (frame is 1-indexed, drift arrays are 0-indexed)
-        x_pdc = x - drift_x[frame - 1]
-        y_pdc = y - drift_y[frame - 1]
+        min_frame = int(frame.min())
+        max_frame_data = int(frame.max())
+        
+        # Debug info
+        print(f"AIM Debug: seg_bounds[-1]={max_frame}, frame range: {min_frame} to {max_frame_data}")
+        
+        # Create interpolation points that cover the full frame range
+        # Always use the actual max frame from data, not seg_bounds
+        if min_frame == 0:
+            # 0-indexed frames: 0, 1, 2, ..., max_frame_data
+            t_inter = np.arange(1, max_frame_data + 2)  # Interpolate at 1, 2, ..., max_frame_data+1
+            drift_x = drift_x_pol(t_inter)
+            drift_y = drift_y_pol(t_inter)
+            # undrift using direct indexing (frame is 0-indexed, drift arrays start at index 0 for frame 0)
+            x_pdc = x - drift_x[frame]
+            y_pdc = y - drift_y[frame]
+        else:
+            # 1-indexed frames: 1, 2, 3, ..., max_frame_data  
+            t_inter = np.arange(1, max_frame_data + 1)
+            drift_x = drift_x_pol(t_inter)
+            drift_y = drift_y_pol(t_inter)
+            # Ensure no out-of-bounds access
+            valid_indices = (frame >= 1) & (frame <= max_frame_data)
+            x_pdc = x.copy()
+            y_pdc = y.copy()
+            x_pdc[valid_indices] = x[valid_indices] - drift_x[frame[valid_indices] - 1]
+            y_pdc[valid_indices] = y[valid_indices] - drift_y[frame[valid_indices] - 1]
+        
+        print(f"AIM Debug: drift arrays shape: {drift_x.shape}, frame range in data: {frame.min()} to {frame.max()}")
 
         return x_pdc, y_pdc, drift_x, drift_y
 
