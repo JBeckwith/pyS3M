@@ -164,7 +164,7 @@ class IO_Functions:
                     print(f"Read {len(df):,} localizations")
                     
                     # Sort by frame using mergesort for stability
-                    df_sorted = df.sort_values(by='frame', kind='mergesort').reset_index(drop=True)
+                    df_sorted = df.sort_values(by='frame', kind='mergesort', ignore_index=True).reset_index(drop=True)
                     print(f"Sorted data by frame (range: {df_sorted['frame'].min()}-{df_sorted['frame'].max()})")
             
             # Write sorted data back

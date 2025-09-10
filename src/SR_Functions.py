@@ -787,6 +787,9 @@ class SuperRes_Functions:
             # Fix frame numbers: replace with offset plane values for continuous numbering
             if len(planes) == len(fit_results):
                 fit_results['frame'] = planes
+            
+            # Sort by frame for consistent ordering in saved files
+            fit_results = fit_results.sort_values('frame').reset_index(drop=True)
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
@@ -1017,6 +1020,9 @@ class SuperRes_Functions:
             # Fix frame numbers: replace with offset plane values for continuous numbering
             if len(planes) == len(fit_results):
                 fit_results['frame'] = planes
+            
+            # Sort by frame for consistent ordering in saved files
+            fit_results = fit_results.sort_values('frame').reset_index(drop=True)
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
