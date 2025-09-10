@@ -853,7 +853,7 @@ class AIMDriftCorrector(DriftCorrector):
         max_frame_data = int(frame.max())
         
         # Create drift arrays that preserve measured values and only interpolate gaps
-        drift_x_full, drift_y_full = self._gap_filling_interpolation(
+        drift_x_full, drift_y_full = AIMDriftCorrector._gap_filling_interpolation(
             drift_x, drift_y, seg_bounds, min_frame, max_frame_data
         )
         
@@ -872,8 +872,8 @@ class AIMDriftCorrector(DriftCorrector):
 
         return x_pdc, y_pdc, drift_x_full, drift_y_full
 
+    @staticmethod
     def _gap_filling_interpolation(
-        self, 
         drift_x: np.ndarray, 
         drift_y: np.ndarray, 
         seg_bounds: np.ndarray,
