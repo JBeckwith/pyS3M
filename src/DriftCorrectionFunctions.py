@@ -1893,7 +1893,7 @@ class Drift_Correction_Functions:
                     f"or threshold_percentile (currently {threshold_percentile}%)."
                 )
 
-            # Create localization array with group field
+            # Create localisation array with group field
             locs_with_groups = self._add_group_field_to_locs(locs, valid_picked_locs)
 
             # Create result object
