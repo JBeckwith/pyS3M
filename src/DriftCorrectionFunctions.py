@@ -24,7 +24,7 @@ import matplotlib
 try:
     from IPython.core.getipython import get_ipython
     if get_ipython() is not None:
-        matplotlib.use('inline')  # Jupyter notebook backend
+        matplotlib.use('nbAgg')  # Jupyter notebook backend (was 'inline' - incorrect)
     else:
         raise ImportError("Not in IPython")
 except (ImportError, NameError):
