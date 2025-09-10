@@ -1954,7 +1954,7 @@ class Drift_Correction_Functions:
             if show_progress:
                 # Calculate total work units (fiducial groups * chunks per group)
                 total_chunks = sum(
-                    (len(fid_locs) + 99999) // 100000 for fid_locs in picked_locs_list if len(fid_locs) > 0
+                    (len(fid_locs) + 9999) // 10000 for fid_locs in picked_locs_list if len(fid_locs) > 0
                 )
                 
                 progress_bar_context = ProgressUtils.clean_progress_bar(
@@ -1967,7 +1967,7 @@ class Drift_Correction_Functions:
                 for group_id, fiducial_locs in enumerate(picked_locs_list):
                     if len(fiducial_locs) > 0:
                         # Conservative chunking to prevent memory issues while maintaining accuracy
-                        chunk_size = min(100000, len(fiducial_locs))  # Conservative chunk size
+                        chunk_size = min(10000, len(fiducial_locs))  # Conservative chunk size
                         
                         for start_idx in range(0, len(fiducial_locs), chunk_size):
                             end_idx = min(start_idx + chunk_size, len(fiducial_locs))
