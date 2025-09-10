@@ -1933,43 +1933,70 @@ class Drift_Correction_Functions:
     ) -> np.recarray:
         """Add group field to localisations based on fiducial assignments.
         
-        Optimized version using vectorized operations and spatial indexing.
+        Optimized for accuracy and performance. Maintains precision while using
+        vectorized operations for massive datasets.
         """
         # Create group field array, initialize with -1 (non-fiducial)
         group = np.full(len(locs), -1, dtype=np.int32)
 
-        # Ultra-fast assignment using vectorized operations and memory optimization
+        # Optimized assignment using vectorized operations with accuracy-first approach
         if len(picked_locs_list) > 0:
-            # Pre-extract all coordinates once (avoids repeated attribute access)
+            # Pre-extract coordinates once (preserving original precision)
             locs_frame = locs.frame
             locs_xc = locs.xc  
             locs_yc = locs.yc
             
-            # Process all fiducial groups with optimized broadcasting
-            for group_id, fiducial_locs in enumerate(picked_locs_list):
-                if len(fiducial_locs) > 0:
-                    # Memory-efficient chunk processing for very large fiducial groups
-                    chunk_size = min(1000, len(fiducial_locs))  # Process in chunks to avoid memory issues
-                    
-                    for start_idx in range(0, len(fiducial_locs), chunk_size):
-                        end_idx = min(start_idx + chunk_size, len(fiducial_locs))
-                        fid_chunk = fiducial_locs[start_idx:end_idx]
+            # Set up progress bar for large datasets or many fiducial groups
+            show_progress = len(locs) > 500_000 or len(picked_locs_list) > 5
+            progress_bar_context = None
+            progress_bar = None
+            
+            if show_progress:
+                # Calculate total work units (fiducial groups * chunks per group)
+                total_chunks = sum(
+                    (len(fid_locs) + 999) // 1000 for fid_locs in picked_locs_list if len(fid_locs) > 0
+                )
+                
+                progress_bar_context = ProgressUtils.clean_progress_bar(
+                    total=total_chunks, desc=f"Adding group field to {len(locs):,} localizations"
+                )
+                progress_bar = progress_bar_context.__enter__()
+            
+            try:
+                # Process all fiducial groups
+                for group_id, fiducial_locs in enumerate(picked_locs_list):
+                    if len(fiducial_locs) > 0:
+                        # Conservative chunking to prevent memory issues while maintaining accuracy
+                        chunk_size = min(1000, len(fiducial_locs))  # Conservative chunk size
                         
-                        # Vectorized matching with broadcasting (optimized)
-                        fid_frames = fid_chunk.frame[:, np.newaxis]
-                        fid_xc = fid_chunk.xc[:, np.newaxis] 
-                        fid_yc = fid_chunk.yc[:, np.newaxis]
-                        
-                        # Efficient combined comparison using single boolean operation
-                        matches = (
-                            (fid_frames == locs_frame) & 
-                            (np.abs(fid_xc - locs_xc) < 0.1) & 
-                            (np.abs(fid_yc - locs_yc) < 0.1)
-                        )
-                        
-                        # Optimized assignment (any match in chunk assigns group ID)
-                        matched_locs = np.any(matches, axis=0)
-                        group[matched_locs] = group_id
+                        for start_idx in range(0, len(fiducial_locs), chunk_size):
+                            end_idx = min(start_idx + chunk_size, len(fiducial_locs))
+                            fid_chunk = fiducial_locs[start_idx:end_idx]
+                            
+                            # Vectorized matching with full precision (no dtype changes)
+                            fid_frames = fid_chunk.frame[:, np.newaxis]
+                            fid_xc = fid_chunk.xc[:, np.newaxis] 
+                            fid_yc = fid_chunk.yc[:, np.newaxis]
+                            
+                            # Accurate comparison maintaining original precision
+                            matches = (
+                                (fid_frames == locs_frame) & 
+                                (np.abs(fid_xc - locs_xc) < 0.1) & 
+                                (np.abs(fid_yc - locs_yc) < 0.1)
+                            )
+                            
+                            # Assign group ID to matched localizations
+                            matched_locs = np.any(matches, axis=0)
+                            group[matched_locs] = group_id
+                            
+                            # Update progress bar
+                            if progress_bar:
+                                progress_bar.update(1)
+            
+            finally:
+                # Ensure progress bar is cleaned up
+                if progress_bar_context:
+                    progress_bar_context.__exit__(None, None, None)
 
         # Fast array construction using lib.append_to_rec if available
         try:
