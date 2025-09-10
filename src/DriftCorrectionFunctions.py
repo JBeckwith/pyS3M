@@ -2159,11 +2159,18 @@ class Drift_Correction_Functions:
                     scalebarsize=0,
                 )
 
-                # Highlight regions above threshold
-                threshold_mask = image > threshold
-                axes[2].contour(
-                    threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
-                )
+                # Verify axes[2] is still an axes object before calling contour
+                if hasattr(axes[2], 'contour'):
+                    # Highlight regions above threshold
+                    threshold_mask = image > threshold
+                    axes[2].contour(
+                        threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
+                    )
+                else:
+                    print(f"Warning: axes[2] is not an axes object, type: {type(axes[2])}")
+                    # Create a basic plot instead
+                    axes[2].imshow(image, cmap="hot", origin="lower")
+                    axes[2].scatter(all_y, all_x, c="yellow", s=150, alpha=0.8)
 
                 # Draw circles around candidates
                 for x, y in zip(all_x, all_y):
@@ -2186,6 +2193,12 @@ class Drift_Correction_Functions:
                     scalebarlabel="",
                     scalebarsize=0,
                 )
+                
+                # Verify axes[2] is still an axes object
+                if not hasattr(axes[2], 'set_title'):
+                    print(f"Warning: axes[2] is not an axes object after image_plot, type: {type(axes[2])}")
+                    # Fallback to basic matplotlib
+                    axes[2].imshow(image, cmap="hot", origin="lower")
 
             axes[2].set_title(
                 f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
@@ -2213,9 +2226,20 @@ class Drift_Correction_Functions:
                     scalebarsize=1000,  # 1μm scale bar for final step
                     scalebarlabel="1 μm",
                 )
+                
+                # Verify axes[3] is still an axes object
+                if not hasattr(axes[3], 'add_patch'):
+                    print(f"Warning: axes[3] is not an axes object, type: {type(axes[3])}")
+                    axes[3].imshow(image, cmap="hot", origin="lower")
+                    axes[3].scatter(valid_y, valid_x, c="cyan", s=100, alpha=1.0)
 
                 # Add colored circles and numbers for each fiducial
-                colors = cm.Set1(np.linspace(0, 1, len(valid_picks)))
+                try:
+                    colors = plt.cm.Set1(np.linspace(0, 1, len(valid_picks)))
+                except:
+                    # Fallback to simple colors if Set1 not available
+                    colors = ['red', 'blue', 'green', 'orange', 'purple'] * (len(valid_picks) // 5 + 1)
+                    colors = colors[:len(valid_picks)]
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle
                     circle = patches.Circle(
@@ -2345,7 +2369,12 @@ class Drift_Correction_Functions:
 
             if len(fiducial_locs) > 0:
                 unique_groups = np.unique(fiducial_locs.group)
-                colors = cm.Set1(np.linspace(0, 1, len(unique_groups)))
+                try:
+                    colors = plt.cm.Set1(np.linspace(0, 1, len(unique_groups)))
+                except:
+                    # Fallback to simple colors if Set1 not available
+                    colors = ['red', 'blue', 'green', 'orange', 'purple'] * (len(unique_groups) // 5 + 1)
+                    colors = colors[:len(unique_groups)]
 
                 for i, group_id in enumerate(unique_groups):
                     group_locs = fiducial_locs[fiducial_locs.group == group_id]
