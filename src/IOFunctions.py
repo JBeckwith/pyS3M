@@ -43,6 +43,24 @@ class IO_Functions:
                 # Check schema compatibility before appending
                 df = self._ensure_hdf5_compatibility(df, filepath)
                 df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
+                
+                # Re-read entire file, sort by frame, and rewrite
+                # This ensures proper frame ordering for visualization
+                print(f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}")
+                with pd.HDFStore(filepath, mode='r+') as store:
+                    if 'data' in store:
+                        # Read all data
+                        full_df = store['data']
+                        print(f"  Read {len(full_df):,} total localizations")
+                        
+                        # Sort by frame with stable sort to preserve order within frames
+                        sorted_df = full_df.sort_values(by='frame', kind='mergesort', ignore_index=True).reset_index(drop=True)
+                        print(f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})")
+                        
+                        # Remove old data and write sorted data back
+                        store.remove('data')
+                        store.put('data', sorted_df, format='table')
+                        print(f"  Rewritten sorted data to {os.path.basename(filepath)}")
             else:
                 df.to_hdf(filepath, key="data", format="table")
 
