@@ -2108,6 +2108,8 @@ class Drift_Correction_Functions:
                 cmap="hot",
                 cbarlabel="Intensity",
                 scalebarsize=1000,
+                vmax=np.percentile(image, 99.99),
+                vmin=np.percentile(image, 0.1),
                 scalebarlabel="1 μm",
             )
             axes[0, 0].set_title("Step 1: Rendered Localization Image")
@@ -2135,8 +2137,8 @@ class Drift_Correction_Functions:
                 axes[0, 1] = plotter.image_scatter_plot(
                     axes[0, 1],
                     data=image,
-                    xdata=all_x,
-                    ydata=all_y,
+                    xdata=all_y,
+                    ydata=all_x,
                     cmap="hot",
                     cbar="on",
                     cbarlabel="Intensity",
@@ -2146,6 +2148,8 @@ class Drift_Correction_Functions:
                     scalebarsize=1000,
                     scalebarlabel="1 μm",
                     scattercolor="yellow",
+                    vmax=np.percentile(image, 99.99),
+                    vmin=np.percentile(image, 0.1),
                     s=150,
                     scatteralpha=0.8,
                 )
@@ -2175,8 +2179,8 @@ class Drift_Correction_Functions:
                 axes[1, 1] = plotter.image_scatter_plot(
                     axes[1, 1],
                     data=image,
-                    xdata=valid_x,
-                    ydata=valid_y,
+                    xdata=valid_y,
+                    ydata=valid_x,
                     cmap="hot",
                     cbar="on",
                     cbarlabel="Intensity",
@@ -2186,6 +2190,8 @@ class Drift_Correction_Functions:
                     scalebarsize=1000,
                     scalebarlabel="1 μm",
                     scattercolor="cyan",
+                    vmax=np.percentile(image, 99.99),
+                    vmin=np.percentile(image, 0.1),
                     s=100,
                     scatteralpha=1.0,
                 )
@@ -2196,7 +2202,7 @@ class Drift_Correction_Functions:
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle (requires direct matplotlib)
                     circle = patches.Circle(
-                        (x, y),
+                        (y, x),
                         radius=box_size_pixels // 3,
                         color=colors[i],
                         alpha=0.7,
@@ -2233,28 +2239,6 @@ class Drift_Correction_Functions:
             axes[1, 1].set_title(
                 f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localisations_required']:.0f} localisations each)"
             )
-
-            # Add summary text box
-            summary_text = (
-                f"Detection Summary:\n"
-                f"• Threshold: {threshold:.1f} ({result.detection_params['threshold_percentile']}th percentile)\n"
-                f"• Box size: {box_size_pixels} pixels ({result.detection_params['box_size_nm']} nm)\n"
-                f"• Total candidates: {len(all_picks)}\n"
-                f"• Valid fiducials: {len(valid_picks)}\n"
-                f"• Min localisations: {result.metadata['min_localisations_required']:.0f}\n"
-                f"• Localisations per fiducial: {result.metadata['localisations_per_fiducial']}"
-            )
-
-            fig.text(
-                0.02,
-                0.02,
-                summary_text,
-                fontsize=10,
-                verticalalignment="bottom",
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8),
-            )
-
-            plt.subplots_adjust(bottom=0.15)  # Make room for summary text
 
             # Save if path provided
             if save_path:
