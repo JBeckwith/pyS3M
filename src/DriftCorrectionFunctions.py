@@ -18,6 +18,30 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
 
+# Matplotlib imports (needed for drift correction plotting)
+import matplotlib
+# Check if we're in Jupyter notebook environment
+try:
+    from IPython.core.getipython import get_ipython
+    if get_ipython() is not None:
+        matplotlib.use('inline')  # Jupyter notebook backend
+    else:
+        raise ImportError("Not in IPython")
+except (ImportError, NameError):
+    # Not in Jupyter, use Qt5Agg for interactive display
+    try:
+        matplotlib.use('Qt5Agg')
+    except ImportError:
+        # Fallback to TkAgg if Qt5 not available
+        try:
+            matplotlib.use('TkAgg')
+        except ImportError:
+            # Last resort - Agg for non-interactive
+            matplotlib.use('Agg')
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 # Local imports (will import from existing modules as needed)
 import sys
 import os
@@ -2084,41 +2108,36 @@ class Drift_Correction_Functions:
             pixelsize = meta.get("pixelsize", 130.0)  # nm
             box_size_pixels = result.metadata["box_size_pixels"]
 
-            import matplotlib.pyplot as plt
-            import matplotlib.patches as patches
-            import matplotlib.cm as cm
-            import numpy as np
 
-            # Create figure with 2x2 subplots - fallback to direct matplotlib if PlottingFunctions fails
-            try:
-                fig, axes = plotter.two_column_plot(
-                    ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
-                )
-                print("DEBUG: Successfully created axes with PlottingFunctions")
-                print(f"DEBUG: axes type: {type(axes)}, axes[0] type: {type(axes[0])}")
-                
-                # Check if axes[0] is actually a matplotlib axes object
-                if not hasattr(axes[0], 'imshow'):
-                    print("WARNING: PlottingFunctions returned invalid axes objects")
-                    raise Exception("Axes objects don't have matplotlib methods")
-                    
-            except Exception as plot_error:
-                print(f"PlottingFunctions failed or returned invalid axes, using matplotlib directly: {plot_error}")
+            # Create figure with 2x2 subplots using PlottingFunctions
+            fig, axes = plotter.two_column_plot(
+                ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
+            )
+            
+            # Handle the case where PlottingFunctions returns numpy arrays instead of matplotlib axes
+            if isinstance(axes, np.ndarray) and not hasattr(axes.flat[0], 'imshow'):
+                # PlottingFunctions returned invalid axes, create proper matplotlib figure
                 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-                print(f"DEBUG: Fallback axes type: {type(axes)}, axes[0,0] type: {type(axes[0,0])}")
-                # Flatten axes for consistent indexing
-                axes = axes.flatten()
-                print(f"DEBUG: After flatten - axes[0] type: {type(axes[0])}")
+                axes = axes.flatten()  # Ensure consistent 1D indexing
+            elif isinstance(axes, np.ndarray):
+                axes = axes.flatten()  # Ensure consistent 1D indexing for 2x2 grid
+                
             fig.suptitle(
-                "Fiducial Detection Process - Step by Step",
+                "Fiducial Detection Process - Step by Step", 
                 fontsize=16,
                 fontweight="bold",
             )
 
-            # Step 1: Original rendered image using matplotlib directly (PlottingFunctions is buggy)
-            axes[0].imshow(image, cmap="hot", origin="lower")
-            axes[0].set_xticks([])
-            axes[0].set_yticks([])
+            # Step 1: Original rendered image using PlottingFunctions
+            axes[0] = plotter.image_plot(
+                axes[0],
+                data=image,
+                pixelsize=pixelsize,
+                cmap="hot",
+                cbarlabel="Intensity",
+                scalebarsize=1000,
+                scalebarlabel="1 μm",
+            )
             axes[0].set_title("Step 1: Rendered Localization Image")
 
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
@@ -2146,63 +2165,76 @@ class Drift_Correction_Functions:
             axes[1].legend()
             axes[1].grid(True, alpha=0.3)
 
-            # Step 3: Threshold regions and candidates using matplotlib directly
+            # Step 3: Threshold regions and candidates using PlottingFunctions
             if all_picks:
                 # Extract coordinates from point format (x, y)
                 all_x = np.array([pick[0] for pick in all_picks])
                 all_y = np.array([pick[1] for pick in all_picks])
 
-                # Display image with candidates  
-                axes[2].imshow(image, cmap="hot", origin="lower")
-                axes[2].scatter(all_x, all_y, c="yellow", s=150, alpha=0.8, label=f"All Candidates ({len(all_picks)})")
-                axes[2].set_xticks([])
-                axes[2].set_yticks([])
-
-                # Highlight regions above threshold
-                threshold_mask = image > threshold
-                axes[2].contour(
-                    threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
+                # Use PlottingFunctions image_scatter_plot for candidates
+                axes[2] = plotter.image_scatter_plot(
+                    axes[2],
+                    data=image,
+                    xdata=all_x,
+                    ydata=all_y,
+                    cmap="hot",
+                    cbar="on",
+                    cbarlabel="Intensity",
+                    label=f"All Candidates ({len(all_picks)})",
+                    labelcolor="yellow",
+                    pixelsize=pixelsize,
+                    scalebarsize=1000,
+                    scalebarlabel="1 μm",
+                    scattercolor="yellow",
+                    s=150,
+                    scatteralpha=0.8,
                 )
-
-                # Draw circles around candidates
-                for x, y in zip(all_x, all_y):
-                    circle = patches.Circle(
-                        (x, y),
-                        radius=box_size_pixels // 2,  # Use radius instead of box size
-                        linewidth=1,
-                        edgecolor="yellow",
-                        facecolor="none",
-                        alpha=0.6,
-                    )
-                    axes[2].add_patch(circle)
             else:
-                # No candidates found
-                axes[2].imshow(image, cmap="hot", origin="lower")
-                axes[2].set_xticks([])
-                axes[2].set_yticks([])
+                # No candidates found - just show image
+                axes[2] = plotter.image_plot(
+                    axes[2],
+                    data=image,
+                    pixelsize=pixelsize,
+                    cmap="hot",
+                    cbarlabel="Intensity",
+                    scalebarsize=1000,
+                    scalebarlabel="1 μm",
+                )
 
             axes[2].set_title(
                 f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
             )
 
-            # Step 4: Final validated fiducials using image_scatter_plot
+            # Step 4: Final validated fiducials using PlottingFunctions
             if valid_picks:
                 # Extract coordinates from point format (x, y)
                 valid_x = np.array([pick[0] for pick in valid_picks])
                 valid_y = np.array([pick[1] for pick in valid_picks])
 
-                # Use matplotlib directly (PlottingFunctions is broken)
-                axes[3].imshow(image, cmap="hot", origin="lower")
-                axes[3].scatter(valid_x, valid_y, c="cyan", s=100, alpha=1.0, label=f"Valid Fiducials ({len(valid_picks)})")
-                axes[3].set_xticks([])
-                axes[3].set_yticks([])
+                # Use PlottingFunctions image_scatter_plot for valid fiducials
+                axes[3] = plotter.image_scatter_plot(
+                    axes[3],
+                    data=image,
+                    xdata=valid_x,
+                    ydata=valid_y,
+                    cmap="hot",
+                    cbar="on",
+                    cbarlabel="Intensity",
+                    label=f"Valid Fiducials ({len(valid_picks)})",
+                    labelcolor="cyan",
+                    pixelsize=pixelsize,
+                    scalebarsize=1000,
+                    scalebarlabel="1 μm",
+                    scattercolor="cyan",
+                    s=100,
+                    scatteralpha=1.0,
+                )
 
-                # Add colored circles and numbers for each fiducial
-                # Use simple color list (matplotlib colormaps cause Pylance issues)
+                # Add colored circles and numbers for each fiducial (must use matplotlib for custom patches)
                 color_list = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
                 colors = (color_list * (len(valid_picks) // len(color_list) + 1))[:len(valid_picks)]
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
-                    # Draw colored circle
+                    # Draw colored circle (requires direct matplotlib)
                     circle = patches.Circle(
                         (x, y),
                         radius=box_size_pixels // 3,
@@ -2213,7 +2245,7 @@ class Drift_Correction_Functions:
                     )
                     axes[3].add_patch(circle)
 
-                    # Add fiducial number
+                    # Add fiducial number (requires direct matplotlib)
                     axes[3].text(
                         x,
                         y,
@@ -2295,7 +2327,6 @@ class Drift_Correction_Functions:
             pixelsize = meta.get("pixelsize", 130.0)  # nm
 
             # Create figure
-            import matplotlib.pyplot as plt
 
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
