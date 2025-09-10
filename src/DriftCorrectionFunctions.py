@@ -1846,9 +1846,8 @@ class Drift_Correction_Functions:
                 )
 
             y, x, _ = localise.identify_in_image(image, threshold, box=box)
-            # Format picks as rectangles for postprocess.picked_locs()
-            # Convert single coordinates to rectangle corner pairs
-            picks = [((xi, yi), (xi, yi)) for xi, yi in zip(x, y)]
+            # Format picks as points for Circle picking (more appropriate for point detection)
+            picks = [(xi, yi) for xi, yi in zip(x, y)]
 
             if len(picks) == 0:
                 raise DriftCorrectionError(
@@ -1866,16 +1865,16 @@ class Drift_Correction_Functions:
                     "postprocess module required for fiducial detection"
                 )
 
-            # Get localisations for each pick (using parallelised version)
+            # Get localisations for each pick using Circle picking (appropriate for point detection)
             temp_picked_locs = postprocess.picked_locs(
                 locs,
                 width,
                 height,
                 picks,
-                "Rectangle",
-                pick_size=box,
+                "Circle",
+                pick_size=box // 2,  # Use radius (half the box size)
                 add_group=False,
-                parallel=True,  # Use parallel processing
+                parallel=False,  # Circle picking doesn't have parallel implementation
             )
 
             # Keep only picks with sufficient localisations
@@ -2045,9 +2044,9 @@ class Drift_Correction_Functions:
 
             # Step 3: Threshold regions and candidates using image_scatter_plot
             if all_picks:
-                # Extract center coordinates from rectangle format ((x,y), (x,y))
-                all_x = np.array([pick[0][0] for pick in all_picks])
-                all_y = np.array([pick[0][1] for pick in all_picks])
+                # Extract coordinates from point format (x, y)
+                all_x = np.array([pick[0] for pick in all_picks])
+                all_y = np.array([pick[1] for pick in all_picks])
 
                 axes[2] = plotter.image_scatter_plot(
                     axes[2],
@@ -2072,18 +2071,17 @@ class Drift_Correction_Functions:
                     threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
                 )
 
-                # Draw boxes around candidates
+                # Draw circles around candidates
                 for x, y in zip(all_x, all_y):
-                    rect = patches.Rectangle(
-                        (x - box_size_pixels // 2, y - box_size_pixels // 2),
-                        box_size_pixels,
-                        box_size_pixels,
+                    circle = patches.Circle(
+                        (x, y),
+                        radius=box_size_pixels // 2,  # Use radius instead of box size
                         linewidth=1,
                         edgecolor="yellow",
                         facecolor="none",
                         alpha=0.6,
                     )
-                    axes[2].add_patch(rect)
+                    axes[2].add_patch(circle)
             else:
                 axes[2] = plotter.image_plot(
                     axes[2],
@@ -2096,14 +2094,14 @@ class Drift_Correction_Functions:
                 )
 
             axes[2].set_title(
-                f"Step 3: Above-Threshold Regions & Candidates\n(Box size: {box_size_pixels} pixels)"
+                f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
             )
 
             # Step 4: Final validated fiducials using image_scatter_plot
             if valid_picks:
-                # Extract center coordinates from rectangle format ((x,y), (x,y))
-                valid_x = np.array([pick[0][0] for pick in valid_picks])
-                valid_y = np.array([pick[0][1] for pick in valid_picks])
+                # Extract coordinates from point format (x, y)
+                valid_x = np.array([pick[0] for pick in valid_picks])
+                valid_y = np.array([pick[1] for pick in valid_picks])
 
                 axes[3] = plotter.image_scatter_plot(
                     axes[3],
