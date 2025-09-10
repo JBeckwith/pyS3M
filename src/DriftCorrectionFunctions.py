@@ -2096,36 +2096,29 @@ class Drift_Correction_Functions:
                 )
                 print("DEBUG: Successfully created axes with PlottingFunctions")
                 print(f"DEBUG: axes type: {type(axes)}, axes[0] type: {type(axes[0])}")
+                
+                # Check if axes[0] is actually a matplotlib axes object
+                if not hasattr(axes[0], 'imshow'):
+                    print("WARNING: PlottingFunctions returned invalid axes objects")
+                    raise Exception("Axes objects don't have matplotlib methods")
+                    
             except Exception as plot_error:
-                print(f"PlottingFunctions failed, using matplotlib directly: {plot_error}")
+                print(f"PlottingFunctions failed or returned invalid axes, using matplotlib directly: {plot_error}")
                 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
                 print(f"DEBUG: Fallback axes type: {type(axes)}, axes[0,0] type: {type(axes[0,0])}")
                 # Flatten axes for consistent indexing
                 axes = axes.flatten()
+                print(f"DEBUG: After flatten - axes[0] type: {type(axes[0])}")
             fig.suptitle(
                 "Fiducial Detection Process - Step by Step",
                 fontsize=16,
                 fontweight="bold",
             )
 
-            # Step 1: Original rendered image - try PlottingFunctions, fallback to matplotlib
-            try:
-                axes[0] = plotter.image_plot(
-                    axes[0],
-                    data=image,
-                    pixelsize=pixelsize,
-                    cmap="hot",
-                    cbarlabel="Intensity",
-                    scalebarlabel="",  # No scale bar for this step
-                    scalebarsize=0,
-                )
-                print(f"DEBUG: Step 1 - axes[0] type after image_plot: {type(axes[0])}")
-            except Exception as e:
-                print(f"PlottingFunctions.image_plot failed, using matplotlib: {e}")
-                axes[0].imshow(image, cmap="hot", origin="lower")
-                axes[0].set_xticks([])
-                axes[0].set_yticks([])
-            
+            # Step 1: Original rendered image using matplotlib directly (PlottingFunctions is buggy)
+            axes[0].imshow(image, cmap="hot", origin="lower")
+            axes[0].set_xticks([])
+            axes[0].set_yticks([])
             axes[0].set_title("Step 1: Rendered Localization Image")
 
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
@@ -2153,48 +2146,23 @@ class Drift_Correction_Functions:
             axes[1].legend()
             axes[1].grid(True, alpha=0.3)
 
-            # Step 3: Threshold regions and candidates using image_scatter_plot
+            # Step 3: Threshold regions and candidates using matplotlib directly
             if all_picks:
                 # Extract coordinates from point format (x, y)
                 all_x = np.array([pick[0] for pick in all_picks])
                 all_y = np.array([pick[1] for pick in all_picks])
 
-                try:
-                    axes[2] = plotter.image_scatter_plot(
-                        axes[2],
-                        data=image,
-                        xdata=all_x,
-                        ydata=all_y,
-                        pixelsize=pixelsize,
-                        cmap="hot",
-                        cbarlabel="Intensity",
-                        scattercolor="yellow",
-                        scatteralpha=0.8,
-                        s=150,
-                        label=f"All Candidates ({len(all_picks)})",
-                        labelcolor="yellow",
-                        scalebarlabel="",  # No scale bar
-                        scalebarsize=0,
-                    )
-                    print(f"DEBUG: Step 3 - axes[2] type after image_scatter_plot: {type(axes[2])}")
-                except Exception as e:
-                    print(f"PlottingFunctions.image_scatter_plot failed, using matplotlib: {e}")
-                    axes[2].imshow(image, cmap="hot", origin="lower")
-                    axes[2].scatter(all_y, all_x, c="yellow", s=150, alpha=0.8)
-                    axes[2].set_xticks([])
-                    axes[2].set_yticks([])
+                # Display image with candidates
+                axes[2].imshow(image, cmap="hot", origin="lower")
+                axes[2].scatter(all_y, all_x, c="yellow", s=150, alpha=0.8, label=f"All Candidates ({len(all_picks)})")
+                axes[2].set_xticks([])
+                axes[2].set_yticks([])
 
-                # Verify axes[2] is still an axes object before calling contour
-                if hasattr(axes[2], 'contour'):
-                    # Highlight regions above threshold
-                    threshold_mask = image > threshold
-                    axes[2].contour(
-                        threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
-                    )
-                else:
-                    print(f"Warning: axes[2] is not an axes object, type: {type(axes[2])}")
-                    # Skip the contour - axes[2] is not a proper axes object
-                    pass
+                # Highlight regions above threshold
+                threshold_mask = image > threshold
+                axes[2].contour(
+                    threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
+                )
 
                 # Draw circles around candidates
                 for x, y in zip(all_x, all_y):
@@ -2208,21 +2176,10 @@ class Drift_Correction_Functions:
                     )
                     axes[2].add_patch(circle)
             else:
-                try:
-                    axes[2] = plotter.image_plot(
-                        axes[2],
-                        data=image,
-                        pixelsize=pixelsize,
-                        cmap="hot",
-                        cbarlabel="Intensity",
-                        scalebarlabel="",
-                        scalebarsize=0,
-                    )
-                except Exception as e:
-                    print(f"PlottingFunctions.image_plot failed for step 3 else, using matplotlib: {e}")
-                    axes[2].imshow(image, cmap="hot", origin="lower")
-                    axes[2].set_xticks([])
-                    axes[2].set_yticks([])
+                # No candidates found
+                axes[2].imshow(image, cmap="hot", origin="lower")
+                axes[2].set_xticks([])
+                axes[2].set_yticks([])
 
             axes[2].set_title(
                 f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
@@ -2234,44 +2191,16 @@ class Drift_Correction_Functions:
                 valid_x = np.array([pick[0] for pick in valid_picks])
                 valid_y = np.array([pick[1] for pick in valid_picks])
 
-                try:
-                    axes[3] = plotter.image_scatter_plot(
-                        axes[3],
-                        data=image,
-                        xdata=valid_x,
-                        ydata=valid_y,
-                        pixelsize=pixelsize,
-                        cmap="hot",
-                        cbarlabel="Intensity",
-                        scattercolor="cyan",
-                        scatteralpha=1.0,
-                        s=100,
-                        label=f"Valid Fiducials ({len(valid_picks)})",
-                        labelcolor="cyan",
-                        scalebarsize=1000,  # 1μm scale bar for final step
-                        scalebarlabel="1 μm",
-                    )
-                    print(f"DEBUG: Step 4 - axes[3] type after image_scatter_plot: {type(axes[3])}")
-                except Exception as e:
-                    print(f"PlottingFunctions.image_scatter_plot failed for step 4, using matplotlib: {e}")
-                    axes[3].imshow(image, cmap="hot", origin="lower")
-                    axes[3].scatter(valid_y, valid_x, c="cyan", s=100, alpha=1.0)
-                    axes[3].set_xticks([])
-                    axes[3].set_yticks([])
-                
-                # Verify axes[3] is still an axes object
-                if not hasattr(axes[3], 'add_patch'):
-                    print(f"Warning: axes[3] is not an axes object, type: {type(axes[3])}")
-                    # Skip patch operations
-                    pass
+                # Use matplotlib directly (PlottingFunctions is broken)
+                axes[3].imshow(image, cmap="hot", origin="lower")
+                axes[3].scatter(valid_y, valid_x, c="cyan", s=100, alpha=1.0, label=f"Valid Fiducials ({len(valid_picks)})")
+                axes[3].set_xticks([])
+                axes[3].set_yticks([])
 
                 # Add colored circles and numbers for each fiducial
-                try:
-                    colors = plt.cm.Set1(np.linspace(0, 1, len(valid_picks)))
-                except:
-                    # Fallback to simple colors if Set1 not available
-                    colors = ['red', 'blue', 'green', 'orange', 'purple'] * (len(valid_picks) // 5 + 1)
-                    colors = colors[:len(valid_picks)]
+                # Use simple color list (matplotlib colormaps cause Pylance issues)
+                color_list = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+                colors = (color_list * (len(valid_picks) // len(color_list) + 1))[:len(valid_picks)]
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle
                     circle = patches.Circle(
@@ -2402,11 +2331,12 @@ class Drift_Correction_Functions:
             if len(fiducial_locs) > 0:
                 unique_groups = np.unique(fiducial_locs.group)
                 try:
-                    colors = plt.cm.Set1(np.linspace(0, 1, len(unique_groups)))
+                    # Use basic colors - colormaps are causing issues with Pylance
+                    color_list = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+                    colors = (color_list * (len(unique_groups) // len(color_list) + 1))[:len(unique_groups)]
                 except:
-                    # Fallback to simple colors if Set1 not available
-                    colors = ['red', 'blue', 'green', 'orange', 'purple'] * (len(unique_groups) // 5 + 1)
-                    colors = colors[:len(unique_groups)]
+                    # Ultimate fallback 
+                    colors = ['red'] * len(unique_groups)
 
                 for i, group_id in enumerate(unique_groups):
                     group_locs = fiducial_locs[fiducial_locs.group == group_id]
