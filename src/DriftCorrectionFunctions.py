@@ -1846,7 +1846,9 @@ class Drift_Correction_Functions:
                 )
 
             y, x, _ = localise.identify_in_image(image, threshold, box=box)
-            picks = [(xi, yi) for xi, yi in zip(x, y)]
+            # Format picks as rectangles for postprocess.picked_locs()
+            # Convert single coordinates to rectangle corner pairs
+            picks = [((xi, yi), (xi, yi)) for xi, yi in zip(x, y)]
 
             if len(picks) == 0:
                 raise DriftCorrectionError(
@@ -1989,6 +1991,7 @@ class Drift_Correction_Functions:
 
             import matplotlib.pyplot as plt
             import matplotlib.patches as patches
+            import matplotlib.cm as cm
             import numpy as np
 
             # Create figure with 2x2 subplots using PlottingFunctions
@@ -2040,8 +2043,9 @@ class Drift_Correction_Functions:
 
             # Step 3: Threshold regions and candidates using image_scatter_plot
             if all_picks:
-                all_x = np.array([pick[0] for pick in all_picks])
-                all_y = np.array([pick[1] for pick in all_picks])
+                # Extract center coordinates from rectangle format ((x,y), (x,y))
+                all_x = np.array([pick[0][0] for pick in all_picks])
+                all_y = np.array([pick[0][1] for pick in all_picks])
 
                 axes[2] = plotter.image_scatter_plot(
                     axes[2],
@@ -2054,7 +2058,6 @@ class Drift_Correction_Functions:
                     scattercolor="yellow",
                     scatteralpha=0.8,
                     s=150,
-                    marker="x",
                     label=f"All Candidates ({len(all_picks)})",
                     labelcolor="yellow",
                     scalebarlabel="",  # No scale bar
@@ -2096,8 +2099,9 @@ class Drift_Correction_Functions:
 
             # Step 4: Final validated fiducials using image_scatter_plot
             if valid_picks:
-                valid_x = np.array([pick[0] for pick in valid_picks])
-                valid_y = np.array([pick[1] for pick in valid_picks])
+                # Extract center coordinates from rectangle format ((x,y), (x,y))
+                valid_x = np.array([pick[0][0] for pick in valid_picks])
+                valid_y = np.array([pick[0][1] for pick in valid_picks])
 
                 axes[3] = plotter.image_scatter_plot(
                     axes[3],
@@ -2110,7 +2114,6 @@ class Drift_Correction_Functions:
                     scattercolor="cyan",
                     scatteralpha=1.0,
                     s=100,
-                    marker="+",
                     label=f"Valid Fiducials ({len(valid_picks)})",
                     labelcolor="cyan",
                     scalebarsize=1000,  # 1μm scale bar for final step
@@ -2118,7 +2121,7 @@ class Drift_Correction_Functions:
                 )
 
                 # Add colored circles and numbers for each fiducial
-                colors = plt.cm.Set1(np.linspace(0, 1, len(valid_picks)))
+                colors = cm.Set1(np.linspace(0, 1, len(valid_picks)))
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle
                     circle = patches.Circle(
@@ -2248,7 +2251,7 @@ class Drift_Correction_Functions:
 
             if len(fiducial_locs) > 0:
                 unique_groups = np.unique(fiducial_locs.group)
-                colors = plt.cm.Set1(np.linspace(0, 1, len(unique_groups)))
+                colors = cm.Set1(np.linspace(0, 1, len(unique_groups)))
 
                 for i, group_id in enumerate(unique_groups):
                     group_locs = fiducial_locs[fiducial_locs.group == group_id]
