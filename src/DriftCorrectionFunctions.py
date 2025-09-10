@@ -1803,7 +1803,7 @@ class Drift_Correction_Functions:
 
         # Extract metadata
         meta = CoordinateProcessor.extract_metadata(info)
-        pixelsize = meta.get("pixelsize", 130.0)  # Default fallback in nm
+        pixelsize = meta.get("pixelsize", 69.0)  # Default fallback in nm
         n_frames = int(meta["n_frames"])
         width = int(meta["width"])
         height = int(meta["height"])
@@ -1870,8 +1870,8 @@ class Drift_Correction_Functions:
                 width,
                 height,
                 picks,
-                "Circle",
-                pick_size=box / 2,
+                "Rectangle",
+                pick_size=box,
                 add_group=False,
             )
 
@@ -1914,7 +1914,9 @@ class Drift_Correction_Functions:
 
             # Create plot if requested
             if plot_results:
-                self._plot_fiducial_detection_results(result, info, save_plot)
+                self._plot_fiducial_detection_steps(
+                    image, hist, threshold, picks, valid_picks, result, info, save_plot
+                )
 
             return result
 
@@ -1959,6 +1961,237 @@ class Drift_Correction_Functions:
 
         # Convert to recarray
         return new_locs.view(np.recarray)
+
+    def _plot_fiducial_detection_steps(
+        self,
+        image: np.ndarray,
+        hist: tuple,
+        threshold: float,
+        all_picks: list,
+        valid_picks: list,
+        result: FiducialDetectionResult,
+        info: List[dict],
+        save_path: Optional[str] = None,
+    ) -> None:
+        """Create step-by-step visualization of fiducial detection process."""
+        if PlottingFunctions is None:
+            print("⚠️ PlottingFunctions not available, skipping step-by-step plots")
+            return
+
+        try:
+            # Create plotter instance
+            plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
+
+            # Extract metadata
+            meta = CoordinateProcessor.extract_metadata(info)
+            pixelsize = meta.get("pixelsize", 130.0)  # nm
+            box_size_pixels = result.metadata["box_size_pixels"]
+
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as patches
+            import numpy as np
+
+            # Create figure with 2x2 subplots using PlottingFunctions
+            fig, axes = plotter.two_column_plot(
+                ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
+            )
+            fig.suptitle(
+                "Fiducial Detection Process - Step by Step",
+                fontsize=16,
+                fontweight="bold",
+            )
+
+            # Step 1: Original rendered image using PlottingFunctions
+            axes[0] = plotter.image_plot(
+                axes[0],
+                data=image,
+                pixelsize=pixelsize,
+                cmap="hot",
+                cbarlabel="Intensity",
+                scalebarlabel="",  # No scale bar for this step
+                scalebarsize=0,
+            )
+            axes[0].set_title("Step 1: Rendered Localization Image")
+
+            # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
+            hist_values, bin_edges = hist
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+            axes[1].bar(
+                bin_centers,
+                hist_values,
+                width=np.diff(bin_edges),
+                alpha=0.7,
+                color="skyblue",
+                edgecolor="black",
+            )
+            axes[1].axvline(
+                threshold,
+                color="red",
+                linestyle="--",
+                linewidth=2,
+                label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
+            )
+            axes[1].set_title("Step 2: Intensity Histogram & Threshold")
+            axes[1].set_xlabel("Intensity")
+            axes[1].set_ylabel("Frequency")
+            axes[1].legend()
+            axes[1].grid(True, alpha=0.3)
+
+            # Step 3: Threshold regions and candidates using image_scatter_plot
+            if all_picks:
+                all_x = np.array([pick[0] for pick in all_picks])
+                all_y = np.array([pick[1] for pick in all_picks])
+
+                axes[2] = plotter.image_scatter_plot(
+                    axes[2],
+                    data=image,
+                    xdata=all_x,
+                    ydata=all_y,
+                    pixelsize=pixelsize,
+                    cmap="hot",
+                    cbarlabel="Intensity",
+                    scattercolor="yellow",
+                    scatteralpha=0.8,
+                    s=150,
+                    marker="x",
+                    label=f"All Candidates ({len(all_picks)})",
+                    labelcolor="yellow",
+                    scalebarlabel="",  # No scale bar
+                    scalebarsize=0,
+                )
+
+                # Highlight regions above threshold
+                threshold_mask = image > threshold
+                axes[2].contour(
+                    threshold_mask, levels=[0.5], colors="lime", linewidths=1, alpha=0.8
+                )
+
+                # Draw boxes around candidates
+                for x, y in zip(all_x, all_y):
+                    rect = patches.Rectangle(
+                        (x - box_size_pixels // 2, y - box_size_pixels // 2),
+                        box_size_pixels,
+                        box_size_pixels,
+                        linewidth=1,
+                        edgecolor="yellow",
+                        facecolor="none",
+                        alpha=0.6,
+                    )
+                    axes[2].add_patch(rect)
+            else:
+                axes[2] = plotter.image_plot(
+                    axes[2],
+                    data=image,
+                    pixelsize=pixelsize,
+                    cmap="hot",
+                    cbarlabel="Intensity",
+                    scalebarlabel="",
+                    scalebarsize=0,
+                )
+
+            axes[2].set_title(
+                f"Step 3: Above-Threshold Regions & Candidates\n(Box size: {box_size_pixels} pixels)"
+            )
+
+            # Step 4: Final validated fiducials using image_scatter_plot
+            if valid_picks:
+                valid_x = np.array([pick[0] for pick in valid_picks])
+                valid_y = np.array([pick[1] for pick in valid_picks])
+
+                axes[3] = plotter.image_scatter_plot(
+                    axes[3],
+                    data=image,
+                    xdata=valid_x,
+                    ydata=valid_y,
+                    pixelsize=pixelsize,
+                    cmap="hot",
+                    cbarlabel="Intensity",
+                    scattercolor="cyan",
+                    scatteralpha=1.0,
+                    s=100,
+                    marker="+",
+                    label=f"Valid Fiducials ({len(valid_picks)})",
+                    labelcolor="cyan",
+                    scalebarsize=1000,  # 1μm scale bar for final step
+                    scalebarlabel="1 μm",
+                )
+
+                # Add colored circles and numbers for each fiducial
+                colors = plt.cm.Set1(np.linspace(0, 1, len(valid_picks)))
+                for i, (x, y) in enumerate(zip(valid_x, valid_y)):
+                    # Draw colored circle
+                    circle = patches.Circle(
+                        (x, y),
+                        radius=box_size_pixels // 3,
+                        color=colors[i],
+                        alpha=0.7,
+                        linewidth=2,
+                        fill=False,
+                    )
+                    axes[3].add_patch(circle)
+
+                    # Add fiducial number
+                    axes[3].text(
+                        x,
+                        y,
+                        str(i + 1),
+                        ha="center",
+                        va="center",
+                        fontsize=12,
+                        fontweight="bold",
+                        color="white",
+                        bbox=dict(
+                            boxstyle="round,pad=0.2", facecolor=colors[i], alpha=0.8
+                        ),
+                    )
+            else:
+                axes[3] = plotter.image_plot(
+                    axes[3],
+                    data=image,
+                    pixelsize=pixelsize,
+                    cmap="hot",
+                    cbarlabel="Intensity",
+                    scalebarsize=1000,
+                    scalebarlabel="1 μm",
+                )
+
+            axes[3].set_title(
+                f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localizations_required']:.0f} localizations each)"
+            )
+
+            # Add summary text box
+            summary_text = (
+                f"Detection Summary:\n"
+                f"• Threshold: {threshold:.1f} ({result.detection_params['threshold_percentile']}th percentile)\n"
+                f"• Box size: {box_size_pixels} pixels ({result.detection_params['box_size_nm']} nm)\n"
+                f"• Total candidates: {len(all_picks)}\n"
+                f"• Valid fiducials: {len(valid_picks)}\n"
+                f"• Min localizations: {result.metadata['min_localizations_required']:.0f}\n"
+                f"• Localizations per fiducial: {result.metadata['localizations_per_fiducial']}"
+            )
+
+            fig.text(
+                0.02,
+                0.02,
+                summary_text,
+                fontsize=10,
+                verticalalignment="bottom",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8),
+            )
+
+            plt.tight_layout()
+            plt.subplots_adjust(bottom=0.15)  # Make room for summary text
+
+            # Save if path provided
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches="tight")
+                print(f"📊 Step-by-step fiducial detection plot saved to: {save_path}")
+
+            plt.show()
+
+        except Exception as e:
+            print(f"⚠️ Error creating step-by-step fiducial detection plot: {e}")
 
     def _plot_fiducial_detection_results(
         self,
