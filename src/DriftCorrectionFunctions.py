@@ -1487,7 +1487,7 @@ class FiducialDriftCorrector(DriftCorrector):
 
         # Extract metadata for pixel size
         meta = CoordinateProcessor.extract_metadata(info)
-        pixelsize = meta.get("pixelsize", 130.0)  # Default fallback
+        pixelsize = meta.get("pixelsize", 69.0)  # Default fallback
         n_frames = int(meta["n_frames"])
 
         # Render localizations to image for fiducial detection
@@ -2129,6 +2129,10 @@ class Drift_Correction_Functions:
             "pixelsize": pixelsize,
         }
 
+        # Calculate box size from nanometer specification (used later regardless of detection method)
+        box = int(np.round(box_size_nm / pixelsize))
+        box = box + 1 if box % 2 == 0 else box  # Ensure odd
+
         try:
             if use_temporal_chunking:
                 # Temporal chunking approach for drift-robust detection
@@ -2151,10 +2155,6 @@ class Drift_Correction_Functions:
 
                 # Use user-specified threshold percentile
                 threshold = np.percentile(hist[0], threshold_percentile)
-
-                # Calculate box size from nanometer specification
-                box = int(np.round(box_size_nm / pixelsize))
-                box = box + 1 if box % 2 == 0 else box  # Ensure odd
 
                 # Find local maxima (potential fiducials)
                 try:
