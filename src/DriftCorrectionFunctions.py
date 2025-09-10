@@ -848,44 +848,112 @@ class AIMDriftCorrector(DriftCorrector):
                 _process_segment(s)
                 progress_callback(s)
 
-        # interpolate the drifts (cubic spline) for all frames
-        t = (seg_bounds[1:] + seg_bounds[:-1]) / 2
-        drift_x_pol = InterpolatedUnivariateSpline(t, drift_x, k=3)
-        drift_y_pol = InterpolatedUnivariateSpline(t, drift_y, k=3)
-        
-        # Determine frame range from the actual data
-        max_frame = int(seg_bounds[-1])
+        # Use gap-filling interpolation instead of smoothing splines to preserve high-frequency drift
         min_frame = int(frame.min())
         max_frame_data = int(frame.max())
         
-        # Debug info
-        print(f"AIM Debug: seg_bounds[-1]={max_frame}, frame range: {min_frame} to {max_frame_data}")
+        # Create drift arrays that preserve measured values and only interpolate gaps
+        drift_x_full, drift_y_full = self._gap_filling_interpolation(
+            drift_x, drift_y, seg_bounds, min_frame, max_frame_data
+        )
         
-        # Create interpolation points that cover the full frame range
-        # Always use the actual max frame from data, not seg_bounds
+        # Apply drift correction with proper indexing
         if min_frame == 0:
-            # 0-indexed frames: 0, 1, 2, ..., max_frame_data
-            t_inter = np.arange(1, max_frame_data + 2)  # Interpolate at 1, 2, ..., max_frame_data+1
-            drift_x = drift_x_pol(t_inter)
-            drift_y = drift_y_pol(t_inter)
-            # undrift using direct indexing (frame is 0-indexed, drift arrays start at index 0 for frame 0)
-            x_pdc = x - drift_x[frame]
-            y_pdc = y - drift_y[frame]
+            # 0-indexed frames: use direct indexing
+            x_pdc = x - drift_x_full[frame]
+            y_pdc = y - drift_y_full[frame]
         else:
-            # 1-indexed frames: 1, 2, 3, ..., max_frame_data  
-            t_inter = np.arange(1, max_frame_data + 1)
-            drift_x = drift_x_pol(t_inter)
-            drift_y = drift_y_pol(t_inter)
-            # Ensure no out-of-bounds access
+            # 1-indexed frames: subtract 1 for array indexing
             valid_indices = (frame >= 1) & (frame <= max_frame_data)
             x_pdc = x.copy()
             y_pdc = y.copy()
-            x_pdc[valid_indices] = x[valid_indices] - drift_x[frame[valid_indices] - 1]
-            y_pdc[valid_indices] = y[valid_indices] - drift_y[frame[valid_indices] - 1]
-        
-        print(f"AIM Debug: drift arrays shape: {drift_x.shape}, frame range in data: {frame.min()} to {frame.max()}")
+            x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices] - 1]
+            y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices] - 1]
 
-        return x_pdc, y_pdc, drift_x, drift_y
+        return x_pdc, y_pdc, drift_x_full, drift_y_full
+
+    def _gap_filling_interpolation(
+        self, 
+        drift_x: np.ndarray, 
+        drift_y: np.ndarray, 
+        seg_bounds: np.ndarray,
+        min_frame: int, 
+        max_frame: int
+    ) -> tuple:
+        """Gap-filling interpolation that preserves measured drift values.
+        
+        Instead of smoothing all data with splines, this method:
+        1. Uses actual measured drift values at segment centers
+        2. Only interpolates linearly in gaps between measurements
+        3. Preserves high-frequency drift information
+        
+        Args:
+            drift_x: Measured drift values for each segment
+            drift_y: Measured drift values for each segment
+            seg_bounds: Segment boundaries
+            min_frame: Minimum frame number
+            max_frame: Maximum frame number
+            
+        Returns:
+            Tuple of (drift_x_full, drift_y_full) arrays for all frames
+        """
+        # Calculate segment centers (where we have actual measurements)
+        seg_centers = (seg_bounds[1:] + seg_bounds[:-1]) / 2
+        seg_centers = seg_centers.astype(int)
+        
+        # Create full frame arrays
+        total_frames = max_frame - min_frame + 1
+        if min_frame == 0:
+            drift_x_full = np.zeros(max_frame + 1)
+            drift_y_full = np.zeros(max_frame + 1)
+        else:
+            drift_x_full = np.zeros(max_frame)
+            drift_y_full = np.zeros(max_frame)
+        
+        # Place measured values at segment centers
+        valid_centers = []
+        valid_drift_x = []
+        valid_drift_y = []
+        
+        for i, center in enumerate(seg_centers):
+            if i < len(drift_x):  # Ensure we don't exceed drift array bounds
+                if min_frame == 0:
+                    if center <= max_frame:
+                        drift_x_full[center] = drift_x[i]
+                        drift_y_full[center] = drift_y[i]
+                        valid_centers.append(center)
+                        valid_drift_x.append(drift_x[i])
+                        valid_drift_y.append(drift_y[i])
+                else:
+                    if 1 <= center <= max_frame:
+                        drift_x_full[center - 1] = drift_x[i]  # Adjust for 1-indexing
+                        drift_y_full[center - 1] = drift_y[i]
+                        valid_centers.append(center - 1)  # Store as 0-indexed
+                        valid_drift_x.append(drift_x[i])
+                        valid_drift_y.append(drift_y[i])
+        
+        if len(valid_centers) == 0:
+            print("Warning: No valid segment centers found for interpolation")
+            return drift_x_full, drift_y_full
+        
+        # Linear interpolation for gaps between measurements
+        valid_centers = np.array(valid_centers)
+        valid_drift_x = np.array(valid_drift_x)
+        valid_drift_y = np.array(valid_drift_y)
+        
+        # Interpolate for all frame positions
+        all_frames = np.arange(len(drift_x_full))
+        
+        # Use linear interpolation, with extrapolation for frames outside the range
+        drift_x_full = np.interp(all_frames, valid_centers, valid_drift_x)
+        drift_y_full = np.interp(all_frames, valid_centers, valid_drift_y)
+        
+        # Restore the exact measured values (in case interpolation slightly changed them)
+        for i, center in enumerate(valid_centers):
+            drift_x_full[center] = valid_drift_x[i]
+            drift_y_full[center] = valid_drift_y[i]
+        
+        return drift_x_full, drift_y_full
 
     @staticmethod
     def _intersection_max_z(
@@ -1784,6 +1852,215 @@ class Drift_Correction_Functions:
             ),
         }
 
+    def _detect_fiducials_with_chunking(
+        self,
+        locs: np.recarray,
+        info: list,
+        threshold_percentile: float,
+        box_size_nm: float,
+        histogram_bins: int,
+        n_chunks: int,
+        max_linking_distance_nm: float,
+        pixelsize: float,
+    ) -> tuple:
+        """Detect fiducials using temporal chunking for drift-robust detection.
+        
+        Args:
+            locs: Localization data
+            info: Metadata list
+            threshold_percentile: Percentile threshold for detection
+            box_size_nm: Box size in nanometers  
+            histogram_bins: Number of histogram bins
+            n_chunks: Number of temporal chunks
+            max_linking_distance_nm: Maximum linking distance in nm
+            pixelsize: Pixel size in nm
+            
+        Returns:
+            Tuple of (picks, combined_image, combined_hist, threshold)
+        """
+        try:
+            import localise
+            import render
+        except ImportError:
+            raise DriftCorrectionError(
+                "localise and render modules required for chunked fiducial detection"
+            )
+        
+        # Get frame range
+        min_frame = int(locs.frame.min())
+        max_frame = int(locs.frame.max())
+        total_frames = max_frame - min_frame + 1
+        
+        # Create temporal chunks
+        chunk_size = total_frames // n_chunks
+        chunk_boundaries = []
+        for i in range(n_chunks):
+            start_frame = min_frame + i * chunk_size
+            if i == n_chunks - 1:
+                end_frame = max_frame  # Include remaining frames in last chunk
+            else:
+                end_frame = min_frame + (i + 1) * chunk_size - 1
+            chunk_boundaries.append((start_frame, end_frame))
+        
+        print(f"Detecting fiducials using {n_chunks} temporal chunks")
+        
+        # Find candidates in each chunk
+        chunk_candidates = []
+        chunk_images = []
+        all_chunk_histograms = []
+        
+        for chunk_idx, (start_frame, end_frame) in enumerate(chunk_boundaries):
+            # Extract localizations for this chunk
+            chunk_mask = (locs.frame >= start_frame) & (locs.frame <= end_frame)
+            chunk_locs = locs[chunk_mask]
+            
+            if len(chunk_locs) == 0:
+                print(f"Warning: Chunk {chunk_idx + 1} has no localizations")
+                continue
+                
+            print(f"Chunk {chunk_idx + 1}/{n_chunks}: frames {start_frame}-{end_frame} ({len(chunk_locs)} locs)")
+            
+            # Render this chunk
+            chunk_image = render.render(
+                locs=chunk_locs,
+                info=info,
+                oversampling=1,
+                viewport=None,
+                blur_method="smooth",
+            )[1]
+            chunk_images.append(chunk_image)
+            
+            # Create histogram for this chunk
+            chunk_hist = np.histogram(chunk_image.flatten(), bins=histogram_bins)
+            all_chunk_histograms.append(chunk_hist[0])
+            
+            # Use threshold percentile for this chunk
+            chunk_threshold = np.percentile(chunk_hist[0], threshold_percentile)
+            
+            # Calculate box size
+            box = int(np.round(box_size_nm / pixelsize))
+            box = box + 1 if box % 2 == 0 else box  # Ensure odd
+            
+            # Find candidates in this chunk
+            try:
+                y, x, _ = localise.identify_in_image(chunk_image, chunk_threshold, box=box)
+                chunk_picks = [(xi, yi, chunk_idx, (start_frame + end_frame) / 2) for xi, yi in zip(x, y)]
+                chunk_candidates.extend(chunk_picks)
+                print(f"  Found {len(chunk_picks)} candidates")
+            except Exception as e:
+                print(f"  Warning: Failed to detect in chunk {chunk_idx + 1}: {e}")
+                continue
+        
+        print(f"Total candidates across all chunks: {len(chunk_candidates)}")
+        
+        # Link candidates across chunks to form tracks
+        if len(chunk_candidates) == 0:
+            raise DriftCorrectionError("No candidates found in any temporal chunk")
+        
+        linked_tracks = self._link_candidates_across_chunks(
+            chunk_candidates, n_chunks, max_linking_distance_nm, pixelsize
+        )
+        
+        print(f"Linked candidates into {len(linked_tracks)} potential fiducial tracks")
+        
+        # Convert tracks back to picks (use average position)
+        picks = []
+        for track in linked_tracks:
+            if len(track) >= n_chunks * 0.6:  # Require track to appear in >60% of chunks
+                avg_x = np.mean([pos[0] for pos in track])
+                avg_y = np.mean([pos[1] for pos in track])
+                picks.append((avg_x, avg_y))
+        
+        # Create combined image and histogram for visualization
+        if len(chunk_images) > 0:
+            combined_image = np.mean(chunk_images, axis=0)
+            combined_hist_counts = np.sum(all_chunk_histograms, axis=0)
+            # Reconstruct histogram tuple
+            if len(all_chunk_histograms) > 0:
+                bin_edges = np.histogram(combined_image.flatten(), bins=histogram_bins)[1]
+                combined_hist = (combined_hist_counts, bin_edges)
+            else:
+                combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
+            threshold = np.percentile(combined_hist_counts, threshold_percentile)
+        else:
+            # Fallback: create empty image
+            combined_image = np.zeros((100, 100))
+            combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
+            threshold = 0
+        
+        print(f"Final result: {len(picks)} robust fiducial candidates")
+        return picks, combined_image, combined_hist, threshold
+
+    def _link_candidates_across_chunks(
+        self, 
+        candidates: list, 
+        n_chunks: int, 
+        max_distance_nm: float, 
+        pixelsize: float
+    ) -> list:
+        """Link candidates across temporal chunks to form tracks.
+        
+        Args:
+            candidates: List of (x, y, chunk_idx, avg_frame) tuples
+            n_chunks: Number of chunks
+            max_distance_nm: Maximum linking distance in nm
+            pixelsize: Pixel size in nm
+            
+        Returns:
+            List of tracks, where each track is a list of (x, y, chunk_idx, avg_frame) positions
+        """
+        max_distance_pixels = max_distance_nm / pixelsize
+        
+        # Group candidates by chunk
+        chunks_candidates = [[] for _ in range(n_chunks)]
+        for candidate in candidates:
+            x, y, chunk_idx, avg_frame = candidate
+            chunks_candidates[chunk_idx].append((x, y, chunk_idx, avg_frame))
+        
+        # Start tracks from first chunk
+        tracks = []
+        for candidate in chunks_candidates[0]:
+            tracks.append([candidate])
+        
+        # Extend tracks through subsequent chunks
+        for chunk_idx in range(1, n_chunks):
+            chunk_candidates = chunks_candidates[chunk_idx]
+            
+            # Try to extend existing tracks
+            for track in tracks:
+                if len(track) == 0:
+                    continue
+                    
+                last_pos = track[-1]
+                last_x, last_y = last_pos[0], last_pos[1]
+                
+                # Find closest candidate in current chunk
+                best_candidate = None
+                best_distance = float('inf')
+                
+                for candidate in chunk_candidates:
+                    x, y = candidate[0], candidate[1]
+                    distance = np.sqrt((x - last_x)**2 + (y - last_y)**2)
+                    
+                    if distance < max_distance_pixels and distance < best_distance:
+                        best_distance = distance
+                        best_candidate = candidate
+                
+                # Add best candidate to track if found
+                if best_candidate is not None:
+                    track.append(best_candidate)
+                    chunk_candidates.remove(best_candidate)  # Prevent double-assignment
+            
+            # Start new tracks for unlinked candidates
+            for remaining_candidate in chunk_candidates:
+                tracks.append([remaining_candidate])
+        
+        # Filter out short tracks (less than 60% of chunks)
+        min_length = int(n_chunks * 0.6)
+        robust_tracks = [track for track in tracks if len(track) >= min_length]
+        
+        return robust_tracks
+
     def detect_fiducials(
         self,
         locs: np.recarray,
@@ -1794,11 +2071,14 @@ class Drift_Correction_Functions:
         histogram_bins: int = 256,
         plot_results: bool = True,
         save_plot: Optional[str] = None,
+        use_temporal_chunking: bool = True,
+        n_chunks: int = 10,
+        max_linking_distance_nm: float = 500.0,
     ) -> FiducialDetectionResult:
         """Detect fiducial markers in localization data.
 
         This function automatically detects fiducial markers and creates a visualization
-        using PlottingFunctions. The detected fiducials can then be used for drift correction.
+        using PlottingFunctions. Supports temporal chunking for datasets with strong drift.
 
         Args:
             locs: Localization data (group field not required)
@@ -1809,6 +2089,9 @@ class Drift_Correction_Functions:
             histogram_bins: Number of bins for histogram analysis
             plot_results: Whether to create and display a plot of detected fiducials
             save_plot: Optional path to save the plot
+            use_temporal_chunking: Use temporal chunking for drift-robust detection
+            n_chunks: Number of temporal chunks (default: 10)
+            max_linking_distance_nm: Maximum distance to link candidates across chunks (nm)
 
         Returns:
             FiducialDetectionResult containing detected fiducials and metadata
@@ -1847,36 +2130,43 @@ class Drift_Correction_Functions:
         }
 
         try:
-            # Render localizations to image for fiducial detection
-            image = render.render(
-                locs=locs,
-                info=info,
-                oversampling=1,
-                viewport=None,
-                blur_method="smooth",
-            )[1]
-
-            # Create histogram with user-specified number of bins
-            hist = np.histogram(image.flatten(), bins=histogram_bins)
-
-            # Use user-specified threshold percentile
-            threshold = np.percentile(hist[0], threshold_percentile)
-
-            # Calculate box size from nanometer specification
-            box = int(np.round(box_size_nm / pixelsize))
-            box = box + 1 if box % 2 == 0 else box  # Ensure odd
-
-            # Find local maxima (potential fiducials)
-            try:
-                import localise
-            except ImportError:
-                raise DriftCorrectionError(
-                    "localise module required for fiducial detection"
+            if use_temporal_chunking:
+                # Temporal chunking approach for drift-robust detection
+                picks, image, hist, threshold = self._detect_fiducials_with_chunking(
+                    locs, info, threshold_percentile, box_size_nm, histogram_bins, 
+                    n_chunks, max_linking_distance_nm, pixelsize
                 )
+            else:
+                # Original approach (render entire dataset at once)
+                image = render.render(
+                    locs=locs,
+                    info=info,
+                    oversampling=1,
+                    viewport=None,
+                    blur_method="smooth",
+                )[1]
 
-            y, x, _ = localise.identify_in_image(image, threshold, box=box)
-            # Format picks as points for Circle picking (more appropriate for point detection)
-            picks = [(xi, yi) for xi, yi in zip(x, y)]
+                # Create histogram with user-specified number of bins
+                hist = np.histogram(image.flatten(), bins=histogram_bins)
+
+                # Use user-specified threshold percentile
+                threshold = np.percentile(hist[0], threshold_percentile)
+
+                # Calculate box size from nanometer specification
+                box = int(np.round(box_size_nm / pixelsize))
+                box = box + 1 if box % 2 == 0 else box  # Ensure odd
+
+                # Find local maxima (potential fiducials)
+                try:
+                    import localise
+                except ImportError:
+                    raise DriftCorrectionError(
+                        "localise module required for fiducial detection"
+                    )
+
+                y, x, _ = localise.identify_in_image(image, threshold, box=box)
+                # Format picks as points for Circle picking (more appropriate for point detection)
+                picks = [(xi, yi) for xi, yi in zip(x, y)]
 
             if len(picks) == 0:
                 raise DriftCorrectionError(
