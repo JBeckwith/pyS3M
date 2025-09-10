@@ -852,11 +852,14 @@ class AIMDriftCorrector(DriftCorrector):
         t = (seg_bounds[1:] + seg_bounds[:-1]) / 2
         drift_x_pol = InterpolatedUnivariateSpline(t, drift_x, k=3)
         drift_y_pol = InterpolatedUnivariateSpline(t, drift_y, k=3)
-        t_inter = np.arange(seg_bounds[-1]) + 1
+        
+        # Create interpolation points for frames 1 to max_frame (inclusive)
+        max_frame = int(seg_bounds[-1])
+        t_inter = np.arange(1, max_frame + 1)  # 1-indexed frame numbers
         drift_x = drift_x_pol(t_inter)
         drift_y = drift_y_pol(t_inter)
 
-        # undrift the localizations
+        # undrift the localizations (frame is 1-indexed, drift arrays are 0-indexed)
         x_pdc = x - drift_x[frame - 1]
         y_pdc = y - drift_y[frame - 1]
 
@@ -2120,14 +2123,14 @@ class Drift_Correction_Functions:
             ymin, ymax = axes[0, 1].get_ylim()
             axes[0, 1].axvline(
                 threshold,
-                ymin=ymin,
+                ymin=0,
                 ymax=ymax,
                 color="red",
                 linestyle="--",
                 linewidth=2,
                 label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
             )
-            axes[0, 1].set_ylim(ymin, ymax)  # Extend y-axis for label
+            axes[0, 1].set_ylim(ymin, ymax)
             axes[0, 1].set_title("Step 2: Intensity Histogram & Threshold")
 
             # Step 3: Threshold regions and candidates using PlottingFunctions
