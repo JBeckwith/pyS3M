@@ -2152,9 +2152,9 @@ class Drift_Correction_Functions:
                 all_x = np.array([pick[0] for pick in all_picks])
                 all_y = np.array([pick[1] for pick in all_picks])
 
-                # Display image with candidates
+                # Display image with candidates  
                 axes[2].imshow(image, cmap="hot", origin="lower")
-                axes[2].scatter(all_y, all_x, c="yellow", s=150, alpha=0.8, label=f"All Candidates ({len(all_picks)})")
+                axes[2].scatter(all_x, all_y, c="yellow", s=150, alpha=0.8, label=f"All Candidates ({len(all_picks)})")
                 axes[2].set_xticks([])
                 axes[2].set_yticks([])
 
@@ -2193,7 +2193,7 @@ class Drift_Correction_Functions:
 
                 # Use matplotlib directly (PlottingFunctions is broken)
                 axes[3].imshow(image, cmap="hot", origin="lower")
-                axes[3].scatter(valid_y, valid_x, c="cyan", s=100, alpha=1.0, label=f"Valid Fiducials ({len(valid_picks)})")
+                axes[3].scatter(valid_x, valid_y, c="cyan", s=100, alpha=1.0, label=f"Valid Fiducials ({len(valid_picks)})")
                 axes[3].set_xticks([])
                 axes[3].set_yticks([])
 
@@ -2300,11 +2300,9 @@ class Drift_Correction_Functions:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
             # Left plot: Detection image with fiducial markers
-            # Get fiducial coordinates for scatter overlay
-            fiducial_x = [
-                pick[1] for pick in result.picks
-            ]  # Note: coordinates may be swapped
-            fiducial_y = [pick[0] for pick in result.picks]
+            # Get fiducial coordinates for scatter overlay (fixed coordinate order)
+            fiducial_x = [pick[0] for pick in result.picks]  # X coordinates (first element)
+            fiducial_y = [pick[1] for pick in result.picks]  # Y coordinates (second element)
 
             plotter.image_scatter_plot(
                 ax1,
