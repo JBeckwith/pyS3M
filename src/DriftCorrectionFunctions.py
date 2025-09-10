@@ -2239,7 +2239,7 @@ class Drift_Correction_Functions:
                 )
 
             axes[3].set_title(
-                f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localizations_required']:.0f} localizations each)"
+                f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localisations_required']:.0f} localisations each)"
             )
 
             # Add summary text box
@@ -2249,8 +2249,8 @@ class Drift_Correction_Functions:
                 f"• Box size: {box_size_pixels} pixels ({result.detection_params['box_size_nm']} nm)\n"
                 f"• Total candidates: {len(all_picks)}\n"
                 f"• Valid fiducials: {len(valid_picks)}\n"
-                f"• Min localizations: {result.metadata['min_localizations_required']:.0f}\n"
-                f"• Localizations per fiducial: {result.metadata['localizations_per_fiducial']}"
+                f"• Min localisations: {result.metadata['min_localisations_required']:.0f}\n"
+                f"• Localisations per fiducial: {result.metadata['localisations_per_fiducial']}"
             )
 
             fig.text(
