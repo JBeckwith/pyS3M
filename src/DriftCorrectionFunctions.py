@@ -1856,7 +1856,7 @@ class Drift_Correction_Functions:
                     "Try lowering threshold_percentile."
                 )
 
-            # Filter picks by minimum localizations per fiducial
+            # Filter picks by minimum localisations per fiducial
             min_n = min_frames_fraction * n_frames
 
             try:
@@ -1866,7 +1866,7 @@ class Drift_Correction_Functions:
                     "postprocess module required for fiducial detection"
                 )
 
-            # Get localizations for each pick
+            # Get localisations for each pick (using parallelised version)
             temp_picked_locs = postprocess.picked_locs(
                 locs,
                 width,
@@ -1875,9 +1875,10 @@ class Drift_Correction_Functions:
                 "Rectangle",
                 pick_size=box,
                 add_group=False,
+                parallel=True,  # Use parallel processing
             )
 
-            # Keep only picks with sufficient localizations
+            # Keep only picks with sufficient localisations
             valid_picks = []
             valid_picked_locs = []
             for i, pick in enumerate(picks):
@@ -1887,7 +1888,7 @@ class Drift_Correction_Functions:
 
             if len(valid_picks) == 0:
                 raise DriftCorrectionError(
-                    f"No fiducials found with minimum {min_n:.0f} localizations. "
+                    f"No fiducials found with minimum {min_n:.0f} localisations. "
                     f"Try lowering min_frames_fraction (currently {min_frames_fraction}) "
                     f"or threshold_percentile (currently {threshold_percentile}%)."
                 )
@@ -1907,8 +1908,8 @@ class Drift_Correction_Functions:
                     "total_candidates": len(picks),
                     "threshold_used": threshold,
                     "box_size_pixels": box,
-                    "min_localizations_required": min_n,
-                    "localizations_per_fiducial": [
+                    "min_localisations_required": min_n,
+                    "localisations_per_fiducial": [
                         len(locs) for locs in valid_picked_locs
                     ],
                 },
@@ -1931,13 +1932,13 @@ class Drift_Correction_Functions:
     def _add_group_field_to_locs(
         self, locs: np.recarray, picked_locs_list: List[np.recarray]
     ) -> np.recarray:
-        """Add group field to localizations based on fiducial assignments."""
+        """Add group field to localisations based on fiducial assignments."""
         # Create group field array, initialize with -1 (non-fiducial)
         group = np.full(len(locs), -1, dtype=np.int32)
 
-        # Assign group IDs to fiducial localizations
+        # Assign group IDs to fiducial localisations
         for group_id, fiducial_locs in enumerate(picked_locs_list):
-            # Find indices of these localizations in original array
+            # Find indices of these localisations in original array
             for fid_loc in fiducial_locs:
                 # Match by frame and coordinate (within small tolerance)
                 matches = (
@@ -1963,6 +1964,7 @@ class Drift_Correction_Functions:
 
         # Convert to recarray
         return new_locs.view(np.recarray)
+
 
     def _plot_fiducial_detection_steps(
         self,
