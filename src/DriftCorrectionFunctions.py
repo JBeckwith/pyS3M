@@ -19,26 +19,6 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
 
 # Matplotlib imports (needed for drift correction plotting)
-import matplotlib
-# Check if we're in Jupyter notebook environment
-try:
-    from IPython.core.getipython import get_ipython
-    if get_ipython() is not None:
-        matplotlib.use('nbAgg')  # Jupyter notebook backend (was 'inline' - incorrect)
-    else:
-        raise ImportError("Not in IPython")
-except (ImportError, NameError):
-    # Not in Jupyter, use Qt5Agg for interactive display
-    try:
-        matplotlib.use('Qt5Agg')
-    except ImportError:
-        # Fallback to TkAgg if Qt5 not available
-        try:
-            matplotlib.use('TkAgg')
-        except ImportError:
-            # Last resort - Agg for non-interactive
-            matplotlib.use('Agg')
-
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -2105,7 +2085,7 @@ class Drift_Correction_Functions:
 
             # Extract metadata
             meta = CoordinateProcessor.extract_metadata(info)
-            pixelsize = meta.get("pixelsize", 130.0)  # nm
+            pixelsize = meta.get("pixelsize", 69.0)  # nm
             box_size_pixels = result.metadata["box_size_pixels"]
 
 
@@ -2113,24 +2093,16 @@ class Drift_Correction_Functions:
             fig, axes = plotter.two_column_plot(
                 ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
             )
-            
-            # Handle the case where PlottingFunctions returns numpy arrays instead of matplotlib axes
-            if isinstance(axes, np.ndarray) and not hasattr(axes.flat[0], 'imshow'):
-                # PlottingFunctions returned invalid axes, create proper matplotlib figure
-                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-                axes = axes.flatten()  # Ensure consistent 1D indexing
-            elif isinstance(axes, np.ndarray):
-                axes = axes.flatten()  # Ensure consistent 1D indexing for 2x2 grid
-                
+                            
             fig.suptitle(
                 "Fiducial Detection Process - Step by Step", 
-                fontsize=16,
+                fontsize=10,
                 fontweight="bold",
             )
 
             # Step 1: Original rendered image using PlottingFunctions
-            axes[0] = plotter.image_plot(
-                axes[0],
+            axes[0, 0] = plotter.image_plot(
+                axes[0, 0],
                 data=image,
                 pixelsize=pixelsize,
                 cmap="hot",
@@ -2138,32 +2110,20 @@ class Drift_Correction_Functions:
                 scalebarsize=1000,
                 scalebarlabel="1 μm",
             )
-            axes[0].set_title("Step 1: Rendered Localization Image")
+            axes[0, 0].set_title("Step 1: Rendered Localization Image")
 
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
             hist_values, bin_edges = hist
-            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            axes[1, 0] = plotter.histogram_plot(axes[1, 0], data=hist_values, bins=bin_edges, xaxislabel='Intensity')  # Create empty histogram plot
 
-            axes[1].bar(
-                bin_centers,
-                hist_values,
-                width=np.diff(bin_edges),
-                alpha=0.7,
-                color="skyblue",
-                edgecolor="black",
-            )
-            axes[1].axvline(
+            axes[1, 0].axvline(
                 threshold,
                 color="red",
                 linestyle="--",
                 linewidth=2,
                 label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
             )
-            axes[1].set_title("Step 2: Intensity Histogram & Threshold")
-            axes[1].set_xlabel("Intensity")
-            axes[1].set_ylabel("Frequency")
-            axes[1].legend()
-            axes[1].grid(True, alpha=0.3)
+            axes[1, 0].set_title("Step 2: Intensity Histogram & Threshold")
 
             # Step 3: Threshold regions and candidates using PlottingFunctions
             if all_picks:
@@ -2172,8 +2132,8 @@ class Drift_Correction_Functions:
                 all_y = np.array([pick[1] for pick in all_picks])
 
                 # Use PlottingFunctions image_scatter_plot for candidates
-                axes[2] = plotter.image_scatter_plot(
-                    axes[2],
+                axes[0, 1] = plotter.image_scatter_plot(
+                    axes[0, 1],
                     data=image,
                     xdata=all_x,
                     ydata=all_y,
@@ -2191,8 +2151,8 @@ class Drift_Correction_Functions:
                 )
             else:
                 # No candidates found - just show image
-                axes[2] = plotter.image_plot(
-                    axes[2],
+                axes[0, 1] = plotter.image_plot(
+                    axes[0, 1],
                     data=image,
                     pixelsize=pixelsize,
                     cmap="hot",
@@ -2201,7 +2161,7 @@ class Drift_Correction_Functions:
                     scalebarlabel="1 μm",
                 )
 
-            axes[2].set_title(
+            axes[0, 1].set_title(
                 f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
             )
 
@@ -2212,8 +2172,8 @@ class Drift_Correction_Functions:
                 valid_y = np.array([pick[1] for pick in valid_picks])
 
                 # Use PlottingFunctions image_scatter_plot for valid fiducials
-                axes[3] = plotter.image_scatter_plot(
-                    axes[3],
+                axes[1, 1] = plotter.image_scatter_plot(
+                    axes[1, 1],
                     data=image,
                     xdata=valid_x,
                     ydata=valid_y,
@@ -2243,10 +2203,10 @@ class Drift_Correction_Functions:
                         linewidth=2,
                         fill=False,
                     )
-                    axes[3].add_patch(circle)
+                    axes[1, 1].add_patch(circle)
 
                     # Add fiducial number (requires direct matplotlib)
-                    axes[3].text(
+                    axes[1, 1].text(
                         x,
                         y,
                         str(i + 1),
@@ -2260,8 +2220,8 @@ class Drift_Correction_Functions:
                         ),
                     )
             else:
-                axes[3] = plotter.image_plot(
-                    axes[3],
+                axes[1, 1] = plotter.image_plot(
+                    axes[1, 1],
                     data=image,
                     pixelsize=pixelsize,
                     cmap="hot",
@@ -2270,7 +2230,7 @@ class Drift_Correction_Functions:
                     scalebarlabel="1 μm",
                 )
 
-            axes[3].set_title(
+            axes[1, 1].set_title(
                 f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localisations_required']:.0f} localisations each)"
             )
 
@@ -2294,7 +2254,6 @@ class Drift_Correction_Functions:
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8),
             )
 
-            plt.tight_layout()
             plt.subplots_adjust(bottom=0.15)  # Make room for summary text
 
             # Save if path provided
