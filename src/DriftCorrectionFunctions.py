@@ -2116,16 +2116,16 @@ class Drift_Correction_Functions:
 
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
             hist_values, bin_edges = hist
-            axes[1, 0] = plotter.histogram_plot(axes[1, 0], data=hist_values, bins=bin_edges, xaxislabel='Intensity')  # Create empty histogram plot
+            axes[0, 1] = plotter.histogram_plot(axes[0, 1], data=hist_values, bins=bin_edges, xaxislabel='Intensity')  # Create empty histogram plot
 
-            axes[1, 0].axvline(
+            axes[0, 1].axvline(
                 threshold,
                 color="red",
                 linestyle="--",
                 linewidth=2,
                 label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
             )
-            axes[1, 0].set_title("Step 2: Intensity Histogram & Threshold")
+            axes[0, 1].set_title("Step 2: Intensity Histogram & Threshold")
 
             # Step 3: Threshold regions and candidates using PlottingFunctions
             if all_picks:
@@ -2134,8 +2134,8 @@ class Drift_Correction_Functions:
                 all_y = np.array([pick[1] for pick in all_picks])
 
                 # Use PlottingFunctions image_scatter_plot for candidates
-                axes[0, 1] = plotter.image_scatter_plot(
-                    axes[0, 1],
+                axes[1, 0] = plotter.image_scatter_plot(
+                    axes[1, 0],
                     data=image,
                     xdata=all_y,
                     ydata=all_x,
@@ -2155,8 +2155,8 @@ class Drift_Correction_Functions:
                 )
             else:
                 # No candidates found - just show image
-                axes[0, 1] = plotter.image_plot(
-                    axes[0, 1],
+                axes[1, 0] = plotter.image_plot(
+                    axes[1, 0],
                     data=image,
                     pixelsize=pixelsize,
                     cmap="hot",
@@ -2165,7 +2165,7 @@ class Drift_Correction_Functions:
                     scalebarlabel="1 μm",
                 )
 
-            axes[0, 1].set_title(
+            axes[1, 0].set_title(
                 f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
             )
 
@@ -2202,7 +2202,7 @@ class Drift_Correction_Functions:
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle (requires direct matplotlib)
                     circle = patches.Circle(
-                        (y, x),
+                        (x, y),
                         radius=box_size_pixels // 3,
                         color=colors[i],
                         alpha=0.7,
@@ -2232,6 +2232,8 @@ class Drift_Correction_Functions:
                     pixelsize=pixelsize,
                     cmap="hot",
                     cbarlabel="Intensity",
+                    vmax=np.percentile(image, 99.99),
+                    vmin=np.percentile(image, 0.1),
                     scalebarsize=1000,
                     scalebarlabel="1 μm",
                 )
