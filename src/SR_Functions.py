@@ -783,6 +783,10 @@ class SuperRes_Functions:
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
+            
+            # Fix frame numbers: replace with offset plane values for continuous numbering
+            if len(planes) == len(fit_results):
+                fit_results['frame'] = planes
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
@@ -1009,6 +1013,10 @@ class SuperRes_Functions:
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
+            
+            # Fix frame numbers: replace with offset plane values for continuous numbering
+            if len(planes) == len(fit_results):
+                fit_results['frame'] = planes
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
