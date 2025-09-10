@@ -2117,14 +2117,17 @@ class Drift_Correction_Functions:
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
             hist_values, bin_edges = hist
             axes[0, 1] = plotter.histogram_plot(axes[0, 1], data=hist_values, bins=bin_edges, xaxislabel='Intensity')  # Create empty histogram plot
-
+            ymin, ymax = axes[0, 1].get_ylim()
             axes[0, 1].axvline(
                 threshold,
+                ymin=ymin,
+                ymax=ymax,
                 color="red",
                 linestyle="--",
                 linewidth=2,
                 label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
             )
+            axes[0, 1].set_ylim(ymin, ymax)  # Extend y-axis for label
             axes[0, 1].set_title("Step 2: Intensity Histogram & Threshold")
 
             # Step 3: Threshold regions and candidates using PlottingFunctions
