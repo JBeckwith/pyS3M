@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Batch Analysis Script - Process all data folders with variance-aware demosaicing
+# Batch Analysis Script - Process all data folders with configurable demosaicing
 # Each folder gets its own isolated Python process to prevent memory leaks
 # Created for pyBayerSMLM super-resolution analysis pipeline
 # Enhanced with swap usage minimization and memory monitoring
-# Uses variance-aware demosaicing by default for robust spot detection
+# Uses variance-aware demosaicing settings from interactive threshold tuner
 
 set -e  # Exit on any error
 
@@ -521,6 +521,7 @@ process_folder() {
     local sigma="${threshold_params[1]}"
     local fraction_true="${threshold_params[2]}"
     local param_wavelength="${threshold_params[3]}"
+    local use_variance_aware="${threshold_params[4]:-true}"  # Default to true if not specified
     
     # Use parameter wavelength if available, fallback to passed wavelength
     if [ "$param_wavelength" != "$wavelength" ] && [ -n "$param_wavelength" ]; then
@@ -550,7 +551,7 @@ process_folder() {
         echo "PFA: $pfa"
         echo "Sigma: $sigma"
         echo "Fraction True: $fraction_true"
-        echo "Variance-aware demosaicing: enabled (default)"
+        echo "Variance-aware demosaicing: $use_variance_aware"
         echo "Started: $(date)"
         echo "========================================"
     } >> "$LOG_FILE"
@@ -632,8 +633,8 @@ process_folder() {
     export PYTHONHASHSEED=0
     export MALLOC_TRIM_THRESHOLD_=65536
     
-    # Use variance-aware demosaicing by default for robust spot detection (suppresses hot pixels)
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "true" >> "$LOG_FILE" 2>&1; then
+    # Use variance-aware demosaicing setting from threshold parameters file
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "$use_variance_aware" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis

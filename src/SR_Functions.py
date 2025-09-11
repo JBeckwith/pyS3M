@@ -292,7 +292,7 @@ class SuperRes_Functions:
         # Choose demosaicing method based on parameter
         if use_variance_aware_demosaic:
             # Use variance-aware demosaicing for robust spot detection
-            _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+            image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
                 raw_data, 
                 variance_map=variance,
                 offset_map=offset_map,
@@ -723,7 +723,7 @@ class SuperRes_Functions:
                 # Choose demosaicing method based on parameter
                 if use_variance_aware_demosaic:
                     # Use variance-aware demosaicing for robust spot detection
-                    _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                    image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
                         raw_data, 
                         variance_map=variance,
                         offset_map=offset_map,
@@ -970,7 +970,7 @@ class SuperRes_Functions:
                 # Choose demosaicing method based on parameter
                 if use_variance_aware_demosaic:
                     # Use variance-aware demosaicing for robust spot detection
-                    _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                    image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
                         raw_data, 
                         variance_map=variance,
                         offset_map=offset_map,

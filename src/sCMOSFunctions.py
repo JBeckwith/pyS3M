@@ -116,8 +116,10 @@ class sCMOS_Functions:
         result, grayscale_result = self.bayer_demosaic_stack(
             weighted_CFA, grayscale=grayscale
         )
-
-        return result, grayscale_result
+        if grayscale:
+            return grayscale_result
+        else:
+            return result
 
     def bayer_demosaic_stack_grayscale(self, image):
         """

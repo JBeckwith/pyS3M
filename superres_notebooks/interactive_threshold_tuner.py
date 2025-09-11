@@ -309,7 +309,7 @@ class InteractiveThresholdTuner:
             # Apply demosaicing based on setting
             if use_variance_aware and self.camera_data:
                 # Use variance-aware demosaicing
-                _, demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
                     image, 
                     variance_map=self.camera_data["variance"],
                     offset_map=self.camera_data["offset"],
@@ -354,7 +354,7 @@ class InteractiveThresholdTuner:
                 # Apply demosaicing based on setting
                 if use_variance_aware and self.camera_data:
                     # Use variance-aware demosaicing
-                    _, demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
+                    demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
                         frame, 
                         variance_map=self.camera_data["variance"],
                         offset_map=self.camera_data["offset"],
