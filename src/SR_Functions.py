@@ -301,7 +301,7 @@ class SuperRes_Functions:
             )
         else:
             # Use standard grayscale demosaicing
-            _, image_to_analyse = self.scmos.bayer_demosaic_stack(raw_data, grayscale=True)
+            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
