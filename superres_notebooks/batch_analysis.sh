@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Batch Analysis Script - Process folders individually with Python
+# Batch Analysis Script - Process all data folders with variance-aware demosaicing
 # Each folder gets its own isolated Python process to prevent memory leaks
 # Created for pyBayerSMLM super-resolution analysis pipeline
 # Enhanced with swap usage minimization and memory monitoring
+# Uses variance-aware demosaicing by default for robust spot detection
 
 set -e  # Exit on any error
 
@@ -48,6 +49,9 @@ check_threshold_params() {
         elif [ "$field_count" -eq 5 ]; then
             echo "INFO: Using enhanced format (folder|pfa|sigma|fraction_true|wavelength)"
             log_message "INFO: Enhanced threshold_parameters.txt format detected (5 fields)"
+        elif [ "$field_count" -eq 6 ]; then
+            echo "INFO: Using full format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware)"
+            log_message "INFO: Full threshold_parameters.txt format detected (6 fields)"
         else
             echo "WARNING: Unexpected threshold_parameters.txt format ($field_count fields)"
             log_message "WARNING: Unexpected threshold_parameters.txt format with $field_count fields"
@@ -66,6 +70,7 @@ get_threshold_params() {
     local default_sigma="1.5"
     local default_fraction_true="0.2" 
     local default_wavelength="$2"
+    local default_use_variance_aware="true"
     
     # Look for exact match first
     local params_line=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | grep "^$folder_path|" | head -1)
@@ -74,30 +79,39 @@ get_threshold_params() {
         # Check format based on field count
         local field_count=$(echo "$params_line" | tr '|' '\n' | wc -l)
         
-        if [ "$field_count" -eq 5 ]; then
+        if [ "$field_count" -eq 6 ]; then
+            # Full format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware
+            local pfa=$(echo "$params_line" | cut -d'|' -f2)
+            local sigma=$(echo "$params_line" | cut -d'|' -f3)
+            local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
+            local wavelength=$(echo "$params_line" | cut -d'|' -f5)
+            local use_variance_aware=$(echo "$params_line" | cut -d'|' -f6)
+            echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware"
+            log_message "Using full parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware"
+        elif [ "$field_count" -eq 5 ]; then
             # Enhanced format: folder_path|pfa|sigma|fraction_true|wavelength
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local sigma=$(echo "$params_line" | cut -d'|' -f3)
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
-            echo "$pfa $sigma $fraction_true $wavelength"
-            log_message "Using enhanced parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength"
+            echo "$pfa $sigma $fraction_true $wavelength $default_use_variance_aware"
+            log_message "Using enhanced parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$default_use_variance_aware (default)"
         elif [ "$field_count" -eq 4 ]; then
             # Legacy format: folder_path|pfa|perc_threshold|wavelength (convert perc_threshold to defaults)
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local perc_threshold=$(echo "$params_line" | cut -d'|' -f3)  # Ignored in new format
             local wavelength=$(echo "$params_line" | cut -d'|' -f4)
-            echo "$pfa $default_sigma $default_fraction_true $wavelength"
-            log_message "Using legacy parameters for $folder_path: pfa=$pfa, sigma=$default_sigma (default), fraction_true=$default_fraction_true (default), wavelength=$wavelength"
+            echo "$pfa $default_sigma $default_fraction_true $wavelength $default_use_variance_aware"
+            log_message "Using legacy parameters for $folder_path: pfa=$pfa, sigma=$default_sigma (default), fraction_true=$default_fraction_true (default), wavelength=$wavelength, variance_aware=$default_use_variance_aware (default)"
         else
             # Invalid format, use defaults
-            echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength"
-            log_message "Invalid parameter format for $folder_path, using defaults: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength"
+            echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware"
+            log_message "Invalid parameter format for $folder_path, using defaults: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength, variance_aware=$default_use_variance_aware"
         fi
     else
         # Use defaults
-        echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength"
-        log_message "Using default parameters for $folder_path: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength"
+        echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware"
+        log_message "Using default parameters for $folder_path: pfa=$default_pfa, sigma=$default_sigma, fraction_true=$default_fraction_true, wavelength=$default_wavelength, variance_aware=$default_use_variance_aware"
     fi
 }
 
@@ -492,31 +506,6 @@ safe_cleanup() {
     fi
 }
 
-# Function to check if .h5 files were generated after 9am on September 4th, 2025
-check_h5_file_dates() {
-    local scratch_folder="$1"
-    local cutoff_timestamp=$(date -d "2025-09-04 09:00:00" +%s)
-    
-    # Find all .h5 files in scratch folder
-    local h5_files=($(find "$scratch_folder" -name "*.h5" -type f 2>/dev/null))
-    
-    if [ ${#h5_files[@]} -eq 0 ]; then
-        # No .h5 files found, proceed with analysis
-        return 0
-    fi
-    
-    # Check modification timestamp of each .h5 file
-    for h5_file in "${h5_files[@]}"; do
-        local file_timestamp=$(stat -c '%Y' "$h5_file" 2>/dev/null)
-        if [ -n "$file_timestamp" ] && [ "$file_timestamp" -gt "$cutoff_timestamp" ]; then
-            local file_date_str=$(date -d "@$file_timestamp" '+%Y-%m-%d %H:%M:%S')
-            log_message "Found .h5 file newer than 2025-09-04 09:00:00: $(basename "$h5_file") (created $file_date_str)"
-            return 1  # Skip this folder
-        fi
-    done
-    
-    return 0  # All .h5 files are from before 9am on September 4th, 2025
-}
 
 # Function to process single folder with scratch workflow
 process_folder() {
@@ -542,14 +531,6 @@ process_folder() {
     increment_counter "total"
     local current_total=$(get_counter "total")
     
-    # Check if .h5 files were generated after 9am on September 4th, 2025 BEFORE copying
-    if ! check_h5_file_dates "$folder_path"; then
-        echo "[$current_total] $folder_name... ⏭️  SKIP (recent .h5 files)"
-        log_message "SKIP: Folder contains .h5 files generated after 9am on September 4th, 2025"
-        increment_counter "skip"
-        return 0
-    fi
-    
     # Check memory pressure before processing
     if ! check_memory_pressure; then
         wait_for_memory_relief
@@ -569,6 +550,7 @@ process_folder() {
         echo "PFA: $pfa"
         echo "Sigma: $sigma"
         echo "Fraction True: $fraction_true"
+        echo "Variance-aware demosaicing: enabled (default)"
         echo "Started: $(date)"
         echo "========================================"
     } >> "$LOG_FILE"
@@ -650,7 +632,8 @@ process_folder() {
     export PYTHONHASHSEED=0
     export MALLOC_TRIM_THRESHOLD_=65536
     
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" >> "$LOG_FILE" 2>&1; then
+    # Use variance-aware demosaicing by default for robust spot detection (suppresses hot pixels)
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "true" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis

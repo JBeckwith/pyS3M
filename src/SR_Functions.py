@@ -232,6 +232,7 @@ class SuperRes_Functions:
         s=5,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
+        use_variance_aware_demosaic: bool = True,
     ):
         """example_spots_singleframe function
             analyses where fiducials are for images in image folder given boxes
@@ -288,7 +289,19 @@ class SuperRes_Functions:
             frame=1,
         )
 
-        _, image_to_analyse = self.scmos.bayer_demosaic_stack(raw_data, grayscale=True)
+        # Choose demosaicing method based on parameter
+        if use_variance_aware_demosaic:
+            # Use variance-aware demosaicing for robust spot detection
+            _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                raw_data, 
+                variance_map=variance,
+                offset_map=offset_map,
+                gain=gain_map,
+                grayscale=True
+            )
+        else:
+            # Use standard grayscale demosaicing
+            _, image_to_analyse = self.scmos.bayer_demosaic_stack(raw_data, grayscale=True)
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
@@ -597,6 +610,7 @@ class SuperRes_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         image_type=".tif",
+        use_variance_aware_demosaic: bool = True,
     ):
         """Single-molecule data fitting function.
 
@@ -612,9 +626,12 @@ class SuperRes_Functions:
             read_noise (np.2darray): 2d array of read noise
             masks (dict): dict of colour masks
             peak_wavelength (float): peak wavelength of PSF
-
-
+            sigma (float): sigma parameter for spot detection (default: 1.5)
+            fraction_true (float): fraction of true spots expected (default: 0.2)
             image_type (str): image string end
+            use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
+                If True (default), uses gain, offset, and variance maps to create robust photoelectron 
+                images that suppress hot pixels. If False, uses standard grayscale demosaicing.
 
 
         Returns:
@@ -703,7 +720,19 @@ class SuperRes_Functions:
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+                # Choose demosaicing method based on parameter
+                if use_variance_aware_demosaic:
+                    # Use variance-aware demosaicing for robust spot detection
+                    _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                        raw_data, 
+                        variance_map=variance,
+                        offset_map=offset_map,
+                        gain=gain_map,
+                        grayscale=True
+                    )
+                else:
+                    # Use standard grayscale demosaicing
+                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -826,6 +855,7 @@ class SuperRes_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         image_type=".tif",
+        use_variance_aware_demosaic: bool = True,
     ):
         """Cross-file imaging data fitting function.
 
@@ -841,9 +871,12 @@ class SuperRes_Functions:
             read_noise (np.2darray): 2d array of read noise
             masks (dict): dict of colour masks
             peak_wavelength (float): peak wavelength of PSF
-
-
+            sigma (float): sigma parameter for spot detection (default: 1.5)
+            fraction_true (float): fraction of true spots expected (default: 0.2)
             image_type (str): image string end
+            use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
+                If True (default), uses gain, offset, and variance maps to create robust photoelectron 
+                images that suppress hot pixels. If False, uses standard grayscale demosaicing.
 
 
         Returns:
@@ -934,7 +967,19 @@ class SuperRes_Functions:
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+                # Choose demosaicing method based on parameter
+                if use_variance_aware_demosaic:
+                    # Use variance-aware demosaicing for robust spot detection
+                    _, image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                        raw_data, 
+                        variance_map=variance,
+                        offset_map=offset_map,
+                        gain=gain_map,
+                        grayscale=True
+                    )
+                else:
+                    # Use standard grayscale demosaicing
+                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,

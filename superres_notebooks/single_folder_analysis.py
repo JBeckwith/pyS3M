@@ -6,14 +6,16 @@ Processes one folder and exits - called by batch_analysis.sh for complete isolat
 Each invocation gets a fresh Python interpreter to prevent memory leaks.
 
 Usage:
-    python3 single_folder_analysis.py <type> <folder_path> <wavelength> <pfa> <sigma> <fraction_true>
+    python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic>
     
     type: 'sm' or 'imaging'
-    folder_path: full path to folder to process  
+    scratch_folder_path: full path to scratch folder (for processing)
+    original_folder_path: full path to original folder (for .h5 output)
     wavelength: peak wavelength (e.g., 0.55, 0.638, 0.647)
     pfa: false alarm probability (e.g., 1e-4)
     sigma: sigma parameter (e.g., 1.5)
     fraction_true: fraction true parameter (e.g., 0.2)
+    use_variance_aware_demosaic: use variance-aware demosaicing (true/false)
 
 Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
 """
@@ -26,10 +28,10 @@ import traceback
 
 
 def main():
-    # Check arguments - now expects 8 arguments (including script name) to separate scratch and original paths
-    if len(sys.argv) != 8:
+    # Check arguments - now expects 9 arguments (including script name) to include variance_aware_demosaic parameter
+    if len(sys.argv) != 9:
         print(
-            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true>"
+            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic>"
         )
         print("  type: 'sm' or 'imaging'")
         print("  scratch_folder_path: full path to scratch folder (for processing)")
@@ -38,6 +40,7 @@ def main():
         print("  pfa: false alarm probability (e.g., 1e-4)")
         print("  sigma: sigma parameter (e.g., 1.5)")
         print("  fraction_true: fraction true parameter (e.g., 0.2)")
+        print("  use_variance_aware_demosaic: use variance-aware demosaicing (true/false)")
         sys.exit(1)
 
     folder_type = sys.argv[1]
@@ -47,10 +50,12 @@ def main():
     pfa = float(sys.argv[5])
     sigma = float(sys.argv[6])
     fraction_true = float(sys.argv[7])
+    use_variance_aware_demosaic = sys.argv[8].lower() in ('true', '1', 'yes', 'on')
 
     print(
         f"Using threshold parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
+    print(f"Variance-aware demosaicing: {use_variance_aware_demosaic}")
 
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
     print(f"Processing: {scratch_folder_path}")
@@ -59,6 +64,7 @@ def main():
     print(
         f"Threshold Parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
+    print(f"Use variance-aware demosaicing: {use_variance_aware_demosaic}")
     print(f"Started: {os.popen('date').read().strip()}")
     print()
 
@@ -225,6 +231,7 @@ def main():
                 sigma=sigma,
                 fraction_true=fraction_true,
                 image_type=".tif",
+                use_variance_aware_demosaic=use_variance_aware_demosaic,
             )
             print("SM data processing completed")
         else:
@@ -246,6 +253,7 @@ def main():
                 sigma=sigma,
                 fraction_true=fraction_true,
                 image_type=".tif",
+                use_variance_aware_demosaic=use_variance_aware_demosaic,
             )
             print("Imaging data processing completed")
 

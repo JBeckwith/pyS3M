@@ -37,6 +37,8 @@ try:
     from IOFunctions import IO_Functions
     from CalibrationFunctions import Calibration_Functions
     from PlottingFunctions import Plotter
+    from HelperFunctions import Helper_Functions
+    from sCMOSFunctions import sCMOS_Functions
     import matplotlib
 
     # Try to use interactive backend, fall back gracefully
@@ -71,18 +73,45 @@ class InteractiveThresholdTuner:
         self.iof = IO_Functions()
         self.cf = Calibration_Functions()
         self.pf = Plotter()
+        self.hf = Helper_Functions()
+        self.scmos = sCMOS_Functions()
 
         # Default parameters
         self.default_pfa = 1e-4
         self.default_sigma = 1.5
         self.default_true_fraction = 0.2
         self.default_wavelength = 0.7
+        self.default_use_variance_aware = True  # Default to variance-aware demosaicing
 
         # Results storage
         self.threshold_results = {}
 
+        # Load camera calibration data
+        self.camera_data = self._load_camera_data()
+
         # Folder lists from batch_analysis.sh
         self.folder_lists = self._get_folder_lists()
+
+    def _load_camera_data(self) -> Dict:
+        """Load camera calibration data"""
+        try:
+            # Go up from superres_notebooks to project root, then to Camera_Calibrations
+            project_root = Path(__file__).parent.parent
+            data_folder = project_root / "Camera_Calibrations" / "Ximea_Camera"
+            
+            camera_data = {
+                "gain": self.iof.read_tiff(str(data_folder / "gain.tif")),
+                "offset": self.iof.read_tiff(str(data_folder / "offset.tif")),
+                "variance": self.iof.read_tiff(str(data_folder / "variance.tif")),
+                "readnoise": self.iof.read_tiff(str(data_folder / "readnoise.tif")),
+                "rqe": self.iof.read_tiff(str(data_folder / "rqe.tif")),
+            }
+            print("✓ Camera calibration data loaded successfully")
+            return camera_data
+        except Exception as e:
+            print(f"⚠ Warning: Could not load camera calibration data: {e}")
+            print("  Variance-aware demosaicing will not be available")
+            return {}
 
     def _get_folder_lists(self) -> Dict[str, List[str]]:
         """Get folder lists exactly as defined in batch_analysis.sh"""
@@ -178,80 +207,92 @@ class InteractiveThresholdTuner:
 
         return all_folders
 
-    def find_first_tiff_file(self, folder_path: str) -> Optional[str]:
-        """Find the first TIFF file in a folder"""
-        folder = Path(folder_path)
-
-        # Common TIFF extensions
-        tiff_patterns = ["*.tif", "*.tiff", "*.TIF", "*.TIFF"]
-
-        for pattern in tiff_patterns:
-            tiff_files = list(folder.glob(pattern))
-            if tiff_files:
-                return str(tiff_files[0])
-
-        # Also try subdirectories
-        for pattern in tiff_patterns:
-            tiff_files = list(folder.rglob(pattern))
-            if tiff_files:
-                return str(tiff_files[0])
-
-        return None
+    def find_tiff_files(self, folder_path: str) -> List[str]:
+        """Find all TIFF files in a folder using helper function for proper sorting"""
+        try:
+            # Use helper function to get sorted TIFF files
+            tiff_files = self.hf.file_search(folder_path, ".tif", "")
+            if not tiff_files:
+                # Try alternative extension
+                tiff_files = self.hf.file_search(folder_path, ".tiff", "")
+            return tiff_files if tiff_files else []
+        except Exception as e:
+            print(f"Error finding TIFF files in {folder_path}: {e}")
+            return []
 
     def load_test_frames(self, folder_path: str) -> Optional[List[np.ndarray]]:
-        """Load 3 test frames (1, 10, 20) from the first TIFF file found in the folder"""
-        tiff_file = self.find_first_tiff_file(folder_path)
+        """Load 3 test frames with improved logic for single vs multiple files"""
+        tiff_files = self.find_tiff_files(folder_path)
 
-        if not tiff_file:
+        if not tiff_files:
             print(f"No TIFF files found in {folder_path}")
             return None
 
         try:
-            # Load the TIFF file
-            with tifffile.TiffFile(tiff_file) as tif:
-                total_frames = len(tif.pages)
-                print(f"Total frames available: {total_frames}")
+            selected_frames = []
+            
+            if len(tiff_files) == 1:
+                # Single file: use frames 1, 10, 20 as before
+                print(f"Single TIFF file detected: {os.path.basename(tiff_files[0])}")
+                with tifffile.TiffFile(tiff_files[0]) as tif:
+                    total_frames = len(tif.pages)
+                    print(f"Total frames available: {total_frames}")
 
-                # Select frame indices: 1, 10, 20 (or available alternatives)
-                target_frames = [1, 10, 20]
-                selected_frames = []
-                actual_indices = []
+                    # Select frame indices: 1, 10, 20 (0-based: 0, 9, 19)
+                    target_frames = [0, 9, 19]  # 0-based indexing
+                    actual_indices = []
 
-                for target_idx in target_frames:
-                    # Use 0-based indexing, but ensure we don't exceed available frames
-                    frame_idx = min(target_idx - 1, total_frames - 1)
-                    if frame_idx < 0:
-                        frame_idx = 0
+                    for i, target_idx in enumerate(target_frames):
+                        frame_idx = min(target_idx, total_frames - 1)
+                        if frame_idx < 0:
+                            frame_idx = 0
 
-                    # Avoid duplicate indices
-                    if frame_idx not in actual_indices:
-                        actual_indices.append(frame_idx)
-                        frame = tif.pages[frame_idx].asarray()
+                        # Avoid duplicate indices
+                        if frame_idx not in actual_indices:
+                            actual_indices.append(frame_idx)
+                            frame = tif.pages[frame_idx].asarray()
+                            selected_frames.append(frame.astype(np.float64))
+                            print(f"Loaded frame {frame_idx + 1}/{total_frames} (shape: {frame.shape})")
+
+            else:
+                # Multiple files: take frame 10 (index 9) from first three files
+                print(f"Multiple TIFF files detected: {len(tiff_files)} files")
+                files_to_process = tiff_files[:3]  # Take first 3 files
+                
+                for i, tiff_file in enumerate(files_to_process):
+                    print(f"Processing file {i+1}: {os.path.basename(tiff_file)}")
+                    with tifffile.TiffFile(tiff_file) as tif:
+                        total_frames = len(tif.pages)
+                        
+                        # Try to get frame 10 (index 9), fallback to available frames
+                        target_frame_idx = min(9, total_frames - 1)  # 0-based index for frame 10
+                        if target_frame_idx < 0:
+                            target_frame_idx = 0
+                        
+                        frame = tif.pages[target_frame_idx].asarray()
                         selected_frames.append(frame.astype(np.float64))
-                        print(
-                            f"Loaded frame {frame_idx + 1}: shape {frame.shape}, dtype {frame.dtype}"
-                        )
+                        print(f"  Loaded frame {target_frame_idx + 1}/{total_frames} (shape: {frame.shape})")
 
-                # If we have fewer than 3 frames, duplicate the last one
-                while len(selected_frames) < 3 and selected_frames:
-                    selected_frames.append(selected_frames[-1].copy())
-                    print(
-                        f"Duplicated frame for display (total frames available: {total_frames})"
-                    )
+            if len(selected_frames) == 0:
+                print("No frames could be loaded")
+                return None
 
-                if selected_frames:
-                    print(f"Loaded {len(selected_frames)} frames from: {tiff_file}")
-                    for i, frame in enumerate(selected_frames):
-                        print(
-                            f"Frame {i+1}: Intensity range {frame.min():.0f} - {frame.max():.0f}"
-                        )
-                    return selected_frames
-                else:
-                    print(f"No frames could be loaded from {tiff_file}")
-                    return None
+            # If we have fewer than 3 frames, duplicate the last one
+            while len(selected_frames) < 3 and selected_frames:
+                selected_frames.append(selected_frames[-1].copy())
+                print("Duplicated frame for display (insufficient frames available)")
+
+            if selected_frames:
+                print(f"Successfully loaded {len(selected_frames)} test frames")
+                for i, frame in enumerate(selected_frames):
+                    print(f"Frame {i+1}: Intensity range {frame.min():.0f} - {frame.max():.0f}")
+                return selected_frames
+            else:
+                print("No frames could be loaded")
+                return None
 
         except Exception as e:
-            print(f"Error loading {tiff_file}: {e}")
+            print(f"Error loading frames: {e}")
             return None
 
     def test_spot_detection(
@@ -261,11 +302,26 @@ class InteractiveThresholdTuner:
         sigma: float,
         fraction_true: float,
         wavelength: float,
+        use_variance_aware: bool = True,
     ) -> Tuple[np.ndarray, int]:
-        """Test spot detection with given parameters"""
+        """Test spot detection with given parameters on demosaiced image"""
         try:
+            # Apply demosaicing based on setting
+            if use_variance_aware and self.camera_data:
+                # Use variance-aware demosaicing
+                _, demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                    image, 
+                    variance_map=self.camera_data["variance"],
+                    offset_map=self.camera_data["offset"],
+                    gain=self.camera_data["gain"],
+                    grayscale=True
+                )
+            else:
+                # Use standard grayscale demosaicing
+                demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
+
             detected_spots = self.sdf.detect_puncta_in_image(
-                image=image,
+                image=demosaiced_image,
                 pfa=pfa,
                 wavelength=wavelength,
                 sigma=sigma,
@@ -288,14 +344,29 @@ class InteractiveThresholdTuner:
         sigma: float,
         fraction_true: float,
         wavelength: float,
+        use_variance_aware: bool = True,
     ) -> List[Tuple[np.ndarray, int]]:
         """Test spot detection on multiple frames with given parameters"""
         results = []
 
         for i, frame in enumerate(frames):
             try:
+                # Apply demosaicing based on setting
+                if use_variance_aware and self.camera_data:
+                    # Use variance-aware demosaicing
+                    _, demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
+                        frame, 
+                        variance_map=self.camera_data["variance"],
+                        offset_map=self.camera_data["offset"],
+                        gain=self.camera_data["gain"],
+                        grayscale=True
+                    )
+                else:
+                    # Use standard grayscale demosaicing
+                    demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
+
                 detected_spots = self.sdf.detect_puncta_in_image(
-                    image=frame,
+                    image=demosaiced_frame,
                     pfa=pfa,
                     wavelength=wavelength,
                     sigma=sigma,
@@ -492,6 +563,7 @@ class InteractiveThresholdTuner:
         current_sigma = self.default_sigma
         current_fraction_true = self.default_true_fraction
         current_wavelength = default_wavelength
+        current_use_variance_aware = self.default_use_variance_aware
 
         fig_or_file = None
 
@@ -503,6 +575,7 @@ class InteractiveThresholdTuner:
                 current_sigma,
                 current_fraction_true,
                 current_wavelength,
+                current_use_variance_aware,
             )
 
             # Calculate total spots across all frames
@@ -522,11 +595,13 @@ class InteractiveThresholdTuner:
                 folder_name,
             )
 
+            variance_aware_status = "enabled" if current_use_variance_aware else "disabled"
             print(f"\nCurrent parameters:")
             print(f"  PFA (probability of false alarm): {current_pfa:.0e}")
             print(f"  Sigma : {current_sigma}")
             print(f"  Fraction true : {current_fraction_true}")
             print(f"  Wavelength: {current_wavelength}")
+            print(f"  Variance-aware demosaicing: {variance_aware_status}")
             print(f"  Detected spots: {total_spots} (across 3 frames)")
 
             print(f"\nOptions:")
@@ -534,11 +609,12 @@ class InteractiveThresholdTuner:
             print(f"  2. Adjust sigma (current: {current_sigma} pixels)")
             print(f"  3. Adjust Fraction true (current: {current_fraction_true})")
             print(f"  4. Adjust wavelength (current: {current_wavelength})")
-            print(f"  5. Accept current parameters")
-            print(f"  6. Skip this folder")
+            print(f"  5. Toggle variance-aware demosaicing (current: {variance_aware_status})")
+            print(f"  6. Accept current parameters")
+            print(f"  7. Skip this folder")
             print(f"  q. Quit")
 
-            choice = input("Enter choice (1-6 or q): ").strip()
+            choice = input("Enter choice (1-7 or q): ").strip()
 
             if choice == "1":
                 try:
@@ -586,6 +662,16 @@ class InteractiveThresholdTuner:
                     print("Invalid input, keeping current value")
 
             elif choice == "5":
+                # Toggle variance-aware demosaicing
+                current_use_variance_aware = not current_use_variance_aware
+                new_status = "enabled" if current_use_variance_aware else "disabled"
+                print(f"Variance-aware demosaicing {new_status}")
+                if not current_use_variance_aware:
+                    print("  Note: Using standard grayscale demosaicing")
+                elif not self.camera_data:
+                    print("  Warning: Camera calibration data not available - will use standard demosaicing")
+
+            elif choice == "6":
                 # Accept parameters
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     plt.close(fig_or_file)
@@ -596,10 +682,11 @@ class InteractiveThresholdTuner:
                     "sigma": current_sigma,
                     "fraction_true": current_fraction_true,
                     "wavelength": current_wavelength,
+                    "use_variance_aware": current_use_variance_aware,
                     "detected_spots": total_spots,
                 }
 
-            elif choice == "6":
+            elif choice == "7":
                 # Skip folder
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     plt.close(fig_or_file)
@@ -627,12 +714,13 @@ class InteractiveThresholdTuner:
         with open(output_path, "w") as f:
             f.write("# Threshold parameters for pyBayerSMLM batch analysis\n")
             f.write("# Generated by interactive_threshold_tuner.py\n")
-            f.write("# Format: folder_path|pfa|perc_threshold|wavelength\n")
+            f.write("# Format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware\n")
             f.write("#\n")
 
             for folder_path, params in self.threshold_results.items():
+                use_variance_aware_str = "true" if params.get('use_variance_aware', True) else "false"
                 f.write(
-                    f"{folder_path}|{params['pfa']:.0e}|{params['sigma']:.1f}|{params['fraction_true']:.1f}|{params['wavelength']:.3f}\n"
+                    f"{folder_path}|{params['pfa']:.0e}|{params['sigma']:.1f}|{params['fraction_true']:.1f}|{params['wavelength']:.3f}|{use_variance_aware_str}\n"
                 )
 
         print(f"\nThreshold parameters saved to:")
