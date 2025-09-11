@@ -1518,7 +1518,9 @@ class FiducialDriftCorrector(DriftCorrector):
             )
 
         y, x, _ = localise.identify_in_image(image, threshold, box=box)
-        picks = [(xi, yi) for xi, yi in zip(x, y)]
+        # Format picks as rectangles centered on detected points
+        half_box = box // 2
+        picks = [((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)]
 
         if len(picks) == 0:
             raise DriftCorrectionError(
@@ -1944,6 +1946,7 @@ class Drift_Correction_Functions:
             # Find candidates in this chunk
             try:
                 y, x, _ = localise.identify_in_image(chunk_image, chunk_threshold, box=box)
+                half_box = box // 2
                 chunk_picks = [(xi, yi, chunk_idx, (start_frame + end_frame) / 2) for xi, yi in zip(x, y)]
                 chunk_candidates.extend(chunk_picks)
                 print(f"  Found {len(chunk_picks)} candidates")
@@ -1964,12 +1967,14 @@ class Drift_Correction_Functions:
         print(f"Linked candidates into {len(linked_tracks)} potential fiducial tracks")
         
         # Convert tracks back to picks (use average position)
+        # Format as rectangles for box picking
+        half_box = int(np.round(box_size_nm / pixelsize)) // 2
         picks = []
         for track in linked_tracks:
             if len(track) >= n_chunks * 0.6:  # Require track to appear in >60% of chunks
                 avg_x = np.mean([pos[0] for pos in track])
                 avg_y = np.mean([pos[1] for pos in track])
-                picks.append((avg_x, avg_y))
+                picks.append(((avg_x - half_box, avg_y), (avg_x + half_box, avg_y)))
         
         # Create combined image and histogram for visualization
         if len(chunk_images) > 0:
@@ -2165,8 +2170,10 @@ class Drift_Correction_Functions:
                     )
 
                 y, x, _ = localise.identify_in_image(image, threshold, box=box)
-                # Format picks as points for Circle picking (more appropriate for point detection)
-                picks = [(xi, yi) for xi, yi in zip(x, y)]
+                # Format picks as rectangles centered on detected points
+                # Each rectangle is box×box pixels around the center point
+                half_box = box // 2
+                picks = [((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)]
 
             if len(picks) == 0:
                 raise DriftCorrectionError(
@@ -2184,14 +2191,14 @@ class Drift_Correction_Functions:
                     "postprocess module required for fiducial detection"
                 )
 
-            # Get localisations for each pick using Circle picking (appropriate for point detection)
+            # Get localisations for each pick using Rectangle picking (better for drifted fiducials)
             temp_picked_locs = postprocess.picked_locs(
                 locs,
                 width,
                 height,
                 picks,
-                "Circle",
-                pick_size=box // 2,  # Use radius (half the box size)
+                "Rectangle",
+                pick_size=box,  # Width of the rectangle in pixels
                 add_group=False,
                 parallel=True,  # Use parallel processing for efficiency
             )
