@@ -700,49 +700,58 @@ process_folder() {
 }
 
 
-# Function to discover and process hierarchical folders  
+# Function to discover and process hierarchical folders
 process_hierarchical() {
     local base_dir="$1"
     local folder_type="$2"
     local wavelength="$3"
-    
+
     if [ ! -d "$base_dir" ]; then
         log_message "WARNING: Directory not found: $base_dir"
         return 0
     fi
-    
+
     log_message "Scanning hierarchical directory: $base_dir"
-    
-    # Find all leaf directories and collect them in an array
-    local leaf_dirs=()
-    
-    # Use os.walk equivalent - find all directories and check if they're leaves
+
+    # Find directories that should be processed - either leaf directories OR directories with .tif files
+    local processing_dirs=()
+
+    # Use os.walk equivalent - find all directories and check if they should be processed
     while IFS= read -r -d '' folder; do
         # Skip the base directory itself
         if [ "$folder" = "$base_dir" ]; then
             continue
         fi
-        
+
         # Check if this directory contains any subdirectories
         has_subdirs=$(find "$folder" -maxdepth 1 -type d ! -path "$folder" | head -1)
-        
-        # If no subdirectories found, it's a leaf directory
-        if [ -z "$has_subdirs" ]; then
-            log_message "Found leaf directory: $folder"
-            leaf_dirs+=("$folder")
+
+        # Check if this directory contains .tif or .tiff files
+        has_tif_files=$(find "$folder" -maxdepth 1 \( -name "*.tif" -o -name "*.tiff" \) -type f | head -1)
+
+        # Process directory if:
+        # 1. It's a leaf directory (no subdirectories), OR
+        # 2. It has .tif/.tiff files in it
+        if [ -z "$has_subdirs" ] || [ -n "$has_tif_files" ]; then
+            if [ -z "$has_subdirs" ]; then
+                log_message "Found leaf directory: $folder"
+            else
+                log_message "Found directory with .tif files: $folder"
+            fi
+            processing_dirs+=("$folder")
         fi
     done < <(find "$base_dir" -type d -print0)
-    
-    # Process leaf directories
-    if [ ${#leaf_dirs[@]} -gt 0 ]; then
-        log_message "Found ${#leaf_dirs[@]} leaf directories in $base_dir"
-        
-        # Process leaf directories
-        for folder in "${leaf_dirs[@]}"; do
+
+    # Process directories
+    if [ ${#processing_dirs[@]} -gt 0 ]; then
+        log_message "Found ${#processing_dirs[@]} directories to process in $base_dir"
+
+        # Process directories
+        for folder in "${processing_dirs[@]}"; do
             process_folder "$folder_type" "$folder" "$wavelength"
         done
     else
-        log_message "No leaf directories found in $base_dir"
+        log_message "No processable directories found in $base_dir"
     fi
 }
 
