@@ -716,9 +716,17 @@ process_hierarchical() {
     # Find directories that should be processed - either leaf directories OR directories with .tif files
     local processing_dirs=()
 
-    # Use os.walk equivalent - find all directories and check if they should be processed
+    # First, check if the base directory itself has .tif files
+    base_has_tif_files=$(find "$base_dir" -maxdepth 1 \( -name "*.tif" -o -name "*.tiff" \) -type f | head -1)
+
+    if [ -n "$base_has_tif_files" ]; then
+        log_message "Found .tif files in base directory: $base_dir"
+        processing_dirs+=("$base_dir")
+    fi
+
+    # Then scan all subdirectories
     while IFS= read -r -d '' folder; do
-        # Skip the base directory itself
+        # Skip the base directory itself (already checked above)
         if [ "$folder" = "$base_dir" ]; then
             continue
         fi
