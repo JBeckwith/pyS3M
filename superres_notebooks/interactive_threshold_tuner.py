@@ -89,6 +89,9 @@ class InteractiveThresholdTuner:
         # Load camera calibration data
         self.camera_data = self._load_camera_data()
 
+        # ROI information (will be set per folder)
+        self.roi_info = None
+
         # Folder lists from batch_analysis.sh
         self.folder_lists = self._get_folder_lists()
 
@@ -183,6 +186,39 @@ class InteractiveThresholdTuner:
 
         return leaf_dirs
 
+    def _get_roi_info(self, folder_path: str) -> Optional[Dict]:
+        """Extract ROI information from metadata files if available"""
+        try:
+            metadata_files = self.hf.file_search(folder_path, "metadata", "")
+            if metadata_files:
+                start_x, start_y, width, height = self.iof.metadata_reader_imageJ(metadata_files[0])
+                return {
+                    "start_x": start_x,
+                    "start_y": start_y,
+                    "width": width,
+                    "height": height
+                }
+        except Exception as e:
+            print(f"Could not extract ROI info from {folder_path}: {e}")
+        return None
+
+    def _crop_camera_data_to_roi(self, camera_data: Dict, roi_info: Dict) -> Dict:
+        """Crop camera calibration data to match ROI dimensions"""
+        if not roi_info:
+            return camera_data
+
+        cropped_data = {}
+        start_x, start_y = roi_info["start_x"], roi_info["start_y"]
+        width, height = roi_info["width"], roi_info["height"]
+
+        for key, data in camera_data.items():
+            if isinstance(data, np.ndarray) and data.ndim >= 2:
+                cropped_data[key] = data[start_x:start_x + width, start_y:start_y + height]
+            else:
+                cropped_data[key] = data
+
+        return cropped_data
+
     def get_all_processing_folders(self) -> List[Tuple[str, str, float]]:
         """Get all folders that will be processed by batch_analysis.sh with their parameters"""
         all_folders = []
@@ -231,6 +267,9 @@ class InteractiveThresholdTuner:
         if not tiff_files:
             print(f"No TIFF files found in {folder_path}")
             return None
+
+        # Check for metadata files to get ROI information
+        self.roi_info = self._get_roi_info(folder_path)
 
         try:
             selected_frames = []
@@ -312,14 +351,30 @@ class InteractiveThresholdTuner:
         try:
             # Apply demosaicing based on setting
             if use_variance_aware and self.camera_data:
-                # Use variance-aware demosaicing
-                demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
-                    image, 
-                    variance_map=self.camera_data["variance"],
-                    offset_map=self.camera_data["offset"],
-                    gain=self.camera_data["gain"],
-                    grayscale=True
+                # Get camera data cropped to ROI if available
+                camera_data_to_use = (
+                    self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+                    if self.roi_info
+                    else self.camera_data
                 )
+
+                # Check if calibration data needs to be resized to match image
+                image_shape = image.shape
+                variance_shape = camera_data_to_use["variance"].shape
+
+                if image_shape != variance_shape:
+                    print(f"Warning: Image shape {image_shape} != calibration data shape {variance_shape}")
+                    print("Falling back to standard demosaicing")
+                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
+                else:
+                    # Use variance-aware demosaicing
+                    demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                        image,
+                        variance_map=camera_data_to_use["variance"],
+                        offset_map=camera_data_to_use["offset"],
+                        gain=camera_data_to_use["gain"],
+                        grayscale=True
+                    )
             else:
                 # Use standard grayscale demosaicing
                 demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
@@ -357,14 +412,30 @@ class InteractiveThresholdTuner:
             try:
                 # Apply demosaicing based on setting
                 if use_variance_aware and self.camera_data:
-                    # Use variance-aware demosaicing
-                    demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
-                        frame, 
-                        variance_map=self.camera_data["variance"],
-                        offset_map=self.camera_data["offset"],
-                        gain=self.camera_data["gain"],
-                        grayscale=True
+                    # Get camera data cropped to ROI if available
+                    camera_data_to_use = (
+                        self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+                        if self.roi_info
+                        else self.camera_data
                     )
+
+                    # Check if calibration data needs to be resized to match frame
+                    frame_shape = frame.shape
+                    variance_shape = camera_data_to_use["variance"].shape
+
+                    if frame_shape != variance_shape:
+                        print(f"Warning: Frame shape {frame_shape} != calibration data shape {variance_shape}")
+                        print("Falling back to standard demosaicing")
+                        demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
+                    else:
+                        # Use variance-aware demosaicing
+                        demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
+                            frame,
+                            variance_map=camera_data_to_use["variance"],
+                            offset_map=camera_data_to_use["offset"],
+                            gain=camera_data_to_use["gain"],
+                            grayscale=True
+                        )
                 else:
                     # Use standard grayscale demosaicing
                     demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
