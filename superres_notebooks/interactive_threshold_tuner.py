@@ -294,23 +294,25 @@ class InteractiveThresholdTuner:
                             print(f"Loaded frame {frame_idx + 1}/{total_frames} (shape: {frame.shape})")
 
             else:
-                # Multiple files: take frame 10 (index 9) from first three files
+                # Multiple files: take frame at 10% of each file from first three files
                 print(f"Multiple TIFF files detected: {len(tiff_files)} files")
                 files_to_process = tiff_files[:3]  # Take first 3 files
-                
+
                 for i, tiff_file in enumerate(files_to_process):
                     print(f"Processing file {i+1}: {os.path.basename(tiff_file)}")
                     with tifffile.TiffFile(tiff_file) as tif:
                         total_frames = len(tif.pages)
-                        
-                        # Try to get frame 10 (index 9), fallback to available frames
-                        target_frame_idx = min(9, total_frames - 1)  # 0-based index for frame 10
+
+                        # Get frame at 10% of the stack (ensuring it's an integer)
+                        target_frame_idx = int(total_frames * 0.1)
+                        # Ensure we don't go beyond available frames
+                        target_frame_idx = min(target_frame_idx, total_frames - 1)
                         if target_frame_idx < 0:
                             target_frame_idx = 0
-                        
+
                         frame = tif.pages[target_frame_idx].asarray()
                         selected_frames.append(frame.astype(np.float64))
-                        print(f"  Loaded frame {target_frame_idx + 1}/{total_frames} (shape: {frame.shape})")
+                        print(f"  Loaded frame {target_frame_idx + 1}/{total_frames} (10% of stack, shape: {frame.shape})")
 
             if len(selected_frames) == 0:
                 print("No frames could be loaded")
