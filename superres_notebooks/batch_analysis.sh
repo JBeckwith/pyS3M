@@ -151,6 +151,10 @@ fi
 
 # Define all folder lists exactly from MemorySafe script
 declare -a SM_DATA_DIRS=(
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250715_HollidayJunctions/60pM_HollidayJunction_50mMMgCl2/40perc561_NF_SP785_30ms_1'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250715_HollidayJunctions/60pM_HollidayJunction_50mMMgCl2/100perc561_NF_SP785_5ms_1'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250715_HollidayJunctions/60pM_HollidayJunction_50mMMgCl2/100perc561_NF_SP785_10ms_1'
+    '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250715_HollidayJunctions/60pM_HollidayJunction_50mMMgCl2/100perc561_NF_SP785_50ms_1'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250819_TetraspeckCalibration'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250717_BiotinDyes/ATTO488_50PM_PCA_PCD'
     '/scratch/sycamore-asap/ASAP_Members_Other_Imaging_Data/Brendan/20250725 biotinylated dyes/ATTO514_50pM_PCAPCDTx'
@@ -699,46 +703,6 @@ process_folder() {
     fi
 }
 
-# Function to sort folders by modification time (most recent first)
-sort_folders_by_date() {
-    local -n folder_array=$1  # Pass array by reference
-    local temp_file="/tmp/folder_dates_$$"
-    
-    # Create temporary file with folder paths and modification times using null separator
-    for folder in "${folder_array[@]}"; do
-        if [ -d "$folder" ]; then
-            # Get the modification time of the most recent file in the folder
-            local most_recent_file=$(find "$folder" -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
-            if [ -n "$most_recent_file" ]; then
-                local mod_time=$(stat -c '%Y' "$most_recent_file" 2>/dev/null || echo "0")
-            else
-                # If no files found, use folder modification time
-                local mod_time=$(stat -c '%Y' "$folder" 2>/dev/null || echo "0")
-            fi
-            # Use tab separator to handle paths with spaces
-            printf "%s\t%s\n" "$mod_time" "$folder" >> "$temp_file"
-        else
-            # Non-existent folders get timestamp 0 (will be processed last)
-            printf "%s\t%s\n" "0" "$folder" >> "$temp_file"
-        fi
-    done
-    
-    # Sort by modification time (most recent first) and extract folder paths
-    if [ -f "$temp_file" ]; then
-        # Clear the original array
-        folder_array=()
-        
-        # Read sorted folders back into array using tab separator
-        while IFS=$'\t' read -r timestamp folder_path; do
-            folder_array+=("$folder_path")
-        done < <(sort -nr "$temp_file")
-        
-        # Clean up temporary file
-        rm -f "$temp_file"
-        
-        log_message "Sorted ${#folder_array[@]} folders by modification time (most recent first)"
-    fi
-}
 
 # Function to discover and process hierarchical folders  
 process_hierarchical() {
@@ -773,12 +737,11 @@ process_hierarchical() {
         fi
     done < <(find "$base_dir" -type d -print0)
     
-    # Sort leaf directories by modification time (most recent first)
+    # Process leaf directories
     if [ ${#leaf_dirs[@]} -gt 0 ]; then
-        log_message "Found ${#leaf_dirs[@]} leaf directories in $base_dir, sorting by date..."
-        sort_folders_by_date leaf_dirs
+        log_message "Found ${#leaf_dirs[@]} leaf directories in $base_dir"
         
-        # Process sorted leaf directories
+        # Process leaf directories
         for folder in "${leaf_dirs[@]}"; do
             process_folder "$folder_type" "$folder" "$wavelength"
         done
@@ -795,26 +758,16 @@ check_threshold_params
 
 console_message "Starting folder discovery and processing..."
 
-# Sort all folder arrays by modification time (most recent first) while preserving DNA origami priority
-console_message "Sorting folders by modification time (most recent first)..."
 
-# Create local copies of arrays for sorting
-DNA_ORIGAMI_FOLDERS_SORTED=("${DNA_ORIGAMI_FOLDERS[@]}")
-IPSC_FOLDERS_SORTED=("${IPSC_FOLDERS[@]}")
-SM_DATA_DIRS_SORTED=("${SM_DATA_DIRS[@]}")  
-HELA_FOLDERS_SORTED=("${HELA_FOLDERS[@]}")
-HIERARCHICAL_DIRS_SORTED=("${HIERARCHICAL_DIRS[@]}")
+# Process SM data hierarchical directories first (highest priority)
+console_message "Processing SM data directories first (${#SM_DATA_DIRS[@]} base directories)..."
+for base_dir in "${SM_DATA_DIRS[@]}"; do
+    process_hierarchical "$base_dir" "sm" "0.638"
+done
 
-# Sort each array by date
-sort_folders_by_date DNA_ORIGAMI_FOLDERS_SORTED
-sort_folders_by_date IPSC_FOLDERS_SORTED
-sort_folders_by_date SM_DATA_DIRS_SORTED
-sort_folders_by_date HELA_FOLDERS_SORTED
-sort_folders_by_date HIERARCHICAL_DIRS_SORTED
-
-# Process DNA origami folders first (highest priority) - 550nm default - NOW SORTED BY DATE
-console_message "Processing DNA origami folders first (${#DNA_ORIGAMI_FOLDERS_SORTED[@]} folders, most recent first)..."
-for folder in "${DNA_ORIGAMI_FOLDERS_SORTED[@]}"; do
+# Process DNA origami folders - 550nm default
+console_message "Processing DNA origami folders (${#DNA_ORIGAMI_FOLDERS[@]} folders)..."
+for folder in "${DNA_ORIGAMI_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.55"
     else
@@ -822,9 +775,9 @@ for folder in "${DNA_ORIGAMI_FOLDERS_SORTED[@]}"; do
     fi
 done
 
-# Process iPSC folders after DNA origami (lower priority) - 550nm default - NOW SORTED BY DATE
-console_message "Processing iPSC folders (${#IPSC_FOLDERS_SORTED[@]} folders, most recent first)..."
-for folder in "${IPSC_FOLDERS_SORTED[@]}"; do
+# Process iPSC folders - 550nm default
+console_message "Processing iPSC folders (${#IPSC_FOLDERS[@]} folders)..."
+for folder in "${IPSC_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.55"
     else
@@ -832,21 +785,15 @@ for folder in "${IPSC_FOLDERS_SORTED[@]}"; do
     fi
 done
 
-# Process hierarchical imaging directories - may contain more DNA origami - NOW SORTED BY DATE  
-console_message "Processing hierarchical imaging directories (${#HIERARCHICAL_DIRS_SORTED[@]} base directories, most recent first)..."
-for base_dir in "${HIERARCHICAL_DIRS_SORTED[@]}"; do
+# Process hierarchical imaging directories - may contain more DNA origami
+console_message "Processing hierarchical imaging directories (${#HIERARCHICAL_DIRS[@]} base directories)..."
+for base_dir in "${HIERARCHICAL_DIRS[@]}"; do
     process_hierarchical "$base_dir" "imaging" "0.55"
 done
 
-# Process SM data hierarchical directories - NOW SORTED BY DATE
-console_message "Processing SM data directories (${#SM_DATA_DIRS_SORTED[@]} base directories, most recent first)..."
-for base_dir in "${SM_DATA_DIRS_SORTED[@]}"; do
-    process_hierarchical "$base_dir" "sm" "0.638"
-done
-
-# Process HeLa folders directly (647nm wavelength) - NOW SORTED BY DATE
-console_message "Processing HeLa imaging folders (${#HELA_FOLDERS_SORTED[@]} folders, most recent first)..."
-for folder in "${HELA_FOLDERS_SORTED[@]}"; do
+# Process HeLa folders directly (647nm wavelength)
+console_message "Processing HeLa imaging folders (${#HELA_FOLDERS[@]} folders)..."
+for folder in "${HELA_FOLDERS[@]}"; do
     if [ -d "$folder" ]; then
         process_folder "imaging" "$folder" "0.647"
     else
