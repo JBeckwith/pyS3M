@@ -112,24 +112,29 @@ determine_folder_type() {
     local folder_path="$1"
     local folder_type="imaging"
     local wavelength="0.6"
+    local message=""
 
     # Check folder path patterns to determine type and wavelength
     if [[ "$folder_path" == *"HeLa"* ]] || [[ "$folder_path" == *"HILO"* ]]; then
         folder_type="imaging"
         wavelength="0.647"
-        console_message "Detected HeLa/HILO data - using wavelength: ${wavelength}μm"
+        message="Detected HeLa/HILO data - using wavelength: ${wavelength}μm"
     elif [[ "$folder_path" == *"SM"* ]] || [[ "$folder_path" == *"STORM"* ]] || [[ "$folder_path" == *"Dye"* ]] || [[ "$folder_path" == *"biotinylated"* ]]; then
         folder_type="sm"
         wavelength="0.638"
-        console_message "Detected SM/dye data - using wavelength: ${wavelength}μm"
+        message="Detected SM/dye data - using wavelength: ${wavelength}μm"
     elif [[ "$folder_path" == *"Origami"* ]] || [[ "$folder_path" == *"DNA"* ]] || [[ "$folder_path" == *"iPSC"* ]]; then
         folder_type="imaging"
         wavelength="0.55"
-        console_message "Detected DNA Origami/iPSC data - using wavelength: ${wavelength}μm"
+        message="Detected DNA Origami/iPSC data - using wavelength: ${wavelength}μm"
     else
-        console_message "Using default parameters - type: $folder_type, wavelength: ${wavelength}μm"
+        message="Using default parameters - type: $folder_type, wavelength: ${wavelength}μm"
     fi
 
+    # Output message to stderr so it doesn't interfere with return value
+    echo "$message" >&2
+
+    # Return only the values we need
     echo "$folder_type $wavelength"
 }
 
@@ -231,7 +236,8 @@ EOF
     chmod +x "$temp_tuner"
 
     # Get folder type and wavelength
-    local folder_info=($(determine_folder_type "$FOLDER_PATH"))
+    local folder_info_output=$(determine_folder_type "$FOLDER_PATH")
+    local folder_info=($folder_info_output)
     local folder_type="${folder_info[0]}"
     local wavelength="${folder_info[1]}"
 
