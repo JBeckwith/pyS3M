@@ -198,24 +198,41 @@ class SingleFolderAnalyzer:
         self.console_message("This may take some time depending on the dataset size...")
 
         try:
-            # Run the analysis
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600  # 1 hour timeout
-            )
+            # Run the analysis with real-time output
+            self.log_message("Starting analysis subprocess...")
 
-            # Log the output
-            with open(self.log_file, 'a') as f:
-                f.write("\n" + "=" * 40 + " ANALYSIS OUTPUT " + "=" * 40 + "\n")
-                f.write("STDOUT:\n")
-                f.write(result.stdout)
-                f.write("\nSTDERR:\n")
-                f.write(result.stderr)
-                f.write("\n" + "=" * 80 + "\n")
+            with open(self.log_file, 'a') as log_f:
+                log_f.write("\n" + "=" * 40 + " ANALYSIS OUTPUT " + "=" * 40 + "\n")
+                log_f.flush()
 
-            if result.returncode == 0:
+                # Use Popen for real-time output
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+
+                # Read output in real-time
+                for line in process.stdout:
+                    print(line.rstrip())  # Print to console
+                    log_f.write(line)     # Write to log
+                    log_f.flush()
+
+                # Wait for completion with extended timeout (4 hours)
+                try:
+                    return_code = process.wait(timeout=14400)  # 4 hour timeout
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    self.console_message("✗ Analysis timed out (>4 hours)")
+                    self.log_message("Analysis timed out after 4 hours")
+                    return False
+
+                log_f.write("\n" + "=" * 80 + "\n")
+
+            if return_code == 0:
                 self.console_message("✓ Analysis completed successfully")
                 self.log_message("Analysis completed successfully")
 
@@ -232,15 +249,10 @@ class SingleFolderAnalyzer:
 
                 return True
             else:
-                self.console_message(f"✗ Analysis failed with exit code {result.returncode}")
+                self.console_message(f"✗ Analysis failed with exit code {return_code}")
                 self.console_message("Check the log file for detailed error information")
-                self.log_message(f"Analysis failed with exit code {result.returncode}")
+                self.log_message(f"Analysis failed with exit code {return_code}")
                 return False
-
-        except subprocess.TimeoutExpired:
-            self.console_message("✗ Analysis timed out (>1 hour)")
-            self.log_message("Analysis timed out after 1 hour")
-            return False
         except Exception as e:
             self.console_message(f"✗ Error running analysis: {e}")
             self.log_message(f"Error running analysis: {e}")
