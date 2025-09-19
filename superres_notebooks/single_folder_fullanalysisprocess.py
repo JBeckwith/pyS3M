@@ -366,16 +366,6 @@ This script will:
 
     args = parser.parse_args()
 
-    # Check if virtual environment is activated
-    if "/pyBayerSMLM/" not in sys.executable:
-        print("Warning: pyBayerSMLM virtual environment may not be activated")
-        print("Please run: source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate")
-        print()
-        response = input("Continue anyway? (y/N): ").strip().lower()
-        if response != 'y':
-            print("Aborted by user")
-            sys.exit(1)
-
     # Create and run analyzer
     analyzer = SingleFolderAnalyzer(args.folder_path)
     success = analyzer.run()
