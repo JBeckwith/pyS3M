@@ -649,6 +649,69 @@ process_folder() {
     fi
 }
 
+# Function to discover and process hierarchical folders
+process_hierarchical() {
+    local base_dir="$1"
+    local folder_type="$2"
+    local wavelength="$3"
+
+    if [ ! -d "$base_dir" ]; then
+        log_message "WARNING: Directory not found: $base_dir"
+        return 0
+    fi
+
+    log_message "Scanning hierarchical directory: $base_dir"
+
+    # Find directories that should be processed - either leaf directories OR directories with .tif files
+    local processing_dirs=()
+
+    # First, check if the base directory itself has .tif files
+    base_has_tif_files=$(find "$base_dir" -maxdepth 1 \( -name "*.tif" -o -name "*.tiff" \) -type f | head -1)
+
+    if [ -n "$base_has_tif_files" ]; then
+        log_message "Found .tif files in base directory: $base_dir"
+        processing_dirs+=("$base_dir")
+    fi
+
+    # Then scan all subdirectories
+    while IFS= read -r -d '' folder; do
+        # Skip the base directory itself (already checked above)
+        if [ "$folder" = "$base_dir" ]; then
+            continue
+        fi
+
+        # Check if this directory contains any subdirectories
+        has_subdirs=$(find "$folder" -maxdepth 1 -type d ! -path "$folder" | head -1)
+
+        # Check if this directory contains .tif or .tiff files
+        has_tif_files=$(find "$folder" -maxdepth 1 \( -name "*.tif" -o -name "*.tiff" \) -type f | head -1)
+
+        # Process directory if:
+        # 1. It's a leaf directory (no subdirectories), OR
+        # 2. It has .tif/.tiff files in it
+        if [ -z "$has_subdirs" ] || [ -n "$has_tif_files" ]; then
+            if [ -z "$has_subdirs" ]; then
+                log_message "Found leaf directory: $folder"
+            else
+                log_message "Found directory with .tif files: $folder"
+            fi
+            processing_dirs+=("$folder")
+        fi
+    done < <(find "$base_dir" -type d -print0)
+
+    # Process directories
+    if [ ${#processing_dirs[@]} -gt 0 ]; then
+        log_message "Found ${#processing_dirs[@]} directories to process in $base_dir"
+
+        # Process directories
+        for folder in "${processing_dirs[@]}"; do
+            process_folder "$folder_type" "$folder" "$wavelength"
+        done
+    else
+        log_message "No processable directories found in $base_dir"
+    fi
+}
+
 # Initialize system for swap minimization
 optimize_system_memory
 
@@ -657,14 +720,10 @@ check_threshold_params
 
 console_message "Starting Nile Red analysis folder processing..."
 
-# Process Nile Red folders - 700nm default wavelength (near-infrared region typical for Nile Red)
-console_message "Processing Nile Red folders (${#NILE_RED_FOLDERS[@]} folders)..."
-for folder in "${NILE_RED_FOLDERS[@]}"; do
-    if [ -d "$folder" ]; then
-        process_folder "imaging" "$folder" "0.700"
-    else
-        log_message "WARNING: Nile Red folder not found: $folder"
-    fi
+# Process Nile Red folders hierarchically - 700nm default wavelength (near-infrared region typical for Nile Red)
+console_message "Processing Nile Red folders (${#NILE_RED_FOLDERS[@]} base directories)..."
+for base_dir in "${NILE_RED_FOLDERS[@]}"; do
+    process_hierarchical "$base_dir" "imaging" "0.700"
 done
 
 echo  # New line after progress output
