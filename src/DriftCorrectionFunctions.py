@@ -858,17 +858,43 @@ class AIMDriftCorrector(DriftCorrector):
         )
         
         # Apply drift correction with proper indexing
-        if min_frame == 0:
-            # 0-indexed frames: use direct indexing
-            x_pdc = x - drift_x_full[frame]
-            y_pdc = y - drift_y_full[frame]
+        # Choice between vectorized and frame-by-frame approach
+        use_vectorized = True  # Set to False for frame-by-frame if needed
+
+        if use_vectorized:
+            # Vectorized approach (faster, but more complex indexing)
+            if min_frame == 0:
+                # 0-indexed frames: use direct indexing
+                # Ensure frame indices are within bounds
+                valid_indices = (frame >= 0) & (frame < len(drift_x_full))
+                x_pdc = x.copy()
+                y_pdc = y.copy()
+                x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices]]
+                y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices]]
+            else:
+                # 1-indexed frames: subtract 1 for array indexing
+                # Ensure frame indices are within bounds after converting to 0-indexed
+                valid_indices = (frame >= 1) & (frame - 1 < len(drift_x_full))
+                x_pdc = x.copy()
+                y_pdc = y.copy()
+                x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices] - 1]
+                y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices] - 1]
         else:
-            # 1-indexed frames: subtract 1 for array indexing
-            valid_indices = (frame >= 1) & (frame <= max_frame_data)
+            # Frame-by-frame approach (safer, guaranteed to work)
             x_pdc = x.copy()
             y_pdc = y.copy()
-            x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices] - 1]
-            y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices] - 1]
+
+            for frame_num in np.unique(frame):
+                if min_frame == 0:
+                    if 0 <= frame_num < len(drift_x_full):
+                        subset_mask = frame == frame_num
+                        x_pdc[subset_mask] -= drift_x_full[frame_num]
+                        y_pdc[subset_mask] -= drift_y_full[frame_num]
+                else:
+                    if 1 <= frame_num <= len(drift_x_full):
+                        subset_mask = frame == frame_num
+                        x_pdc[subset_mask] -= drift_x_full[frame_num - 1]  # Convert to 0-indexed
+                        y_pdc[subset_mask] -= drift_y_full[frame_num - 1]
 
         return x_pdc, y_pdc, drift_x_full, drift_y_full
 
