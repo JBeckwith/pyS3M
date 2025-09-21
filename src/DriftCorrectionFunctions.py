@@ -848,12 +848,12 @@ class AIMDriftCorrector(DriftCorrector):
                 _process_segment(s)
                 progress_callback(s)
 
-        # Use gap-filling interpolation instead of smoothing splines to preserve high-frequency drift
+        # Use cubic spline interpolation following original MATLAB AIM implementation
         min_frame = int(frame.min())
         max_frame_data = int(frame.max())
-        
-        # Create drift arrays that preserve measured values and only interpolate gaps
-        drift_x_full, drift_y_full = AIMDriftCorrector._gap_filling_interpolation(
+
+        # Create drift arrays using cubic spline interpolation
+        drift_x_full, drift_y_full = AIMDriftCorrector._cubic_spline_interpolation(
             drift_x, drift_y, seg_bounds, min_frame, max_frame_data
         )
         
@@ -873,86 +873,84 @@ class AIMDriftCorrector(DriftCorrector):
         return x_pdc, y_pdc, drift_x_full, drift_y_full
 
     @staticmethod
-    def _gap_filling_interpolation(
-        drift_x: np.ndarray, 
-        drift_y: np.ndarray, 
+    def _cubic_spline_interpolation(
+        drift_x: np.ndarray,
+        drift_y: np.ndarray,
         seg_bounds: np.ndarray,
-        min_frame: int, 
+        min_frame: int,
         max_frame: int
     ) -> tuple:
-        """Gap-filling interpolation that preserves measured drift values.
-        
-        Instead of smoothing all data with splines, this method:
-        1. Uses actual measured drift values at segment centers
-        2. Only interpolates linearly in gaps between measurements
-        3. Preserves high-frequency drift information
-        
+        """Cubic spline interpolation following original MATLAB AIM implementation.
+
+        This method replicates the original MATLAB interpolation approach:
+        1. Calculates segment centers as measurement points
+        2. Extends with boundary extrapolation points
+        3. Uses cubic spline interpolation for smooth drift correction
+
         Args:
             drift_x: Measured drift values for each segment
             drift_y: Measured drift values for each segment
             seg_bounds: Segment boundaries
             min_frame: Minimum frame number
             max_frame: Maximum frame number
-            
+
         Returns:
             Tuple of (drift_x_full, drift_y_full) arrays for all frames
         """
         # Calculate segment centers (where we have actual measurements)
         seg_centers = (seg_bounds[1:] + seg_bounds[:-1]) / 2
-        seg_centers = seg_centers.astype(int)
-        
-        # Create full frame arrays
-        total_frames = max_frame - min_frame + 1
+        track_interval = seg_bounds[1] - seg_bounds[0]  # Assuming uniform intervals
+        track_num = len(drift_x)
+
+        # Extend drift values with boundary extrapolation (following MATLAB pattern)
+        # drift_X = [2*driftX(1)-driftX(2) driftX 2*driftX(end)-driftX(end-1)]
+        if len(drift_x) >= 2:
+            drift_x_extended = np.concatenate([
+                [2 * drift_x[0] - drift_x[1]],
+                drift_x,
+                [2 * drift_x[-1] - drift_x[-2]]
+            ])
+            drift_y_extended = np.concatenate([
+                [2 * drift_y[0] - drift_y[1]],
+                drift_y,
+                [2 * drift_y[-1] - drift_y[-2]]
+            ])
+        else:
+            # Handle edge case with single measurement
+            drift_x_extended = np.concatenate([[drift_x[0]], drift_x, [drift_x[0]]])
+            drift_y_extended = np.concatenate([[drift_y[0]], drift_y, [drift_y[0]]])
+
+        # Create extended x-coordinates for interpolation
+        # Following MATLAB: (-0.5:(trackNUM+0.5))*trackInterval
+        x_coords = np.arange(-0.5, track_num + 1.0) * track_interval
+
+        # Target frames for interpolation (1 to trackNUM*trackInterval)
+        total_frames = track_num * track_interval
+        target_frames = np.arange(1, total_frames + 1)
+
+        # Perform cubic spline interpolation
+        spline_x = InterpolatedUnivariateSpline(x_coords, drift_x_extended, k=3)
+        spline_y = InterpolatedUnivariateSpline(x_coords, drift_y_extended, k=3)
+
+        drift_x_interp = spline_x(target_frames)
+        drift_y_interp = spline_y(target_frames)
+
+        # Adjust for the actual frame range in the data
         if min_frame == 0:
+            # 0-indexed frames: pad to match max_frame
             drift_x_full = np.zeros(max_frame + 1)
             drift_y_full = np.zeros(max_frame + 1)
+            end_idx = min(len(drift_x_interp), max_frame + 1)
+            drift_x_full[:end_idx] = drift_x_interp[:end_idx]
+            drift_y_full[:end_idx] = drift_y_interp[:end_idx]
         else:
+            # 1-indexed frames: adjust for frame numbering
             drift_x_full = np.zeros(max_frame)
             drift_y_full = np.zeros(max_frame)
-        
-        # Place measured values at segment centers
-        valid_centers = []
-        valid_drift_x = []
-        valid_drift_y = []
-        
-        for i, center in enumerate(seg_centers):
-            if i < len(drift_x):  # Ensure we don't exceed drift array bounds
-                if min_frame == 0:
-                    if center <= max_frame:
-                        drift_x_full[center] = drift_x[i]
-                        drift_y_full[center] = drift_y[i]
-                        valid_centers.append(center)
-                        valid_drift_x.append(drift_x[i])
-                        valid_drift_y.append(drift_y[i])
-                else:
-                    if 1 <= center <= max_frame:
-                        drift_x_full[center - 1] = drift_x[i]  # Adjust for 1-indexing
-                        drift_y_full[center - 1] = drift_y[i]
-                        valid_centers.append(center - 1)  # Store as 0-indexed
-                        valid_drift_x.append(drift_x[i])
-                        valid_drift_y.append(drift_y[i])
-        
-        if len(valid_centers) == 0:
-            print("Warning: No valid segment centers found for interpolation")
-            return drift_x_full, drift_y_full
-        
-        # Linear interpolation for gaps between measurements
-        valid_centers = np.array(valid_centers)
-        valid_drift_x = np.array(valid_drift_x)
-        valid_drift_y = np.array(valid_drift_y)
-        
-        # Interpolate for all frame positions
-        all_frames = np.arange(len(drift_x_full))
-        
-        # Use linear interpolation, with extrapolation for frames outside the range
-        drift_x_full = np.interp(all_frames, valid_centers, valid_drift_x)
-        drift_y_full = np.interp(all_frames, valid_centers, valid_drift_y)
-        
-        # Restore the exact measured values (in case interpolation slightly changed them)
-        for i, center in enumerate(valid_centers):
-            drift_x_full[center] = valid_drift_x[i]
-            drift_y_full[center] = valid_drift_y[i]
-        
+            end_idx = min(len(drift_x_interp), max_frame)
+            drift_x_full[:end_idx] = drift_x_interp[:end_idx]
+            drift_y_full[:end_idx] = drift_y_interp[:end_idx]
+
         return drift_x_full, drift_y_full
 
     @staticmethod

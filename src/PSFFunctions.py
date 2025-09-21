@@ -337,6 +337,19 @@ class PSF_Functions:
         n_photons_hitting_detector = np.array(
             n_photons_hitting_detector.clip(0, np.inf), dtype=np.int64
         )
+
+        # Sanitize abs_QE to ensure valid probability values for binomial distribution
+        abs_QE = np.array(abs_QE)
+
+        # Handle NaN values: set to 0 (no quantum efficiency)
+        abs_QE = np.where(np.isnan(abs_QE), 0.0, abs_QE)
+
+        # Handle infinite values: set to 1 (perfect quantum efficiency)
+        abs_QE = np.where(np.isinf(abs_QE), 1.0, abs_QE)
+
+        # Clip to valid probability range [0, 1]
+        abs_QE = np.clip(abs_QE, 0.0, 1.0)
+
         n_photoelectrons = np.random.binomial(
             n=n_photons_hitting_detector,
             p=abs_QE,

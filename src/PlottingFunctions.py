@@ -946,6 +946,8 @@ class Plotter:
         alpha: float = 1,
         scatteralpha: float = 1,
         scattercolor: str = "red",
+        facecolor: str = "None",
+        marker: str = "o",
         s: float = 20,
         lws: float = 0.75,
     ):
@@ -1009,7 +1011,8 @@ class Plotter:
             lw=lws,
             edgecolor=scattercolor,
             s=s,
-            facecolors="None",
+            marker=marker,
+            facecolors=facecolor,
             alpha=scatteralpha,
         )
         return axs
