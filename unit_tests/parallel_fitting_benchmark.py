@@ -62,7 +62,7 @@ class ParallelFittingBenchmark:
         weights = []
         relative_coords = []
         planes = []
-        masks = [] if strategy == FittingStrategy.STANDARD else None
+        masks = []
 
         np.random.seed(42)  # Reproducible results
 
@@ -96,6 +96,7 @@ class ParallelFittingBenchmark:
                 puncta.append(image)
                 smoothed_puncta.append(image.copy())  # Same as raw for simplicity
                 weights.append(weight)
+                # No masks needed for NOCOLOUR
 
             else:  # STANDARD color fitting
                 # Generate Bayer-filtered image
@@ -138,7 +139,7 @@ class ParallelFittingBenchmark:
             relative_coords.append([0.0, 0.0])  # No offset
             planes.append(0)  # Single plane
 
-        return puncta, smoothed_puncta, weights, relative_coords, planes, masks
+        return puncta, smoothed_puncta, weights, relative_coords, planes, (masks if strategy == FittingStrategy.STANDARD else None)
 
 
     def benchmark_parallel(self, puncta: List, smoothed_puncta: List, weights: List,
@@ -180,7 +181,7 @@ class ParallelFittingBenchmark:
         return results
 
     def run_benchmark(self, n_puncta: int = 10000):
-        """Run complete parallel vs single-threaded benchmark."""
+        """Run parallel fitting benchmark."""
         print("="*70)
         print("PARALLEL FITTING BENCHMARK")
         print("="*70)
@@ -194,13 +195,8 @@ class ParallelFittingBenchmark:
             n_puncta, FittingStrategy.NOCOLOUR
         )
 
-        # Single-threaded benchmark
-        single_nc = self.benchmark_single_threaded(
-            puncta_nc, smoothed_nc, weights_nc, coords_nc, planes_nc, FittingStrategy.NOCOLOUR
-        )
-
         # Parallel benchmark
-        parallel_nc = self.benchmark_parallel(
+        results_nc = self.benchmark_parallel(
             puncta_nc, smoothed_nc, weights_nc, coords_nc, planes_nc, FittingStrategy.NOCOLOUR
         )
 
@@ -216,13 +212,8 @@ class ParallelFittingBenchmark:
             n_puncta, FittingStrategy.STANDARD
         )
 
-        # Single-threaded benchmark
-        single_c = self.benchmark_single_threaded(
-            puncta_c, smoothed_c, weights_c, coords_c, planes_c, FittingStrategy.STANDARD, masks_c
-        )
-
         # Parallel benchmark
-        parallel_c = self.benchmark_parallel(
+        results_c = self.benchmark_parallel(
             puncta_c, smoothed_c, weights_c, coords_c, planes_c, FittingStrategy.STANDARD, masks_c
         )
 
@@ -232,35 +223,33 @@ class ParallelFittingBenchmark:
 
         # Final comparison
         print("\n" + "="*70)
-        print("BENCHMARK SUMMARY")
+        print("PARALLEL BENCHMARK SUMMARY")
         print("="*70)
 
-        nc_speedup = parallel_nc['fits_per_second'] / single_nc['fits_per_second']
-        c_speedup = parallel_c['fits_per_second'] / single_c['fits_per_second']
+        speedup_ratio = results_nc['fits_per_second'] / results_c['fits_per_second']
 
         print(f"\nPosition-Only Fitting (WLS_nocolour_model_nobounds):")
-        print(f"  Single-threaded: {single_nc['fits_per_second']:.0f} fits/sec")
-        print(f"  Parallel ({self.n_workers} workers): {parallel_nc['fits_per_second']:.0f} fits/sec")
-        print(f"  Speedup: {nc_speedup:.1f}x")
-        print(f"  100k puncta time: Single={100000/single_nc['fits_per_second']:.1f}s, Parallel={100000/parallel_nc['fits_per_second']:.1f}s")
+        print(f"  Rate: {results_nc['fits_per_second']:.0f} fits/second")
+        print(f"  Time for 100k puncta: {100000/results_nc['fits_per_second']:.1f} seconds")
+        print(f"  Time for 1M puncta: {1000000/results_nc['fits_per_second']:.1f} seconds ({1000000/results_nc['fits_per_second']/60:.1f} minutes)")
 
         print(f"\nColor Fitting (WLS_model_nobounds):")
-        print(f"  Single-threaded: {single_c['fits_per_second']:.0f} fits/sec")
-        print(f"  Parallel ({self.n_workers} workers): {parallel_c['fits_per_second']:.0f} fits/sec")
-        print(f"  Speedup: {c_speedup:.1f}x")
-        print(f"  100k puncta time: Single={100000/single_c['fits_per_second']:.1f}s, Parallel={100000/parallel_c['fits_per_second']:.1f}s")
+        print(f"  Rate: {results_c['fits_per_second']:.0f} fits/second")
+        print(f"  Time for 100k puncta: {100000/results_c['fits_per_second']:.1f} seconds")
+        print(f"  Time for 1M puncta: {1000000/results_c['fits_per_second']:.1f} seconds ({1000000/results_c['fits_per_second']/60:.1f} minutes)")
 
-        print(f"\nParallel Efficiency:")
-        print(f"  Position-only: {nc_speedup/self.n_workers:.1%} of theoretical maximum")
-        print(f"  Color fitting: {c_speedup/self.n_workers:.1%} of theoretical maximum")
+        print(f"\nPerformance Comparison:")
+        print(f"  Position-only is {speedup_ratio:.1f}x faster than color fitting")
+        print(f"  Time difference for 100k puncta: {100000/results_c['fits_per_second'] - 100000/results_nc['fits_per_second']:.1f} seconds")
+
+        print(f"\nParallel Efficiency ({self.n_workers} workers):")
+        print(f"  Position-only: {results_nc['fits_per_second']/self.n_workers:.0f} fits/second/worker")
+        print(f"  Color fitting: {results_c['fits_per_second']/self.n_workers:.0f} fits/second/worker")
 
         return {
-            'single_nocolour': single_nc,
-            'parallel_nocolour': parallel_nc,
-            'single_color': single_c,
-            'parallel_color': parallel_c,
-            'nocolour_speedup': nc_speedup,
-            'color_speedup': c_speedup,
+            'nocolour_results': results_nc,
+            'color_results': results_c,
+            'speedup_ratio': speedup_ratio,
             'n_workers': self.n_workers
         }
 
