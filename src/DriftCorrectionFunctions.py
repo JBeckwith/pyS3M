@@ -3044,6 +3044,10 @@ class Drift_Correction_Functions:
                 callback=None, parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
             )
 
+            # Ensure picked_locs_arrays is not None
+            if picked_locs_arrays is None:
+                picked_locs_arrays = []
+
             for region_locs in picked_locs_arrays:
                 n_locs = len(region_locs)
                 if n_locs >= min_locs:
@@ -3199,6 +3203,7 @@ class Drift_Correction_Functions:
             use_plotting_functions = True
         except ImportError:
             use_plotting_functions = False
+            plotter = None
 
         # Get file base name for multiple plots
         if output_figure_path:
@@ -3207,7 +3212,7 @@ class Drift_Correction_Functions:
             base_path = "puncta_selection"
 
         # Plot 1: Overview with all localizations and detected regions
-        fig, axs = plotter.one_column_plot() if use_plotting_functions else plt.subplots(1, 1, figsize=(8, 8))
+        fig, axs = plotter.one_column_plot() if use_plotting_functions and plotter else plt.subplots(1, 1, figsize=(8, 8))
         ax1 = axs
 
         # Plot all localizations as background
@@ -3249,7 +3254,7 @@ class Drift_Correction_Functions:
             n_cols = min(4, n_regions)
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_rows), heightratio=np.ones(n_cols)) if use_plotting_functions else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3294,12 +3299,15 @@ class Drift_Correction_Functions:
 
         # Plot 3: Statistics summary
         if region_stats:
-            fig3, axes = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1]) if use_plotting_functions else plt.subplots(2, 2, figsize=(10, 8))
+            fig3, axes = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1]) if use_plotting_functions and plotter else plt.subplots(2, 2, figsize=(10, 8))
 
             # Histogram of localizations per region
             n_locs_list = [stats['n_localizations'] for stats in region_stats]
             bins = np.histogram_bin_edges(n_locs_list, bins='fd')
-            axes[0, 0] = plotter.histogram_plot(axes[0,0], n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True) if use_plotting_functions else axes[0,0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
+            if use_plotting_functions and plotter:
+                axes[0, 0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
+            else:
+                axes[0,0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
             axes[0, 0].set_xlabel('localisations per region')
             axes[0, 0].set_ylabel('probability density')
             axes[0, 0].set_title('distribution of localisations per region')
@@ -3308,7 +3316,10 @@ class Drift_Correction_Functions:
             # Frame spans
             frame_spans = [stats['frame_span'] for stats in region_stats]
             bins = np.histogram_bin_edges(frame_spans, bins='fd')
-            axes[0, 1] = plotter.histogram_plot(axes[0,1], frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True) if use_plotting_functions else axes[0,1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
+            if use_plotting_functions and plotter:
+                axes[0, 1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
+            else:
+                axes[0,1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
             axes[0, 1].set_xlabel('frame span')
             axes[0, 1].set_ylabel('probability density')
             axes[0, 1].set_title('distribution of frame spans')
@@ -3317,7 +3328,10 @@ class Drift_Correction_Functions:
             # Position spreads
             std_x_list = [stats['std_x'] for stats in region_stats]
             std_y_list = [stats['std_y'] for stats in region_stats]
-            axes[1, 0] = plotter.scatter_plot(axes[1,0], std_x_list, std_y_list, alpha=0.7, color='orange') if use_plotting_functions else axes[1,0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
+            if use_plotting_functions and plotter:
+                axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
+            else:
+                axes[1,0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
             axes[1, 0].set_xlabel('X std (pixels)')
             axes[1, 0].set_ylabel('Y std (pixels)')
             axes[1, 0].set_title('Localization Spreads')
@@ -3327,7 +3341,10 @@ class Drift_Correction_Functions:
             if 'mean_photons' in region_stats[0]:
                 photons_list = [stats['mean_photons'] for stats in region_stats]
                 bins = np.histogram_bin_edges(photons_list, bins='fd')
-                axes[1, 1] = plotter.histogram_plot(axes[1,1], photons_list, bins=bins, alpha=0.7, color='pink', density=True) if use_plotting_functions else axes[1,1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
+                if use_plotting_functions and plotter:
+                    axes[1, 1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
+                else:
+                    axes[1,1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
                 axes[1, 1].set_xlabel('mean photons per localisation')
                 axes[1, 1].set_ylabel('probability density')
                 axes[1, 1].set_title('distribution of photon counts')
