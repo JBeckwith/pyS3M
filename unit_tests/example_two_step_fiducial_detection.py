@@ -64,6 +64,7 @@ def example_workflow():
     print(f"  ✓ Region centers (y, x): {region_centers[:5]}...")  # Show first 5
 
     # Step 2: Select puncta (localizations) from detected regions
+    # Uses optimized postprocess.picked_locs for efficient rectangular selection
     print("\nStep 2: Selecting puncta from detected regions...")
 
     selected_puncta, selection_metadata = DCF.select_puncta_from_regions(

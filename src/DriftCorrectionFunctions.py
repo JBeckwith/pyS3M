@@ -34,6 +34,7 @@ import ProgressUtils
 try:
     import render
     import imageprocess
+    import postprocess
     import PlottingFunctions
 except ImportError:
     warnings.warn(
@@ -41,6 +42,7 @@ except ImportError:
     )
     render = None
     imageprocess = None
+    postprocess = None
     PlottingFunctions = None
 
 
@@ -2872,12 +2874,13 @@ class Drift_Correction_Functions:
         title: str = "Puncta Selection from Regions",
         create_plot: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
-        """Select puncta (localizations) from detected high-density regions using box selection.
+        """Select puncta (localizations) from detected high-density regions using postprocess.picked_locs.
 
         This function takes the output from detect_high_density_regions_from_image
-        and selects localizations within square boxes around each detected region center
-        to create potential fiducial candidates. Uses box-based selection consistent
-        with existing fiducial detection methods.
+        and selects localizations within rectangular boxes around each detected region center
+        to create potential fiducial candidates. Uses the optimized postprocess.picked_locs
+        function for consistent and efficient selection, with box-based selection matching
+        existing fiducial detection methods.
 
         Args:
             locs: Localization data with xc, yc, frame fields
@@ -2896,34 +2899,49 @@ class Drift_Correction_Functions:
             - Metadata dictionary with selection statistics
         """
 
-        # Convert box size from nm to pixels and calculate half-box
+        # Check if postprocess module is available
+        if postprocess is None:
+            raise RuntimeError("postprocess module not available - cannot use picked_locs function")
+
+        # Convert box size from nm to pixels
         box_size_pixels = selection_box_size_nm / pixelsize
         half_box = box_size_pixels / 2.0
 
-        # Extract coordinates for easier processing
-        locs_x = locs.xc
-        locs_y = locs.yc
+        # Convert region centers to rectangular picks for postprocess.picked_locs
+        # postprocess expects picks as list of ((x_start, y_start), (x_end, y_end))
+        picks = []
+        for center_y, center_x in region_centers:
+            x_start = center_x - half_box
+            y_start = center_y - half_box
+            x_end = center_x + half_box
+            y_end = center_y + half_box
+            picks.append(((x_start, y_start), (x_end, y_end)))
 
-        # Store results
+        # Use postprocess.picked_locs to select localizations using Rectangle shape
+        # We need to get width and height from the localizations extent
+        width = max(locs.xc.max() + 10, 100)  # Add buffer and minimum size
+        height = max(locs.yc.max() + 10, 100)
+
+        picked_locs_arrays = postprocess.picked_locs(
+            locs=locs,
+            width=width,
+            height=height,
+            picks=picks,
+            pick_shape="Rectangle",
+            pick_size=None,  # Size is defined by the rectangle coordinates
+            add_group=False,  # Don't add group field
+            callback=None,
+            parallel=False
+        )
+
+        # Filter results based on minimum localization count and build statistics
         selected_puncta = []
         region_stats = []
 
-        # Process each detected region
-        for region_id, (center_y, center_x) in enumerate(region_centers):
-            # Define box boundaries around region center
-            x_min = center_x - half_box
-            x_max = center_x + half_box
-            y_min = center_y - half_box
-            y_max = center_y + half_box
-
-            # Select localizations within box
-            within_box = ((locs_x >= x_min) & (locs_x <= x_max) &
-                         (locs_y >= y_min) & (locs_y <= y_max))
-            region_locs = locs[within_box]
-
-            # Apply localization count filter
+        for region_id, (region_locs, (center_y, center_x)) in enumerate(zip(picked_locs_arrays, region_centers)):
             n_locs = len(region_locs)
 
+            # Apply localization count filter
             if n_locs >= min_localizations_per_region:
                 selected_puncta.append(region_locs)
 
@@ -2942,10 +2960,10 @@ class Drift_Correction_Functions:
                     'selection_box_size_nm': selection_box_size_nm,
                     'selection_box_size_pixels': box_size_pixels,
                     'box_boundaries': {
-                        'x_min': x_min,
-                        'x_max': x_max,
-                        'y_min': y_min,
-                        'y_max': y_max
+                        'x_min': center_x - half_box,
+                        'x_max': center_x + half_box,
+                        'y_min': center_y - half_box,
+                        'y_max': center_y + half_box
                     },
                 }
 
@@ -2989,33 +3007,51 @@ class Drift_Correction_Functions:
         box_size_pixels: float,
         min_locs: int
     ) -> Dict[str, int]:
-        """Analyze why regions were rejected during puncta selection using box-based selection."""
+        """Analyze why regions were rejected during puncta selection using postprocess.picked_locs."""
 
         reasons = {
             'too_few_localizations': 0,
             'accepted': 0
         }
 
-        locs_x = locs.xc
-        locs_y = locs.yc
-        half_box = box_size_pixels / 2.0
+        if postprocess is None:
+            # Fallback to manual method if postprocess not available
+            locs_x = locs.xc
+            locs_y = locs.yc
+            half_box = box_size_pixels / 2.0
 
-        for center_y, center_x in region_centers:
-            # Define box boundaries
-            x_min = center_x - half_box
-            x_max = center_x + half_box
-            y_min = center_y - half_box
-            y_max = center_y + half_box
+            for center_y, center_x in region_centers:
+                within_box = ((locs_x >= center_x - half_box) & (locs_x <= center_x + half_box) &
+                             (locs_y >= center_y - half_box) & (locs_y <= center_y + half_box))
+                n_locs = np.sum(within_box)
 
-            # Count localizations within box
-            within_box = ((locs_x >= x_min) & (locs_x <= x_max) &
-                         (locs_y >= y_min) & (locs_y <= y_max))
-            n_locs = np.sum(within_box)
+                if n_locs >= min_locs:
+                    reasons['accepted'] += 1
+                else:
+                    reasons['too_few_localizations'] += 1
+        else:
+            # Use postprocess.picked_locs for consistency with main function
+            half_box = box_size_pixels / 2.0
+            picks = []
+            for center_y, center_x in region_centers:
+                picks.append(((center_x - half_box, center_y - half_box),
+                              (center_x + half_box, center_y + half_box)))
 
-            if n_locs < min_locs:
-                reasons['too_few_localizations'] += 1
-            else:
-                reasons['accepted'] += 1
+            width = max(locs.xc.max() + 10, 100)
+            height = max(locs.yc.max() + 10, 100)
+
+            picked_locs_arrays = postprocess.picked_locs(
+                locs=locs, width=width, height=height, picks=picks,
+                pick_shape="Rectangle", pick_size=None, add_group=False,
+                callback=None, parallel=False
+            )
+
+            for region_locs in picked_locs_arrays:
+                n_locs = len(region_locs)
+                if n_locs >= min_locs:
+                    reasons['accepted'] += 1
+                else:
+                    reasons['too_few_localizations'] += 1
 
         return reasons
 
@@ -3047,8 +3083,8 @@ class Drift_Correction_Functions:
             base_path = "puncta_selection"
 
         # Plot 1: Overview with all localizations and detected regions
-        fig1 = plt.figure(figsize=(10, 8))
-        ax1 = plt.gca()
+        fig, axs = plotter.one_column_plot() if use_plotting_functions else plt.subplots(1, 1, figsize=(8, 8))
+        ax1 = axs
 
         # Plot all localizations as background
         ax1.scatter(all_locs.xc, all_locs.yc, c='lightgray', s=1, alpha=0.3, label='All localizations')
@@ -3071,17 +3107,14 @@ class Drift_Correction_Functions:
         # Highlight selected puncta
         colors = plt.cm.Set3(np.linspace(0, 1, max(1, len(selected_puncta))))
         for i, (puncta, color) in enumerate(zip(selected_puncta, colors)):
-            ax1.scatter(puncta.xc, puncta.yc, c=[color], s=8, alpha=0.8,
-                       label=f'Region {i+1} ({len(puncta)} locs)')
+            ax1.scatter(puncta.xc, puncta.yc, c=[color], s=8, alpha=0.8)
 
         ax1.set_xlabel('X (pixels)')
         ax1.set_ylabel('Y (pixels)')
         ax1.set_title(f'{title} - Overview')
-        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         ax1.set_aspect('equal')
         ax1.grid(True, alpha=0.3)
-
-        plt.tight_layout()
+        plt.show()
         if output_figure_path:
             plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches='tight')
             plt.close()
@@ -3092,7 +3125,7 @@ class Drift_Correction_Functions:
             n_cols = min(4, n_regions)
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_rows), heightratio=np.ones(n_rows)) if use_plotting_functions else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3130,35 +3163,37 @@ class Drift_Correction_Functions:
             for i in range(len(selected_puncta), len(axes)):
                 axes[i].set_visible(False)
 
-            plt.tight_layout()
+            plt.show()
             if output_figure_path:
                 plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches='tight')
                 plt.close()
 
         # Plot 3: Statistics summary
         if region_stats:
-            fig3, axes = plt.subplots(2, 2, figsize=(12, 10))
+            fig3, axes = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1]) if use_plotting_functions else plt.subplots(2, 2, figsize=(10, 8))
 
             # Histogram of localizations per region
             n_locs_list = [stats['n_localizations'] for stats in region_stats]
-            axes[0, 0].hist(n_locs_list, bins=min(20, len(n_locs_list)), alpha=0.7, color='skyblue')
-            axes[0, 0].set_xlabel('Localizations per region')
-            axes[0, 0].set_ylabel('Frequency')
-            axes[0, 0].set_title('Distribution of Localizations per Region')
+            bins = np.histogram_bin_edges(n_locs_list, bins='fd')
+            axes[0, 0] = plotter.histogram_plot(axes[0,0], n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True) if use_plotting_functions else axes[0,0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
+            axes[0, 0].set_xlabel('localisations per region')
+            axes[0, 0].set_ylabel('probability density')
+            axes[0, 0].set_title('distribution of localisations per region')
             axes[0, 0].grid(True, alpha=0.3)
 
             # Frame spans
             frame_spans = [stats['frame_span'] for stats in region_stats]
-            axes[0, 1].hist(frame_spans, bins=min(20, len(frame_spans)), alpha=0.7, color='lightgreen')
-            axes[0, 1].set_xlabel('Frame span')
-            axes[0, 1].set_ylabel('Frequency')
-            axes[0, 1].set_title('Distribution of Frame Spans')
+            bins = np.histogram_bin_edges(frame_spans, bins='fd')
+            axes[0, 1] = plotter.histogram_plot(axes[0,1], frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True) if use_plotting_functions else axes[0,1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
+            axes[0, 1].set_xlabel('frame span')
+            axes[0, 1].set_ylabel('probability density')
+            axes[0, 1].set_title('distribution of frame spans')
             axes[0, 1].grid(True, alpha=0.3)
 
             # Position spreads
             std_x_list = [stats['std_x'] for stats in region_stats]
             std_y_list = [stats['std_y'] for stats in region_stats]
-            axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
+            axes[1, 0] = plotter.scatter_plot(axes[1,0], std_x_list, std_y_list, alpha=0.7, color='orange') if use_plotting_functions else axes[1,0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
             axes[1, 0].set_xlabel('X std (pixels)')
             axes[1, 0].set_ylabel('Y std (pixels)')
             axes[1, 0].set_title('Localization Spreads')
@@ -3167,17 +3202,18 @@ class Drift_Correction_Functions:
             # Photon statistics (if available)
             if 'mean_photons' in region_stats[0]:
                 photons_list = [stats['mean_photons'] for stats in region_stats]
-                axes[1, 1].hist(photons_list, bins=min(20, len(photons_list)), alpha=0.7, color='pink')
-                axes[1, 1].set_xlabel('Mean photons per localization')
-                axes[1, 1].set_ylabel('Frequency')
-                axes[1, 1].set_title('Distribution of Photon Counts')
+                bins = np.histogram_bin_edges(photons_list, bins='fd')
+                axes[1, 1] = plotter.histogram_plot(axes[1,1], photons_list, bins=bins, alpha=0.7, color='pink', density=True) if use_plotting_functions else axes[1,1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
+                axes[1, 1].set_xlabel('mean photons per localisation')
+                axes[1, 1].set_ylabel('probability density')
+                axes[1, 1].set_title('distribution of photon counts')
             else:
                 axes[1, 1].text(0.5, 0.5, 'No photon data available',
                                ha='center', va='center', transform=axes[1, 1].transAxes)
                 axes[1, 1].set_title('Photon Statistics')
             axes[1, 1].grid(True, alpha=0.3)
 
-            plt.tight_layout()
+            plt.show()
             if output_figure_path:
                 plt.savefig(f"{base_path}_3_statistics.png", dpi=300, bbox_inches='tight')
                 plt.close()
@@ -3256,10 +3292,8 @@ class Drift_Correction_Functions:
         ax2 = axs[0, 1]
         plotter.image_plot(
             ax2,
-            binary_mask.astype(float),
-            cmap='binary',
-            vmin=0,
-            vmax=1,
+            smoothed_image,
+            cmap='hot',
             cbar='off',
             label='Detected Regions',
             pixelsize=pixelsize,

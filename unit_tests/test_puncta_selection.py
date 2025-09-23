@@ -177,6 +177,7 @@ def test_puncta_selection_pipeline():
         return False
 
     # Step 2: Select puncta from detected regions
+    # Uses postprocess.picked_locs for optimized rectangular selection
     print("\nStep 2: Selecting puncta from detected regions...")
     try:
         selected_puncta, selection_metadata = DCF.select_puncta_from_regions(
