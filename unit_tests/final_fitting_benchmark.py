@@ -90,16 +90,12 @@ def test_simple_fits():
                            background*0.8, background, background*1.2,  # bg B, G, R
                            amplitude*0.8, amplitude, amplitude*1.2])    # amp B, G, R
 
-    background_bayer_matrix = np.zeros(image_size * image_size)
-    bayer_matrix = np.zeros(image_size * image_size)
-
     try:
         color_image = np.zeros((image_size, image_size))
         color_gauss_2d = np.zeros((image_size, image_size))
 
         color_image = gaussoptfuncs.WLS_model_nobounds(
-            params_color, color_image, bayer_masks, background_bayer_matrix,
-            bayer_matrix, x, color_gauss_2d
+            params_color, bayer_masks, x, color_gauss_2d
         )
 
         print(f"✓ Color model generation works")
@@ -145,9 +141,6 @@ def benchmark_fitting_speeds(n_fits=1000):
     bayer_masks[0::2, 1::2, 1] = True  # Green
     bayer_masks[1::2, 0::2, 1] = True  # Green
     bayer_masks[1::2, 1::2, 2] = True  # Blue
-
-    background_bayer_matrix = np.zeros(image_size * image_size)
-    bayer_matrix = np.zeros(image_size * image_size)
 
     # Position-only benchmark
     print("\nPosition-only fitting benchmark...")
@@ -225,7 +218,7 @@ def benchmark_fitting_speeds(n_fits=1000):
         gauss_2d = np.zeros((image_size, image_size))
 
         image = gaussoptfuncs.WLS_model_nobounds(
-            params, image, bayer_masks, background_bayer_matrix, bayer_matrix, x, gauss_2d
+            params, bayer_masks, x, gauss_2d
         )
         image = np.random.poisson(np.maximum(image, 0.1)).astype(float)
         weights = 1.0 / np.maximum(image, 1.0)

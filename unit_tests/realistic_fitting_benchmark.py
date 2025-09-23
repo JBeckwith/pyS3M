@@ -88,10 +88,6 @@ class RealisticFittingBenchmark:
 
         np.random.seed(42)  # Same seed for fair comparison
 
-        # Pre-allocate arrays for color fitting
-        background_bayer_matrix = np.zeros(self.image_size * self.image_size)
-        bayer_matrix = np.zeros(self.image_size * self.image_size)
-
         for i in range(n_images):
             # Same spatial parameters
             margin = 3
@@ -111,8 +107,7 @@ class RealisticFittingBenchmark:
             gauss_2d = np.zeros((self.image_size, self.image_size))
 
             image = gaussoptfuncs.WLS_model_nobounds(
-                params, image, self.bayer_masks, background_bayer_matrix,
-                bayer_matrix, self.x, gauss_2d
+                params, self.bayer_masks, self.x, gauss_2d
             )
 
             # Add Poisson noise

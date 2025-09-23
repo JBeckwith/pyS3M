@@ -2747,6 +2747,332 @@ class Drift_Correction_Functions:
             **params,
         )
 
+    def detect_high_density_regions_from_image(
+        self,
+        smoothed_image: np.ndarray,
+        histogram_bins: int = 256,
+        threshold_percentile: float = 99.0,
+        pixelsize: float = 100.0,
+        output_figure_path: Optional[str] = None,
+        title: str = "High-Density Region Detection",
+        create_plot: bool = True,
+    ) -> Tuple[List[Tuple[int, int]], np.ndarray, float, Dict[str, Any]]:
+        """Detect high-density regions from a smoothed image using histogram analysis.
+
+        This function takes a pre-smoothed/rendered image and identifies high-density
+        regions based on histogram analysis. It provides clear visualization of the
+        detection process and outputs region coordinates for downstream processing.
+
+        Args:
+            smoothed_image: Pre-smoothed 2D image array (e.g., from render functions)
+            histogram_bins: Number of bins for histogram analysis
+            threshold_percentile: Percentile threshold for region detection (0-100)
+            pixelsize: Pixel size in nm for scale bar visualization
+            output_figure_path: Optional path to save the detection figure
+            title: Title for the detection plot
+            create_plot: Whether to create visualization plots
+
+        Returns:
+            Tuple containing:
+            - List of (y, x) coordinates of detected high-density region centers
+            - Binary mask of detected regions
+            - Threshold value used for detection
+            - Metadata dictionary with detection statistics
+        """
+        try:
+            import PlottingFunctions
+        except ImportError:
+            warnings.warn("PlottingFunctions not available. Visualization will be limited.")
+            PlottingFunctions = None
+
+        # Calculate histogram and threshold
+        image_flat = smoothed_image.ravel()
+        image_flat = image_flat[image_flat > 0]  # Exclude zero values
+
+        if len(image_flat) == 0:
+            raise DriftCorrectionError("Image contains no non-zero values")
+
+        hist, bin_edges = np.histogram(image_flat, bins=histogram_bins)
+        threshold = np.percentile(image_flat, threshold_percentile)
+
+        # Create binary mask of high-density regions
+        binary_mask = smoothed_image > threshold
+
+        # Find connected components / regions
+        from scipy import ndimage
+        labeled_regions, n_regions = ndimage.label(binary_mask)
+
+        # Calculate region centers and properties
+        region_centers = []
+        region_stats = []
+
+        for region_id in range(1, n_regions + 1):
+            region_mask = labeled_regions == region_id
+            region_coords = np.where(region_mask)
+
+            if len(region_coords[0]) > 0:
+                # Calculate center of mass
+                center_y = np.mean(region_coords[0])
+                center_x = np.mean(region_coords[1])
+                region_centers.append((int(center_y), int(center_x)))
+
+                # Calculate region statistics
+                region_area = np.sum(region_mask)
+                region_intensity = np.sum(smoothed_image[region_mask])
+                region_max_intensity = np.max(smoothed_image[region_mask])
+
+                region_stats.append({
+                    'center': (center_y, center_x),
+                    'area_pixels': region_area,
+                    'total_intensity': region_intensity,
+                    'max_intensity': region_max_intensity,
+                    'mean_intensity': region_intensity / region_area if region_area > 0 else 0
+                })
+
+        # Create visualization using PlottingFunctions (if requested)
+        if create_plot:
+            if PlottingFunctions is not None:
+                self._plot_density_detection_results(
+                    smoothed_image,
+                    binary_mask,
+                    region_centers,
+                    hist,
+                    bin_edges,
+                    threshold,
+                    pixelsize,
+                    output_figure_path,
+                    title,
+                    PlottingFunctions
+                )
+            else:
+                # Fallback basic matplotlib plotting
+                self._plot_density_detection_basic(
+                    smoothed_image,
+                    binary_mask,
+                    region_centers,
+                    hist,
+                    bin_edges,
+                    threshold,
+                    output_figure_path,
+                    title
+                )
+
+        # Prepare metadata
+        metadata = {
+            'n_regions_detected': n_regions,
+            'threshold_value': threshold,
+            'threshold_percentile': threshold_percentile,
+            'histogram_bins': histogram_bins,
+            'image_shape': smoothed_image.shape,
+            'image_max': np.max(smoothed_image),
+            'image_mean': np.mean(smoothed_image[smoothed_image > 0]),
+            'region_statistics': region_stats,
+            'total_region_area': np.sum(binary_mask),
+            'region_area_fraction': np.sum(binary_mask) / binary_mask.size
+        }
+
+        return region_centers, binary_mask, threshold, metadata
+
+    def _plot_density_detection_results(
+        self,
+        smoothed_image: np.ndarray,
+        binary_mask: np.ndarray,
+        region_centers: List[Tuple[int, int]],
+        hist: np.ndarray,
+        bin_edges: np.ndarray,
+        threshold: float,
+        pixelsize: float,
+        output_figure_path: Optional[str],
+        title: str,
+        PlottingFunctions_module
+    ) -> None:
+        """Create detailed visualization using PlottingFunctions module."""
+
+        # Create four separate figures to work within PlottingFunctions constraints
+        self._create_separate_plots(
+            smoothed_image, binary_mask, region_centers, hist, bin_edges,
+            threshold, pixelsize, output_figure_path, title, PlottingFunctions_module
+        )
+
+    def _create_separate_plots(
+        self,
+        smoothed_image: np.ndarray,
+        binary_mask: np.ndarray,
+        region_centers: List[Tuple[int, int]],
+        hist: np.ndarray,
+        bin_edges: np.ndarray,
+        threshold: float,
+        pixelsize: float,
+        output_figure_path: Optional[str],
+        title: str,
+        PlottingFunctions_module
+    ) -> None:
+        """Create separate plots using PlottingFunctions to avoid layout conflicts."""
+
+        # Create plotter instance
+        plotter = PlottingFunctions_module.Plotter(poster=False)
+
+        # Get file base name for multiple plots
+        if output_figure_path:
+            base_path = output_figure_path.rsplit('.', 1)[0] if '.' in output_figure_path else output_figure_path
+        else:
+            base_path = "density_detection"
+
+        # Plot 1: Original smoothed image
+        fig1 = plt.figure(figsize=(6, 5))
+        ax1 = plt.gca()
+        plotter.image_plot(
+            ax1,
+            smoothed_image,
+            cmap='hot',
+            cbar='on',
+            cbarlabel='Intensity',
+            label='Smoothed Image',
+            pixelsize=pixelsize,
+            sbar='on'
+        )
+        plt.title(f'{title} - Smoothed Image')
+        if output_figure_path:
+            plt.savefig(f"{base_path}_1_smoothed.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Plot 2: Binary mask with detected regions
+        fig2 = plt.figure(figsize=(6, 5))
+        ax2 = plt.gca()
+        plotter.image_plot(
+            ax2,
+            binary_mask.astype(float),
+            cmap='binary',
+            cbar='off',
+            label='Detected Regions',
+            pixelsize=pixelsize,
+            sbar='on'
+        )
+        # Overlay region centers
+        if region_centers:
+            centers_y, centers_x = zip(*region_centers)
+            ax2.scatter(centers_x, centers_y, c='red', s=50, marker='x', linewidths=2)
+        plt.title(f'{title} - Detected Regions (n={len(region_centers)})')
+        if output_figure_path:
+            plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Plot 3: Image with overlaid detections
+        fig3 = plt.figure(figsize=(6, 5))
+        ax3 = plt.gca()
+        plotter.image_plot(
+            ax3,
+            smoothed_image,
+            cmap='gray',
+            cbar='on',
+            cbarlabel='Intensity',
+            label='Detection Overlay',
+            pixelsize=pixelsize,
+            sbar='on'
+        )
+        # Overlay detection mask as contours
+        ax3.contour(binary_mask, levels=[0.5], colors='red', linewidths=2, alpha=0.8)
+        if region_centers:
+            centers_y, centers_x = zip(*region_centers)
+            ax3.scatter(centers_x, centers_y, c='cyan', s=40, marker='+', linewidths=2)
+        plt.title(f'{title} - Detection Overlay')
+        if output_figure_path:
+            plt.savefig(f"{base_path}_3_overlay.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Plot 4: Histogram - use basic matplotlib since PlottingFunctions histogram_plot expects different input
+        fig4 = plt.figure(figsize=(8, 5))
+        ax4 = plt.gca()
+
+        # Create histogram plot manually to match our data format
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        ax4.plot(bin_centers, hist, 'b-', linewidth=2, label='Histogram')
+
+        # Add threshold line and fill
+        ax4.axvline(threshold, color='red', linestyle='--', linewidth=2,
+                   label=f'Threshold ({threshold:.1f})')
+        ax4.fill_between(bin_centers[bin_centers >= threshold],
+                        hist[bin_centers >= threshold],
+                        alpha=0.3, color='red', label='Selected Region')
+
+        ax4.set_xlabel('Intensity')
+        ax4.set_ylabel('Frequency')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        plt.title(f'{title} - Intensity Distribution')
+
+        if output_figure_path:
+            plt.savefig(f"{base_path}_4_histogram.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        if output_figure_path:
+            print(f"Detection results saved as multiple files:")
+            print(f"  - {base_path}_1_smoothed.png")
+            print(f"  - {base_path}_2_regions.png")
+            print(f"  - {base_path}_3_overlay.png")
+            print(f"  - {base_path}_4_histogram.png")
+        else:
+            plt.show()
+
+    def _plot_density_detection_basic(
+        self,
+        smoothed_image: np.ndarray,
+        binary_mask: np.ndarray,
+        region_centers: List[Tuple[int, int]],
+        hist: np.ndarray,
+        bin_edges: np.ndarray,
+        threshold: float,
+        output_figure_path: Optional[str],
+        title: str
+    ) -> None:
+        """Basic matplotlib fallback visualization."""
+
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+        # Plot 1: Original image
+        im1 = axes[0, 0].imshow(smoothed_image, cmap='hot', origin='lower')
+        axes[0, 0].set_title('Smoothed Image')
+        plt.colorbar(im1, ax=axes[0, 0], label='Intensity')
+
+        # Plot 2: Binary mask
+        axes[0, 1].imshow(binary_mask, cmap='binary', origin='lower')
+        if region_centers:
+            centers_y, centers_x = zip(*region_centers)
+            axes[0, 1].scatter(centers_x, centers_y, c='red', s=50, marker='x')
+        axes[0, 1].set_title(f'Detected Regions (n={len(region_centers)})')
+
+        # Plot 3: Overlay
+        im3 = axes[1, 0].imshow(smoothed_image, cmap='gray', origin='lower')
+        axes[1, 0].contour(binary_mask, levels=[0.5], colors='red', linewidths=2)
+        if region_centers:
+            centers_y, centers_x = zip(*region_centers)
+            axes[1, 0].scatter(centers_x, centers_y, c='cyan', s=40, marker='+')
+        axes[1, 0].set_title('Detection Overlay')
+        plt.colorbar(im3, ax=axes[1, 0], label='Intensity')
+
+        # Plot 4: Histogram
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        axes[1, 1].plot(bin_centers, hist, 'b-', label='Histogram')
+        axes[1, 1].axvline(threshold, color='red', linestyle='--', label=f'Threshold ({threshold:.1f})')
+        axes[1, 1].fill_between(bin_centers[bin_centers >= threshold],
+                               hist[bin_centers >= threshold],
+                               alpha=0.3, color='red')
+        axes[1, 1].set_xlabel('Intensity')
+        axes[1, 1].set_ylabel('Frequency')
+        axes[1, 1].set_title('Intensity Distribution')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+
+        fig.suptitle(title, fontsize=14, y=0.98)
+        # Use manual layout adjustment instead of tight_layout to avoid engine conflicts
+        plt.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.08, hspace=0.3, wspace=0.3)
+
+        if output_figure_path:
+            plt.savefig(output_figure_path, dpi=300, bbox_inches='tight')
+            print(f"Detection results saved to: {output_figure_path}")
+        else:
+            plt.show()
+
     def undrift_with_fiducial_detection(
         self,
         locs: np.recarray,

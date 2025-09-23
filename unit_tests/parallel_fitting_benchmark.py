@@ -117,11 +117,9 @@ class ParallelFittingBenchmark:
                 image = np.zeros((self.image_size, self.image_size))
                 gauss_2d = np.zeros((self.image_size, self.image_size))
                 x = np.arange(self.image_size)
-                background_bayer_matrix = np.zeros(self.image_size * self.image_size)
-                bayer_matrix = np.zeros(self.image_size * self.image_size)
 
                 image = gaussoptfuncs.WLS_model_nobounds(
-                    params, image, bayer_masks, background_bayer_matrix, bayer_matrix, x, gauss_2d
+                    params, bayer_masks, x, gauss_2d
                 )
 
                 # Add Poisson noise
@@ -259,7 +257,7 @@ def main():
     benchmark = ParallelFittingBenchmark(image_size=16)
 
     # Start with a smaller test for development
-    results = benchmark.run_benchmark(n_puncta=1000000)
+    results = benchmark.run_benchmark(n_puncta=100000)
 
     print(f"\nMachine: {os.uname().nodename}")
     print("Parallel benchmark complete!")

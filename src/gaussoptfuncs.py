@@ -168,10 +168,7 @@ def WLS_rawcolour_model_nobounds(
 @jit(nopython=True, nogil=True)
 def WLS_model_nobounds(
     params,
-    data,
     masks,
-    background_bayer_matrix,
-    bayer_matrix,
     x,
     gauss_2d,
 ):
@@ -181,34 +178,37 @@ def WLS_model_nobounds(
 
     Args:
         params (numpy.ndarray): Input parameters.
-        data (numpy.ndarray): Data to fit.
         masks (np.3darray): 3d array of colour masks
+        x (numpy.ndarray): coordinate array
+        gauss_2d (numpy.ndarray): output array to fill
 
     Returns:
         gauss_2d (numpy.ndarray): 2d bayer filtered gaussian.
     """
 
-    for i in np.arange(masks.shape[-1]):
-        pixels = masks[:, :, i].ravel()
-        bayer_matrix[pixels] = params[-3 + i] ** 2
-        background_bayer_matrix[pixels] = params[-6 + i] ** 2
-    bayer_matrix = bayer_matrix.reshape(len(x), len(x))
-    background_bayer_matrix = background_bayer_matrix.reshape(len(x), len(x))
-    gauss_2d[:, :] = (
-        np.multiply(
-            bayer_matrix,
-            gaussian_unscaled_model(
-                gauss_2d[:, :],
-                x,
-                len(x),
-                params[0],
-                params[1],
-                params[2],
-                params[3],
-            ),
-        )
-        + background_bayer_matrix
+    len_x = len(x)
+
+    # Create lookup tables for amplitudes and backgrounds
+    amp_lookup = np.array([params[7] * params[7],  # Blue
+                            params[8] * params[8],   # Green
+                            params[9] * params[9]])  # Red
+
+    bg_lookup = np.array([params[4] * params[4],   # Blue
+                            params[5] * params[5],    # Green
+                            params[6] * params[6]])   # Red
+
+    # First compute the Gaussian using the exact same method as gaussian_unscaled_model
+    gauss_2d = gaussian_unscaled_model(
+        gauss_2d, x, len_x, params[0], params[1], params[2], params[3]
     )
+
+    # Apply Bayer pattern efficiently per channel (avoids conditionals in inner loop)
+    for channel in range(3):
+        for i in range(len_x):
+            for j in range(len_x):
+                if masks[j, i, channel]:
+                    gauss_2d[j, i] = amp_lookup[channel] * gauss_2d[j, i] + bg_lookup[channel]
+
     return gauss_2d
 
 
@@ -227,12 +227,10 @@ def WLS_chi_nobounds(params, data, masks, weights, size, ravelsize):
         chi (numpy.ndarray): Vector of chi.
     """
     x = np.arange(size)
-    background_bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
-    bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
     gauss_2d[:, :] = WLS_model_nobounds(
-        params, data, masks, background_bayer_matrix, bayer_matrix, x, gauss_2d
+        params, masks, x, gauss_2d
     )
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
