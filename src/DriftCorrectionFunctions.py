@@ -3248,7 +3248,7 @@ class Drift_Correction_Functions:
                 import colorcet as cc
 
                 # Create DataFrame from localization data
-                df = pd.DataFrame(data={'x': all_locs.xc, 'y': all_locs.yc})
+                df = pd.DataFrame({'x': np.array(all_locs.xc), 'y': np.array(all_locs.yc)})
 
                 # Create datashader canvas
                 cvs = ds.Canvas(plot_width=500, plot_height=500)
@@ -3349,7 +3349,7 @@ class Drift_Correction_Functions:
                         import colorcet as cc
 
                         # Create DataFrame for this region
-                        df = pd.DataFrame(data={'x': puncta.xc, 'y': puncta.yc})
+                        df = pd.DataFrame({'x': np.array(puncta.xc), 'y': np.array(puncta.yc)})
 
                         # Create small datashader canvas for individual regions
                         cvs = ds.Canvas(plot_width=200, plot_height=200)
