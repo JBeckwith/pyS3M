@@ -2879,8 +2879,8 @@ class Drift_Correction_Functions:
         This function takes the output from detect_high_density_regions_from_image
         and selects localizations within rectangular boxes around each detected region center
         to create potential fiducial candidates. Uses the optimized postprocess.picked_locs
-        function for consistent and efficient selection, with box-based selection matching
-        existing fiducial detection methods.
+        function with Rectangle shape, creating axis-aligned boxes by using diagonal picks
+        with appropriate width parameters for consistent and efficient selection.
 
         Args:
             locs: Localization data with xc, yc, frame fields
@@ -2907,10 +2907,14 @@ class Drift_Correction_Functions:
         box_size_pixels = selection_box_size_nm / pixelsize
         half_box = box_size_pixels / 2.0
 
-        # Convert region centers to rectangular picks for postprocess.picked_locs
-        # postprocess expects picks as list of ((x_start, y_start), (x_end, y_end))
+        # For Rectangle picks with postprocess.picked_locs:
+        # - picks should be diagonal lines through the rectangle center
+        # - pick_size should be the perpendicular width of the rectangle
+        # To create axis-aligned boxes, use diagonal from bottom-left to top-right
+        # and set width to box_size_pixels
         picks = []
         for center_y, center_x in region_centers:
+            # Create diagonal from one corner to opposite corner
             x_start = center_x - half_box
             y_start = center_y - half_box
             x_end = center_x + half_box
@@ -2918,9 +2922,12 @@ class Drift_Correction_Functions:
             picks.append(((x_start, y_start), (x_end, y_end)))
 
         # Use postprocess.picked_locs to select localizations using Rectangle shape
-        # We need to get width and height from the localizations extent
-        width = max(locs.xc.max() + 10, 100)  # Add buffer and minimum size
+        # Width and height define the image bounds for spatial indexing
+        width = max(locs.xc.max() + 10, 100)
         height = max(locs.yc.max() + 10, 100)
+
+        # The pick_size for diagonal rectangles should be sqrt(2) * half_box to get axis-aligned box
+        pick_width = box_size_pixels / np.sqrt(2)
 
         picked_locs_arrays = postprocess.picked_locs(
             locs=locs,
@@ -2928,7 +2935,7 @@ class Drift_Correction_Functions:
             height=height,
             picks=picks,
             pick_shape="Rectangle",
-            pick_size=None,  # Size is defined by the rectangle coordinates
+            pick_size=pick_width,
             add_group=False,  # Don't add group field
             callback=None,
             parallel=False
@@ -3039,10 +3046,11 @@ class Drift_Correction_Functions:
 
             width = max(locs.xc.max() + 10, 100)
             height = max(locs.yc.max() + 10, 100)
+            pick_width = box_size_pixels / np.sqrt(2)
 
             picked_locs_arrays = postprocess.picked_locs(
                 locs=locs, width=width, height=height, picks=picks,
-                pick_shape="Rectangle", pick_size=None, add_group=False,
+                pick_shape="Rectangle", pick_size=pick_width, add_group=False,
                 callback=None, parallel=False
             )
 
