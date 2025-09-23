@@ -2874,6 +2874,8 @@ class Drift_Correction_Functions:
         output_figure_path: Optional[str] = None,
         title: str = "Puncta Selection from Regions",
         create_plot: bool = True,
+        plot_individual_regions: bool = True,
+        use_hexbin_for_dense_data: bool = False,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
         """Select puncta (localizations) from detected high-density regions using postprocess.picked_locs.
 
@@ -2894,6 +2896,8 @@ class Drift_Correction_Functions:
             output_figure_path: Optional path to save selection visualization
             title: Title for visualization plots
             create_plot: Whether to create visualization plots
+            plot_individual_regions: Whether to plot individual region details (limited to 12 for performance)
+            use_hexbin_for_dense_data: Use hexagonal binning for datasets with >100 localizations per plot (much faster)
 
         Returns:
             Tuple containing:
@@ -2904,6 +2908,21 @@ class Drift_Correction_Functions:
         # Check if postprocess module is available
         if postprocess is None:
             raise RuntimeError("postprocess module not available - cannot use picked_locs function")
+
+        # Handle empty region centers
+        if not region_centers:
+            metadata = {
+                'n_regions_input': 0,
+                'n_regions_selected': 0,
+                'selection_criteria': {
+                    'min_localizations': min_localizations_per_region,
+                    'selection_box_size_nm': selection_box_size_nm,
+                    'selection_box_size_pixels': 0.0,
+                },
+                'rejection_reasons': {'too_few_localizations': 0, 'accepted': 0},
+                'region_statistics': []
+            }
+            return [], metadata
 
         # Convert box size from nm to pixels
         box_size_pixels = selection_box_size_nm / pixelsize
@@ -2928,13 +2947,17 @@ class Drift_Correction_Functions:
             pick_shape="Rectangle",
             pick_size=box_size_pixels,  # Width of the rectangle in pixels (like existing code)
             add_group=False,
-            callback=None,
+            callback="console",  # Show progress bar for puncta selection
             parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
         )
 
         # Filter results based on minimum localization count and build statistics
         selected_puncta = []
         region_stats = []
+
+        # Ensure picked_locs_arrays is not None
+        if picked_locs_arrays is None:
+            picked_locs_arrays = []
 
         for region_id, (region_locs, (center_y, center_x)) in enumerate(zip(picked_locs_arrays, region_centers)):
             n_locs = len(region_locs)
@@ -2976,7 +2999,7 @@ class Drift_Correction_Functions:
         if create_plot:
             self._plot_puncta_selection_results(
                 locs, selected_puncta, region_centers, binary_mask, region_stats,
-                box_size_pixels, pixelsize, output_figure_path, title
+                box_size_pixels, pixelsize, output_figure_path, title, plot_individual_regions, use_hexbin_for_dense_data
             )
 
         # Prepare metadata
@@ -3041,7 +3064,7 @@ class Drift_Correction_Functions:
             picked_locs_arrays = postprocess.picked_locs(
                 locs=locs, width=width, height=height, picks=picks,
                 pick_shape="Rectangle", pick_size=box_size_pixels, add_group=False,
-                callback=None, parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
+                callback="console", parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
             )
 
             # Ensure picked_locs_arrays is not None
@@ -3193,7 +3216,9 @@ class Drift_Correction_Functions:
         box_size_pixels: float,
         pixelsize: float,
         output_figure_path: Optional[str],
-        title: str
+        title: str,
+        plot_individual_regions: bool = True,
+        use_hexbin_for_dense_data: bool = False
     ) -> None:
         """Create visualization of puncta selection results."""
 
@@ -3215,28 +3240,55 @@ class Drift_Correction_Functions:
         fig, axs = plotter.one_column_plot() if use_plotting_functions and plotter else plt.subplots(1, 1, figsize=(8, 8))
         ax1 = axs
 
-        # Plot all localizations as background
-        ax1.scatter(all_locs.xc, all_locs.yc, c='lightgray', s=1, alpha=0.3, label='All localizations')
+        # Auto-enable hexbin for dense data (>8 regions or >5000 localizations)
+        use_hexbin = use_hexbin_for_dense_data or len(region_centers) > 8 or len(all_locs) > 5000
 
-        # Overlay binary mask as contours
+        if use_hexbin:
+            # Ultra-fast hexbin for dense data
+            hexbin = ax1.hexbin(all_locs.xc, all_locs.yc, gridsize=50, cmap='Greys', alpha=0.6,
+                               extent=[0, all_locs.xc.max()+10, 0, all_locs.yc.max()+10])
+            ax1.text(0.02, 0.98, f'Hexbin: {len(all_locs)} locs', transform=ax1.transAxes,
+                    va='top', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        else:
+            # Plot background localizations (subsample for speed if too many)
+            if len(all_locs) > 2000:
+                # Random subsample for background visualization
+                indices = np.random.choice(len(all_locs), 2000, replace=False)
+                bg_locs = all_locs[indices]
+            else:
+                bg_locs = all_locs
+            # Ultra-fast background points using plot instead of scatter
+            ax1.plot(bg_locs.xc, bg_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
+
+        # Overlay binary mask as contours (keep as is - efficient)
         ax1.contour(binary_mask, levels=[0.5], colors='blue', linewidths=1, alpha=0.5, label='Detected regions')
 
-        # Plot region centers and selection boxes
+        # Plot region centers and selection boxes (optimized)
         half_box = box_size_pixels / 2.0
-        for i, (center_y, center_x) in enumerate(region_centers):
-            # Draw selection box
-            box_rect = patches.Rectangle((center_x - half_box, center_y - half_box),
-                                        box_size_pixels, box_size_pixels,
-                                        fill=False, color='red', linestyle='--', alpha=0.7)
-            ax1.add_patch(box_rect)
+        if region_centers:
+            # Fast center plotting
+            centers_array = np.array(region_centers)
+            ax1.plot(centers_array[:, 1], centers_array[:, 0], 'ro', markersize=5, label='Centers')
 
-            # Mark center
-            ax1.plot(center_x, center_y, 'ro', markersize=5)
+            # Draw selection boxes (faster line plots instead of patches)
+            for center_y, center_x in region_centers:
+                box_x = [center_x - half_box, center_x + half_box, center_x + half_box, center_x - half_box, center_x - half_box]
+                box_y = [center_y - half_box, center_y - half_box, center_y + half_box, center_y + half_box, center_y - half_box]
+                ax1.plot(box_x, box_y, 'r--', linewidth=1, alpha=0.7)
 
-        # Highlight selected puncta
-        colors = plt.cm.Set3(np.linspace(0, 1, max(1, len(selected_puncta))))
-        for i, (puncta, color) in enumerate(zip(selected_puncta, colors)):
-            ax1.scatter(puncta.xc, puncta.yc, c=[color], s=8, alpha=0.8)
+        # Highlight selected puncta (optimized)
+        if selected_puncta:
+            colors = plt.cm.tab10(np.linspace(0, 1, min(len(selected_puncta), 10)))  # Limit colors for speed
+            for i, puncta in enumerate(selected_puncta):
+                color = colors[i % len(colors)]
+                # Subsample large puncta for display
+                if len(puncta) > 200:
+                    indices = np.random.choice(len(puncta), 200, replace=False)
+                    display_puncta = puncta[indices]
+                else:
+                    display_puncta = puncta
+                # Ultra-fast plot points instead of scatter
+                ax1.plot(display_puncta.xc, display_puncta.yc, '.', color=color, markersize=3, alpha=0.8)
 
         ax1.set_xlabel('X (pixels)')
         ax1.set_ylabel('Y (pixels)')
@@ -3248,13 +3300,14 @@ class Drift_Correction_Functions:
             plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches='tight')
             plt.close()
 
-        # Plot 2: Individual region details (if we have selected regions)
-        if selected_puncta:
-            n_regions = len(selected_puncta)
+        # Plot 2: Individual region details (if we have selected regions and user wants them)
+        # Limit to first 12 regions for performance
+        if selected_puncta and plot_individual_regions:
+            n_regions = min(len(selected_puncta), 12)  # Limit for performance
             n_cols = min(4, n_regions)
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(3*n_cols, 3*n_rows))
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3262,35 +3315,51 @@ class Drift_Correction_Functions:
             else:
                 axes = axes.flatten()
 
-            for i, (puncta, stats) in enumerate(zip(selected_puncta, region_stats)):
+            # Optimize plotting by batching operations
+            for i in range(n_regions):
+                puncta = selected_puncta[i]
+                stats = region_stats[i]
                 ax = axes[i] if i < len(axes) else None
                 if ax is None:
                     break
 
-                # Plot localizations in this region
-                ax.scatter(puncta.xc, puncta.yc, c='blue', s=20, alpha=0.7)
+                # Use hexbin for dense individual regions (>100 points), plot for sparse
+                if len(puncta) > 100:
+                    # Ultra-fast hexbin for dense regions
+                    extent = [puncta.xc.min()-1, puncta.xc.max()+1, puncta.yc.min()-1, puncta.yc.max()+1]
+                    hexbin_plot = ax.hexbin(puncta.xc, puncta.yc, gridsize=15, cmap='Blues', alpha=0.7, extent=extent)
+                    ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
+                           fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                else:
+                    # Ultra-fast plot for sparse regions
+                    ax.plot(puncta.xc, puncta.yc, '.', color='blue', markersize=2, alpha=0.7)
 
-                # Mark region center
-                ax.plot(stats['center_x'], stats['center_y'], 'ro', markersize=8, label='Region center')
-                ax.plot(stats['mean_x'], stats['mean_y'], 'go', markersize=8, label='Centroid')
+                # Mark centers (no alpha for speed)
+                ax.plot(stats['center_x'], stats['center_y'], 'ro', markersize=6, label='Center')
+                ax.plot(stats['mean_x'], stats['mean_y'], 'go', markersize=6, label='Centroid')
 
-                # Draw selection box
-                box_rect = patches.Rectangle((stats['center_x'] - half_box, stats['center_y'] - half_box),
-                                           box_size_pixels, box_size_pixels,
-                                           fill=False, color='red', linestyle='--')
-                ax.add_patch(box_rect)
+                # Simple box outline (faster than Rectangle patch)
+                half_box_val = stats['box_boundaries']['x_max'] - stats['center_x']
+                box_x = [stats['center_x'] - half_box_val, stats['center_x'] + half_box_val,
+                        stats['center_x'] + half_box_val, stats['center_x'] - half_box_val,
+                        stats['center_x'] - half_box_val]
+                box_y = [stats['center_y'] - half_box_val, stats['center_y'] - half_box_val,
+                        stats['center_y'] + half_box_val, stats['center_y'] + half_box_val,
+                        stats['center_y'] - half_box_val]
+                ax.plot(box_x, box_y, 'r--', linewidth=1)
 
-                ax.set_title(f"Region {i+1}: {stats['n_localizations']} locs\n"
-                           f"Frames {stats['frame_range'][0]}-{stats['frame_range'][1]}")
-                ax.set_xlabel('X (pixels)')
-                ax.set_ylabel('Y (pixels)')
-                ax.legend()
+                # Batch axis settings for speed
+                ax.set_title(f"R{i+1}: {stats['n_localizations']} locs", fontsize=10)
+                ax.tick_params(labelsize=8)
                 ax.grid(True, alpha=0.3)
-                ax.set_aspect('equal')
 
             # Hide unused subplots
-            for i in range(len(selected_puncta), len(axes)):
-                axes[i].set_visible(False)
+            for j in range(n_regions, len(axes)):
+                axes[j].set_visible(False)
+
+            # Add note if regions were truncated
+            if len(selected_puncta) > 12:
+                fig2.suptitle(f"Individual Regions (showing first 12 of {len(selected_puncta)})", fontsize=12)
 
             plt.show()
             if output_figure_path:
@@ -3338,7 +3407,7 @@ class Drift_Correction_Functions:
             axes[1, 0].grid(True, alpha=0.3)
 
             # Photon statistics (if available)
-            if 'mean_photons' in region_stats[0]:
+            if region_stats and 'mean_photons' in region_stats[0]:
                 photons_list = [stats['mean_photons'] for stats in region_stats]
                 bins = np.histogram_bin_edges(photons_list, bins='fd')
                 if use_plotting_functions and plotter:

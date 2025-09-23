@@ -114,7 +114,7 @@ def example_workflow():
     print(f"\nStep 3: Applying DBSCAN clustering to validate fiducials...")
 
     try:
-        validated_fiducials, clustering_metadata = drift_corrector.identify_real_fiducials_with_clustering(
+        validated_fiducials, clustering_metadata = DCF.identify_real_fiducials_with_clustering(
             selected_puncta=selected_puncta,
             precision_factor=3.0,      # Adjust based on your localization precision
             min_samples_factor=0.6,    # Fraction of total frames (adjust as needed)
