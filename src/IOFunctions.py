@@ -43,24 +43,32 @@ class IO_Functions:
                 # Check schema compatibility before appending
                 df = self._ensure_hdf5_compatibility(df, filepath)
                 df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
-                
+
                 # Re-read entire file, sort by frame, and rewrite
                 # This ensures proper frame ordering for visualization
-                print(f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}")
-                with pd.HDFStore(filepath, mode='r+') as store:
-                    if 'data' in store:
+                print(
+                    f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}"
+                )
+                with pd.HDFStore(filepath, mode="r+") as store:
+                    if "data" in store:
                         # Read all data
-                        full_df = store['data']
+                        full_df = store["data"]
                         print(f"  Read {len(full_df):,} total localizations")
-                        
+
                         # Sort by frame with stable sort to preserve order within frames
-                        sorted_df = full_df.sort_values(by='frame', kind='mergesort', ignore_index=True).reset_index(drop=True)
-                        print(f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})")
-                        
+                        sorted_df = full_df.sort_values(
+                            by="frame", kind="mergesort", ignore_index=True
+                        ).reset_index(drop=True)
+                        print(
+                            f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})"
+                        )
+
                         # Remove old data and write sorted data back
-                        store.remove('data')
-                        store.put('data', sorted_df, format='table')
-                        print(f"  Rewritten sorted data to {os.path.basename(filepath)}")
+                        store.remove("data")
+                        store.put("data", sorted_df, format="table")
+                        print(
+                            f"  Rewritten sorted data to {os.path.basename(filepath)}"
+                        )
             else:
                 df.to_hdf(filepath, key="data", format="table")
 
@@ -127,69 +135,73 @@ class IO_Functions:
 
     def _apply_frame_offset(self, df, filepath):
         """Apply frame offset when appending to ensure continuous frame numbering.
-        
+
         Reads the maximum frame number from existing HDF5 file and offsets
         the new data's frame numbers to continue sequentially.
-        
+
         Args:
-            df: DataFrame to append 
+            df: DataFrame to append
             filepath: Path to existing HDF5 file
-            
+
         Returns:
             DataFrame with adjusted frame numbers
         """
         try:
             # Read only the frame column from existing data to get max frame
-            with pd.HDFStore(filepath, mode='r') as store:
-                if 'data' in store:
+            with pd.HDFStore(filepath, mode="r") as store:
+                if "data" in store:
                     # Read just the frame column for efficiency
-                    existing_frames = store.select('data', columns=['frame'])
+                    existing_frames = store.select("data", columns=["frame"])
                     if len(existing_frames) > 0:
-                        max_existing_frame = existing_frames['frame'].max()
+                        max_existing_frame = existing_frames["frame"].max()
                         # Offset new frames to continue from max existing frame
                         df = df.copy()  # Avoid modifying original
-                        df['frame'] = df['frame'] + max_existing_frame
+                        df["frame"] = df["frame"] + max_existing_frame
         except Exception as e:
             # If anything goes wrong, log warning but continue without offset
             print(f"Warning: Could not apply frame offset for {filepath}: {e}")
-        
+
         return df
-    
+
     def sort_h5_by_frame(self, filepath, backup=True):
         """Sort existing HDF5 file by frame number.
-        
+
         Useful for fixing files where frame numbers are not in order due to
         multiple FOVs being appended without frame offset.
-        
+
         Args:
             filepath: Path to HDF5 file to sort
             backup: Whether to create backup before sorting (recommended)
         """
         import shutil
-        
+
         backup_path = None
         if backup:
-            backup_path = filepath.replace('.h5', '_backup.h5')
+            backup_path = filepath.replace(".h5", "_backup.h5")
             shutil.copy2(filepath, backup_path)
             print(f"Created backup: {backup_path}")
-        
+
         # Read, sort, and rewrite the data
         df_sorted = None
         try:
-            with pd.HDFStore(filepath, mode='r') as store:
-                if 'data' in store:
-                    df = store['data']
+            with pd.HDFStore(filepath, mode="r") as store:
+                if "data" in store:
+                    df = store["data"]
                     print(f"Read {len(df):,} localizations")
-                    
+
                     # Sort by frame using mergesort for stability
-                    df_sorted = df.sort_values(by='frame', kind='mergesort', ignore_index=True).reset_index(drop=True)
-                    print(f"Sorted data by frame (range: {df_sorted['frame'].min()}-{df_sorted['frame'].max()})")
-            
+                    df_sorted = df.sort_values(
+                        by="frame", kind="mergesort", ignore_index=True
+                    ).reset_index(drop=True)
+                    print(
+                        f"Sorted data by frame (range: {df_sorted['frame'].min()}-{df_sorted['frame'].max()})"
+                    )
+
             # Write sorted data back
             if df_sorted is not None:
-                df_sorted.to_hdf(filepath, key="data", format="table", mode='w')
+                df_sorted.to_hdf(filepath, key="data", format="table", mode="w")
                 print(f"Sorted HDF5 file saved: {filepath}")
-            
+
         except Exception as e:
             print(f"Error sorting HDF5 file {filepath}: {e}")
             if backup and backup_path:

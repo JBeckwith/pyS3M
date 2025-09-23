@@ -189,13 +189,21 @@ def WLS_model_nobounds(
     len_x = len(x)
 
     # Create lookup tables for amplitudes and backgrounds
-    amp_lookup = np.array([params[7] * params[7],  # Blue
-                            params[8] * params[8],   # Green
-                            params[9] * params[9]])  # Red
+    amp_lookup = np.array(
+        [
+            params[7] * params[7],  # Blue
+            params[8] * params[8],  # Green
+            params[9] * params[9],
+        ]
+    )  # Red
 
-    bg_lookup = np.array([params[4] * params[4],   # Blue
-                            params[5] * params[5],    # Green
-                            params[6] * params[6]])   # Red
+    bg_lookup = np.array(
+        [
+            params[4] * params[4],  # Blue
+            params[5] * params[5],  # Green
+            params[6] * params[6],
+        ]
+    )  # Red
 
     # First compute the Gaussian using the exact same method as gaussian_unscaled_model
     gauss_2d = gaussian_unscaled_model(
@@ -207,7 +215,9 @@ def WLS_model_nobounds(
         for i in range(len_x):
             for j in range(len_x):
                 if masks[j, i, channel]:
-                    gauss_2d[j, i] = amp_lookup[channel] * gauss_2d[j, i] + bg_lookup[channel]
+                    gauss_2d[j, i] = (
+                        amp_lookup[channel] * gauss_2d[j, i] + bg_lookup[channel]
+                    )
 
     return gauss_2d
 
@@ -229,9 +239,7 @@ def WLS_chi_nobounds(params, data, masks, weights, size, ravelsize):
     x = np.arange(size)
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
-    gauss_2d[:, :] = WLS_model_nobounds(
-        params, masks, x, gauss_2d
-    )
+    gauss_2d[:, :] = WLS_model_nobounds(params, masks, x, gauss_2d)
     chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
     return np.sqrt(chi.ravel())
 

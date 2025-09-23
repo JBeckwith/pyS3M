@@ -293,11 +293,11 @@ class SuperRes_Functions:
         if use_variance_aware_demosaic:
             # Use variance-aware demosaicing for robust spot detection
             image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
-                raw_data, 
+                raw_data,
                 variance_map=variance,
                 offset_map=offset_map,
                 gain=gain_map,
-                grayscale=True
+                grayscale=True,
             )
         else:
             # Use standard grayscale demosaicing
@@ -630,7 +630,7 @@ class SuperRes_Functions:
             fraction_true (float): fraction of true spots expected (default: 0.2)
             image_type (str): image string end
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
-                If True (default), uses gain, offset, and variance maps to create robust photoelectron 
+                If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
 
 
@@ -724,15 +724,17 @@ class SuperRes_Functions:
                 if use_variance_aware_demosaic:
                     # Use variance-aware demosaicing for robust spot detection
                     image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
-                        raw_data, 
+                        raw_data,
                         variance_map=variance,
                         offset_map=offset_map,
                         gain=gain_map,
-                        grayscale=True
+                        grayscale=True,
                     )
                 else:
                     # Use standard grayscale demosaicing
-                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                        raw_data
+                    )
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -812,13 +814,13 @@ class SuperRes_Functions:
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
-            
+
             # Fix frame numbers: replace with offset plane values for continuous numbering
             if len(planes) == len(fit_results):
-                fit_results['frame'] = planes
-            
+                fit_results["frame"] = planes
+
             # Sort by frame for consistent ordering in saved files
-            fit_results = fit_results.sort_values('frame').reset_index(drop=True)
+            fit_results = fit_results.sort_values("frame").reset_index(drop=True)
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)
@@ -875,7 +877,7 @@ class SuperRes_Functions:
             fraction_true (float): fraction of true spots expected (default: 0.2)
             image_type (str): image string end
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
-                If True (default), uses gain, offset, and variance maps to create robust photoelectron 
+                If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
 
 
@@ -971,15 +973,17 @@ class SuperRes_Functions:
                 if use_variance_aware_demosaic:
                     # Use variance-aware demosaicing for robust spot detection
                     image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
-                        raw_data, 
+                        raw_data,
                         variance_map=variance,
                         offset_map=offset_map,
                         gain=gain_map,
-                        grayscale=True
+                        grayscale=True,
                     )
                 else:
                     # Use standard grayscale demosaicing
-                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
+                        raw_data
+                    )
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -1061,13 +1065,13 @@ class SuperRes_Functions:
             )
             fit_tosave = np.hstack([fit_results, fit_errors])
             fit_results = pd.DataFrame(fit_tosave, columns=result_params)
-            
+
             # Fix frame numbers: replace with offset plane values for continuous numbering
             if len(planes) == len(fit_results):
-                fit_results['frame'] = planes
-            
+                fit_results["frame"] = planes
+
             # Sort by frame for consistent ordering in saved files
-            fit_results = fit_results.sort_values('frame').reset_index(drop=True)
+            fit_results = fit_results.sort_values("frame").reset_index(drop=True)
 
             # do some filtering
             fit_results = self._filter_fit_results(fit_results, width, height)

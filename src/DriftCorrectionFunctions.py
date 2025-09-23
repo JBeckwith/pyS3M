@@ -859,7 +859,7 @@ class AIMDriftCorrector(DriftCorrector):
         drift_x_full, drift_y_full = AIMDriftCorrector._cubic_spline_interpolation(
             drift_x, drift_y, seg_bounds, min_frame, max_frame_data
         )
-        
+
         # Apply drift correction with proper indexing
         # Choice between vectorized and frame-by-frame approach
         use_vectorized = True  # Set to False for frame-by-frame if needed
@@ -872,16 +872,24 @@ class AIMDriftCorrector(DriftCorrector):
                 valid_indices = (frame >= 0) & (frame < len(drift_x_full))
                 x_pdc = x.copy()
                 y_pdc = y.copy()
-                x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices]]
-                y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices]]
+                x_pdc[valid_indices] = (
+                    x[valid_indices] - drift_x_full[frame[valid_indices]]
+                )
+                y_pdc[valid_indices] = (
+                    y[valid_indices] - drift_y_full[frame[valid_indices]]
+                )
             else:
                 # 1-indexed frames: subtract 1 for array indexing
                 # Ensure frame indices are within bounds after converting to 0-indexed
                 valid_indices = (frame >= 1) & (frame - 1 < len(drift_x_full))
                 x_pdc = x.copy()
                 y_pdc = y.copy()
-                x_pdc[valid_indices] = x[valid_indices] - drift_x_full[frame[valid_indices] - 1]
-                y_pdc[valid_indices] = y[valid_indices] - drift_y_full[frame[valid_indices] - 1]
+                x_pdc[valid_indices] = (
+                    x[valid_indices] - drift_x_full[frame[valid_indices] - 1]
+                )
+                y_pdc[valid_indices] = (
+                    y[valid_indices] - drift_y_full[frame[valid_indices] - 1]
+                )
         else:
             # Frame-by-frame approach (safer, guaranteed to work)
             x_pdc = x.copy()
@@ -896,7 +904,9 @@ class AIMDriftCorrector(DriftCorrector):
                 else:
                     if 1 <= frame_num <= len(drift_x_full):
                         subset_mask = frame == frame_num
-                        x_pdc[subset_mask] -= drift_x_full[frame_num - 1]  # Convert to 0-indexed
+                        x_pdc[subset_mask] -= drift_x_full[
+                            frame_num - 1
+                        ]  # Convert to 0-indexed
                         y_pdc[subset_mask] -= drift_y_full[frame_num - 1]
 
         return x_pdc, y_pdc, drift_x_full, drift_y_full
@@ -907,7 +917,7 @@ class AIMDriftCorrector(DriftCorrector):
         drift_y: np.ndarray,
         seg_bounds: np.ndarray,
         min_frame: int,
-        max_frame: int
+        max_frame: int,
     ) -> tuple:
         """Cubic spline interpolation following original MATLAB AIM implementation.
 
@@ -934,16 +944,20 @@ class AIMDriftCorrector(DriftCorrector):
         # Extend drift values with boundary extrapolation (following MATLAB pattern)
         # drift_X = [2*driftX(1)-driftX(2) driftX 2*driftX(end)-driftX(end-1)]
         if len(drift_x) >= 2:
-            drift_x_extended = np.concatenate([
-                [2 * drift_x[0] - drift_x[1]],
-                drift_x,
-                [2 * drift_x[-1] - drift_x[-2]]
-            ])
-            drift_y_extended = np.concatenate([
-                [2 * drift_y[0] - drift_y[1]],
-                drift_y,
-                [2 * drift_y[-1] - drift_y[-2]]
-            ])
+            drift_x_extended = np.concatenate(
+                [
+                    [2 * drift_x[0] - drift_x[1]],
+                    drift_x,
+                    [2 * drift_x[-1] - drift_x[-2]],
+                ]
+            )
+            drift_y_extended = np.concatenate(
+                [
+                    [2 * drift_y[0] - drift_y[1]],
+                    drift_y,
+                    [2 * drift_y[-1] - drift_y[-2]],
+                ]
+            )
         else:
             # Handle edge case with single measurement
             drift_x_extended = np.concatenate([[drift_x[0]], drift_x, [drift_x[0]]])
@@ -1893,17 +1907,17 @@ class Drift_Correction_Functions:
         pixelsize: float,
     ) -> tuple:
         """Detect fiducials using temporal chunking for drift-robust detection.
-        
+
         Args:
             locs: Localization data
             info: Metadata list
             threshold_percentile: Percentile threshold for detection
-            box_size_nm: Box size in nanometers  
+            box_size_nm: Box size in nanometers
             histogram_bins: Number of histogram bins
             n_chunks: Number of temporal chunks
             max_linking_distance_nm: Maximum linking distance in nm
             pixelsize: Pixel size in nm
-            
+
         Returns:
             Tuple of (picks, combined_image, combined_hist, threshold)
         """
@@ -1914,12 +1928,12 @@ class Drift_Correction_Functions:
             raise DriftCorrectionError(
                 "localise and render modules required for chunked fiducial detection"
             )
-        
+
         # Get frame range
         min_frame = int(locs.frame.min())
         max_frame = int(locs.frame.max())
         total_frames = max_frame - min_frame + 1
-        
+
         # Create temporal chunks
         chunk_size = total_frames // n_chunks
         chunk_boundaries = []
@@ -1930,25 +1944,27 @@ class Drift_Correction_Functions:
             else:
                 end_frame = min_frame + (i + 1) * chunk_size - 1
             chunk_boundaries.append((start_frame, end_frame))
-        
+
         print(f"Detecting fiducials using {n_chunks} temporal chunks")
-        
+
         # Find candidates in each chunk
         chunk_candidates = []
         chunk_images = []
         all_chunk_histograms = []
-        
+
         for chunk_idx, (start_frame, end_frame) in enumerate(chunk_boundaries):
             # Extract localizations for this chunk
             chunk_mask = (locs.frame >= start_frame) & (locs.frame <= end_frame)
             chunk_locs = locs[chunk_mask]
-            
+
             if len(chunk_locs) == 0:
                 print(f"Warning: Chunk {chunk_idx + 1} has no localizations")
                 continue
-                
-            print(f"Chunk {chunk_idx + 1}/{n_chunks}: frames {start_frame}-{end_frame} ({len(chunk_locs)} locs)")
-            
+
+            print(
+                f"Chunk {chunk_idx + 1}/{n_chunks}: frames {start_frame}-{end_frame} ({len(chunk_locs)} locs)"
+            )
+
             # Render this chunk
             chunk_image = render.render(
                 locs=chunk_locs,
@@ -1958,139 +1974,146 @@ class Drift_Correction_Functions:
                 blur_method="smooth",
             )[1]
             chunk_images.append(chunk_image)
-            
+
             # Create histogram for this chunk
             chunk_hist = np.histogram(chunk_image.flatten(), bins=histogram_bins)
             all_chunk_histograms.append(chunk_hist[0])
-            
+
             # Use threshold percentile for this chunk
             chunk_threshold = np.percentile(chunk_hist[0], threshold_percentile)
-            
+
             # Calculate box size
             box = int(np.round(box_size_nm / pixelsize))
             box = box + 1 if box % 2 == 0 else box  # Ensure odd
-            
+
             # Find candidates in this chunk
             try:
-                y, x, _ = localise.identify_in_image(chunk_image, chunk_threshold, box=box)
+                y, x, _ = localise.identify_in_image(
+                    chunk_image, chunk_threshold, box=box
+                )
                 half_box = box // 2
-                chunk_picks = [(xi, yi, chunk_idx, (start_frame + end_frame) / 2) for xi, yi in zip(x, y)]
+                chunk_picks = [
+                    (xi, yi, chunk_idx, (start_frame + end_frame) / 2)
+                    for xi, yi in zip(x, y)
+                ]
                 chunk_candidates.extend(chunk_picks)
                 print(f"  Found {len(chunk_picks)} candidates")
             except Exception as e:
                 print(f"  Warning: Failed to detect in chunk {chunk_idx + 1}: {e}")
                 continue
-        
+
         print(f"Total candidates across all chunks: {len(chunk_candidates)}")
-        
+
         # Link candidates across chunks to form tracks
         if len(chunk_candidates) == 0:
             raise DriftCorrectionError("No candidates found in any temporal chunk")
-        
+
         linked_tracks = self._link_candidates_across_chunks(
             chunk_candidates, n_chunks, max_linking_distance_nm, pixelsize
         )
-        
+
         print(f"Linked candidates into {len(linked_tracks)} potential fiducial tracks")
-        
+
         # Convert tracks back to picks (use average position)
         # Format as rectangles for box picking
         half_box = int(np.round(box_size_nm / pixelsize)) // 2
         picks = []
         for track in linked_tracks:
-            if len(track) >= n_chunks * 0.6:  # Require track to appear in >60% of chunks
+            if (
+                len(track) >= n_chunks * 0.6
+            ):  # Require track to appear in >60% of chunks
                 avg_x = np.mean([pos[0] for pos in track])
                 avg_y = np.mean([pos[1] for pos in track])
                 picks.append(((avg_x - half_box, avg_y), (avg_x + half_box, avg_y)))
-        
+
         # Create combined image and histogram for visualization
         if len(chunk_images) > 0:
             combined_image = np.mean(chunk_images, axis=0)
             combined_hist_counts = np.sum(all_chunk_histograms, axis=0)
             # Reconstruct histogram tuple
             if len(all_chunk_histograms) > 0:
-                bin_edges = np.histogram(combined_image.flatten(), bins=histogram_bins)[1]
+                bin_edges = np.histogram(combined_image.flatten(), bins=histogram_bins)[
+                    1
+                ]
                 combined_hist = (combined_hist_counts, bin_edges)
             else:
-                combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
+                combined_hist = np.histogram(
+                    combined_image.flatten(), bins=histogram_bins
+                )
             threshold = np.percentile(combined_hist_counts, threshold_percentile)
         else:
             # Fallback: create empty image
             combined_image = np.zeros((100, 100))
             combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
             threshold = 0
-        
+
         print(f"Final result: {len(picks)} robust fiducial candidates")
         return picks, combined_image, combined_hist, threshold
 
     def _link_candidates_across_chunks(
-        self, 
-        candidates: list, 
-        n_chunks: int, 
-        max_distance_nm: float, 
-        pixelsize: float
+        self, candidates: list, n_chunks: int, max_distance_nm: float, pixelsize: float
     ) -> list:
         """Link candidates across temporal chunks to form tracks.
-        
+
         Args:
             candidates: List of (x, y, chunk_idx, avg_frame) tuples
             n_chunks: Number of chunks
             max_distance_nm: Maximum linking distance in nm
             pixelsize: Pixel size in nm
-            
+
         Returns:
             List of tracks, where each track is a list of (x, y, chunk_idx, avg_frame) positions
         """
         max_distance_pixels = max_distance_nm / pixelsize
-        
+
         # Group candidates by chunk
         chunks_candidates = [[] for _ in range(n_chunks)]
         for candidate in candidates:
             x, y, chunk_idx, avg_frame = candidate
             chunks_candidates[chunk_idx].append((x, y, chunk_idx, avg_frame))
-        
+
         # Start tracks from first chunk
         tracks = []
         for candidate in chunks_candidates[0]:
             tracks.append([candidate])
-        
+
         # Extend tracks through subsequent chunks
         for chunk_idx in range(1, n_chunks):
             chunk_candidates = chunks_candidates[chunk_idx]
-            
+
             # Try to extend existing tracks
             for track in tracks:
                 if len(track) == 0:
                     continue
-                    
+
                 last_pos = track[-1]
                 last_x, last_y = last_pos[0], last_pos[1]
-                
+
                 # Find closest candidate in current chunk
                 best_candidate = None
-                best_distance = float('inf')
-                
+                best_distance = float("inf")
+
                 for candidate in chunk_candidates:
                     x, y = candidate[0], candidate[1]
-                    distance = np.sqrt((x - last_x)**2 + (y - last_y)**2)
-                    
+                    distance = np.sqrt((x - last_x) ** 2 + (y - last_y) ** 2)
+
                     if distance < max_distance_pixels and distance < best_distance:
                         best_distance = distance
                         best_candidate = candidate
-                
+
                 # Add best candidate to track if found
                 if best_candidate is not None:
                     track.append(best_candidate)
                     chunk_candidates.remove(best_candidate)  # Prevent double-assignment
-            
+
             # Start new tracks for unlinked candidates
             for remaining_candidate in chunk_candidates:
                 tracks.append([remaining_candidate])
-        
+
         # Filter out short tracks (less than 60% of chunks)
         min_length = int(n_chunks * 0.6)
         robust_tracks = [track for track in tracks if len(track) >= min_length]
-        
+
         return robust_tracks
 
     def detect_fiducials(
@@ -2169,8 +2192,14 @@ class Drift_Correction_Functions:
             if use_temporal_chunking:
                 # Temporal chunking approach for drift-robust detection
                 picks, image, hist, threshold = self._detect_fiducials_with_chunking(
-                    locs, info, threshold_percentile, box_size_nm, histogram_bins, 
-                    n_chunks, max_linking_distance_nm, pixelsize
+                    locs,
+                    info,
+                    threshold_percentile,
+                    box_size_nm,
+                    histogram_bins,
+                    n_chunks,
+                    max_linking_distance_nm,
+                    pixelsize,
                 )
             else:
                 # Original approach (render entire dataset at once)
@@ -2200,7 +2229,9 @@ class Drift_Correction_Functions:
                 # Format picks as rectangles centered on detected points
                 # Each rectangle is box×box pixels around the center point
                 half_box = box // 2
-                picks = [((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)]
+                picks = [
+                    ((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)
+                ]
 
             if len(picks) == 0:
                 raise DriftCorrectionError(
@@ -2285,7 +2316,7 @@ class Drift_Correction_Functions:
         self, locs: np.recarray, picked_locs_list: List[np.recarray]
     ) -> np.recarray:
         """Add group field to localisations based on fiducial assignments.
-        
+
         Ultra-fast index-based implementation. Achieves ~1000x speedup by using
         index-based assignment instead of coordinate matching.
         """
@@ -2298,28 +2329,31 @@ class Drift_Correction_Functions:
             show_progress = len(locs) > 500_000 or len(picked_locs_list) > 5
             progress_bar_context = None
             progress_bar = None
-            
+
             if show_progress:
                 progress_bar_context = ProgressUtils.clean_progress_bar(
-                    total=len(picked_locs_list), desc=f"Adding group field to {len(locs):,} localizations (index-based)"
+                    total=len(picked_locs_list),
+                    desc=f"Adding group field to {len(locs):,} localizations (index-based)",
                 )
                 progress_bar = progress_bar_context.__enter__()
-            
+
             try:
                 # Process all fiducial groups using index-based approach
                 for group_id, fiducial_locs in enumerate(picked_locs_list):
                     if len(fiducial_locs) > 0:
                         # Find indices of fiducial localizations in original array
                         # This is the key optimization: use indices instead of coordinate matching
-                        indices = self._find_indices_in_original_locs(locs, fiducial_locs)
-                        
+                        indices = self._find_indices_in_original_locs(
+                            locs, fiducial_locs
+                        )
+
                         # Direct assignment by index (ultra-fast)
                         group[indices] = group_id
-                        
+
                         # Update progress bar
                         if progress_bar:
                             progress_bar.update(1)
-            
+
             finally:
                 # Ensure progress bar is cleaned up
                 if progress_bar_context:
@@ -2328,42 +2362,47 @@ class Drift_Correction_Functions:
         # Fast array construction using lib.append_to_rec if available
         try:
             import lib
+
             return lib.append_to_rec(locs, group, "group")
         except ImportError:
             # Fallback to manual construction
             return self._manual_add_group_field(locs, group)
-    
-    def _find_indices_in_original_locs(self, locs: np.recarray, fiducial_locs: np.recarray) -> np.ndarray:
+
+    def _find_indices_in_original_locs(
+        self, locs: np.recarray, fiducial_locs: np.recarray
+    ) -> np.ndarray:
         """Find indices of fiducial localizations in the original localization array.
-        
+
         Uses ultra-fast hash-based lookup for massive datasets.
         Expected ~1000x speedup over coordinate matching approach.
-        
+
         Args:
             locs: Original localization array
             fiducial_locs: Fiducial localizations to find indices for
-            
+
         Returns:
             Array of indices where fiducial_locs appear in locs
         """
         # Create hash-based lookup table for ultra-fast index finding
         # This is the key to massive performance improvement
-        
+
         # Use deterministic rounding to handle floating point precision issues
         # Round coordinates to 6 decimal places for reliable hashing
         round_factor = 1e6
-        
+
         # Create unique keys for each localization in the original array
         locs_frames = locs.frame.astype(np.int32)
-        locs_xc_rounded = np.round(locs.xc * round_factor).astype(np.int64)  
+        locs_xc_rounded = np.round(locs.xc * round_factor).astype(np.int64)
         locs_yc_rounded = np.round(locs.yc * round_factor).astype(np.int64)
-        
+
         # Build hash table: key -> index mapping
         # Use Python dict for ultimate speed with hash-based lookups
         hash_to_index = {}
-        for i, (frame, x_rounded, y_rounded) in enumerate(zip(locs_frames, locs_xc_rounded, locs_yc_rounded)):
+        for i, (frame, x_rounded, y_rounded) in enumerate(
+            zip(locs_frames, locs_xc_rounded, locs_yc_rounded)
+        ):
             key = (frame, x_rounded, y_rounded)
-            
+
             # Handle potential duplicates by storing multiple indices
             if key in hash_to_index:
                 if isinstance(hash_to_index[key], list):
@@ -2372,27 +2411,31 @@ class Drift_Correction_Functions:
                     hash_to_index[key] = [hash_to_index[key], i]
             else:
                 hash_to_index[key] = i
-        
+
         # Find indices for fiducial localizations using hash lookup
         indices = []
-        
+
         fid_frames = fiducial_locs.frame.astype(np.int32)
         fid_xc_rounded = np.round(fiducial_locs.xc * round_factor).astype(np.int64)
         fid_yc_rounded = np.round(fiducial_locs.yc * round_factor).astype(np.int64)
-        
-        for frame, x_rounded, y_rounded in zip(fid_frames, fid_xc_rounded, fid_yc_rounded):
+
+        for frame, x_rounded, y_rounded in zip(
+            fid_frames, fid_xc_rounded, fid_yc_rounded
+        ):
             key = (frame, x_rounded, y_rounded)
-            
+
             if key in hash_to_index:
                 idx_or_list = hash_to_index[key]
                 if isinstance(idx_or_list, list):
                     indices.extend(idx_or_list)  # Multiple matches
                 else:
                     indices.append(idx_or_list)  # Single match
-        
+
         return np.array(indices, dtype=np.int64)
-    
-    def _manual_add_group_field(self, locs: np.recarray, group: np.ndarray) -> np.recarray:
+
+    def _manual_add_group_field(
+        self, locs: np.recarray, group: np.ndarray
+    ) -> np.recarray:
         """Fallback method for adding group field manually."""
         # Create new dtype with group field
         original_dtype = locs.dtype
@@ -2410,7 +2453,6 @@ class Drift_Correction_Functions:
 
         # Convert to recarray
         return new_locs.view(np.recarray)
-
 
     def _plot_fiducial_detection_steps(
         self,
@@ -2437,14 +2479,13 @@ class Drift_Correction_Functions:
             pixelsize = meta.get("pixelsize", 69.0)  # nm
             box_size_pixels = result.metadata["box_size_pixels"]
 
-
             # Create figure with 2x2 subplots using PlottingFunctions
             fig, axes = plotter.two_column_plot(
                 ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
             )
-                            
+
             fig.suptitle(
-                "Fiducial Detection Process - Step by Step", 
+                "Fiducial Detection Process - Step by Step",
                 fontsize=10,
                 fontweight="bold",
             )
@@ -2465,7 +2506,9 @@ class Drift_Correction_Functions:
 
             # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
             hist_values, bin_edges = hist
-            axes[0, 1] = plotter.histogram_plot(axes[0, 1], data=hist_values, bins=bin_edges, xaxislabel='Intensity')  # Create empty histogram plot
+            axes[0, 1] = plotter.histogram_plot(
+                axes[0, 1], data=hist_values, bins=bin_edges, xaxislabel="Intensity"
+            )  # Create empty histogram plot
             ymin, ymax = axes[0, 1].get_ylim()
             axes[0, 1].axvline(
                 threshold,
@@ -2549,8 +2592,21 @@ class Drift_Correction_Functions:
                 )
 
                 # Add colored circles and numbers for each fiducial (must use matplotlib for custom patches)
-                color_list = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-                colors = (color_list * (len(valid_picks) // len(color_list) + 1))[:len(valid_picks)]
+                color_list = [
+                    "red",
+                    "blue",
+                    "green",
+                    "orange",
+                    "purple",
+                    "brown",
+                    "pink",
+                    "gray",
+                    "olive",
+                    "cyan",
+                ]
+                colors = (color_list * (len(valid_picks) // len(color_list) + 1))[
+                    : len(valid_picks)
+                ]
                 for i, (x, y) in enumerate(zip(valid_x, valid_y)):
                     # Draw colored circle (requires direct matplotlib)
                     circle = patches.Circle(
@@ -2629,8 +2685,12 @@ class Drift_Correction_Functions:
 
             # Left plot: Detection image with fiducial markers
             # Get fiducial coordinates for scatter overlay (fixed coordinate order)
-            fiducial_x = [pick[0] for pick in result.picks]  # X coordinates (first element)
-            fiducial_y = [pick[1] for pick in result.picks]  # Y coordinates (second element)
+            fiducial_x = [
+                pick[0] for pick in result.picks
+            ]  # X coordinates (first element)
+            fiducial_y = [
+                pick[1] for pick in result.picks
+            ]  # Y coordinates (second element)
 
             plotter.image_scatter_plot(
                 ax1,
@@ -2658,11 +2718,24 @@ class Drift_Correction_Functions:
                 unique_groups = np.unique(fiducial_locs.group)
                 try:
                     # Use basic colors - colormaps are causing issues with Pylance
-                    color_list = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-                    colors = (color_list * (len(unique_groups) // len(color_list) + 1))[:len(unique_groups)]
+                    color_list = [
+                        "red",
+                        "blue",
+                        "green",
+                        "orange",
+                        "purple",
+                        "brown",
+                        "pink",
+                        "gray",
+                        "olive",
+                        "cyan",
+                    ]
+                    colors = (color_list * (len(unique_groups) // len(color_list) + 1))[
+                        : len(unique_groups)
+                    ]
                 except:
-                    # Ultimate fallback 
-                    colors = ['red'] * len(unique_groups)
+                    # Ultimate fallback
+                    colors = ["red"] * len(unique_groups)
 
                 for i, group_id in enumerate(unique_groups):
                     group_locs = fiducial_locs[fiducial_locs.group == group_id]
@@ -2785,7 +2858,9 @@ class Drift_Correction_Functions:
         try:
             import PlottingFunctions
         except ImportError:
-            warnings.warn("PlottingFunctions not available. Visualization will be limited.")
+            warnings.warn(
+                "PlottingFunctions not available. Visualization will be limited."
+            )
             PlottingFunctions = None
 
         # Calculate histogram and threshold
@@ -2803,6 +2878,7 @@ class Drift_Correction_Functions:
 
         # Find connected components / regions
         from scipy import ndimage
+
         labeled_regions, n_regions = ndimage.label(binary_mask)
 
         # Calculate region centers and properties
@@ -2824,13 +2900,17 @@ class Drift_Correction_Functions:
                 region_intensity = np.sum(smoothed_image[region_mask])
                 region_max_intensity = np.max(smoothed_image[region_mask])
 
-                region_stats.append({
-                    'center': (center_y, center_x),
-                    'area_pixels': region_area,
-                    'total_intensity': region_intensity,
-                    'max_intensity': region_max_intensity,
-                    'mean_intensity': region_intensity / region_area if region_area > 0 else 0
-                })
+                region_stats.append(
+                    {
+                        "center": (center_y, center_x),
+                        "area_pixels": region_area,
+                        "total_intensity": region_intensity,
+                        "max_intensity": region_max_intensity,
+                        "mean_intensity": (
+                            region_intensity / region_area if region_area > 0 else 0
+                        ),
+                    }
+                )
 
         # Create visualization using PlottingFunctions (if requested)
         if create_plot:
@@ -2844,21 +2924,21 @@ class Drift_Correction_Functions:
                 pixelsize,
                 output_figure_path,
                 title,
-                PlottingFunctions
+                PlottingFunctions,
             )
 
         # Prepare metadata
         metadata = {
-            'n_regions_detected': n_regions,
-            'threshold_value': threshold,
-            'threshold_percentile': threshold_percentile,
-            'histogram_bins': histogram_bins,
-            'image_shape': smoothed_image.shape,
-            'image_max': np.max(smoothed_image),
-            'image_mean': np.mean(smoothed_image[smoothed_image > 0]),
-            'region_statistics': region_stats,
-            'total_region_area': np.sum(binary_mask),
-            'region_area_fraction': np.sum(binary_mask) / binary_mask.size
+            "n_regions_detected": n_regions,
+            "threshold_value": threshold,
+            "threshold_percentile": threshold_percentile,
+            "histogram_bins": histogram_bins,
+            "image_shape": smoothed_image.shape,
+            "image_max": np.max(smoothed_image),
+            "image_mean": np.mean(smoothed_image[smoothed_image > 0]),
+            "region_statistics": region_stats,
+            "total_region_area": np.sum(binary_mask),
+            "region_area_fraction": np.sum(binary_mask) / binary_mask.size,
         }
 
         return region_centers, binary_mask, threshold, metadata
@@ -2907,20 +2987,22 @@ class Drift_Correction_Functions:
 
         # Check if postprocess module is available
         if postprocess is None:
-            raise RuntimeError("postprocess module not available - cannot use picked_locs function")
+            raise RuntimeError(
+                "postprocess module not available - cannot use picked_locs function"
+            )
 
         # Handle empty region centers
         if not region_centers:
             metadata = {
-                'n_regions_input': 0,
-                'n_regions_selected': 0,
-                'selection_criteria': {
-                    'min_localizations': min_localizations_per_region,
-                    'selection_box_size_nm': selection_box_size_nm,
-                    'selection_box_size_pixels': 0.0,
+                "n_regions_input": 0,
+                "n_regions_selected": 0,
+                "selection_criteria": {
+                    "min_localizations": min_localizations_per_region,
+                    "selection_box_size_nm": selection_box_size_nm,
+                    "selection_box_size_pixels": 0.0,
                 },
-                'rejection_reasons': {'too_few_localizations': 0, 'accepted': 0},
-                'region_statistics': []
+                "rejection_reasons": {"too_few_localizations": 0, "accepted": 0},
+                "region_statistics": [],
             }
             return [], metadata
 
@@ -2933,7 +3015,9 @@ class Drift_Correction_Functions:
         picks = []
         for center_y, center_x in region_centers:
             # Create horizontal line through center - much simpler!
-            picks.append(((center_x - half_box, center_y), (center_x + half_box, center_y)))
+            picks.append(
+                ((center_x - half_box, center_y), (center_x + half_box, center_y))
+            )
 
         # Use postprocess.picked_locs with parallelization if we have 8+ picks
         width = max(locs.xc.max() + 10, 100)
@@ -2948,7 +3032,7 @@ class Drift_Correction_Functions:
             pick_size=box_size_pixels,  # Width of the rectangle in pixels (like existing code)
             add_group=False,
             callback="console",  # Show progress bar for puncta selection
-            parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
+            parallel=len(picks) >= 8,  # Enable parallelization for 8+ picks
         )
 
         # Filter results based on minimum localization count and build statistics
@@ -2959,7 +3043,9 @@ class Drift_Correction_Functions:
         if picked_locs_arrays is None:
             picked_locs_arrays = []
 
-        for region_id, (region_locs, (center_y, center_x)) in enumerate(zip(picked_locs_arrays, region_centers)):
+        for region_id, (region_locs, (center_y, center_x)) in enumerate(
+            zip(picked_locs_arrays, region_centers)
+        ):
             n_locs = len(region_locs)
 
             # Apply localization count filter
@@ -2968,55 +3054,73 @@ class Drift_Correction_Functions:
 
                 # Calculate region statistics
                 region_stat = {
-                    'region_id': region_id,
-                    'center_y': center_y,
-                    'center_x': center_x,
-                    'n_localizations': n_locs,
-                    'mean_x': np.mean(region_locs.xc) if n_locs > 0 else center_x,
-                    'mean_y': np.mean(region_locs.yc) if n_locs > 0 else center_y,
-                    'std_x': np.std(region_locs.xc) if n_locs > 0 else 0,
-                    'std_y': np.std(region_locs.yc) if n_locs > 0 else 0,
-                    'frame_range': [int(region_locs.frame.min()), int(region_locs.frame.max())] if n_locs > 0 else [0, 0],
-                    'frame_span': int(region_locs.frame.max() - region_locs.frame.min() + 1) if n_locs > 0 else 0,
-                    'selection_box_size_nm': selection_box_size_nm,
-                    'selection_box_size_pixels': box_size_pixels,
-                    'box_boundaries': {
-                        'x_min': center_x - half_box,
-                        'x_max': center_x + half_box,
-                        'y_min': center_y - half_box,
-                        'y_max': center_y + half_box
+                    "region_id": region_id,
+                    "center_y": center_y,
+                    "center_x": center_x,
+                    "n_localizations": n_locs,
+                    "mean_x": np.mean(region_locs.xc) if n_locs > 0 else center_x,
+                    "mean_y": np.mean(region_locs.yc) if n_locs > 0 else center_y,
+                    "std_x": np.std(region_locs.xc) if n_locs > 0 else 0,
+                    "std_y": np.std(region_locs.yc) if n_locs > 0 else 0,
+                    "frame_range": (
+                        [int(region_locs.frame.min()), int(region_locs.frame.max())]
+                        if n_locs > 0
+                        else [0, 0]
+                    ),
+                    "frame_span": (
+                        int(region_locs.frame.max() - region_locs.frame.min() + 1)
+                        if n_locs > 0
+                        else 0
+                    ),
+                    "selection_box_size_nm": selection_box_size_nm,
+                    "selection_box_size_pixels": box_size_pixels,
+                    "box_boundaries": {
+                        "x_min": center_x - half_box,
+                        "x_max": center_x + half_box,
+                        "y_min": center_y - half_box,
+                        "y_max": center_y + half_box,
                     },
                 }
 
                 # Add photon statistics if available
-                if hasattr(region_locs, 'photons') and n_locs > 0:
-                    region_stat['mean_photons'] = np.mean(region_locs.photons)
-                    region_stat['std_photons'] = np.std(region_locs.photons)
+                if hasattr(region_locs, "photons") and n_locs > 0:
+                    region_stat["mean_photons"] = np.mean(region_locs.photons)
+                    region_stat["std_photons"] = np.std(region_locs.photons)
 
                 region_stats.append(region_stat)
 
         # Create visualization if requested
         if create_plot:
             self._plot_puncta_selection_results(
-                locs, selected_puncta, region_centers, binary_mask, region_stats,
-                box_size_pixels, pixelsize, output_figure_path, title, plot_individual_regions, use_datashader_threshold
+                locs,
+                selected_puncta,
+                region_centers,
+                binary_mask,
+                region_stats,
+                box_size_pixels,
+                pixelsize,
+                output_figure_path,
+                title,
+                plot_individual_regions,
+                use_datashader_threshold,
             )
 
         # Prepare metadata
         metadata = {
-            'n_regions_input': len(region_centers),
-            'n_regions_selected': len(selected_puncta),
-            'selection_criteria': {
-                'min_localizations': min_localizations_per_region,
-                'selection_box_size_nm': selection_box_size_nm,
-                'selection_box_size_pixels': box_size_pixels,
+            "n_regions_input": len(region_centers),
+            "n_regions_selected": len(selected_puncta),
+            "selection_criteria": {
+                "min_localizations": min_localizations_per_region,
+                "selection_box_size_nm": selection_box_size_nm,
+                "selection_box_size_pixels": box_size_pixels,
             },
-            'region_statistics': region_stats,
-            'total_selected_localizations': sum(len(puncta) for puncta in selected_puncta),
-            'rejection_reasons': self._analyze_rejection_reasons(
-                region_centers, locs, box_size_pixels,
-                min_localizations_per_region
-            )
+            "region_statistics": region_stats,
+            "total_selected_localizations": sum(
+                len(puncta) for puncta in selected_puncta
+            ),
+            "rejection_reasons": self._analyze_rejection_reasons(
+                region_centers, locs, box_size_pixels, min_localizations_per_region
+            ),
         }
 
         return selected_puncta, metadata
@@ -3026,14 +3130,11 @@ class Drift_Correction_Functions:
         region_centers: List[Tuple[int, int]],
         locs: np.recarray,
         box_size_pixels: float,
-        min_locs: int
+        min_locs: int,
     ) -> Dict[str, int]:
         """Analyze why regions were rejected during puncta selection using postprocess.picked_locs."""
 
-        reasons = {
-            'too_few_localizations': 0,
-            'accepted': 0
-        }
+        reasons = {"too_few_localizations": 0, "accepted": 0}
 
         if postprocess is None:
             # Fallback to manual method if postprocess not available
@@ -3042,29 +3143,41 @@ class Drift_Correction_Functions:
             half_box = box_size_pixels / 2.0
 
             for center_y, center_x in region_centers:
-                within_box = ((locs_x >= center_x - half_box) & (locs_x <= center_x + half_box) &
-                             (locs_y >= center_y - half_box) & (locs_y <= center_y + half_box))
+                within_box = (
+                    (locs_x >= center_x - half_box)
+                    & (locs_x <= center_x + half_box)
+                    & (locs_y >= center_y - half_box)
+                    & (locs_y <= center_y + half_box)
+                )
                 n_locs = np.sum(within_box)
 
                 if n_locs >= min_locs:
-                    reasons['accepted'] += 1
+                    reasons["accepted"] += 1
                 else:
-                    reasons['too_few_localizations'] += 1
+                    reasons["too_few_localizations"] += 1
         else:
             # Use postprocess.picked_locs for consistency with main function
             half_box = box_size_pixels / 2.0
             picks = []
             for center_y, center_x in region_centers:
                 # Create horizontal line through center (same as main function)
-                picks.append(((center_x - half_box, center_y), (center_x + half_box, center_y)))
+                picks.append(
+                    ((center_x - half_box, center_y), (center_x + half_box, center_y))
+                )
 
             width = max(locs.xc.max() + 10, 100)
             height = max(locs.yc.max() + 10, 100)
 
             picked_locs_arrays = postprocess.picked_locs(
-                locs=locs, width=width, height=height, picks=picks,
-                pick_shape="Rectangle", pick_size=box_size_pixels, add_group=False,
-                callback="console", parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
+                locs=locs,
+                width=width,
+                height=height,
+                picks=picks,
+                pick_shape="Rectangle",
+                pick_size=box_size_pixels,
+                add_group=False,
+                callback="console",
+                parallel=len(picks) >= 8,  # Enable parallelization for 8+ picks
             )
 
             # Ensure picked_locs_arrays is not None
@@ -3074,9 +3187,9 @@ class Drift_Correction_Functions:
             for region_locs in picked_locs_arrays:
                 n_locs = len(region_locs)
                 if n_locs >= min_locs:
-                    reasons['accepted'] += 1
+                    reasons["accepted"] += 1
                 else:
-                    reasons['too_few_localizations'] += 1
+                    reasons["too_few_localizations"] += 1
 
         return reasons
 
@@ -3088,7 +3201,7 @@ class Drift_Correction_Functions:
         frame_count: int = 100000,
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Clustering Analysis",
-        create_plot: bool = True
+        create_plot: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
         """Identify real fiducials from selected puncta using DBSCAN clustering.
 
@@ -3122,17 +3235,25 @@ class Drift_Correction_Functions:
                 continue
 
             # Prepare data for DBSCAN
-            X = np.vstack([puncta_locs['xc'], puncta_locs['yc']]).T
+            X = np.vstack([puncta_locs["xc"], puncta_locs["yc"]]).T
 
             # Calculate localization precision-based eps parameter
-            if hasattr(puncta_locs, 'xc_err') and hasattr(puncta_locs, 'yc_err'):
-                loc_precision = precision_factor * (np.mean(puncta_locs['xc_err']) + np.mean(puncta_locs['yc_err']))
+            if hasattr(puncta_locs, "xc_err") and hasattr(puncta_locs, "yc_err"):
+                loc_precision = precision_factor * (
+                    np.mean(puncta_locs["xc_err"]) + np.mean(puncta_locs["yc_err"])
+                )
             else:
                 # Fallback: estimate precision from localization spread
-                loc_precision = precision_factor * (np.std(puncta_locs['xc']) + np.std(puncta_locs['yc'])) / 10
+                loc_precision = (
+                    precision_factor
+                    * (np.std(puncta_locs["xc"]) + np.std(puncta_locs["yc"]))
+                    / 10
+                )
 
             # Calculate minimum samples requirement
-            min_samples = max(int(min_samples_factor * frame_count / 1000), 5)  # Scale by 1000, minimum 5
+            min_samples = max(
+                int(min_samples_factor * frame_count / 1000), 5
+            )  # Scale by 1000, minimum 5
 
             # Apply DBSCAN clustering
             try:
@@ -3140,16 +3261,23 @@ class Drift_Correction_Functions:
                 cluster_labels = dbscan.fit_predict(X)
 
                 # Analyze clustering results
-                n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
+                n_clusters = len(set(cluster_labels)) - (
+                    1 if -1 in cluster_labels else 0
+                )
                 n_noise = np.sum(cluster_labels == -1)
 
                 # Consider this a valid fiducial if we have at least one significant cluster
                 if n_clusters >= 1 and n_noise < 0.8 * n_locs:  # Less than 80% noise
                     # Keep only the largest cluster (main fiducial core)
                     if n_clusters > 0:
-                        cluster_sizes = [(label, np.sum(cluster_labels == label))
-                                       for label in set(cluster_labels) if label != -1]
-                        largest_cluster_label = max(cluster_sizes, key=lambda x: x[1])[0]
+                        cluster_sizes = [
+                            (label, np.sum(cluster_labels == label))
+                            for label in set(cluster_labels)
+                            if label != -1
+                        ]
+                        largest_cluster_label = max(cluster_sizes, key=lambda x: x[1])[
+                            0
+                        ]
 
                         # Extract localizations from the largest cluster
                         main_cluster_mask = cluster_labels == largest_cluster_label
@@ -3158,22 +3286,22 @@ class Drift_Correction_Functions:
 
                         # Store clustering metadata
                         cluster_metadata = {
-                            'region_id': region_id,
-                            'original_n_locs': n_locs,
-                            'validated_n_locs': len(validated_locs),
-                            'n_clusters': n_clusters,
-                            'n_noise': n_noise,
-                            'noise_fraction': n_noise / n_locs,
-                            'largest_cluster_size': np.sum(main_cluster_mask),
-                            'eps_used': loc_precision,
-                            'min_samples_used': min_samples,
-                            'precision_factor': precision_factor,
-                            'min_samples_factor': min_samples_factor,
-                            'cluster_labels': cluster_labels,
-                            'cluster_center_x': np.mean(validated_locs['xc']),
-                            'cluster_center_y': np.mean(validated_locs['yc']),
-                            'cluster_std_x': np.std(validated_locs['xc']),
-                            'cluster_std_y': np.std(validated_locs['yc']),
+                            "region_id": region_id,
+                            "original_n_locs": n_locs,
+                            "validated_n_locs": len(validated_locs),
+                            "n_clusters": n_clusters,
+                            "n_noise": n_noise,
+                            "noise_fraction": n_noise / n_locs,
+                            "largest_cluster_size": np.sum(main_cluster_mask),
+                            "eps_used": loc_precision,
+                            "min_samples_used": min_samples,
+                            "precision_factor": precision_factor,
+                            "min_samples_factor": min_samples_factor,
+                            "cluster_labels": cluster_labels,
+                            "cluster_center_x": np.mean(validated_locs["xc"]),
+                            "cluster_center_y": np.mean(validated_locs["yc"]),
+                            "cluster_std_x": np.std(validated_locs["xc"]),
+                            "cluster_std_y": np.std(validated_locs["yc"]),
                         }
                         clustering_metadata.append(cluster_metadata)
 
@@ -3185,23 +3313,32 @@ class Drift_Correction_Functions:
         # Create visualization if requested
         if create_plot and len(validated_fiducials) > 0:
             self._plot_clustering_results(
-                selected_puncta, validated_fiducials, clustering_metadata,
-                output_figure_path, title
+                selected_puncta,
+                validated_fiducials,
+                clustering_metadata,
+                output_figure_path,
+                title,
             )
 
         # Prepare summary metadata
         summary_metadata = {
-            'n_input_regions': len(selected_puncta),
-            'n_validated_fiducials': len(validated_fiducials),
-            'validation_rate': len(validated_fiducials) / len(selected_puncta) if selected_puncta else 0,
-            'clustering_parameters': {
-                'precision_factor': precision_factor,
-                'min_samples_factor': min_samples_factor,
-                'frame_count': frame_count,
+            "n_input_regions": len(selected_puncta),
+            "n_validated_fiducials": len(validated_fiducials),
+            "validation_rate": (
+                len(validated_fiducials) / len(selected_puncta)
+                if selected_puncta
+                else 0
+            ),
+            "clustering_parameters": {
+                "precision_factor": precision_factor,
+                "min_samples_factor": min_samples_factor,
+                "frame_count": frame_count,
             },
-            'region_details': clustering_metadata,
-            'total_input_locs': sum(len(puncta) for puncta in selected_puncta),
-            'total_validated_locs': sum(len(fiducial) for fiducial in validated_fiducials),
+            "region_details": clustering_metadata,
+            "total_input_locs": sum(len(puncta) for puncta in selected_puncta),
+            "total_validated_locs": sum(
+                len(fiducial) for fiducial in validated_fiducials
+            ),
         }
 
         return validated_fiducials, summary_metadata
@@ -3218,12 +3355,13 @@ class Drift_Correction_Functions:
         output_figure_path: Optional[str],
         title: str,
         plot_individual_regions: bool = True,
-        use_datashader_threshold: int = 1000
+        use_datashader_threshold: int = 1000,
     ) -> None:
         """Create visualization of puncta selection results."""
 
         try:
             import PlottingFunctions
+
             plotter = PlottingFunctions.Plotter(poster=False)
             use_plotting_functions = True
         except ImportError:
@@ -3232,12 +3370,20 @@ class Drift_Correction_Functions:
 
         # Get file base name for multiple plots
         if output_figure_path:
-            base_path = output_figure_path.rsplit('.', 1)[0] if '.' in output_figure_path else output_figure_path
+            base_path = (
+                output_figure_path.rsplit(".", 1)[0]
+                if "." in output_figure_path
+                else output_figure_path
+            )
         else:
             base_path = "puncta_selection"
 
         # Plot 1: Overview with all localizations and detected regions
-        fig, axs = plotter.one_column_plot() if use_plotting_functions and plotter else plt.subplots(1, 1, figsize=(8, 8))
+        fig, axs = (
+            plotter.one_column_plot()
+            if use_plotting_functions and plotter
+            else plt.subplots(1, 1, figsize=(8, 8))
+        )
         ax1 = axs
 
         # Use datashader for large datasets, regular plotting for smaller ones
@@ -3248,56 +3394,120 @@ class Drift_Correction_Functions:
                 import colorcet as cc
 
                 # Create DataFrame from localization data
-                df = pd.DataFrame({'x': np.array(all_locs.xc), 'y': np.array(all_locs.yc)})
+                df = pd.DataFrame(
+                    {"x": np.array(all_locs.xc), "y": np.array(all_locs.yc)}
+                )
 
                 # Create datashader canvas
                 cvs = ds.Canvas(plot_width=500, plot_height=500)
 
                 # Aggregate points
-                agg = cvs.points(df, 'x', 'y')
+                agg = cvs.points(df, "x", "y")
 
                 # Create rasterized image
-                img = ds.tf.set_background(ds.tf.shade(agg, how="log", cmap=cc.fire), "black").to_pil()
+                img = ds.tf.set_background(
+                    ds.tf.shade(agg, how="log", cmap=cc.fire), "black"
+                ).to_pil()
 
                 # Display with imshow
-                ax1.imshow(img, extent=[all_locs.xc.min(), all_locs.xc.max(),
-                                       all_locs.yc.min(), all_locs.yc.max()],
-                          aspect='auto', origin='lower')
-                ax1.text(0.02, 0.98, f'Datashader: {len(all_locs)} locs', transform=ax1.transAxes,
-                        va='top', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                ax1.imshow(
+                    img,
+                    extent=[
+                        all_locs.xc.min(),
+                        all_locs.xc.max(),
+                        all_locs.yc.min(),
+                        all_locs.yc.max(),
+                    ],
+                    aspect="auto",
+                    origin="lower",
+                )
+                ax1.text(
+                    0.02,
+                    0.98,
+                    f"Datashader: {len(all_locs)} locs",
+                    transform=ax1.transAxes,
+                    va="top",
+                    fontsize=8,
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+                )
 
             except ImportError:
-                print("Warning: datashader not available, falling back to subsampled points")
+                print(
+                    "Warning: datashader not available, falling back to subsampled points"
+                )
                 # Fallback to subsampled plotting
                 if len(all_locs) > 5000:
                     indices = np.random.choice(len(all_locs), 5000, replace=False)
                     bg_locs = all_locs[indices]
                 else:
                     bg_locs = all_locs
-                ax1.plot(bg_locs.xc, bg_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
+                ax1.plot(
+                    bg_locs.xc,
+                    bg_locs.yc,
+                    ".",
+                    color="lightgray",
+                    markersize=0.5,
+                    alpha=0.5,
+                    label="Background",
+                )
         else:
             # Regular plotting for smaller datasets
-            ax1.plot(all_locs.xc, all_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
+            ax1.plot(
+                all_locs.xc,
+                all_locs.yc,
+                ".",
+                color="lightgray",
+                markersize=0.5,
+                alpha=0.5,
+                label="Background",
+            )
 
         # Overlay binary mask as contours (keep as is - efficient)
-        ax1.contour(binary_mask, levels=[0.5], colors='blue', linewidths=1, alpha=0.5, label='Detected regions')
+        ax1.contour(
+            binary_mask,
+            levels=[0.5],
+            colors="blue",
+            linewidths=1,
+            alpha=0.5,
+            label="Detected regions",
+        )
 
         # Plot region centers and selection boxes (optimized)
         half_box = box_size_pixels / 2.0
         if region_centers:
             # Fast center plotting
             centers_array = np.array(region_centers)
-            ax1.plot(centers_array[:, 1], centers_array[:, 0], 'ro', markersize=5, label='Centers')
+            ax1.plot(
+                centers_array[:, 1],
+                centers_array[:, 0],
+                "ro",
+                markersize=5,
+                label="Centers",
+            )
 
             # Draw selection boxes (faster line plots instead of patches)
             for center_y, center_x in region_centers:
-                box_x = [center_x - half_box, center_x + half_box, center_x + half_box, center_x - half_box, center_x - half_box]
-                box_y = [center_y - half_box, center_y - half_box, center_y + half_box, center_y + half_box, center_y - half_box]
-                ax1.plot(box_x, box_y, 'r--', linewidth=1, alpha=0.7)
+                box_x = [
+                    center_x - half_box,
+                    center_x + half_box,
+                    center_x + half_box,
+                    center_x - half_box,
+                    center_x - half_box,
+                ]
+                box_y = [
+                    center_y - half_box,
+                    center_y - half_box,
+                    center_y + half_box,
+                    center_y + half_box,
+                    center_y - half_box,
+                ]
+                ax1.plot(box_x, box_y, "r--", linewidth=1, alpha=0.7)
 
         # Highlight selected puncta (optimized)
         if selected_puncta:
-            colors = plt.cm.tab10(np.linspace(0, 1, min(len(selected_puncta), 10)))  # Limit colors for speed
+            colors = plt.cm.tab10(
+                np.linspace(0, 1, min(len(selected_puncta), 10))
+            )  # Limit colors for speed
             for i, puncta in enumerate(selected_puncta):
                 color = colors[i % len(colors)]
                 # Subsample large puncta for display
@@ -3307,16 +3517,23 @@ class Drift_Correction_Functions:
                 else:
                     display_puncta = puncta
                 # Ultra-fast plot points instead of scatter
-                ax1.plot(display_puncta.xc, display_puncta.yc, '.', color=color, markersize=3, alpha=0.8)
+                ax1.plot(
+                    display_puncta.xc,
+                    display_puncta.yc,
+                    ".",
+                    color=color,
+                    markersize=3,
+                    alpha=0.8,
+                )
 
-        ax1.set_xlabel('X (pixels)')
-        ax1.set_ylabel('Y (pixels)')
-        ax1.set_title(f'{title} - Overview')
-        ax1.set_aspect('equal')
+        ax1.set_xlabel("X (pixels)")
+        ax1.set_ylabel("Y (pixels)")
+        ax1.set_title(f"{title} - Overview")
+        ax1.set_aspect("equal")
         ax1.grid(True, alpha=0.3)
         plt.show()
         if output_figure_path:
-            plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches='tight')
+            plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches="tight")
             plt.close()
 
         # Plot 2: Individual region details (all regions, no limit)
@@ -3325,7 +3542,18 @@ class Drift_Correction_Functions:
             n_cols = min(6, n_regions)  # Max 6 columns for readability
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(2.5*n_cols, 2.5*n_rows))
+            fig2, axes = (
+                plotter.two_column_plot(
+                    ncolumns=n_cols,
+                    nrows=n_rows,
+                    widthratio=np.ones(n_cols),
+                    heightratio=np.ones(n_rows),
+                    height=n_rows,
+                    width=n_cols,
+                )
+                if use_plotting_functions and plotter
+                else plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows))
+            )
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3349,42 +3577,97 @@ class Drift_Correction_Functions:
                         import colorcet as cc
 
                         # Create DataFrame for this region
-                        df = pd.DataFrame({'x': np.array(puncta.xc), 'y': np.array(puncta.yc)})
+                        df = pd.DataFrame(
+                            {"x": np.array(puncta.xc), "y": np.array(puncta.yc)}
+                        )
 
                         # Create small datashader canvas for individual regions
                         cvs = ds.Canvas(plot_width=200, plot_height=200)
-                        agg = cvs.points(df, 'x', 'y')
-                        img = ds.tf.set_background(ds.tf.shade(agg, how="log", cmap=cc.blues), "white").to_pil()
+                        agg = cvs.points(df, "x", "y")
+                        img = ds.tf.set_background(
+                            ds.tf.shade(agg, how="log", cmap=cc.blues), "white"
+                        ).to_pil()
 
                         # Display with imshow
-                        ax.imshow(img, extent=[puncta.xc.min(), puncta.xc.max(),
-                                              puncta.yc.min(), puncta.yc.max()],
-                                 aspect='auto', origin='lower')
-                        ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
-                               fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                        ax.imshow(
+                            img,
+                            extent=[
+                                puncta.xc.min(),
+                                puncta.xc.max(),
+                                puncta.yc.min(),
+                                puncta.yc.max(),
+                            ],
+                            aspect="auto",
+                            origin="lower",
+                        )
+                        ax.text(
+                            0.98,
+                            0.02,
+                            f"{len(puncta)} locs",
+                            transform=ax.transAxes,
+                            ha="right",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+                        )
 
                     except ImportError:
                         # Fallback to regular plotting
-                        ax.plot(puncta.xc, puncta.yc, '.', color='blue', markersize=1, alpha=0.7)
-                        ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
-                               fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                        ax.plot(
+                            puncta.xc,
+                            puncta.yc,
+                            ".",
+                            color="blue",
+                            markersize=1,
+                            alpha=0.7,
+                        )
+                        ax.text(
+                            0.98,
+                            0.02,
+                            f"{len(puncta)} locs",
+                            transform=ax.transAxes,
+                            ha="right",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+                        )
                 else:
                     # Regular plotting for sparse regions
-                    ax.plot(puncta.xc, puncta.yc, '.', color='blue', markersize=2, alpha=0.7)
+                    ax.plot(
+                        puncta.xc, puncta.yc, ".", color="blue", markersize=2, alpha=0.7
+                    )
 
                 # Mark centers (no alpha for speed)
-                ax.plot(stats['center_x'], stats['center_y'], 'ro', markersize=6, label='Center')
-                ax.plot(stats['mean_x'], stats['mean_y'], 'go', markersize=6, label='Centroid')
+                ax.plot(
+                    stats["center_x"],
+                    stats["center_y"],
+                    "ro",
+                    markersize=6,
+                    label="Center",
+                )
+                ax.plot(
+                    stats["mean_x"],
+                    stats["mean_y"],
+                    "go",
+                    markersize=6,
+                    label="Centroid",
+                )
 
                 # Simple box outline (faster than Rectangle patch)
-                half_box_val = stats['box_boundaries']['x_max'] - stats['center_x']
-                box_x = [stats['center_x'] - half_box_val, stats['center_x'] + half_box_val,
-                        stats['center_x'] + half_box_val, stats['center_x'] - half_box_val,
-                        stats['center_x'] - half_box_val]
-                box_y = [stats['center_y'] - half_box_val, stats['center_y'] - half_box_val,
-                        stats['center_y'] + half_box_val, stats['center_y'] + half_box_val,
-                        stats['center_y'] - half_box_val]
-                ax.plot(box_x, box_y, 'r--', linewidth=1)
+                half_box_val = stats["box_boundaries"]["x_max"] - stats["center_x"]
+                box_x = [
+                    stats["center_x"] - half_box_val,
+                    stats["center_x"] + half_box_val,
+                    stats["center_x"] + half_box_val,
+                    stats["center_x"] - half_box_val,
+                    stats["center_x"] - half_box_val,
+                ]
+                box_y = [
+                    stats["center_y"] - half_box_val,
+                    stats["center_y"] - half_box_val,
+                    stats["center_y"] + half_box_val,
+                    stats["center_y"] + half_box_val,
+                    stats["center_y"] - half_box_val,
+                ]
+                ax.plot(box_x, box_y, "r--", linewidth=1)
 
                 # Batch axis settings for speed
                 ax.set_title(f"R{i+1}: {stats['n_localizations']} locs", fontsize=10)
@@ -3396,73 +3679,101 @@ class Drift_Correction_Functions:
                 axes[j].set_visible(False)
 
             # Add title showing all regions
-            fig2.suptitle(f"Individual Regions (all {len(selected_puncta)} regions)", fontsize=12)
+            fig2.suptitle(
+                f"Individual Regions (all {len(selected_puncta)} regions)", fontsize=12
+            )
 
             plt.show()
             if output_figure_path:
-                plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches='tight')
+                plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches="tight")
                 plt.close()
 
         # Plot 3: Statistics summary
         if region_stats:
-            fig3, axes = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1]) if use_plotting_functions and plotter else plt.subplots(2, 2, figsize=(10, 8))
+            fig3, axes = (
+                plotter.two_column_plot(
+                    nrows=2, ncolumns=2, widthratio=[1, 1], heightratio=[1, 1]
+                )
+                if use_plotting_functions and plotter
+                else plt.subplots(2, 2, figsize=(10, 8))
+            )
 
             # Histogram of localizations per region
-            n_locs_list = [stats['n_localizations'] for stats in region_stats]
-            bins = np.histogram_bin_edges(n_locs_list, bins='fd')
+            n_locs_list = [stats["n_localizations"] for stats in region_stats]
+            bins = np.histogram_bin_edges(n_locs_list, bins="fd")
             if use_plotting_functions and plotter:
-                axes[0, 0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
+                axes[0, 0].hist(
+                    n_locs_list, bins=bins, alpha=0.7, color="skyblue", density=True
+                )
             else:
-                axes[0,0].hist(n_locs_list, bins=bins, alpha=0.7, color='skyblue', density=True)
-            axes[0, 0].set_xlabel('localisations per region')
-            axes[0, 0].set_ylabel('probability density')
-            axes[0, 0].set_title('distribution of localisations per region')
+                axes[0, 0].hist(
+                    n_locs_list, bins=bins, alpha=0.7, color="skyblue", density=True
+                )
+            axes[0, 0].set_xlabel("localisations per region")
+            axes[0, 0].set_ylabel("probability density")
+            axes[0, 0].set_title("distribution of localisations per region")
             axes[0, 0].grid(True, alpha=0.3)
 
             # Frame spans
-            frame_spans = [stats['frame_span'] for stats in region_stats]
-            bins = np.histogram_bin_edges(frame_spans, bins='fd')
+            frame_spans = [stats["frame_span"] for stats in region_stats]
+            bins = np.histogram_bin_edges(frame_spans, bins="fd")
             if use_plotting_functions and plotter:
-                axes[0, 1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
+                axes[0, 1].hist(
+                    frame_spans, bins=bins, alpha=0.7, color="lightgreen", density=True
+                )
             else:
-                axes[0,1].hist(frame_spans, bins=bins, alpha=0.7, color='lightgreen', density=True)
-            axes[0, 1].set_xlabel('frame span')
-            axes[0, 1].set_ylabel('probability density')
-            axes[0, 1].set_title('distribution of frame spans')
+                axes[0, 1].hist(
+                    frame_spans, bins=bins, alpha=0.7, color="lightgreen", density=True
+                )
+            axes[0, 1].set_xlabel("frame span")
+            axes[0, 1].set_ylabel("probability density")
+            axes[0, 1].set_title("distribution of frame spans")
             axes[0, 1].grid(True, alpha=0.3)
 
             # Position spreads
-            std_x_list = [stats['std_x'] for stats in region_stats]
-            std_y_list = [stats['std_y'] for stats in region_stats]
+            std_x_list = [stats["std_x"] for stats in region_stats]
+            std_y_list = [stats["std_y"] for stats in region_stats]
             if use_plotting_functions and plotter:
-                axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
+                axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color="orange")
             else:
-                axes[1,0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
-            axes[1, 0].set_xlabel('X std (pixels)')
-            axes[1, 0].set_ylabel('Y std (pixels)')
-            axes[1, 0].set_title('Localization Spreads')
+                axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color="orange")
+            axes[1, 0].set_xlabel("X std (pixels)")
+            axes[1, 0].set_ylabel("Y std (pixels)")
+            axes[1, 0].set_title("Localization Spreads")
             axes[1, 0].grid(True, alpha=0.3)
 
             # Photon statistics (if available)
-            if region_stats and 'mean_photons' in region_stats[0]:
-                photons_list = [stats['mean_photons'] for stats in region_stats]
-                bins = np.histogram_bin_edges(photons_list, bins='fd')
+            if region_stats and "mean_photons" in region_stats[0]:
+                photons_list = [stats["mean_photons"] for stats in region_stats]
+                bins = np.histogram_bin_edges(photons_list, bins="fd")
                 if use_plotting_functions and plotter:
-                    axes[1, 1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
+                    axes[1, 1].hist(
+                        photons_list, bins=bins, alpha=0.7, color="pink", density=True
+                    )
                 else:
-                    axes[1,1].hist(photons_list, bins=bins, alpha=0.7, color='pink', density=True)
-                axes[1, 1].set_xlabel('mean photons per localisation')
-                axes[1, 1].set_ylabel('probability density')
-                axes[1, 1].set_title('distribution of photon counts')
+                    axes[1, 1].hist(
+                        photons_list, bins=bins, alpha=0.7, color="pink", density=True
+                    )
+                axes[1, 1].set_xlabel("mean photons per localisation")
+                axes[1, 1].set_ylabel("probability density")
+                axes[1, 1].set_title("distribution of photon counts")
             else:
-                axes[1, 1].text(0.5, 0.5, 'No photon data available',
-                               ha='center', va='center', transform=axes[1, 1].transAxes)
-                axes[1, 1].set_title('Photon Statistics')
+                axes[1, 1].text(
+                    0.5,
+                    0.5,
+                    "No photon data available",
+                    ha="center",
+                    va="center",
+                    transform=axes[1, 1].transAxes,
+                )
+                axes[1, 1].set_title("Photon Statistics")
             axes[1, 1].grid(True, alpha=0.3)
 
             plt.show()
             if output_figure_path:
-                plt.savefig(f"{base_path}_3_statistics.png", dpi=300, bbox_inches='tight')
+                plt.savefig(
+                    f"{base_path}_3_statistics.png", dpi=300, bbox_inches="tight"
+                )
                 plt.close()
 
         if output_figure_path:
@@ -3486,14 +3797,22 @@ class Drift_Correction_Functions:
         pixelsize: float,
         output_figure_path: Optional[str],
         title: str,
-        PlottingFunctions_module
+        PlottingFunctions_module,
     ) -> None:
         """Create detailed visualization using PlottingFunctions module."""
 
         # Create four separate figures to work within PlottingFunctions constraints
         self._create_separate_plots(
-            smoothed_image, binary_mask, region_centers, hist, bin_edges,
-            threshold, pixelsize, output_figure_path, title, PlottingFunctions_module
+            smoothed_image,
+            binary_mask,
+            region_centers,
+            hist,
+            bin_edges,
+            threshold,
+            pixelsize,
+            output_figure_path,
+            title,
+            PlottingFunctions_module,
         )
 
     def _create_separate_plots(
@@ -3507,7 +3826,7 @@ class Drift_Correction_Functions:
         pixelsize: float,
         output_figure_path: Optional[str],
         title: str,
-        PlottingFunctions_module
+        PlottingFunctions_module,
     ) -> None:
         """Create separate plots using PlottingFunctions to avoid layout conflicts."""
 
@@ -3516,83 +3835,100 @@ class Drift_Correction_Functions:
 
         # Get file base name for multiple plots
         if output_figure_path:
-            base_path = output_figure_path.rsplit('.', 1)[0] if '.' in output_figure_path else output_figure_path
+            base_path = (
+                output_figure_path.rsplit(".", 1)[0]
+                if "." in output_figure_path
+                else output_figure_path
+            )
         else:
             base_path = "density_detection"
 
         # Plot 1: Original smoothed image
-        fig, axs = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1])
+        fig, axs = plotter.two_column_plot(
+            nrows=2, ncolumns=2, widthratio=[1, 1], heightratio=[1, 1]
+        )
         ax1 = axs[0, 0]
         plotter.image_plot(
             ax1,
             smoothed_image,
-            cmap='hot',
-            cbar='on',
-            cbarlabel='Intensity',
-            label='Smoothed Image',
+            cmap="hot",
+            cbar="on",
+            cbarlabel="Intensity",
+            label="Smoothed Image",
             pixelsize=pixelsize,
-            sbar='on'
+            sbar="on",
         )
-        ax1.set_title(f'{title} - Smoothed Image')
+        ax1.set_title(f"{title} - Smoothed Image")
 
         # Plot 2: Binary mask with detected regions
         ax2 = axs[0, 1]
         plotter.image_plot(
             ax2,
             smoothed_image,
-            cmap='hot',
-            cbar='off',
-            label='Detected Regions',
+            cmap="hot",
+            cbar="off",
+            label="Detected Regions",
             pixelsize=pixelsize,
-            sbar='on'
+            sbar="on",
         )
         # Overlay region centers
         if region_centers:
             centers_y, centers_x = zip(*region_centers)
-            ax2.scatter(centers_x, centers_y, c='red', s=25, marker='x', linewidths=0.5)
-        ax2.set_title(f'{title} - Detected Regions (n={len(region_centers)})')
+            ax2.scatter(centers_x, centers_y, c="red", s=25, marker="x", linewidths=0.5)
+        ax2.set_title(f"{title} - Detected Regions (n={len(region_centers)})")
 
         # Plot 3: Image with overlaid detections
         ax3 = axs[1, 0]
         plotter.image_plot(
             ax3,
             smoothed_image,
-            cmap='gray',
-            cbar='on',
-            cbarlabel='Intensity',
-            label='Detection Overlay',
+            cmap="gray",
+            cbar="on",
+            cbarlabel="Intensity",
+            label="Detection Overlay",
             pixelsize=pixelsize,
-            sbar='on'
+            sbar="on",
         )
         # Overlay detection mask as contours
-        ax3.contour(binary_mask, levels=[0.5], colors='red', linewidths=0.5, alpha=0.8)
+        ax3.contour(binary_mask, levels=[0.5], colors="red", linewidths=0.5, alpha=0.8)
         if region_centers:
             centers_y, centers_x = zip(*region_centers)
-            ax3.scatter(centers_x, centers_y, c='cyan', s=40, marker='+', linewidths=0.5)
-        ax3.set_title(f'{title} - Detection Overlay')
+            ax3.scatter(
+                centers_x, centers_y, c="cyan", s=40, marker="+", linewidths=0.5
+            )
+        ax3.set_title(f"{title} - Detection Overlay")
 
         # Plot 4: Histogram - use basic matplotlib since PlottingFunctions histogram_plot expects different input
         ax4 = axs[1, 1]
 
         # Create histogram plot manually to match our data format
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        ax4.plot(bin_centers, hist, 'b-', linewidth=2, label='Histogram')
+        ax4.plot(bin_centers, hist, "b-", linewidth=2, label="Histogram")
 
         # Add threshold line and fill
-        ax4.axvline(threshold, color='red', linestyle='--', linewidth=2,
-                   label=f'Threshold ({threshold:.1f})')
-        ax4.fill_between(bin_centers[bin_centers >= threshold],
-                        hist[bin_centers >= threshold],
-                        alpha=0.3, color='red', label='Selected Region')
+        ax4.axvline(
+            threshold,
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label=f"Threshold ({threshold:.1f})",
+        )
+        ax4.fill_between(
+            bin_centers[bin_centers >= threshold],
+            hist[bin_centers >= threshold],
+            alpha=0.3,
+            color="red",
+            label="Selected Region",
+        )
 
-        ax4.set_xlabel('Intensity')
-        ax4.set_ylabel('Frequency')
+        ax4.set_xlabel("Intensity")
+        ax4.set_ylabel("Frequency")
         ax4.legend()
         ax4.grid(True, alpha=0.3)
-        ax4.set_title(f'{title} - Intensity Distribution')
+        ax4.set_title(f"{title} - Intensity Distribution")
 
         if output_figure_path:
-            plt.savefig(f"{base_path}_Figure.png", dpi=300, bbox_inches='tight')
+            plt.savefig(f"{base_path}_Figure.png", dpi=300, bbox_inches="tight")
             plt.close()
 
         if output_figure_path:
@@ -3607,21 +3943,24 @@ class Drift_Correction_Functions:
         validated_fiducials: List[np.recarray],
         clustering_metadata: List[Dict[str, Any]],
         output_figure_path: Optional[str],
-        title: str
+        title: str,
     ) -> None:
         """Create visualization of DBSCAN clustering results using PlottingFunctions."""
 
         try:
             import PlottingFunctions
+
             plotter = PlottingFunctions.Plotter(poster=False)
             use_plotting_functions = True
         except ImportError:
-            print("Warning: PlottingFunctions not available, skipping clustering visualization")
+            print(
+                "Warning: PlottingFunctions not available, skipping clustering visualization"
+            )
             return
 
         # Get file base name for multiple plots
         if output_figure_path:
-            base_path = output_figure_path.rsplit('.', 1)[0]
+            base_path = output_figure_path.rsplit(".", 1)[0]
             base_path += f"_clustering"
         else:
             base_path = "clustering"
@@ -3631,35 +3970,56 @@ class Drift_Correction_Functions:
 
         # Create overview figure using PlottingFunctions
         fig, axes = plotter.two_column_plot(
-            ncolumns=2, nrows=2,
+            ncolumns=2,
+            nrows=2,
             widthratio=[1.0, 1.0],
             heightratio=[1.0, 1.0],
-            figsize=(16, 12)
+            figsize=(16, 12),
         )
-        fig.suptitle(f'{title} - Overview (Input: {n_regions}, Validated: {n_validated})', fontsize=16)
+        fig.suptitle(
+            f"{title} - Overview (Input: {n_regions}, Validated: {n_validated})",
+            fontsize=16,
+        )
 
         # Plot 1: All input puncta regions
         ax1 = axes[0, 0]
         try:
             import matplotlib.cm as cm
-            colors = cm.tab10(np.linspace(0, 1, max(n_regions, 10)))  # Use tab10 colormap
+
+            colors = cm.tab10(
+                np.linspace(0, 1, max(n_regions, 10))
+            )  # Use tab10 colormap
         except:
-            colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+            colors = [
+                "blue",
+                "red",
+                "green",
+                "orange",
+                "purple",
+                "brown",
+                "pink",
+                "gray",
+                "olive",
+                "cyan",
+            ]
 
         for i, puncta_locs in enumerate(selected_puncta):
             color = colors[i % len(colors)]
             plotter.scatter_plot(
                 ax1,
-                puncta_locs['xc'], puncta_locs['yc'],
-                s=1, alpha=0.6, c=color,
-                label=f'Region {i+1}'
+                puncta_locs["xc"],
+                puncta_locs["yc"],
+                s=1,
+                alpha=0.6,
+                c=color,
+                label=f"Region {i+1}",
             )
 
-        ax1.set_xlabel('X (pixels)')
-        ax1.set_ylabel('Y (pixels)')
-        ax1.set_title(f'Input Puncta Regions (n={n_regions})')
+        ax1.set_xlabel("X (pixels)")
+        ax1.set_ylabel("Y (pixels)")
+        ax1.set_title(f"Input Puncta Regions (n={n_regions})")
         ax1.grid(True, alpha=0.3)
-        ax1.axis('equal')
+        ax1.axis("equal")
 
         # Plot 2: Validated fiducials only
         ax2 = axes[0, 1]
@@ -3667,52 +4027,57 @@ class Drift_Correction_Functions:
             color = colors[i % len(colors)]
             plotter.scatter_plot(
                 ax2,
-                fiducial_locs['xc'], fiducial_locs['yc'],
-                s=2, alpha=0.8, c=color,
-                label=f'Fiducial {i+1}'
+                fiducial_locs["xc"],
+                fiducial_locs["yc"],
+                s=2,
+                alpha=0.8,
+                c=color,
+                label=f"Fiducial {i+1}",
             )
 
-        ax2.set_xlabel('X (pixels)')
-        ax2.set_ylabel('Y (pixels)')
-        ax2.set_title(f'Validated Fiducials (n={n_validated})')
+        ax2.set_xlabel("X (pixels)")
+        ax2.set_ylabel("Y (pixels)")
+        ax2.set_title(f"Validated Fiducials (n={n_validated})")
         ax2.grid(True, alpha=0.3)
-        ax2.axis('equal')
+        ax2.axis("equal")
 
         # Plot 3: Validation statistics
         ax3 = axes[1, 0]
         if clustering_metadata:
             # Bar plot of noise fractions
-            region_ids = [meta['region_id'] for meta in clustering_metadata]
-            noise_fractions = [meta['noise_fraction'] for meta in clustering_metadata]
+            region_ids = [meta["region_id"] for meta in clustering_metadata]
+            noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
             x_pos = np.arange(len(region_ids))
 
             # Color bars based on validation (low noise = good)
             bar_colors = []
             for noise_frac in noise_fractions:
                 if noise_frac < 0.2:  # Good
-                    bar_colors.append('green')
+                    bar_colors.append("green")
                 elif noise_frac < 0.5:  # Moderate
-                    bar_colors.append('orange')
+                    bar_colors.append("orange")
                 else:  # Poor
-                    bar_colors.append('red')
+                    bar_colors.append("red")
 
             bars = ax3.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
 
-            ax3.set_xlabel('Validated Region')
-            ax3.set_ylabel('Noise Fraction')
-            ax3.set_title('Clustering Quality (Lower = Better)')
+            ax3.set_xlabel("Validated Region")
+            ax3.set_ylabel("Noise Fraction")
+            ax3.set_title("Clustering Quality (Lower = Better)")
             ax3.set_xticks(x_pos)
-            ax3.set_xticklabels([f'R{rid}' for rid in region_ids])
+            ax3.set_xticklabels([f"R{rid}" for rid in region_ids])
             ax3.grid(True, alpha=0.3)
 
         # Plot 4: Parameter summary
         ax4 = axes[1, 1]
-        ax4.axis('off')
+        ax4.axis("off")
         if clustering_metadata:
             summary_text = f"Clustering Parameters:\n\n"
             meta = clustering_metadata[0]  # All regions use same parameters
             summary_text += f"• Precision Factor: {meta['precision_factor']:.1f}\n"
-            summary_text += f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+            summary_text += (
+                f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+            )
 
             summary_text += f"Results Summary:\n\n"
             summary_text += f"• Input Regions: {n_regions}\n"
@@ -3720,24 +4085,36 @@ class Drift_Correction_Functions:
             summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n\n"
 
             total_input_locs = sum(len(puncta) for puncta in selected_puncta)
-            total_validated_locs = sum(len(fiducial) for fiducial in validated_fiducials)
+            total_validated_locs = sum(
+                len(fiducial) for fiducial in validated_fiducials
+            )
             summary_text += f"• Total Input Locs: {total_input_locs:,}\n"
             summary_text += f"• Total Validated Locs: {total_validated_locs:,}\n"
             summary_text += f"• Localization Retention: {100*total_validated_locs/total_input_locs:.1f}%"
 
-            ax4.text(0.1, 0.9, summary_text, transform=ax4.transAxes, fontsize=12,
-                    verticalalignment='top', fontfamily='monospace')
+            ax4.text(
+                0.1,
+                0.9,
+                summary_text,
+                transform=ax4.transAxes,
+                fontsize=12,
+                verticalalignment="top",
+                fontfamily="monospace",
+            )
 
         if output_figure_path:
-            plotter.save_plot(f"{base_path}_overview.png", dpi=300, bbox_inches='tight')
+            plotter.save_plot(f"{base_path}_overview.png", dpi=300, bbox_inches="tight")
         else:
             plotter.show_plot()
 
         # Create detailed individual region plots if we have validated regions
         if validated_fiducials and clustering_metadata:
             self._plot_individual_clustering_details(
-                selected_puncta, validated_fiducials, clustering_metadata,
-                base_path, title
+                selected_puncta,
+                validated_fiducials,
+                clustering_metadata,
+                base_path,
+                title,
             )
 
         # Print summary
@@ -3753,15 +4130,18 @@ class Drift_Correction_Functions:
         validated_fiducials: List[np.recarray],
         clustering_metadata: List[Dict[str, Any]],
         base_path: str,
-        title: str
+        title: str,
     ) -> None:
         """Create detailed plots for individual clustering results using PlottingFunctions."""
 
         try:
             import PlottingFunctions
+
             plotter = PlottingFunctions.Plotter(poster=False)
         except ImportError:
-            print("Warning: PlottingFunctions not available, skipping detailed clustering plots")
+            print(
+                "Warning: PlottingFunctions not available, skipping detailed clustering plots"
+            )
             return
 
         n_validated = len(validated_fiducials)
@@ -3788,95 +4168,237 @@ class Drift_Correction_Functions:
             heightratio = [1.0] * rows
 
         fig, axes = plotter.two_column_plot(
-            ncolumns=cols, nrows=rows,
+            ncolumns=cols,
+            nrows=rows,
             widthratio=widthratio,
             heightratio=heightratio,
-            figsize=(6*cols, 5*rows)
+            figsize=(6 * cols, 5 * rows),
         )
-        fig.suptitle(f'{title} - Individual Clustering Details', fontsize=16)
+        fig.suptitle(f"{title} - Individual Clustering Details", fontsize=16)
 
         # Handle different axes configurations
         if rows == 1 and cols == 1:
             axes = [axes]
         elif rows == 1 or cols == 1:
-            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+            axes = axes.flatten() if hasattr(axes, "flatten") else [axes]
         else:
             axes = axes.flatten()
 
         # Define colors for clusters
         try:
             import matplotlib.cm as cm
+
             cluster_colormap = cm.tab10
         except:
             cluster_colormap = None
 
-        for i, (fiducial_locs, meta) in enumerate(zip(validated_fiducials, clustering_metadata)):
+        for i, (fiducial_locs, meta) in enumerate(
+            zip(validated_fiducials, clustering_metadata)
+        ):
             if i >= len(axes):
                 break
 
             ax = axes[i]
-            region_id = meta['region_id']
+            region_id = meta["region_id"]
             original_puncta = selected_puncta[region_id]
-            cluster_labels = meta['cluster_labels']
+            cluster_labels = meta["cluster_labels"]
 
             # Plot all original points with cluster colors
             unique_labels = set(cluster_labels)
             if cluster_colormap:
-                colors = [cluster_colormap(j / max(len(unique_labels), 1)) for j in range(len(unique_labels))]
+                colors = [
+                    cluster_colormap(j / max(len(unique_labels), 1))
+                    for j in range(len(unique_labels))
+                ]
             else:
-                colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+                colors = [
+                    "blue",
+                    "red",
+                    "green",
+                    "orange",
+                    "purple",
+                    "brown",
+                    "pink",
+                    "gray",
+                ]
 
             color_map = {}
             for j, label in enumerate(unique_labels):
                 if label == -1:  # Noise points
-                    color_map[label] = 'black'
+                    color_map[label] = "black"
                 else:
                     color_map[label] = colors[j % len(colors)]
 
-            # Plot each cluster separately
-            for k in unique_labels:
-                class_mask = cluster_labels == k
-                if np.any(class_mask):
-                    if k == -1:  # Noise points
-                        alpha = 0.3
-                        size = 0.5
-                        label = 'Noise'
-                    else:
-                        alpha = 0.8
-                        size = 2
-                        label = f'Cluster {k}'
+            # Use datashader for large datasets with multiple colors, regular plotting for smaller ones
+            if len(original_puncta) > 1000 and len(validated_fiducials) > 8:
+                try:
+                    import datashader as ds
+                    import pandas as pd
+                    import colorcet as cc
 
-                    plotter.scatter_plot(
-                        ax,
-                        original_puncta['xc'][class_mask],
-                        original_puncta['yc'][class_mask],
-                        c=color_map[k], s=size, alpha=alpha,
-                        label=label
+                    # Create DataFrame with cluster labels as categorical data
+                    df = pd.DataFrame(
+                        {
+                            "x": np.array(original_puncta.xc),
+                            "y": np.array(original_puncta.yc),
+                            "cluster": pd.Categorical(cluster_labels),
+                        }
                     )
 
-            # Highlight the main cluster (validated fiducial)
-            plotter.scatter_plot(
-                ax,
-                fiducial_locs['xc'], fiducial_locs['yc'],
-                c='red', s=4, alpha=1.0,
-                edgecolors='white', linewidths=0.2,
-                label='Validated'
-            )
+                    # Create datashader canvas for individual regions
+                    cvs = ds.Canvas(plot_width=300, plot_height=300)
 
-            ax.set_xlabel('X (pixels)')
-            ax.set_ylabel('Y (pixels)')
-            ax.set_title(f'Region {region_id} - {len(fiducial_locs)}/{meta["original_n_locs"]} locs\n'
-                        f'Noise: {meta["noise_fraction"]*100:.1f}%')
+                    # Use categorical aggregation with ds.by()
+                    agg = cvs.points(df, "x", "y", agg=ds.by("cluster", ds.count()))
+
+                    # Convert cluster color_map to datashader color_key format
+                    # Map cluster IDs to colors, handling noise (-1) separately
+                    color_key = {}
+                    for cluster_id in unique_labels:
+                        if cluster_id == -1:
+                            color_key[cluster_id] = "black"
+                        else:
+                            color_key[cluster_id] = color_map[cluster_id]
+
+                    # Create shaded image with categorical colors
+                    img = ds.tf.shade(agg, color_key=color_key, how="eq_hist")
+                    img_pil = img.to_pil()
+
+                    # Display with imshow
+                    ax.imshow(
+                        img_pil,
+                        extent=[
+                            original_puncta.xc.min(),
+                            original_puncta.xc.max(),
+                            original_puncta.yc.min(),
+                            original_puncta.yc.max(),
+                        ],
+                        aspect="auto",
+                        origin="lower",
+                    )
+
+                    # Add text annotation for datashader
+                    ax.text(
+                        0.98,
+                        0.98,
+                        f"Datashader\n{len(original_puncta)} locs\n{len(unique_labels)} clusters",
+                        transform=ax.transAxes,
+                        ha="right",
+                        va="top",
+                        fontsize=8,
+                        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+                    )
+
+                    # Create custom legend for clusters using small scatter plots
+                    legend_elements = []
+                    for k in unique_labels:
+                        if k == -1:
+                            label = "Noise"
+                        else:
+                            label = f"Cluster {k}"
+                        legend_elements.append(
+                            plt.Line2D(
+                                [0],
+                                [0],
+                                marker="o",
+                                color="w",
+                                markerfacecolor=color_map[k],
+                                markersize=5,
+                                label=label,
+                            )
+                        )
+                    ax.legend(handles=legend_elements, fontsize=8, loc="upper left")
+
+                except ImportError:
+                    print(
+                        "Warning: datashader not available for clustering plots, falling back to regular plotting"
+                    )
+                    # Fallback to regular plotting - plot each cluster separately
+                    for k in unique_labels:
+                        class_mask = cluster_labels == k
+                        if np.any(class_mask):
+                            if k == -1:  # Noise points
+                                alpha = 0.3
+                                size = 0.5
+                                label = "Noise"
+                            else:
+                                alpha = 0.8
+                                size = 2
+                                label = f"Cluster {k}"
+                            plotter.scatter_plot(
+                                ax,
+                                original_puncta["xc"][class_mask],
+                                original_puncta["yc"][class_mask],
+                                c=color_map[k],
+                                s=size,
+                                alpha=alpha,
+                                label=label,
+                            )
+                    # Highlight the main cluster (validated fiducial)
+                    plotter.scatter_plot(
+                        ax,
+                        fiducial_locs["xc"],
+                        fiducial_locs["yc"],
+                        c="red",
+                        s=4,
+                        alpha=1.0,
+                        edgecolors="white",
+                        linewidths=0.2,
+                        label="Validated",
+                    )
+            else:
+                # Regular plotting for smaller datasets - plot each cluster separately
+                for k in unique_labels:
+                    class_mask = cluster_labels == k
+                    if np.any(class_mask):
+                        if k == -1:  # Noise points
+                            alpha = 0.3
+                            size = 0.5
+                            label = "Noise"
+                        else:
+                            alpha = 0.8
+                            size = 2
+                            label = f"Cluster {k}"
+
+                        plotter.scatter_plot(
+                            ax,
+                            original_puncta["xc"][class_mask],
+                            original_puncta["yc"][class_mask],
+                            c=color_map[k],
+                            s=size,
+                            alpha=alpha,
+                            label=label,
+                        )
+
+                # Highlight the main cluster (validated fiducial)
+                plotter.scatter_plot(
+                    ax,
+                    fiducial_locs["xc"],
+                    fiducial_locs["yc"],
+                    c="red",
+                    s=4,
+                    alpha=1.0,
+                    edgecolors="white",
+                    linewidths=0.2,
+                    label="Validated",
+                )
+
+            ax.set_xlabel("X (pixels)")
+            ax.set_ylabel("Y (pixels)")
+            ax.set_title(
+                f'Region {region_id} - {len(fiducial_locs)}/{meta["original_n_locs"]} locs\n'
+                f'Noise: {meta["noise_fraction"]*100:.1f}%'
+            )
             ax.legend(fontsize=8)
             ax.grid(True, alpha=0.3)
-            ax.axis('equal')
+            ax.axis("equal")
 
         # Hide unused subplots
         for i in range(n_validated, len(axes)):
             if i < len(axes):
                 axes[i].set_visible(False)
 
-        plotter.save_plot(f"{base_path}_details.png", dpi=300, bbox_inches='tight')
+        plotter.save_plot(f"{base_path}_details.png", dpi=300, bbox_inches="tight")
 
     def undrift_with_fiducial_detection(
         self,
