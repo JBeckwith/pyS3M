@@ -3238,7 +3238,7 @@ class Drift_Correction_Functions:
             base_path = "density_detection"
 
         # Plot 1: Original smoothed image
-        fig, axs = plotter.two_column_figure(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1])
+        fig, axs = plotter.two_column_plot(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1])
         ax1 = axs[0, 0]
         plotter.image_plot(
             ax1,
