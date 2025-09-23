@@ -17,6 +17,7 @@ import warnings
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
+from sklearn.cluster import DBSCAN
 
 # Matplotlib imports (needed for drift correction plotting)
 import matplotlib.pyplot as plt
@@ -2880,7 +2881,8 @@ class Drift_Correction_Functions:
         and selects localizations within rectangular boxes around each detected region center
         to create potential fiducial candidates. Uses the optimized postprocess.picked_locs
         function with Rectangle shape, creating axis-aligned boxes by using diagonal picks
-        with appropriate width parameters for consistent and efficient selection.
+        with appropriate width parameters. Automatically enables parallelization for 8+ regions
+        for improved performance on large datasets.
 
         Args:
             locs: Localization data with xc, yc, frame fields
@@ -2907,27 +2909,16 @@ class Drift_Correction_Functions:
         box_size_pixels = selection_box_size_nm / pixelsize
         half_box = box_size_pixels / 2.0
 
-        # For Rectangle picks with postprocess.picked_locs:
-        # - picks should be diagonal lines through the rectangle center
-        # - pick_size should be the perpendicular width of the rectangle
-        # To create axis-aligned boxes, use diagonal from bottom-left to top-right
-        # and set width to box_size_pixels
+        # Create horizontal line picks for Rectangle shape (following existing pattern)
+        # Rectangle implementation creates boxes around lines defined by two points
         picks = []
         for center_y, center_x in region_centers:
-            # Create diagonal from one corner to opposite corner
-            x_start = center_x - half_box
-            y_start = center_y - half_box
-            x_end = center_x + half_box
-            y_end = center_y + half_box
-            picks.append(((x_start, y_start), (x_end, y_end)))
+            # Create horizontal line through center - much simpler!
+            picks.append(((center_x - half_box, center_y), (center_x + half_box, center_y)))
 
-        # Use postprocess.picked_locs to select localizations using Rectangle shape
-        # Width and height define the image bounds for spatial indexing
+        # Use postprocess.picked_locs with parallelization if we have 8+ picks
         width = max(locs.xc.max() + 10, 100)
         height = max(locs.yc.max() + 10, 100)
-
-        # The pick_size for diagonal rectangles should be sqrt(2) * half_box to get axis-aligned box
-        pick_width = box_size_pixels / np.sqrt(2)
 
         picked_locs_arrays = postprocess.picked_locs(
             locs=locs,
@@ -2935,10 +2926,10 @@ class Drift_Correction_Functions:
             height=height,
             picks=picks,
             pick_shape="Rectangle",
-            pick_size=pick_width,
-            add_group=False,  # Don't add group field
+            pick_size=box_size_pixels,  # Width of the rectangle in pixels (like existing code)
+            add_group=False,
             callback=None,
-            parallel=False
+            parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
         )
 
         # Filter results based on minimum localization count and build statistics
@@ -3041,17 +3032,16 @@ class Drift_Correction_Functions:
             half_box = box_size_pixels / 2.0
             picks = []
             for center_y, center_x in region_centers:
-                picks.append(((center_x - half_box, center_y - half_box),
-                              (center_x + half_box, center_y + half_box)))
+                # Create horizontal line through center (same as main function)
+                picks.append(((center_x - half_box, center_y), (center_x + half_box, center_y)))
 
             width = max(locs.xc.max() + 10, 100)
             height = max(locs.yc.max() + 10, 100)
-            pick_width = box_size_pixels / np.sqrt(2)
 
             picked_locs_arrays = postprocess.picked_locs(
                 locs=locs, width=width, height=height, picks=picks,
-                pick_shape="Rectangle", pick_size=pick_width, add_group=False,
-                callback=None, parallel=False
+                pick_shape="Rectangle", pick_size=box_size_pixels, add_group=False,
+                callback=None, parallel=len(picks) >= 8  # Enable parallelization for 8+ picks
             )
 
             for region_locs in picked_locs_arrays:
@@ -3062,6 +3052,132 @@ class Drift_Correction_Functions:
                     reasons['too_few_localizations'] += 1
 
         return reasons
+
+    def identify_real_fiducials_with_clustering(
+        self,
+        selected_puncta: List[np.recarray],
+        precision_factor: float = 3.0,
+        min_samples_factor: float = 0.7,
+        frame_count: int = 100000,
+        output_figure_path: Optional[str] = None,
+        title: str = "Fiducial Clustering Analysis",
+        create_plot: bool = True
+    ) -> Tuple[List[np.recarray], Dict[str, Any]]:
+        """Identify real fiducials from selected puncta using DBSCAN clustering.
+
+        This function takes puncta (localizations) from select_puncta_from_regions
+        and applies DBSCAN clustering to identify real fiducial markers by requiring
+        spatial clustering of localizations. This helps filter out noise and false positives.
+
+        Args:
+            selected_puncta: List of localization arrays from select_puncta_from_regions
+            precision_factor: Multiplier for localization precision to set DBSCAN eps parameter
+            min_samples_factor: Fraction of frame_count to set minimum samples per cluster
+            frame_count: Total number of frames (for min_samples calculation)
+            output_figure_path: Optional path to save clustering visualization
+            title: Title for visualization plots
+            create_plot: Whether to create visualization plots
+
+        Returns:
+            Tuple containing:
+            - List of localization arrays for validated fiducials
+            - Metadata dictionary with clustering statistics
+        """
+
+        validated_fiducials = []
+        clustering_metadata = []
+
+        # Process each puncta region
+        for region_id, puncta_locs in enumerate(selected_puncta):
+            n_locs = len(puncta_locs)
+
+            if n_locs < 10:  # Skip regions with too few localizations for clustering
+                continue
+
+            # Prepare data for DBSCAN
+            X = np.vstack([puncta_locs['xc'], puncta_locs['yc']]).T
+
+            # Calculate localization precision-based eps parameter
+            if hasattr(puncta_locs, 'xc_err') and hasattr(puncta_locs, 'yc_err'):
+                loc_precision = precision_factor * (np.mean(puncta_locs['xc_err']) + np.mean(puncta_locs['yc_err']))
+            else:
+                # Fallback: estimate precision from localization spread
+                loc_precision = precision_factor * (np.std(puncta_locs['xc']) + np.std(puncta_locs['yc'])) / 10
+
+            # Calculate minimum samples requirement
+            min_samples = max(int(min_samples_factor * frame_count / 1000), 5)  # Scale by 1000, minimum 5
+
+            # Apply DBSCAN clustering
+            try:
+                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples)
+                cluster_labels = dbscan.fit_predict(X)
+
+                # Analyze clustering results
+                n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
+                n_noise = np.sum(cluster_labels == -1)
+
+                # Consider this a valid fiducial if we have at least one significant cluster
+                if n_clusters >= 1 and n_noise < 0.8 * n_locs:  # Less than 80% noise
+                    # Keep only the largest cluster (main fiducial core)
+                    if n_clusters > 0:
+                        cluster_sizes = [(label, np.sum(cluster_labels == label))
+                                       for label in set(cluster_labels) if label != -1]
+                        largest_cluster_label = max(cluster_sizes, key=lambda x: x[1])[0]
+
+                        # Extract localizations from the largest cluster
+                        main_cluster_mask = cluster_labels == largest_cluster_label
+                        validated_locs = puncta_locs[main_cluster_mask]
+                        validated_fiducials.append(validated_locs)
+
+                        # Store clustering metadata
+                        cluster_metadata = {
+                            'region_id': region_id,
+                            'original_n_locs': n_locs,
+                            'validated_n_locs': len(validated_locs),
+                            'n_clusters': n_clusters,
+                            'n_noise': n_noise,
+                            'noise_fraction': n_noise / n_locs,
+                            'largest_cluster_size': np.sum(main_cluster_mask),
+                            'eps_used': loc_precision,
+                            'min_samples_used': min_samples,
+                            'precision_factor': precision_factor,
+                            'min_samples_factor': min_samples_factor,
+                            'cluster_labels': cluster_labels,
+                            'cluster_center_x': np.mean(validated_locs['xc']),
+                            'cluster_center_y': np.mean(validated_locs['yc']),
+                            'cluster_std_x': np.std(validated_locs['xc']),
+                            'cluster_std_y': np.std(validated_locs['yc']),
+                        }
+                        clustering_metadata.append(cluster_metadata)
+
+            except Exception as e:
+                # Skip this region if clustering fails
+                print(f"Warning: DBSCAN clustering failed for region {region_id}: {e}")
+                continue
+
+        # Create visualization if requested
+        if create_plot and len(validated_fiducials) > 0:
+            self._plot_clustering_results(
+                selected_puncta, validated_fiducials, clustering_metadata,
+                output_figure_path, title
+            )
+
+        # Prepare summary metadata
+        summary_metadata = {
+            'n_input_regions': len(selected_puncta),
+            'n_validated_fiducials': len(validated_fiducials),
+            'validation_rate': len(validated_fiducials) / len(selected_puncta) if selected_puncta else 0,
+            'clustering_parameters': {
+                'precision_factor': precision_factor,
+                'min_samples_factor': min_samples_factor,
+                'frame_count': frame_count,
+            },
+            'region_details': clustering_metadata,
+            'total_input_locs': sum(len(puncta) for puncta in selected_puncta),
+            'total_validated_locs': sum(len(fiducial) for fiducial in validated_fiducials),
+        }
+
+        return validated_fiducials, summary_metadata
 
     def _plot_puncta_selection_results(
         self,
@@ -3133,7 +3249,7 @@ class Drift_Correction_Functions:
             n_cols = min(4, n_regions)
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_rows), heightratio=np.ones(n_rows)) if use_plotting_functions else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_rows), heightratio=np.ones(n_cols)) if use_plotting_functions else plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3310,7 +3426,7 @@ class Drift_Correction_Functions:
         # Overlay region centers
         if region_centers:
             centers_y, centers_x = zip(*region_centers)
-            ax2.scatter(centers_x, centers_y, c='red', s=50, marker='x', linewidths=2)
+            ax2.scatter(centers_x, centers_y, c='red', s=25, marker='x', linewidths=0.5)
         ax2.set_title(f'{title} - Detected Regions (n={len(region_centers)})')
 
         # Plot 3: Image with overlaid detections
@@ -3361,6 +3477,283 @@ class Drift_Correction_Functions:
             print(f"  - {base_path}_Figure.png")
         else:
             plt.show()
+
+    def _plot_clustering_results(
+        self,
+        selected_puncta: List[np.recarray],
+        validated_fiducials: List[np.recarray],
+        clustering_metadata: List[Dict[str, Any]],
+        output_figure_path: Optional[str],
+        title: str
+    ) -> None:
+        """Create visualization of DBSCAN clustering results using PlottingFunctions."""
+
+        try:
+            import PlottingFunctions
+            plotter = PlottingFunctions.Plotter(poster=False)
+            use_plotting_functions = True
+        except ImportError:
+            print("Warning: PlottingFunctions not available, skipping clustering visualization")
+            return
+
+        # Get file base name for multiple plots
+        if output_figure_path:
+            base_path = output_figure_path.rsplit('.', 1)[0]
+            base_path += f"_clustering"
+        else:
+            base_path = "clustering"
+
+        n_regions = len(selected_puncta)
+        n_validated = len(validated_fiducials)
+
+        # Create overview figure using PlottingFunctions
+        fig, axes = plotter.two_column_plot(
+            ncolumns=2, nrows=2,
+            widthratio=[1.0, 1.0],
+            heightratio=[1.0, 1.0],
+            figsize=(16, 12)
+        )
+        fig.suptitle(f'{title} - Overview (Input: {n_regions}, Validated: {n_validated})', fontsize=16)
+
+        # Plot 1: All input puncta regions
+        ax1 = axes[0, 0]
+        try:
+            import matplotlib.cm as cm
+            colors = cm.tab10(np.linspace(0, 1, max(n_regions, 10)))  # Use tab10 colormap
+        except:
+            colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+
+        for i, puncta_locs in enumerate(selected_puncta):
+            color = colors[i % len(colors)]
+            plotter.scatter_plot(
+                ax1,
+                puncta_locs['xc'], puncta_locs['yc'],
+                s=1, alpha=0.6, c=color,
+                label=f'Region {i+1}'
+            )
+
+        ax1.set_xlabel('X (pixels)')
+        ax1.set_ylabel('Y (pixels)')
+        ax1.set_title(f'Input Puncta Regions (n={n_regions})')
+        ax1.grid(True, alpha=0.3)
+        ax1.axis('equal')
+
+        # Plot 2: Validated fiducials only
+        ax2 = axes[0, 1]
+        for i, fiducial_locs in enumerate(validated_fiducials):
+            color = colors[i % len(colors)]
+            plotter.scatter_plot(
+                ax2,
+                fiducial_locs['xc'], fiducial_locs['yc'],
+                s=2, alpha=0.8, c=color,
+                label=f'Fiducial {i+1}'
+            )
+
+        ax2.set_xlabel('X (pixels)')
+        ax2.set_ylabel('Y (pixels)')
+        ax2.set_title(f'Validated Fiducials (n={n_validated})')
+        ax2.grid(True, alpha=0.3)
+        ax2.axis('equal')
+
+        # Plot 3: Validation statistics
+        ax3 = axes[1, 0]
+        if clustering_metadata:
+            # Bar plot of noise fractions
+            region_ids = [meta['region_id'] for meta in clustering_metadata]
+            noise_fractions = [meta['noise_fraction'] for meta in clustering_metadata]
+            x_pos = np.arange(len(region_ids))
+
+            # Color bars based on validation (low noise = good)
+            bar_colors = []
+            for noise_frac in noise_fractions:
+                if noise_frac < 0.2:  # Good
+                    bar_colors.append('green')
+                elif noise_frac < 0.5:  # Moderate
+                    bar_colors.append('orange')
+                else:  # Poor
+                    bar_colors.append('red')
+
+            bars = ax3.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+
+            ax3.set_xlabel('Validated Region')
+            ax3.set_ylabel('Noise Fraction')
+            ax3.set_title('Clustering Quality (Lower = Better)')
+            ax3.set_xticks(x_pos)
+            ax3.set_xticklabels([f'R{rid}' for rid in region_ids])
+            ax3.grid(True, alpha=0.3)
+
+        # Plot 4: Parameter summary
+        ax4 = axes[1, 1]
+        ax4.axis('off')
+        if clustering_metadata:
+            summary_text = f"Clustering Parameters:\n\n"
+            meta = clustering_metadata[0]  # All regions use same parameters
+            summary_text += f"• Precision Factor: {meta['precision_factor']:.1f}\n"
+            summary_text += f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+
+            summary_text += f"Results Summary:\n\n"
+            summary_text += f"• Input Regions: {n_regions}\n"
+            summary_text += f"• Validated Fiducials: {n_validated}\n"
+            summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n\n"
+
+            total_input_locs = sum(len(puncta) for puncta in selected_puncta)
+            total_validated_locs = sum(len(fiducial) for fiducial in validated_fiducials)
+            summary_text += f"• Total Input Locs: {total_input_locs:,}\n"
+            summary_text += f"• Total Validated Locs: {total_validated_locs:,}\n"
+            summary_text += f"• Localization Retention: {100*total_validated_locs/total_input_locs:.1f}%"
+
+            ax4.text(0.1, 0.9, summary_text, transform=ax4.transAxes, fontsize=12,
+                    verticalalignment='top', fontfamily='monospace')
+
+        if output_figure_path:
+            plotter.save_plot(f"{base_path}_overview.png", dpi=300, bbox_inches='tight')
+        else:
+            plotter.show_plot()
+
+        # Create detailed individual region plots if we have validated regions
+        if validated_fiducials and clustering_metadata:
+            self._plot_individual_clustering_details(
+                selected_puncta, validated_fiducials, clustering_metadata,
+                base_path, title
+            )
+
+        # Print summary
+        if output_figure_path:
+            print(f"Clustering results saved as:")
+            print(f"  - {base_path}_overview.png")
+            if validated_fiducials:
+                print(f"  - {base_path}_details.png")
+
+    def _plot_individual_clustering_details(
+        self,
+        selected_puncta: List[np.recarray],
+        validated_fiducials: List[np.recarray],
+        clustering_metadata: List[Dict[str, Any]],
+        base_path: str,
+        title: str
+    ) -> None:
+        """Create detailed plots for individual clustering results using PlottingFunctions."""
+
+        try:
+            import PlottingFunctions
+            plotter = PlottingFunctions.Plotter(poster=False)
+        except ImportError:
+            print("Warning: PlottingFunctions not available, skipping detailed clustering plots")
+            return
+
+        n_validated = len(validated_fiducials)
+        if n_validated == 0:
+            return
+
+        # Calculate subplot layout
+        cols = min(3, n_validated)
+        rows = (n_validated + cols - 1) // cols
+
+        # Create figure layout with PlottingFunctions
+        if cols == 1:
+            widthratio = [1.0]
+        elif cols == 2:
+            widthratio = [1.0, 1.0]
+        else:
+            widthratio = [1.0, 1.0, 1.0]
+
+        if rows == 1:
+            heightratio = [1.0]
+        elif rows == 2:
+            heightratio = [1.0, 1.0]
+        else:
+            heightratio = [1.0] * rows
+
+        fig, axes = plotter.two_column_plot(
+            ncolumns=cols, nrows=rows,
+            widthratio=widthratio,
+            heightratio=heightratio,
+            figsize=(6*cols, 5*rows)
+        )
+        fig.suptitle(f'{title} - Individual Clustering Details', fontsize=16)
+
+        # Handle different axes configurations
+        if rows == 1 and cols == 1:
+            axes = [axes]
+        elif rows == 1 or cols == 1:
+            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+        else:
+            axes = axes.flatten()
+
+        # Define colors for clusters
+        try:
+            import matplotlib.cm as cm
+            cluster_colormap = cm.tab10
+        except:
+            cluster_colormap = None
+
+        for i, (fiducial_locs, meta) in enumerate(zip(validated_fiducials, clustering_metadata)):
+            if i >= len(axes):
+                break
+
+            ax = axes[i]
+            region_id = meta['region_id']
+            original_puncta = selected_puncta[region_id]
+            cluster_labels = meta['cluster_labels']
+
+            # Plot all original points with cluster colors
+            unique_labels = set(cluster_labels)
+            if cluster_colormap:
+                colors = [cluster_colormap(j / max(len(unique_labels), 1)) for j in range(len(unique_labels))]
+            else:
+                colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+
+            color_map = {}
+            for j, label in enumerate(unique_labels):
+                if label == -1:  # Noise points
+                    color_map[label] = 'black'
+                else:
+                    color_map[label] = colors[j % len(colors)]
+
+            # Plot each cluster separately
+            for k in unique_labels:
+                class_mask = cluster_labels == k
+                if np.any(class_mask):
+                    if k == -1:  # Noise points
+                        alpha = 0.3
+                        size = 0.5
+                        label = 'Noise'
+                    else:
+                        alpha = 0.8
+                        size = 2
+                        label = f'Cluster {k}'
+
+                    plotter.scatter_plot(
+                        ax,
+                        original_puncta['xc'][class_mask],
+                        original_puncta['yc'][class_mask],
+                        c=color_map[k], s=size, alpha=alpha,
+                        label=label
+                    )
+
+            # Highlight the main cluster (validated fiducial)
+            plotter.scatter_plot(
+                ax,
+                fiducial_locs['xc'], fiducial_locs['yc'],
+                c='red', s=4, alpha=1.0,
+                edgecolors='white', linewidths=0.2,
+                label='Validated'
+            )
+
+            ax.set_xlabel('X (pixels)')
+            ax.set_ylabel('Y (pixels)')
+            ax.set_title(f'Region {region_id} - {len(fiducial_locs)}/{meta["original_n_locs"]} locs\n'
+                        f'Noise: {meta["noise_fraction"]*100:.1f}%')
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+            ax.axis('equal')
+
+        # Hide unused subplots
+        for i in range(n_validated, len(axes)):
+            if i < len(axes):
+                axes[i].set_visible(False)
+
+        plotter.save_plot(f"{base_path}_details.png", dpi=300, bbox_inches='tight')
 
     def undrift_with_fiducial_detection(
         self,

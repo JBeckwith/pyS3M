@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Example: Two-step fiducial detection using split functions.
+Example: Three-step fiducial detection with DBSCAN clustering validation.
 
-This demonstrates how to use the new split approach for fiducial detection:
+This demonstrates how to use the new comprehensive approach for fiducial detection:
 1. detect_high_density_regions_from_image() - finds potential fiducial regions from rendered image
 2. select_puncta_from_regions() - selects localizations within those regions
+3. identify_real_fiducials_with_clustering() - validates real fiducials using DBSCAN clustering
 
-This separation allows for debugging at each step and tuning parameters independently.
+This separation allows for debugging at each step, tuning parameters independently,
+and filtering out noise to identify only genuine fiducial markers.
 """
 
 import numpy as np
@@ -108,12 +110,46 @@ def example_workflow():
         if 'mean_photons' in stats:
             print(f"    - Mean photons: {stats['mean_photons']:.0f}")
 
-    # Step 4: Use selected fiducials for drift correction (placeholder)
-    print(f"\nStep 4: Ready for drift correction with {len(selected_puncta)} fiducials")
-    print("  → These puncta can now be used with existing fiducial drift correction methods")
-    print("  → Each puncta array contains localizations for one fiducial marker")
+    # Step 3: Apply DBSCAN clustering to identify real fiducials (optional but recommended)
+    print(f"\nStep 3: Applying DBSCAN clustering to validate fiducials...")
 
-    return selected_puncta, selection_metadata
+    try:
+        validated_fiducials, clustering_metadata = drift_corrector.identify_real_fiducials_with_clustering(
+            selected_puncta=selected_puncta,
+            precision_factor=3.0,      # Adjust based on your localization precision
+            min_samples_factor=0.6,    # Fraction of total frames (adjust as needed)
+            frame_count=int(info[0]['Frames']),
+            output_figure_path="step3_clustering.png",
+            title="Step 3: DBSCAN Clustering Validation",
+            create_plot=True
+        )
+
+        print(f"  ✓ Validated {len(validated_fiducials)} real fiducials from {len(selected_puncta)} candidates")
+        print(f"  ✓ Validation rate: {clustering_metadata['validation_rate']*100:.1f}%")
+        print(f"  ✓ Total validated localizations: {clustering_metadata['total_validated_locs']}")
+
+        if clustering_metadata['region_details']:
+            print(f"  ✓ Clustering details:")
+            for i, meta in enumerate(clustering_metadata['region_details']):
+                print(f"    Fiducial {i+1}: {meta['validated_n_locs']} locs, "
+                      f"noise={meta['noise_fraction']*100:.1f}%")
+
+        # Use validated fiducials for subsequent processing
+        final_fiducials = validated_fiducials
+        final_metadata = clustering_metadata
+
+    except Exception as e:
+        print(f"  ⚠ Clustering validation failed: {e}")
+        print(f"  → Using unvalidated puncta (not recommended for production)")
+        final_fiducials = selected_puncta
+        final_metadata = selection_metadata
+
+    # Step 4: Use validated fiducials for drift correction
+    print(f"\nStep 4: Ready for drift correction with {len(final_fiducials)} validated fiducials")
+    print("  → These validated fiducials can now be used with existing drift correction methods")
+    print("  → Each fiducial array contains localizations for one validated marker")
+
+    return final_fiducials, final_metadata
 
 
 def create_example_data():
@@ -203,10 +239,22 @@ def parameter_tuning_tips():
     print("    - Too low = noisy false positives")
     print("    - Too high = miss real fiducials")
 
+    print("\nStep 3 - identify_real_fiducials_with_clustering():")
+    print("  precision_factor:")
+    print("    - 2-5x localization precision for eps parameter")
+    print("    - Lower = tighter clustering (fewer fiducials)")
+    print("    - Higher = looser clustering (more fiducials)")
+    print("  min_samples_factor:")
+    print("    - 0.01-0.6 fraction of total frames")
+    print("    - Higher = stricter validation (fewer fiducials)")
+    print("    - Lower = more permissive (more fiducials)")
+    print("  Note: Clustering automatically filters out noise regions")
+
     print("\nDebugging:")
     print("  - Set create_plot=True to visualize each step")
     print("  - Check detection metadata for statistics")
     print("  - Examine rejection_reasons to tune parameters")
+    print("  - Check clustering validation_rate and noise_fraction")
     print("  - Start with lenient criteria, then tighten")
 
 
