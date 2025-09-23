@@ -2875,7 +2875,7 @@ class Drift_Correction_Functions:
         title: str = "Puncta Selection from Regions",
         create_plot: bool = True,
         plot_individual_regions: bool = True,
-        use_hexbin_for_dense_data: bool = False,
+        use_datashader_threshold: int = 1000,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
         """Select puncta (localizations) from detected high-density regions using postprocess.picked_locs.
 
@@ -2896,8 +2896,8 @@ class Drift_Correction_Functions:
             output_figure_path: Optional path to save selection visualization
             title: Title for visualization plots
             create_plot: Whether to create visualization plots
-            plot_individual_regions: Whether to plot individual region details (limited to 12 for performance)
-            use_hexbin_for_dense_data: Use hexagonal binning for datasets with >100 localizations per plot (much faster)
+            plot_individual_regions: Whether to plot individual region details (all regions shown)
+            use_datashader_threshold: Use datashader for scatter plots with more than this many points
 
         Returns:
             Tuple containing:
@@ -2999,7 +2999,7 @@ class Drift_Correction_Functions:
         if create_plot:
             self._plot_puncta_selection_results(
                 locs, selected_puncta, region_centers, binary_mask, region_stats,
-                box_size_pixels, pixelsize, output_figure_path, title, plot_individual_regions, use_hexbin_for_dense_data
+                box_size_pixels, pixelsize, output_figure_path, title, plot_individual_regions, use_datashader_threshold
             )
 
         # Prepare metadata
@@ -3218,7 +3218,7 @@ class Drift_Correction_Functions:
         output_figure_path: Optional[str],
         title: str,
         plot_individual_regions: bool = True,
-        use_hexbin_for_dense_data: bool = False
+        use_datashader_threshold: int = 1000
     ) -> None:
         """Create visualization of puncta selection results."""
 
@@ -3240,25 +3240,44 @@ class Drift_Correction_Functions:
         fig, axs = plotter.one_column_plot() if use_plotting_functions and plotter else plt.subplots(1, 1, figsize=(8, 8))
         ax1 = axs
 
-        # Auto-enable hexbin for dense data (>8 regions or >5000 localizations)
-        use_hexbin = use_hexbin_for_dense_data or len(region_centers) > 8 or len(all_locs) > 5000
+        # Use datashader for large datasets, regular plotting for smaller ones
+        if len(all_locs) > use_datashader_threshold:
+            try:
+                import datashader as ds
+                import pandas as pd
+                import colorcet as cc
 
-        if use_hexbin:
-            # Ultra-fast hexbin for dense data
-            hexbin = ax1.hexbin(all_locs.xc, all_locs.yc, gridsize=50, cmap='Greys', alpha=0.6,
-                               extent=[0, all_locs.xc.max()+10, 0, all_locs.yc.max()+10])
-            ax1.text(0.02, 0.98, f'Hexbin: {len(all_locs)} locs', transform=ax1.transAxes,
-                    va='top', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                # Create DataFrame from localization data
+                df = pd.DataFrame(data={'x': all_locs.xc, 'y': all_locs.yc})
+
+                # Create datashader canvas
+                cvs = ds.Canvas(plot_width=500, plot_height=500)
+
+                # Aggregate points
+                agg = cvs.points(df, 'x', 'y')
+
+                # Create rasterized image
+                img = ds.tf.set_background(ds.tf.shade(agg, how="log", cmap=cc.fire), "black").to_pil()
+
+                # Display with imshow
+                ax1.imshow(img, extent=[all_locs.xc.min(), all_locs.xc.max(),
+                                       all_locs.yc.min(), all_locs.yc.max()],
+                          aspect='auto', origin='lower')
+                ax1.text(0.02, 0.98, f'Datashader: {len(all_locs)} locs', transform=ax1.transAxes,
+                        va='top', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+            except ImportError:
+                print("Warning: datashader not available, falling back to subsampled points")
+                # Fallback to subsampled plotting
+                if len(all_locs) > 5000:
+                    indices = np.random.choice(len(all_locs), 5000, replace=False)
+                    bg_locs = all_locs[indices]
+                else:
+                    bg_locs = all_locs
+                ax1.plot(bg_locs.xc, bg_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
         else:
-            # Plot background localizations (subsample for speed if too many)
-            if len(all_locs) > 2000:
-                # Random subsample for background visualization
-                indices = np.random.choice(len(all_locs), 2000, replace=False)
-                bg_locs = all_locs[indices]
-            else:
-                bg_locs = all_locs
-            # Ultra-fast background points using plot instead of scatter
-            ax1.plot(bg_locs.xc, bg_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
+            # Regular plotting for smaller datasets
+            ax1.plot(all_locs.xc, all_locs.yc, '.', color='lightgray', markersize=0.5, alpha=0.5, label='Background')
 
         # Overlay binary mask as contours (keep as is - efficient)
         ax1.contour(binary_mask, levels=[0.5], colors='blue', linewidths=1, alpha=0.5, label='Detected regions')
@@ -3300,14 +3319,13 @@ class Drift_Correction_Functions:
             plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches='tight')
             plt.close()
 
-        # Plot 2: Individual region details (if we have selected regions and user wants them)
-        # Limit to first 12 regions for performance
+        # Plot 2: Individual region details (all regions, no limit)
         if selected_puncta and plot_individual_regions:
-            n_regions = min(len(selected_puncta), 12)  # Limit for performance
-            n_cols = min(4, n_regions)
+            n_regions = len(selected_puncta)  # Show ALL regions
+            n_cols = min(6, n_regions)  # Max 6 columns for readability
             n_rows = (n_regions + n_cols - 1) // n_cols
 
-            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(3*n_cols, 3*n_rows))
+            fig2, axes = plotter.two_column_plot(ncolumns=n_cols, nrows=n_rows, widthratio=np.ones(n_cols), heightratio=np.ones(n_rows)) if use_plotting_functions and plotter else plt.subplots(n_rows, n_cols, figsize=(2.5*n_cols, 2.5*n_rows))
             if n_regions == 1:
                 axes = [axes]
             elif n_rows == 1:
@@ -3323,15 +3341,35 @@ class Drift_Correction_Functions:
                 if ax is None:
                     break
 
-                # Use hexbin for dense individual regions (>100 points), plot for sparse
-                if len(puncta) > 100:
-                    # Ultra-fast hexbin for dense regions
-                    extent = [puncta.xc.min()-1, puncta.xc.max()+1, puncta.yc.min()-1, puncta.yc.max()+1]
-                    hexbin_plot = ax.hexbin(puncta.xc, puncta.yc, gridsize=15, cmap='Blues', alpha=0.7, extent=extent)
-                    ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
-                           fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                # Use datashader for dense regions, regular plot for sparse
+                if len(puncta) > use_datashader_threshold:
+                    try:
+                        import datashader as ds
+                        import pandas as pd
+                        import colorcet as cc
+
+                        # Create DataFrame for this region
+                        df = pd.DataFrame(data={'x': puncta.xc, 'y': puncta.yc})
+
+                        # Create small datashader canvas for individual regions
+                        cvs = ds.Canvas(plot_width=200, plot_height=200)
+                        agg = cvs.points(df, 'x', 'y')
+                        img = ds.tf.set_background(ds.tf.shade(agg, how="log", cmap=cc.blues), "white").to_pil()
+
+                        # Display with imshow
+                        ax.imshow(img, extent=[puncta.xc.min(), puncta.xc.max(),
+                                              puncta.yc.min(), puncta.yc.max()],
+                                 aspect='auto', origin='lower')
+                        ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
+                               fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+                    except ImportError:
+                        # Fallback to regular plotting
+                        ax.plot(puncta.xc, puncta.yc, '.', color='blue', markersize=1, alpha=0.7)
+                        ax.text(0.98, 0.02, f'{len(puncta)} locs', transform=ax.transAxes, ha='right',
+                               fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
                 else:
-                    # Ultra-fast plot for sparse regions
+                    # Regular plotting for sparse regions
                     ax.plot(puncta.xc, puncta.yc, '.', color='blue', markersize=2, alpha=0.7)
 
                 # Mark centers (no alpha for speed)
@@ -3357,9 +3395,8 @@ class Drift_Correction_Functions:
             for j in range(n_regions, len(axes)):
                 axes[j].set_visible(False)
 
-            # Add note if regions were truncated
-            if len(selected_puncta) > 12:
-                fig2.suptitle(f"Individual Regions (showing first 12 of {len(selected_puncta)})", fontsize=12)
+            # Add title showing all regions
+            fig2.suptitle(f"Individual Regions (all {len(selected_puncta)} regions)", fontsize=12)
 
             plt.show()
             if output_figure_path:
