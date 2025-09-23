@@ -2831,31 +2831,18 @@ class Drift_Correction_Functions:
 
         # Create visualization using PlottingFunctions (if requested)
         if create_plot:
-            if PlottingFunctions is not None:
-                self._plot_density_detection_results(
-                    smoothed_image,
-                    binary_mask,
-                    region_centers,
-                    hist,
-                    bin_edges,
-                    threshold,
-                    pixelsize,
-                    output_figure_path,
-                    title,
-                    PlottingFunctions
-                )
-            else:
-                # Fallback basic matplotlib plotting
-                self._plot_density_detection_basic(
-                    smoothed_image,
-                    binary_mask,
-                    region_centers,
-                    hist,
-                    bin_edges,
-                    threshold,
-                    output_figure_path,
-                    title
-                )
+            self._plot_density_detection_results(
+                smoothed_image,
+                binary_mask,
+                region_centers,
+                hist,
+                bin_edges,
+                threshold,
+                pixelsize,
+                output_figure_path,
+                title,
+                PlottingFunctions
+            )
 
         # Prepare metadata
         metadata = {
@@ -2872,6 +2859,338 @@ class Drift_Correction_Functions:
         }
 
         return region_centers, binary_mask, threshold, metadata
+
+    def select_puncta_from_regions(
+        self,
+        locs: np.recarray,
+        region_centers: List[Tuple[int, int]],
+        binary_mask: np.ndarray,
+        pixelsize: float = 100.0,
+        selection_box_size_nm: float = 600.0,
+        min_localizations_per_region: int = 10,
+        output_figure_path: Optional[str] = None,
+        title: str = "Puncta Selection from Regions",
+        create_plot: bool = True,
+    ) -> Tuple[List[np.recarray], Dict[str, Any]]:
+        """Select puncta (localizations) from detected high-density regions using box selection.
+
+        This function takes the output from detect_high_density_regions_from_image
+        and selects localizations within square boxes around each detected region center
+        to create potential fiducial candidates. Uses box-based selection consistent
+        with existing fiducial detection methods.
+
+        Args:
+            locs: Localization data with xc, yc, frame fields
+            region_centers: List of (y, x) coordinates from density detection
+            binary_mask: Binary mask from density detection
+            pixelsize: Pixel size in nm for coordinate conversion
+            selection_box_size_nm: Size of square selection box around each region center (nm)
+            min_localizations_per_region: Minimum number of localizations required for a valid region
+            output_figure_path: Optional path to save selection visualization
+            title: Title for visualization plots
+            create_plot: Whether to create visualization plots
+
+        Returns:
+            Tuple containing:
+            - List of localization arrays, one per valid region
+            - Metadata dictionary with selection statistics
+        """
+
+        # Convert box size from nm to pixels and calculate half-box
+        box_size_pixels = selection_box_size_nm / pixelsize
+        half_box = box_size_pixels / 2.0
+
+        # Extract coordinates for easier processing
+        locs_x = locs.xc
+        locs_y = locs.yc
+
+        # Store results
+        selected_puncta = []
+        region_stats = []
+
+        # Process each detected region
+        for region_id, (center_y, center_x) in enumerate(region_centers):
+            # Define box boundaries around region center
+            x_min = center_x - half_box
+            x_max = center_x + half_box
+            y_min = center_y - half_box
+            y_max = center_y + half_box
+
+            # Select localizations within box
+            within_box = ((locs_x >= x_min) & (locs_x <= x_max) &
+                         (locs_y >= y_min) & (locs_y <= y_max))
+            region_locs = locs[within_box]
+
+            # Apply localization count filter
+            n_locs = len(region_locs)
+
+            if n_locs >= min_localizations_per_region:
+                selected_puncta.append(region_locs)
+
+                # Calculate region statistics
+                region_stat = {
+                    'region_id': region_id,
+                    'center_y': center_y,
+                    'center_x': center_x,
+                    'n_localizations': n_locs,
+                    'mean_x': np.mean(region_locs.xc) if n_locs > 0 else center_x,
+                    'mean_y': np.mean(region_locs.yc) if n_locs > 0 else center_y,
+                    'std_x': np.std(region_locs.xc) if n_locs > 0 else 0,
+                    'std_y': np.std(region_locs.yc) if n_locs > 0 else 0,
+                    'frame_range': [int(region_locs.frame.min()), int(region_locs.frame.max())] if n_locs > 0 else [0, 0],
+                    'frame_span': int(region_locs.frame.max() - region_locs.frame.min() + 1) if n_locs > 0 else 0,
+                    'selection_box_size_nm': selection_box_size_nm,
+                    'selection_box_size_pixels': box_size_pixels,
+                    'box_boundaries': {
+                        'x_min': x_min,
+                        'x_max': x_max,
+                        'y_min': y_min,
+                        'y_max': y_max
+                    },
+                }
+
+                # Add photon statistics if available
+                if hasattr(region_locs, 'photons') and n_locs > 0:
+                    region_stat['mean_photons'] = np.mean(region_locs.photons)
+                    region_stat['std_photons'] = np.std(region_locs.photons)
+
+                region_stats.append(region_stat)
+
+        # Create visualization if requested
+        if create_plot:
+            self._plot_puncta_selection_results(
+                locs, selected_puncta, region_centers, binary_mask, region_stats,
+                box_size_pixels, pixelsize, output_figure_path, title
+            )
+
+        # Prepare metadata
+        metadata = {
+            'n_regions_input': len(region_centers),
+            'n_regions_selected': len(selected_puncta),
+            'selection_criteria': {
+                'min_localizations': min_localizations_per_region,
+                'selection_box_size_nm': selection_box_size_nm,
+                'selection_box_size_pixels': box_size_pixels,
+            },
+            'region_statistics': region_stats,
+            'total_selected_localizations': sum(len(puncta) for puncta in selected_puncta),
+            'rejection_reasons': self._analyze_rejection_reasons(
+                region_centers, locs, box_size_pixels,
+                min_localizations_per_region
+            )
+        }
+
+        return selected_puncta, metadata
+
+    def _analyze_rejection_reasons(
+        self,
+        region_centers: List[Tuple[int, int]],
+        locs: np.recarray,
+        box_size_pixels: float,
+        min_locs: int
+    ) -> Dict[str, int]:
+        """Analyze why regions were rejected during puncta selection using box-based selection."""
+
+        reasons = {
+            'too_few_localizations': 0,
+            'accepted': 0
+        }
+
+        locs_x = locs.xc
+        locs_y = locs.yc
+        half_box = box_size_pixels / 2.0
+
+        for center_y, center_x in region_centers:
+            # Define box boundaries
+            x_min = center_x - half_box
+            x_max = center_x + half_box
+            y_min = center_y - half_box
+            y_max = center_y + half_box
+
+            # Count localizations within box
+            within_box = ((locs_x >= x_min) & (locs_x <= x_max) &
+                         (locs_y >= y_min) & (locs_y <= y_max))
+            n_locs = np.sum(within_box)
+
+            if n_locs < min_locs:
+                reasons['too_few_localizations'] += 1
+            else:
+                reasons['accepted'] += 1
+
+        return reasons
+
+    def _plot_puncta_selection_results(
+        self,
+        all_locs: np.recarray,
+        selected_puncta: List[np.recarray],
+        region_centers: List[Tuple[int, int]],
+        binary_mask: np.ndarray,
+        region_stats: List[Dict[str, Any]],
+        box_size_pixels: float,
+        pixelsize: float,
+        output_figure_path: Optional[str],
+        title: str
+    ) -> None:
+        """Create visualization of puncta selection results."""
+
+        try:
+            import PlottingFunctions
+            plotter = PlottingFunctions.Plotter(poster=False)
+            use_plotting_functions = True
+        except ImportError:
+            use_plotting_functions = False
+
+        # Get file base name for multiple plots
+        if output_figure_path:
+            base_path = output_figure_path.rsplit('.', 1)[0] if '.' in output_figure_path else output_figure_path
+        else:
+            base_path = "puncta_selection"
+
+        # Plot 1: Overview with all localizations and detected regions
+        fig1 = plt.figure(figsize=(10, 8))
+        ax1 = plt.gca()
+
+        # Plot all localizations as background
+        ax1.scatter(all_locs.xc, all_locs.yc, c='lightgray', s=1, alpha=0.3, label='All localizations')
+
+        # Overlay binary mask as contours
+        ax1.contour(binary_mask, levels=[0.5], colors='blue', linewidths=1, alpha=0.5, label='Detected regions')
+
+        # Plot region centers and selection boxes
+        half_box = box_size_pixels / 2.0
+        for i, (center_y, center_x) in enumerate(region_centers):
+            # Draw selection box
+            box_rect = patches.Rectangle((center_x - half_box, center_y - half_box),
+                                        box_size_pixels, box_size_pixels,
+                                        fill=False, color='red', linestyle='--', alpha=0.7)
+            ax1.add_patch(box_rect)
+
+            # Mark center
+            ax1.plot(center_x, center_y, 'ro', markersize=5)
+
+        # Highlight selected puncta
+        colors = plt.cm.Set3(np.linspace(0, 1, max(1, len(selected_puncta))))
+        for i, (puncta, color) in enumerate(zip(selected_puncta, colors)):
+            ax1.scatter(puncta.xc, puncta.yc, c=[color], s=8, alpha=0.8,
+                       label=f'Region {i+1} ({len(puncta)} locs)')
+
+        ax1.set_xlabel('X (pixels)')
+        ax1.set_ylabel('Y (pixels)')
+        ax1.set_title(f'{title} - Overview')
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax1.set_aspect('equal')
+        ax1.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        if output_figure_path:
+            plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Plot 2: Individual region details (if we have selected regions)
+        if selected_puncta:
+            n_regions = len(selected_puncta)
+            n_cols = min(4, n_regions)
+            n_rows = (n_regions + n_cols - 1) // n_cols
+
+            fig2, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            if n_regions == 1:
+                axes = [axes]
+            elif n_rows == 1:
+                axes = axes.flatten()
+            else:
+                axes = axes.flatten()
+
+            for i, (puncta, stats) in enumerate(zip(selected_puncta, region_stats)):
+                ax = axes[i] if i < len(axes) else None
+                if ax is None:
+                    break
+
+                # Plot localizations in this region
+                ax.scatter(puncta.xc, puncta.yc, c='blue', s=20, alpha=0.7)
+
+                # Mark region center
+                ax.plot(stats['center_x'], stats['center_y'], 'ro', markersize=8, label='Region center')
+                ax.plot(stats['mean_x'], stats['mean_y'], 'go', markersize=8, label='Centroid')
+
+                # Draw selection box
+                box_rect = patches.Rectangle((stats['center_x'] - half_box, stats['center_y'] - half_box),
+                                           box_size_pixels, box_size_pixels,
+                                           fill=False, color='red', linestyle='--')
+                ax.add_patch(box_rect)
+
+                ax.set_title(f"Region {i+1}: {stats['n_localizations']} locs\n"
+                           f"Frames {stats['frame_range'][0]}-{stats['frame_range'][1]}")
+                ax.set_xlabel('X (pixels)')
+                ax.set_ylabel('Y (pixels)')
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                ax.set_aspect('equal')
+
+            # Hide unused subplots
+            for i in range(len(selected_puncta), len(axes)):
+                axes[i].set_visible(False)
+
+            plt.tight_layout()
+            if output_figure_path:
+                plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches='tight')
+                plt.close()
+
+        # Plot 3: Statistics summary
+        if region_stats:
+            fig3, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+            # Histogram of localizations per region
+            n_locs_list = [stats['n_localizations'] for stats in region_stats]
+            axes[0, 0].hist(n_locs_list, bins=min(20, len(n_locs_list)), alpha=0.7, color='skyblue')
+            axes[0, 0].set_xlabel('Localizations per region')
+            axes[0, 0].set_ylabel('Frequency')
+            axes[0, 0].set_title('Distribution of Localizations per Region')
+            axes[0, 0].grid(True, alpha=0.3)
+
+            # Frame spans
+            frame_spans = [stats['frame_span'] for stats in region_stats]
+            axes[0, 1].hist(frame_spans, bins=min(20, len(frame_spans)), alpha=0.7, color='lightgreen')
+            axes[0, 1].set_xlabel('Frame span')
+            axes[0, 1].set_ylabel('Frequency')
+            axes[0, 1].set_title('Distribution of Frame Spans')
+            axes[0, 1].grid(True, alpha=0.3)
+
+            # Position spreads
+            std_x_list = [stats['std_x'] for stats in region_stats]
+            std_y_list = [stats['std_y'] for stats in region_stats]
+            axes[1, 0].scatter(std_x_list, std_y_list, alpha=0.7, color='orange')
+            axes[1, 0].set_xlabel('X std (pixels)')
+            axes[1, 0].set_ylabel('Y std (pixels)')
+            axes[1, 0].set_title('Localization Spreads')
+            axes[1, 0].grid(True, alpha=0.3)
+
+            # Photon statistics (if available)
+            if 'mean_photons' in region_stats[0]:
+                photons_list = [stats['mean_photons'] for stats in region_stats]
+                axes[1, 1].hist(photons_list, bins=min(20, len(photons_list)), alpha=0.7, color='pink')
+                axes[1, 1].set_xlabel('Mean photons per localization')
+                axes[1, 1].set_ylabel('Frequency')
+                axes[1, 1].set_title('Distribution of Photon Counts')
+            else:
+                axes[1, 1].text(0.5, 0.5, 'No photon data available',
+                               ha='center', va='center', transform=axes[1, 1].transAxes)
+                axes[1, 1].set_title('Photon Statistics')
+            axes[1, 1].grid(True, alpha=0.3)
+
+            plt.tight_layout()
+            if output_figure_path:
+                plt.savefig(f"{base_path}_3_statistics.png", dpi=300, bbox_inches='tight')
+                plt.close()
+
+        if output_figure_path:
+            print(f"Puncta selection results saved:")
+            print(f"  - {base_path}_1_overview.png")
+            if selected_puncta:
+                print(f"  - {base_path}_2_regions.png")
+            if region_stats:
+                print(f"  - {base_path}_3_statistics.png")
+        else:
+            plt.show()
 
     def _plot_density_detection_results(
         self,
@@ -2919,8 +3238,8 @@ class Drift_Correction_Functions:
             base_path = "density_detection"
 
         # Plot 1: Original smoothed image
-        fig1 = plt.figure(figsize=(6, 5))
-        ax1 = plt.gca()
+        fig, axs = plotter.two_column_figure(nrows=2, ncolumns=2, widthratio=[1,1], heightratio=[1,1])
+        ax1 = axs[0, 0]
         plotter.image_plot(
             ax1,
             smoothed_image,
@@ -2931,18 +3250,16 @@ class Drift_Correction_Functions:
             pixelsize=pixelsize,
             sbar='on'
         )
-        plt.title(f'{title} - Smoothed Image')
-        if output_figure_path:
-            plt.savefig(f"{base_path}_1_smoothed.png", dpi=300, bbox_inches='tight')
-            plt.close()
+        ax1.set_title(f'{title} - Smoothed Image')
 
         # Plot 2: Binary mask with detected regions
-        fig2 = plt.figure(figsize=(6, 5))
-        ax2 = plt.gca()
+        ax2 = axs[0, 1]
         plotter.image_plot(
             ax2,
             binary_mask.astype(float),
             cmap='binary',
+            vmin=0,
+            vmax=1,
             cbar='off',
             label='Detected Regions',
             pixelsize=pixelsize,
@@ -2952,14 +3269,10 @@ class Drift_Correction_Functions:
         if region_centers:
             centers_y, centers_x = zip(*region_centers)
             ax2.scatter(centers_x, centers_y, c='red', s=50, marker='x', linewidths=2)
-        plt.title(f'{title} - Detected Regions (n={len(region_centers)})')
-        if output_figure_path:
-            plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches='tight')
-            plt.close()
+        ax2.set_title(f'{title} - Detected Regions (n={len(region_centers)})')
 
         # Plot 3: Image with overlaid detections
-        fig3 = plt.figure(figsize=(6, 5))
-        ax3 = plt.gca()
+        ax3 = axs[1, 0]
         plotter.image_plot(
             ax3,
             smoothed_image,
@@ -2971,18 +3284,14 @@ class Drift_Correction_Functions:
             sbar='on'
         )
         # Overlay detection mask as contours
-        ax3.contour(binary_mask, levels=[0.5], colors='red', linewidths=2, alpha=0.8)
+        ax3.contour(binary_mask, levels=[0.5], colors='red', linewidths=0.5, alpha=0.8)
         if region_centers:
             centers_y, centers_x = zip(*region_centers)
-            ax3.scatter(centers_x, centers_y, c='cyan', s=40, marker='+', linewidths=2)
-        plt.title(f'{title} - Detection Overlay')
-        if output_figure_path:
-            plt.savefig(f"{base_path}_3_overlay.png", dpi=300, bbox_inches='tight')
-            plt.close()
+            ax3.scatter(centers_x, centers_y, c='cyan', s=40, marker='+', linewidths=0.5)
+        ax3.set_title(f'{title} - Detection Overlay')
 
         # Plot 4: Histogram - use basic matplotlib since PlottingFunctions histogram_plot expects different input
-        fig4 = plt.figure(figsize=(8, 5))
-        ax4 = plt.gca()
+        ax4 = axs[1, 1]
 
         # Create histogram plot manually to match our data format
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -2999,77 +3308,15 @@ class Drift_Correction_Functions:
         ax4.set_ylabel('Frequency')
         ax4.legend()
         ax4.grid(True, alpha=0.3)
-        plt.title(f'{title} - Intensity Distribution')
+        ax4.set_title(f'{title} - Intensity Distribution')
 
         if output_figure_path:
-            plt.savefig(f"{base_path}_4_histogram.png", dpi=300, bbox_inches='tight')
+            plt.savefig(f"{base_path}_Figure.png", dpi=300, bbox_inches='tight')
             plt.close()
 
         if output_figure_path:
-            print(f"Detection results saved as multiple files:")
-            print(f"  - {base_path}_1_smoothed.png")
-            print(f"  - {base_path}_2_regions.png")
-            print(f"  - {base_path}_3_overlay.png")
-            print(f"  - {base_path}_4_histogram.png")
-        else:
-            plt.show()
-
-    def _plot_density_detection_basic(
-        self,
-        smoothed_image: np.ndarray,
-        binary_mask: np.ndarray,
-        region_centers: List[Tuple[int, int]],
-        hist: np.ndarray,
-        bin_edges: np.ndarray,
-        threshold: float,
-        output_figure_path: Optional[str],
-        title: str
-    ) -> None:
-        """Basic matplotlib fallback visualization."""
-
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-
-        # Plot 1: Original image
-        im1 = axes[0, 0].imshow(smoothed_image, cmap='hot', origin='lower')
-        axes[0, 0].set_title('Smoothed Image')
-        plt.colorbar(im1, ax=axes[0, 0], label='Intensity')
-
-        # Plot 2: Binary mask
-        axes[0, 1].imshow(binary_mask, cmap='binary', origin='lower')
-        if region_centers:
-            centers_y, centers_x = zip(*region_centers)
-            axes[0, 1].scatter(centers_x, centers_y, c='red', s=50, marker='x')
-        axes[0, 1].set_title(f'Detected Regions (n={len(region_centers)})')
-
-        # Plot 3: Overlay
-        im3 = axes[1, 0].imshow(smoothed_image, cmap='gray', origin='lower')
-        axes[1, 0].contour(binary_mask, levels=[0.5], colors='red', linewidths=2)
-        if region_centers:
-            centers_y, centers_x = zip(*region_centers)
-            axes[1, 0].scatter(centers_x, centers_y, c='cyan', s=40, marker='+')
-        axes[1, 0].set_title('Detection Overlay')
-        plt.colorbar(im3, ax=axes[1, 0], label='Intensity')
-
-        # Plot 4: Histogram
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        axes[1, 1].plot(bin_centers, hist, 'b-', label='Histogram')
-        axes[1, 1].axvline(threshold, color='red', linestyle='--', label=f'Threshold ({threshold:.1f})')
-        axes[1, 1].fill_between(bin_centers[bin_centers >= threshold],
-                               hist[bin_centers >= threshold],
-                               alpha=0.3, color='red')
-        axes[1, 1].set_xlabel('Intensity')
-        axes[1, 1].set_ylabel('Frequency')
-        axes[1, 1].set_title('Intensity Distribution')
-        axes[1, 1].legend()
-        axes[1, 1].grid(True, alpha=0.3)
-
-        fig.suptitle(title, fontsize=14, y=0.98)
-        # Use manual layout adjustment instead of tight_layout to avoid engine conflicts
-        plt.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.08, hspace=0.3, wspace=0.3)
-
-        if output_figure_path:
-            plt.savefig(output_figure_path, dpi=300, bbox_inches='tight')
-            print(f"Detection results saved to: {output_figure_path}")
+            print(f"Detection results saved as png:")
+            print(f"  - {base_path}_Figure.png")
         else:
             plt.show()
 
