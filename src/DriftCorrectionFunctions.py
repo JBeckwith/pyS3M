@@ -18,8 +18,7 @@ import gc
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import Birch
 
 # Matplotlib imports (needed for drift correction plotting)
 import matplotlib.pyplot as plt
@@ -3166,17 +3165,18 @@ class Drift_Correction_Functions:
         title: str = "Fiducial Clustering Analysis",
         create_plot: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
-        """Identify real fiducials from selected puncta using DBSCAN clustering.
+        """Identify real fiducials from selected puncta using BIRCH clustering.
 
         This function takes puncta (localizations) from select_puncta_from_regions
-        and applies DBSCAN clustering to identify real fiducial markers by requiring
-        spatial clustering of localizations. This helps filter out noise and false positives.
+        and applies BIRCH clustering to identify real fiducial markers by requiring
+        spatial clustering of localizations. BIRCH is much more memory-efficient than DBSCAN
+        and uses a sample-then-predict strategy for large datasets.
 
         Args:
             selected_puncta: List of localization arrays from select_puncta_from_regions
-            precision_factor: Multiplier for localization precision to set DBSCAN eps parameter
-            min_samples_factor: Fraction of frame_count to set minimum samples per cluster
-            frame_count: Total number of frames (for min_samples calculation)
+            precision_factor: Multiplier for localization precision to set BIRCH threshold parameter
+            min_samples_factor: Fraction of frame_count (unused in BIRCH but kept for compatibility)
+            frame_count: Total number of frames (for reference)
             output_figure_path: Optional path to save clustering visualization
             title: Title for visualization plots
             create_plot: Whether to create visualization plots
@@ -3218,67 +3218,60 @@ class Drift_Correction_Functions:
                 int(min_samples_factor * frame_count / 1000), 5
             )  # Scale by 1000, minimum 5
 
-            # Step 0: Pre-filter points using 2σ Gaussian assumption to reduce memory load
-            # Calculate centroid and standard deviations for elliptical filtering
-            mean_x, mean_y = np.mean(X[:, 0]), np.mean(X[:, 1])
-            std_x, std_y = np.std(X[:, 0]), np.std(X[:, 1])
-
-            # Apply 1.5σ elliptical filter: (dx/σx)² + (dy/σy)² <= 2.25
-            # This removes outliers before expensive distance matrix computation
-            if std_x > 0 and std_y > 0:
-                dx = (X[:, 0] - mean_x) / std_x
-                dy = (X[:, 1] - mean_y) / std_y
-                elliptical_distance = dx**2 + dy**2
-                within_1_5sigma = elliptical_distance <= 2.25  # 1.5σ threshold
-
-                # Filter the data
-                X_filtered = X[within_1_5sigma]
-                original_indices = np.where(within_1_5sigma)[0]
-
-                print(f"  Pre-filtering: {len(X)} → {len(X_filtered)} points (removed {len(X) - len(X_filtered)} outliers)")
-            else:
-                # If no variation, keep all points
-                X_filtered = X
-                original_indices = np.arange(len(X))
-
-            # Apply memory-optimized DBSCAN clustering with pre-computed sparse neighborhoods
+            # Apply memory-efficient BIRCH clustering with sampling strategy
             try:
-                # Step 1: Pre-compute sparse neighborhoods using NearestNeighbors (memory efficient)
-                # This avoids the expensive query complexity in DBSCAN
-                nbrs = NearestNeighbors(radius=loc_precision, algorithm='ball_tree')
-                nbrs.fit(X_filtered)
+                # Step 1: Sample data for BIRCH training if dataset is large
+                n_points = len(X)
+                sample_size = min(2000, n_points)  # Use up to 2000 points for training
 
-                # Get sparse distance matrix using radius_neighbors_graph
-                # mode='distance' gives us the actual distances for metric='precomputed'
-                sparse_distances = nbrs.radius_neighbors_graph(X_filtered, loc_precision, mode='distance')
+                if n_points > sample_size:
+                    # Randomly sample points for BIRCH training
+                    np.random.seed(42)  # For reproducibility
+                    sample_indices = np.random.choice(n_points, sample_size, replace=False)
+                    X_sample = X[sample_indices]
+                    print(f"  BIRCH training on {sample_size} sampled points from {n_points} total")
+                else:
+                    X_sample = X
+                    sample_indices = np.arange(n_points)
+                    print(f"  BIRCH training on all {n_points} points")
 
-                # Clear NearestNeighbors object to free memory
-                del X, nbrs
-                gc.collect()
+                # Step 2: Configure BIRCH parameters
+                # threshold: Maximum distance between a point and cluster centroid to assign it
+                # branching_factor: Maximum number of subclusters in each CF node
+                # n_clusters: Auto-determine clusters or set to None for natural clustering
+                threshold_distance = loc_precision * 1.5  # Slightly larger than DBSCAN eps
 
-                # Step 2: Use DBSCAN with pre-computed sparse distances
-                # This is much more memory efficient than recomputing neighborhoods
-                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples, metric='precomputed')
-                cluster_labels_filtered = dbscan.fit_predict(sparse_distances)
+                birch = Birch(
+                    threshold=threshold_distance,
+                    branching_factor=50,  # Balance memory vs accuracy
+                    n_clusters=None,  # Let BIRCH determine clusters naturally
+                    compute_labels=True
+                )
 
-                # Clear DBSCAN and sparse matrix to free memory immediately
-                del dbscan, sparse_distances
-                gc.collect()
+                # Step 3: Train BIRCH on sample data
+                birch.fit(X_sample)
+                sample_labels = birch.labels_
 
-                # Map filtered cluster labels back to original data indices
-                # Initialize all original points as noise (-1)
-                cluster_labels = np.full(len(puncta_locs), -1, dtype=int)
-                # Assign cluster labels only to points that passed the 2σ filter
-                cluster_labels[original_indices] = cluster_labels_filtered
+                # Count valid clusters in sample (excluding noise points if any)
+                sample_cluster_ids = set(sample_labels)
+                if -1 in sample_cluster_ids:
+                    sample_cluster_ids.remove(-1)  # Remove noise label if present
+                n_sample_clusters = len(sample_cluster_ids)
 
-                # Clear filtered arrays to free memory
-                del X_filtered, cluster_labels_filtered, original_indices
+                print(f"  BIRCH found {n_sample_clusters} clusters in sample data")
+
+                # Step 4: Predict on full dataset using trained BIRCH model
+                cluster_labels = birch.predict(X)
+
+                # Clear sample data to free memory
+                del X, X_sample, sample_labels
                 gc.collect()
 
                 # Analyze clustering results
-                n_clusters = len(set(cluster_labels)) - (
-                    1 if -1 in cluster_labels else 0
-                )
+                cluster_ids = set(cluster_labels)
+                if -1 in cluster_ids:
+                    cluster_ids.remove(-1)  # Remove noise label if present
+                n_clusters = len(cluster_ids)
                 n_noise = np.sum(cluster_labels == -1)
 
                 # Consider this a valid fiducial if we have at least one significant cluster
@@ -3308,8 +3301,9 @@ class Drift_Correction_Functions:
                             "n_noise": n_noise,
                             "noise_fraction": n_noise / n_locs,
                             "largest_cluster_size": np.sum(main_cluster_mask),
-                            "eps_used": loc_precision,
-                            "min_samples_used": min_samples,
+                            "threshold_used": threshold_distance,
+                            "clustering_method": "BIRCH",
+                            "sample_size": sample_size if n_points > sample_size else n_points,
                             "precision_factor": precision_factor,
                             "min_samples_factor": min_samples_factor,
                             "cluster_labels": cluster_labels,
@@ -3334,7 +3328,7 @@ class Drift_Correction_Functions:
 
             except Exception as e:
                 # Skip this region if clustering fails
-                print(f"Warning: DBSCAN clustering failed for region {region_id}: {e}")
+                print(f"Warning: BIRCH clustering failed for region {region_id}: {e}")
                 continue
 
         # Create visualization if requested
