@@ -4017,246 +4017,251 @@ class Drift_Correction_Functions:
         n_regions = len(selected_puncta)
         n_validated = len(validated_fiducials)
 
-        # Create overview figure using PlottingFunctions (3x3 layout)
+        # Create column of 2x2 plots, one for each validated region
+        n_plots_per_region = 4  # 2x2 grid per region
+        total_cols = 2
+        total_rows = max(1, n_validated * 2)  # 2 rows per validated region
+
         fig, axes = plotter.two_column_plot(
-            ncolumns=3,
-            nrows=3,
-            widthratio=[1.0, 1.0, 1.0],
-            heightratio=[1.0, 1.0, 1.0],
-            width=18,
-            height=18,
+            ncolumns=total_cols,
+            nrows=total_rows,
+            widthratio=[1.0, 1.0],
+            heightratio=[1.0] * total_rows,
+            width=12,
+            height=6 * n_validated,
         )
+
+        # Handle case where axes might be 1D
+        if total_rows == 1:
+            axes = axes.reshape(1, -1) if hasattr(axes, 'reshape') else np.array([axes])
+        elif total_cols == 1:
+            axes = axes.reshape(-1, 1) if hasattr(axes, 'reshape') else axes
+
         fig.suptitle(
-            f"{title} - Overview (Input: {n_regions}, Validated: {n_validated})",
+            f"{title} - Individual Region Analysis (Validated: {n_validated})",
             fontsize=16,
         )
 
-        # Color setup
+        # Create individual 2x2 plots for each validated region
         try:
             import matplotlib.cm as cm
-
-            colors = cm.tab10(
-                np.linspace(0, 1, max(n_regions, 10))
-            )  # Use tab10 colormap
+            colors = cm.tab10(np.linspace(0, 1, max(n_regions, 10)))
         except:
-            colors = [
-                "blue",
-                "red",
-                "green",
-                "orange",
-                "purple",
-                "brown",
-                "pink",
-                "gray",
-                "olive",
-                "cyan",
-            ]
+            colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
 
-        # Plot 1: All input puncta regions (top-left)
-        ax1 = axes[0, 0]
-        for i, puncta_locs in enumerate(selected_puncta):
-            color = colors[i % len(colors)]
-            plotter.scatter_plot(
-                ax1,
-                puncta_locs["xc"],
-                puncta_locs["yc"],
-                s=1,
-                alpha=0.6,
-                c=color,
-                label=f"Region {i+1}",
-            )
-        ax1.set_xlabel("X (pixels)")
-        ax1.set_ylabel("Y (pixels)")
-        ax1.set_title(f"Input Puncta Regions (n={n_regions})")
-        ax1.grid(True, alpha=0.3)
-        ax1.axis("equal")
+        # Plot each validated region in a 2x2 grid
+        for region_idx, (fiducial_locs, meta) in enumerate(zip(validated_fiducials, clustering_metadata)):
+            region_id = meta["region_id"]
+            original_puncta = selected_puncta[region_id]
 
-        # Plot 2: Validated fiducials only (top-center)
-        ax2 = axes[0, 1]
-        for i, fiducial_locs in enumerate(validated_fiducials):
-            color = colors[i % len(colors)]
-            plotter.scatter_plot(
-                ax2,
-                fiducial_locs["xc"],
-                fiducial_locs["yc"],
-                s=2,
-                alpha=0.8,
-                c=color,
-                label=f"Fiducial {i+1}",
-            )
-        ax2.set_xlabel("X (pixels)")
-        ax2.set_ylabel("Y (pixels)")
-        ax2.set_title(f"Validated Fiducials (n={n_validated})")
-        ax2.grid(True, alpha=0.3)
-        ax2.axis("equal")
+            # Calculate row positions for this region (2 rows per region)
+            start_row = region_idx * 2
 
-        # Plot 3: Validation overlay (top-right)
-        ax3 = axes[0, 2]
-        # Plot all input in light gray
-        for puncta_locs in selected_puncta:
-            plotter.scatter_plot(
-                ax3,
-                puncta_locs["xc"],
-                puncta_locs["yc"],
-                s=0.5,
-                alpha=0.3,
-                c="lightgray",
-            )
-        # Overlay validated fiducials in bright colors
-        for i, fiducial_locs in enumerate(validated_fiducials):
-            color = colors[i % len(colors)]
-            plotter.scatter_plot(
-                ax3,
-                fiducial_locs["xc"],
-                fiducial_locs["yc"],
-                s=3,
-                alpha=0.9,
-                c=color,
-            )
-        ax3.set_xlabel("X (pixels)")
-        ax3.set_ylabel("Y (pixels)")
-        ax3.set_title("Validation Overlay")
-        ax3.grid(True, alpha=0.3)
-        ax3.axis("equal")
+            # Get the 4 axes for this region's 2x2 grid
+            if total_rows > 1:
+                ax_tl = axes[start_row, 0]      # Top-left
+                ax_tr = axes[start_row, 1]      # Top-right
+                ax_bl = axes[start_row + 1, 0]  # Bottom-left
+                ax_br = axes[start_row + 1, 1]  # Bottom-right
+            else:
+                # Single row case
+                ax_tl = axes[0]
+                ax_tr = axes[1] if len(axes) > 1 else axes[0]
+                ax_bl = axes[0]
+                ax_br = axes[1] if len(axes) > 1 else axes[0]
 
-        # Plot 4: Validation statistics (middle-left)
-        ax4 = axes[1, 0]
-        if clustering_metadata:
-            # Bar plot of noise fractions
-            region_ids = [meta["region_id"] for meta in clustering_metadata]
-            noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
-            x_pos = np.arange(len(region_ids))
+            region_color = colors[region_id % len(colors)]
 
-            # Color bars based on validation (low noise = good)
-            bar_colors = []
-            for noise_frac in noise_fractions:
-                if noise_frac < 0.2:  # Good
-                    bar_colors.append("green")
-                elif noise_frac < 0.5:  # Moderate
-                    bar_colors.append("orange")
-                else:  # Poor
-                    bar_colors.append("red")
+            # Plot 1: Original puncta for this region
+            self._plot_region_data_with_datashader(ax_tl, [original_puncta], [region_color],
+                                                  f"Region {region_id+1}: Original Puncta\n({len(original_puncta):,} points)")
 
-            bars = ax4.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
-            ax4.set_xlabel("Validated Region")
-            ax4.set_ylabel("Noise Fraction")
-            ax4.set_title("Clustering Quality (Lower = Better)")
-            ax4.set_xticks(x_pos)
-            ax4.set_xticklabels([f"R{rid}" for rid in region_ids])
-            ax4.grid(True, alpha=0.3)
+            # Plot 2: Validated fiducial points only
+            self._plot_region_data_with_datashader(ax_tr, [fiducial_locs], [region_color],
+                                                  f"Region {region_id+1}: Validated Fiducial\n({len(fiducial_locs):,} points)")
 
-        # Plot 5: Cluster counts (middle-center)
-        ax5 = axes[1, 1]
-        if clustering_metadata:
-            n_clusters = [meta["n_clusters"] for meta in clustering_metadata]
-            x_pos = np.arange(len(region_ids))
+            # Plot 3: Clustering overlay (original + validated)
+            all_x = np.concatenate([original_puncta['xc'], fiducial_locs['xc']])
+            all_y = np.concatenate([original_puncta['yc'], fiducial_locs['yc']])
+            types = ['original'] * len(original_puncta) + ['validated'] * len(fiducial_locs)
 
-            bars = ax5.bar(x_pos, n_clusters, alpha=0.7, color='skyblue')
-            ax5.set_xlabel("Validated Region")
-            ax5.set_ylabel("Number of Clusters")
-            ax5.set_title("Clusters per Region")
-            ax5.set_xticks(x_pos)
-            ax5.set_xticklabels([f"R{rid}" for rid in region_ids])
-            ax5.grid(True, alpha=0.3)
+            self._plot_clustering_overlay(ax_bl, all_x, all_y, types,
+                                        f"Region {region_id+1}: Clustering Overlay")
 
-        # Plot 6: Localization retention (middle-right)
-        ax6 = axes[1, 2]
-        if clustering_metadata:
-            retention_rates = []
-            for i, meta in enumerate(clustering_metadata):
-                region_id = meta["region_id"]
-                original_count = len(selected_puncta[region_id])
-                validated_count = len(validated_fiducials[i])
-                retention_rates.append(100 * validated_count / original_count)
+            # Plot 4: Clustering statistics
+            ax_br.axis('off')
+            stats_text = f"Region {region_id+1} Statistics:\n\n"
+            stats_text += f"• Original Points: {len(original_puncta):,}\n"
+            stats_text += f"• Validated Points: {len(fiducial_locs):,}\n"
+            stats_text += f"• Retention Rate: {100*len(fiducial_locs)/len(original_puncta):.1f}%\n"
+            stats_text += f"• Noise Fraction: {meta['noise_fraction']:.3f}\n"
+            stats_text += f"• N Clusters: {meta['n_clusters']}\n"
+            if 'eps' in meta:
+                stats_text += f"• DBSCAN eps: {meta['eps']:.2f}\n"
+                stats_text += f"• Min Samples: {meta['min_samples']}\n"
 
-            x_pos = np.arange(len(region_ids))
-            bars = ax6.bar(x_pos, retention_rates, alpha=0.7, color='lightcoral')
-            ax6.set_xlabel("Validated Region")
-            ax6.set_ylabel("Retention Rate (%)")
-            ax6.set_title("Localization Retention")
-            ax6.set_xticks(x_pos)
-            ax6.set_xticklabels([f"R{rid}" for rid in region_ids])
-            ax6.grid(True, alpha=0.3)
+            # Quality indicator
+            if meta['noise_fraction'] < 0.2:
+                quality = "Excellent ✓"
+                color = "green"
+            elif meta['noise_fraction'] < 0.5:
+                quality = "Good ~"
+                color = "orange"
+            else:
+                quality = "Poor ✗"
+                color = "red"
 
-        # Plot 7: Parameter summary (bottom-left)
-        ax7 = axes[2, 0]
-        ax7.axis("off")
-        if clustering_metadata:
-            summary_text = f"Clustering Parameters:\n\n"
-            meta = clustering_metadata[0]  # All regions use same parameters
-            summary_text += f"• Precision Factor: {meta['precision_factor']:.1f}\n"
-            summary_text += f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+            stats_text += f"\nQuality: {quality}"
 
-            ax7.text(
-                0.1,
-                0.9,
-                summary_text,
-                transform=ax7.transAxes,
-                fontsize=11,
-                verticalalignment="top",
-                fontfamily="monospace",
-            )
-
-        # Plot 8: Results summary (bottom-center)
-        ax8 = axes[2, 1]
-        ax8.axis("off")
-        if clustering_metadata:
-            total_input_locs = sum(len(puncta) for puncta in selected_puncta)
-            total_validated_locs = sum(
-                len(fiducial) for fiducial in validated_fiducials
-            )
-
-            summary_text = f"Results Summary:\n\n"
-            summary_text += f"• Input Regions: {n_regions}\n"
-            summary_text += f"• Validated Fiducials: {n_validated}\n"
-            summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n"
-            summary_text += f"• Total Input Locs: {total_input_locs:,}\n"
-            summary_text += f"• Total Validated Locs: {total_validated_locs:,}\n"
-            summary_text += f"• Overall Retention: {100*total_validated_locs/total_input_locs:.1f}%"
-
-            ax8.text(
-                0.1,
-                0.9,
-                summary_text,
-                transform=ax8.transAxes,
-                fontsize=11,
-                verticalalignment="top",
-                fontfamily="monospace",
-            )
-
-        # Plot 9: Quality distribution (bottom-right)
-        ax9 = axes[2, 2]
-        if clustering_metadata:
-            noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
-            ax9.hist(noise_fractions, bins=10, alpha=0.7, color='lightgreen', edgecolor='black')
-            ax9.set_xlabel("Noise Fraction")
-            ax9.set_ylabel("Count")
-            ax9.set_title("Quality Distribution")
-            ax9.grid(True, alpha=0.3)
-        else:
-            ax9.axis("off")
+            ax_br.text(0.05, 0.95, stats_text, transform=ax_br.transAxes,
+                      fontsize=10, verticalalignment='top', fontfamily='monospace',
+                      bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.1))
 
         if output_figure_path:
-            plotter.save_plot(f"{base_path}_overview.png", dpi=300, bbox_inches="tight")
-        else:
-            plotter.show_plot()
+            fig.savefig(f"{base_path}_overview.png", dpi=300, bbox_inches="tight")
 
-        # Create detailed individual region plots if we have validated regions
-        if validated_fiducials and clustering_metadata:
-            self._plot_individual_clustering_details(
-                selected_puncta,
-                validated_fiducials,
-                clustering_metadata,
-                base_path,
-                title,
-            )
+        import matplotlib.pyplot as plt
+        plt.show()
 
         # Print summary
         if output_figure_path:
             print(f"Clustering results saved as:")
             print(f"  - {base_path}_overview.png")
-            if validated_fiducials:
-                print(f"  - {base_path}_details.png")
+
+    def _plot_region_data_with_datashader(self, ax, data_list, color_list, title):
+        """Plot region data using datashader for large datasets, regular plotting for small ones."""
+        total_points = sum(len(data) for data in data_list)
+
+        if total_points > 1000:  # Use datashader for large datasets
+            try:
+                import datashader as ds
+                import pandas as pd
+                import colorcet as cc
+
+                # Combine all data
+                all_data = []
+                for i, data in enumerate(data_list):
+                    df_part = pd.DataFrame({
+                        'x': data['xc'],
+                        'y': data['yc'],
+                        'group': f'group_{i}'
+                    })
+                    all_data.append(df_part)
+
+                if all_data:
+                    df = pd.concat(all_data, ignore_index=True)
+
+                    # Create datashader canvas
+                    canvas = ds.Canvas(plot_width=400, plot_height=400)
+                    if len(data_list) > 1:
+                        df['group'] = df['group'].astype('category')
+                        agg = canvas.points(df, 'x', 'y', ds.count_cat('group'))
+                        img = ds.tf.shade(agg, color_key=color_list, how='eq_hist')
+                    else:
+                        agg = canvas.points(df, 'x', 'y', ds.count())
+                        img = ds.tf.shade(agg, cmap=cc.fire, how='eq_hist')
+
+                    # Display the image
+                    extent = [df.x.min(), df.x.max(), df.y.min(), df.y.max()]
+                    ax.imshow(img.to_pil(), extent=extent, aspect='equal', origin='lower')
+                    ax.set_xlim(extent[0], extent[1])
+                    ax.set_ylim(extent[2], extent[3])
+
+            except ImportError:
+                # Fallback to subsampled regular plotting
+                for i, data in enumerate(data_list):
+                    color = color_list[i % len(color_list)]
+                    # Heavy subsampling for display
+                    max_points = 500
+                    if len(data) > max_points:
+                        indices = np.random.choice(len(data), max_points, replace=False)
+                        display_data = data[indices]
+                    else:
+                        display_data = data
+
+                    ax.plot(display_data['xc'], display_data['yc'], '.',
+                           color=color, markersize=2, alpha=0.6)
+        else:
+            # Standard plotting for smaller datasets
+            for i, data in enumerate(data_list):
+                color = color_list[i % len(color_list)]
+                ax.plot(data['xc'], data['yc'], '.', color=color, markersize=2, alpha=0.6)
+
+        ax.set_xlabel("X (pixels)")
+        ax.set_ylabel("Y (pixels)")
+        ax.set_title(title)
+        ax.grid(True, alpha=0.3)
+        ax.axis("equal")
+
+    def _plot_clustering_overlay(self, ax, all_x, all_y, types, title):
+        """Plot clustering overlay showing original vs validated points."""
+        total_points = len(all_x)
+
+        if total_points > 1000:  # Use datashader for large datasets
+            try:
+                import datashader as ds
+                import pandas as pd
+                import colorcet as cc
+
+                df = pd.DataFrame({
+                    'x': all_x,
+                    'y': all_y,
+                    'type': types
+                })
+                df['type'] = df['type'].astype('category')
+
+                # Create datashader canvas
+                canvas = ds.Canvas(plot_width=400, plot_height=400)
+                agg = canvas.points(df, 'x', 'y', ds.count_cat('type'))
+
+                # Custom color key: light gray for original, bright color for validated
+                color_key = ['lightgray', 'red']
+                img = ds.tf.shade(agg, color_key=color_key, how='eq_hist')
+
+                # Display the image
+                extent = [df.x.min(), df.x.max(), df.y.min(), df.y.max()]
+                ax.imshow(img.to_pil(), extent=extent, aspect='equal', origin='lower')
+                ax.set_xlim(extent[0], extent[1])
+                ax.set_ylim(extent[2], extent[3])
+
+            except ImportError:
+                # Fallback to subsampled regular plotting
+                original_mask = np.array(types) == 'original'
+                validated_mask = np.array(types) == 'validated'
+
+                # Background points (heavily subsampled)
+                original_x, original_y = all_x[original_mask], all_y[original_mask]
+                if len(original_x) > 200:
+                    indices = np.random.choice(len(original_x), 200, replace=False)
+                    original_x, original_y = original_x[indices], original_y[indices]
+
+                ax.plot(original_x, original_y, '.', color='lightgray',
+                       markersize=1, alpha=0.3, label='Original')
+
+                # Validated points (less subsampling)
+                validated_x, validated_y = all_x[validated_mask], all_y[validated_mask]
+                if len(validated_x) > 500:
+                    indices = np.random.choice(len(validated_x), 500, replace=False)
+                    validated_x, validated_y = validated_x[indices], validated_y[indices]
+
+                ax.plot(validated_x, validated_y, '.', color='red',
+                       markersize=3, alpha=0.9, label='Validated')
+        else:
+            # Standard plotting for smaller datasets
+            original_mask = np.array(types) == 'original'
+            validated_mask = np.array(types) == 'validated'
+
+            ax.plot(all_x[original_mask], all_y[original_mask], '.',
+                   color='lightgray', markersize=1, alpha=0.3, label='Original')
+            ax.plot(all_x[validated_mask], all_y[validated_mask], '.',
+                   color='red', markersize=3, alpha=0.9, label='Validated')
+
+        ax.set_xlabel("X (pixels)")
+        ax.set_ylabel("Y (pixels)")
+        ax.set_title(title)
+        ax.grid(True, alpha=0.3)
+        ax.axis("equal")
+        ax.legend()
 
     def _plot_individual_clustering_details(
         self,
