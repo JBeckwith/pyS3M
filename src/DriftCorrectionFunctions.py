@@ -3148,80 +3148,13 @@ class Drift_Correction_Functions:
             "region_statistics": region_stats,
             "total_selected_localizations": total_locs_selected,
             "memory_optimized": memory_optimize,
-            "rejection_reasons": self._analyze_rejection_reasons(
-                region_centers, locs, box_size_pixels, min_localizations_per_region
-            ),
+            "rejection_reasons": {
+                "too_few_localizations": rejected_count,
+                "accepted": len(selected_puncta),
+            },
         }
 
         return selected_puncta, metadata
-
-    def _analyze_rejection_reasons(
-        self,
-        region_centers: List[Tuple[int, int]],
-        locs: np.recarray,
-        box_size_pixels: float,
-        min_locs: int,
-    ) -> Dict[str, int]:
-        """Analyze why regions were rejected during puncta selection using postprocess.picked_locs."""
-
-        reasons = {"too_few_localizations": 0, "accepted": 0}
-
-        if postprocess is None:
-            # Fallback to manual method if postprocess not available
-            locs_x = locs.xc
-            locs_y = locs.yc
-            half_box = box_size_pixels / 2.0
-
-            for center_y, center_x in region_centers:
-                within_box = (
-                    (locs_x >= center_x - half_box)
-                    & (locs_x <= center_x + half_box)
-                    & (locs_y >= center_y - half_box)
-                    & (locs_y <= center_y + half_box)
-                )
-                n_locs = np.sum(within_box)
-
-                if n_locs >= min_locs:
-                    reasons["accepted"] += 1
-                else:
-                    reasons["too_few_localizations"] += 1
-        else:
-            # Use postprocess.picked_locs for consistency with main function
-            half_box = box_size_pixels / 2.0
-            picks = []
-            for center_y, center_x in region_centers:
-                # Create horizontal line through center (same as main function)
-                picks.append(
-                    ((center_x - half_box, center_y), (center_x + half_box, center_y))
-                )
-
-            width = max(locs.xc.max() + 10, 100)
-            height = max(locs.yc.max() + 10, 100)
-
-            picked_locs_arrays = postprocess.picked_locs(
-                locs=locs,
-                width=width,
-                height=height,
-                picks=picks,
-                pick_shape="Rectangle",
-                pick_size=box_size_pixels,
-                add_group=False,
-                callback="console",
-                parallel=len(picks) >= 8,  # Enable parallelization for 8+ picks
-            )
-
-            # Ensure picked_locs_arrays is not None
-            if picked_locs_arrays is None:
-                picked_locs_arrays = []
-
-            for region_locs in picked_locs_arrays:
-                n_locs = len(region_locs)
-                if n_locs >= min_locs:
-                    reasons["accepted"] += 1
-                else:
-                    reasons["too_few_localizations"] += 1
-
-        return reasons
 
     def identify_real_fiducials_with_clustering(
         self,
@@ -3262,11 +3195,6 @@ class Drift_Correction_Functions:
             n_locs = len(puncta_locs)
 
             if n_locs < 10:  # Skip regions with too few localizations for clustering
-                continue
-
-            # Memory check: Skip extremely large regions that could cause memory issues
-            if n_locs > 50000:  # Adjust threshold based on available memory
-                print(f"Skipping region {region_id}: too many localizations ({n_locs}) for clustering")
                 continue
 
             # Prepare data for DBSCAN
