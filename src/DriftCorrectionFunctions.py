@@ -4017,21 +4017,21 @@ class Drift_Correction_Functions:
         n_regions = len(selected_puncta)
         n_validated = len(validated_fiducials)
 
-        # Create overview figure using PlottingFunctions
+        # Create overview figure using PlottingFunctions (3x3 layout)
         fig, axes = plotter.two_column_plot(
-            ncolumns=2,
-            nrows=2,
-            widthratio=[1.0, 1.0],
-            heightratio=[1.0, 1.0],
-            figsize=(16, 12),
+            ncolumns=3,
+            nrows=3,
+            widthratio=[1.0, 1.0, 1.0],
+            heightratio=[1.0, 1.0, 1.0],
+            width=18,
+            height=18,
         )
         fig.suptitle(
             f"{title} - Overview (Input: {n_regions}, Validated: {n_validated})",
             fontsize=16,
         )
 
-        # Plot 1: All input puncta regions
-        ax1 = axes[0, 0]
+        # Color setup
         try:
             import matplotlib.cm as cm
 
@@ -4052,6 +4052,8 @@ class Drift_Correction_Functions:
                 "cyan",
             ]
 
+        # Plot 1: All input puncta regions (top-left)
+        ax1 = axes[0, 0]
         for i, puncta_locs in enumerate(selected_puncta):
             color = colors[i % len(colors)]
             plotter.scatter_plot(
@@ -4063,14 +4065,13 @@ class Drift_Correction_Functions:
                 c=color,
                 label=f"Region {i+1}",
             )
-
         ax1.set_xlabel("X (pixels)")
         ax1.set_ylabel("Y (pixels)")
         ax1.set_title(f"Input Puncta Regions (n={n_regions})")
         ax1.grid(True, alpha=0.3)
         ax1.axis("equal")
 
-        # Plot 2: Validated fiducials only
+        # Plot 2: Validated fiducials only (top-center)
         ax2 = axes[0, 1]
         for i, fiducial_locs in enumerate(validated_fiducials):
             color = colors[i % len(colors)]
@@ -4083,15 +4084,43 @@ class Drift_Correction_Functions:
                 c=color,
                 label=f"Fiducial {i+1}",
             )
-
         ax2.set_xlabel("X (pixels)")
         ax2.set_ylabel("Y (pixels)")
         ax2.set_title(f"Validated Fiducials (n={n_validated})")
         ax2.grid(True, alpha=0.3)
         ax2.axis("equal")
 
-        # Plot 3: Validation statistics
-        ax3 = axes[1, 0]
+        # Plot 3: Validation overlay (top-right)
+        ax3 = axes[0, 2]
+        # Plot all input in light gray
+        for puncta_locs in selected_puncta:
+            plotter.scatter_plot(
+                ax3,
+                puncta_locs["xc"],
+                puncta_locs["yc"],
+                s=0.5,
+                alpha=0.3,
+                c="lightgray",
+            )
+        # Overlay validated fiducials in bright colors
+        for i, fiducial_locs in enumerate(validated_fiducials):
+            color = colors[i % len(colors)]
+            plotter.scatter_plot(
+                ax3,
+                fiducial_locs["xc"],
+                fiducial_locs["yc"],
+                s=3,
+                alpha=0.9,
+                c=color,
+            )
+        ax3.set_xlabel("X (pixels)")
+        ax3.set_ylabel("Y (pixels)")
+        ax3.set_title("Validation Overlay")
+        ax3.grid(True, alpha=0.3)
+        ax3.axis("equal")
+
+        # Plot 4: Validation statistics (middle-left)
+        ax4 = axes[1, 0]
         if clustering_metadata:
             # Bar plot of noise fractions
             region_ids = [meta["region_id"] for meta in clustering_metadata]
@@ -4108,48 +4137,104 @@ class Drift_Correction_Functions:
                 else:  # Poor
                     bar_colors.append("red")
 
-            bars = ax3.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+            bars = ax4.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+            ax4.set_xlabel("Validated Region")
+            ax4.set_ylabel("Noise Fraction")
+            ax4.set_title("Clustering Quality (Lower = Better)")
+            ax4.set_xticks(x_pos)
+            ax4.set_xticklabels([f"R{rid}" for rid in region_ids])
+            ax4.grid(True, alpha=0.3)
 
-            ax3.set_xlabel("Validated Region")
-            ax3.set_ylabel("Noise Fraction")
-            ax3.set_title("Clustering Quality (Lower = Better)")
-            ax3.set_xticks(x_pos)
-            ax3.set_xticklabels([f"R{rid}" for rid in region_ids])
-            ax3.grid(True, alpha=0.3)
+        # Plot 5: Cluster counts (middle-center)
+        ax5 = axes[1, 1]
+        if clustering_metadata:
+            n_clusters = [meta["n_clusters"] for meta in clustering_metadata]
+            x_pos = np.arange(len(region_ids))
 
-        # Plot 4: Parameter summary
-        ax4 = axes[1, 1]
-        ax4.axis("off")
+            bars = ax5.bar(x_pos, n_clusters, alpha=0.7, color='skyblue')
+            ax5.set_xlabel("Validated Region")
+            ax5.set_ylabel("Number of Clusters")
+            ax5.set_title("Clusters per Region")
+            ax5.set_xticks(x_pos)
+            ax5.set_xticklabels([f"R{rid}" for rid in region_ids])
+            ax5.grid(True, alpha=0.3)
+
+        # Plot 6: Localization retention (middle-right)
+        ax6 = axes[1, 2]
+        if clustering_metadata:
+            retention_rates = []
+            for i, meta in enumerate(clustering_metadata):
+                region_id = meta["region_id"]
+                original_count = len(selected_puncta[region_id])
+                validated_count = len(validated_fiducials[i])
+                retention_rates.append(100 * validated_count / original_count)
+
+            x_pos = np.arange(len(region_ids))
+            bars = ax6.bar(x_pos, retention_rates, alpha=0.7, color='lightcoral')
+            ax6.set_xlabel("Validated Region")
+            ax6.set_ylabel("Retention Rate (%)")
+            ax6.set_title("Localization Retention")
+            ax6.set_xticks(x_pos)
+            ax6.set_xticklabels([f"R{rid}" for rid in region_ids])
+            ax6.grid(True, alpha=0.3)
+
+        # Plot 7: Parameter summary (bottom-left)
+        ax7 = axes[2, 0]
+        ax7.axis("off")
         if clustering_metadata:
             summary_text = f"Clustering Parameters:\n\n"
             meta = clustering_metadata[0]  # All regions use same parameters
             summary_text += f"• Precision Factor: {meta['precision_factor']:.1f}\n"
-            summary_text += (
-                f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+            summary_text += f"• Min Samples Factor: {meta['min_samples_factor']:.2f}\n\n"
+
+            ax7.text(
+                0.1,
+                0.9,
+                summary_text,
+                transform=ax7.transAxes,
+                fontsize=11,
+                verticalalignment="top",
+                fontfamily="monospace",
             )
 
-            summary_text += f"Results Summary:\n\n"
-            summary_text += f"• Input Regions: {n_regions}\n"
-            summary_text += f"• Validated Fiducials: {n_validated}\n"
-            summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n\n"
-
+        # Plot 8: Results summary (bottom-center)
+        ax8 = axes[2, 1]
+        ax8.axis("off")
+        if clustering_metadata:
             total_input_locs = sum(len(puncta) for puncta in selected_puncta)
             total_validated_locs = sum(
                 len(fiducial) for fiducial in validated_fiducials
             )
+
+            summary_text = f"Results Summary:\n\n"
+            summary_text += f"• Input Regions: {n_regions}\n"
+            summary_text += f"• Validated Fiducials: {n_validated}\n"
+            summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n"
             summary_text += f"• Total Input Locs: {total_input_locs:,}\n"
             summary_text += f"• Total Validated Locs: {total_validated_locs:,}\n"
-            summary_text += f"• Localization Retention: {100*total_validated_locs/total_input_locs:.1f}%"
+            summary_text += f"• Overall Retention: {100*total_validated_locs/total_input_locs:.1f}%"
 
-            ax4.text(
+            ax8.text(
                 0.1,
                 0.9,
                 summary_text,
-                transform=ax4.transAxes,
-                fontsize=12,
+                transform=ax8.transAxes,
+                fontsize=11,
                 verticalalignment="top",
                 fontfamily="monospace",
             )
+
+        # Plot 9: Quality distribution (bottom-right)
+        ax9 = axes[2, 2]
+        if clustering_metadata:
+            noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
+            ax9.hist(noise_fractions, bins=10, alpha=0.7, color='lightgreen', edgecolor='black')
+            ax9.set_xlabel("Noise Fraction")
+            ax9.set_ylabel("Count")
+            ax9.set_title("Quality Distribution")
+            ax9.grid(True, alpha=0.3)
+        else:
+            ax9.axis("off")
 
         if output_figure_path:
             plotter.save_plot(f"{base_path}_overview.png", dpi=300, bbox_inches="tight")
@@ -4221,7 +4306,8 @@ class Drift_Correction_Functions:
             nrows=rows,
             widthratio=widthratio,
             heightratio=heightratio,
-            figsize=(6 * cols, 5 * rows),
+            width=6 * cols,
+            height=5 * rows,
         )
         fig.suptitle(f"{title} - Individual Clustering Details", fontsize=16)
 
