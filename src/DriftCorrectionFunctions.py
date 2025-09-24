@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional, Tuple, Union, Dict, Any, List
 import warnings
+import gc
 
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
@@ -2956,6 +2957,7 @@ class Drift_Correction_Functions:
         create_plot: bool = True,
         plot_individual_regions: bool = True,
         use_datashader_threshold: int = 1000,
+        memory_optimize: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
         """Select puncta (localizations) from detected high-density regions using postprocess.picked_locs.
 
@@ -3104,6 +3106,11 @@ class Drift_Correction_Functions:
                 plot_individual_regions,
                 use_datashader_threshold,
             )
+
+            # Memory optimization: clear plot data if requested
+            if memory_optimize:
+                plt.close('all')  # Close all figure windows to free memory
+                gc.collect()
 
         # Prepare metadata
         metadata = {
@@ -3255,10 +3262,15 @@ class Drift_Correction_Functions:
                 int(min_samples_factor * frame_count / 1000), 5
             )  # Scale by 1000, minimum 5
 
-            # Apply DBSCAN clustering
+            # Apply DBSCAN clustering (memory optimized)
             try:
-                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples)
+                # Use algorithm='ball_tree' for better memory efficiency with large datasets
+                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples, algorithm='ball_tree')
                 cluster_labels = dbscan.fit_predict(X)
+
+                # Clear DBSCAN object to free memory immediately
+                del dbscan
+                gc.collect()
 
                 # Analyze clustering results
                 n_clusters = len(set(cluster_labels)) - (
@@ -3304,6 +3316,10 @@ class Drift_Correction_Functions:
                             "cluster_std_y": np.std(validated_locs["yc"]),
                         }
                         clustering_metadata.append(cluster_metadata)
+
+                        # Clean up intermediate arrays to free memory
+                        del X, cluster_labels, validated_locs
+                        gc.collect()
 
             except Exception as e:
                 # Skip this region if clustering fails
@@ -3398,8 +3414,17 @@ class Drift_Correction_Functions:
                     {"x": np.array(all_locs.xc), "y": np.array(all_locs.yc)}
                 )
 
-                # Create datashader canvas
-                cvs = ds.Canvas(plot_width=500, plot_height=500)
+                # Create datashader canvas with proper aspect ratio
+                x_range = all_locs.xc.max() - all_locs.xc.min()
+                y_range = all_locs.yc.max() - all_locs.yc.min()
+                aspect_ratio = x_range / y_range if y_range > 0 else 1.0
+
+                if aspect_ratio > 1:
+                    plot_width, plot_height = 500, int(500 / aspect_ratio)
+                else:
+                    plot_width, plot_height = int(500 * aspect_ratio), 500
+
+                cvs = ds.Canvas(plot_width=plot_width, plot_height=plot_height)
 
                 # Aggregate points
                 agg = cvs.points(df, "x", "y")
@@ -3430,6 +3455,10 @@ class Drift_Correction_Functions:
                     fontsize=8,
                     bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
                 )
+
+                # Clean up datashader objects to free memory
+                del df, agg, img
+                gc.collect()
 
             except ImportError:
                 print(
@@ -3535,6 +3564,8 @@ class Drift_Correction_Functions:
         if output_figure_path:
             plt.savefig(f"{base_path}_1_overview.png", dpi=300, bbox_inches="tight")
             plt.close()
+            # Force garbage collection after plot generation to free memory
+            gc.collect()
 
         # Plot 2: Individual region details (all regions, no limit)
         if selected_puncta and plot_individual_regions:
@@ -3581,8 +3612,17 @@ class Drift_Correction_Functions:
                             {"x": np.array(puncta.xc), "y": np.array(puncta.yc)}
                         )
 
-                        # Create small datashader canvas for individual regions
-                        cvs = ds.Canvas(plot_width=200, plot_height=200)
+                        # Create datashader canvas with proper aspect ratio for individual regions
+                        x_range = puncta.xc.max() - puncta.xc.min()
+                        y_range = puncta.yc.max() - puncta.yc.min()
+                        aspect_ratio = x_range / y_range if y_range > 0 else 1.0
+
+                        if aspect_ratio > 1:
+                            plot_width, plot_height = 200, int(200 / aspect_ratio)
+                        else:
+                            plot_width, plot_height = int(200 * aspect_ratio), 200
+
+                        cvs = ds.Canvas(plot_width=plot_width, plot_height=plot_height)
                         agg = cvs.points(df, "x", "y")
                         img = ds.tf.set_background(
                             ds.tf.shade(agg, how="log", cmap=cc.blues), "white"
@@ -3640,14 +3680,14 @@ class Drift_Correction_Functions:
                     stats["center_x"],
                     stats["center_y"],
                     "ro",
-                    markersize=6,
+                    markersize=1,
                     label="Center",
                 )
                 ax.plot(
                     stats["mean_x"],
                     stats["mean_y"],
                     "go",
-                    markersize=6,
+                    markersize=1,
                     label="Centroid",
                 )
 
@@ -3687,6 +3727,8 @@ class Drift_Correction_Functions:
             if output_figure_path:
                 plt.savefig(f"{base_path}_2_regions.png", dpi=300, bbox_inches="tight")
                 plt.close()
+                # Force garbage collection after region plots to free memory
+                gc.collect()
 
         # Plot 3: Statistics summary
         if region_stats:
@@ -3775,6 +3817,8 @@ class Drift_Correction_Functions:
                     f"{base_path}_3_statistics.png", dpi=300, bbox_inches="tight"
                 )
                 plt.close()
+                # Force garbage collection after statistics plots
+                gc.collect()
 
         if output_figure_path:
             print(f"Puncta selection results saved:")
@@ -4245,8 +4289,17 @@ class Drift_Correction_Functions:
                         }
                     )
 
-                    # Create datashader canvas for individual regions
-                    cvs = ds.Canvas(plot_width=300, plot_height=300)
+                    # Create datashader canvas with proper aspect ratio for clustering regions
+                    x_range = original_puncta.xc.max() - original_puncta.xc.min()
+                    y_range = original_puncta.yc.max() - original_puncta.yc.min()
+                    aspect_ratio = x_range / y_range if y_range > 0 else 1.0
+
+                    if aspect_ratio > 1:
+                        plot_width, plot_height = 300, int(300 / aspect_ratio)
+                    else:
+                        plot_width, plot_height = int(300 * aspect_ratio), 300
+
+                    cvs = ds.Canvas(plot_width=plot_width, plot_height=plot_height)
 
                     # Use categorical aggregation with ds.by()
                     agg = cvs.points(df, "x", "y", agg=ds.by("cluster", ds.count()))
