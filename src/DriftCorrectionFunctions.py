@@ -19,6 +19,7 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
 
 # Matplotlib imports (needed for drift correction plotting)
 import matplotlib.pyplot as plt
@@ -3037,6 +3038,11 @@ class Drift_Correction_Functions:
             parallel=len(picks) >= 8,  # Enable parallelization for 8+ picks
         )
 
+        # Memory cleanup: clear picks list immediately after use
+        if memory_optimize:
+            del picks
+            gc.collect()
+
         # Filter results based on minimum localization count and build statistics
         selected_puncta = []
         region_stats = []
@@ -3045,35 +3051,29 @@ class Drift_Correction_Functions:
         if picked_locs_arrays is None:
             picked_locs_arrays = []
 
+        # Memory-optimized processing: stream through regions, immediate filtering and cleanup
+        rejected_count = 0
         for region_id, (region_locs, (center_y, center_x)) in enumerate(
             zip(picked_locs_arrays, region_centers)
         ):
             n_locs = len(region_locs)
 
-            # Apply localization count filter
+            # Apply localization count filter FIRST (Option C: Lazy statistics)
             if n_locs >= min_localizations_per_region:
                 selected_puncta.append(region_locs)
 
-                # Calculate region statistics
+                # Only calculate statistics for regions that passed the filter
                 region_stat = {
                     "region_id": region_id,
                     "center_y": center_y,
                     "center_x": center_x,
                     "n_localizations": n_locs,
-                    "mean_x": np.mean(region_locs.xc) if n_locs > 0 else center_x,
-                    "mean_y": np.mean(region_locs.yc) if n_locs > 0 else center_y,
-                    "std_x": np.std(region_locs.xc) if n_locs > 0 else 0,
-                    "std_y": np.std(region_locs.yc) if n_locs > 0 else 0,
-                    "frame_range": (
-                        [int(region_locs.frame.min()), int(region_locs.frame.max())]
-                        if n_locs > 0
-                        else [0, 0]
-                    ),
-                    "frame_span": (
-                        int(region_locs.frame.max() - region_locs.frame.min() + 1)
-                        if n_locs > 0
-                        else 0
-                    ),
+                    "mean_x": np.mean(region_locs.xc),
+                    "mean_y": np.mean(region_locs.yc),
+                    "std_x": np.std(region_locs.xc),
+                    "std_y": np.std(region_locs.yc),
+                    "frame_range": [int(region_locs.frame.min()), int(region_locs.frame.max())],
+                    "frame_span": int(region_locs.frame.max() - region_locs.frame.min() + 1),
                     "selection_box_size_nm": selection_box_size_nm,
                     "selection_box_size_pixels": box_size_pixels,
                     "box_boundaries": {
@@ -3084,12 +3084,30 @@ class Drift_Correction_Functions:
                     },
                 }
 
-                # Add photon statistics if available
-                if hasattr(region_locs, "photons") and n_locs > 0:
+                # Add photon statistics if available (only for accepted regions)
+                if hasattr(region_locs, "photons"):
                     region_stat["mean_photons"] = np.mean(region_locs.photons)
                     region_stat["std_photons"] = np.std(region_locs.photons)
 
                 region_stats.append(region_stat)
+            else:
+                # Region rejected - no statistics calculated, immediate cleanup
+                rejected_count += 1
+                if memory_optimize:
+                    # Explicitly delete rejected region data to free memory immediately
+                    del region_locs
+
+            # Periodic memory cleanup during processing (Option D: Aggressive cleanup)
+            if memory_optimize and region_id % 100 == 0 and region_id > 0:
+                gc.collect()
+                print(f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions "
+                      f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
+
+        # Final memory cleanup (Option D)
+        if memory_optimize:
+            del picked_locs_arrays
+            gc.collect()
+            print(f"Memory optimization: Freed intermediate arrays after region processing")
 
         # Create visualization if requested
         if create_plot:
@@ -3112,19 +3130,24 @@ class Drift_Correction_Functions:
                 plt.close('all')  # Close all figure windows to free memory
                 gc.collect()
 
-        # Prepare metadata
+        # Prepare metadata with memory-optimized calculations
+        total_locs_selected = sum(len(puncta) for puncta in selected_puncta)
+
         metadata = {
             "n_regions_input": len(region_centers),
             "n_regions_selected": len(selected_puncta),
+            "n_regions_rejected": rejected_count,
+            "selection_rate": (
+                len(selected_puncta) / len(region_centers) if region_centers else 0
+            ),
             "selection_criteria": {
                 "min_localizations": min_localizations_per_region,
                 "selection_box_size_nm": selection_box_size_nm,
                 "selection_box_size_pixels": box_size_pixels,
             },
             "region_statistics": region_stats,
-            "total_selected_localizations": sum(
-                len(puncta) for puncta in selected_puncta
-            ),
+            "total_selected_localizations": total_locs_selected,
+            "memory_optimized": memory_optimize,
             "rejection_reasons": self._analyze_rejection_reasons(
                 region_centers, locs, box_size_pixels, min_localizations_per_region
             ),
@@ -3241,6 +3264,11 @@ class Drift_Correction_Functions:
             if n_locs < 10:  # Skip regions with too few localizations for clustering
                 continue
 
+            # Memory check: Skip extremely large regions that could cause memory issues
+            if n_locs > 50000:  # Adjust threshold based on available memory
+                print(f"Skipping region {region_id}: too many localizations ({n_locs}) for clustering")
+                continue
+
             # Prepare data for DBSCAN
             X = np.vstack([puncta_locs["xc"], puncta_locs["yc"]]).T
 
@@ -3262,14 +3290,28 @@ class Drift_Correction_Functions:
                 int(min_samples_factor * frame_count / 1000), 5
             )  # Scale by 1000, minimum 5
 
-            # Apply DBSCAN clustering (memory optimized)
+            # Apply memory-optimized DBSCAN clustering with pre-computed sparse neighborhoods
             try:
-                # Use algorithm='ball_tree' for better memory efficiency with large datasets
-                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples, algorithm='ball_tree')
-                cluster_labels = dbscan.fit_predict(X)
+                # Step 1: Pre-compute sparse neighborhoods using NearestNeighbors (memory efficient)
+                # This avoids the expensive query complexity in DBSCAN
+                nbrs = NearestNeighbors(radius=loc_precision, algorithm='ball_tree')
+                nbrs.fit(X)
 
-                # Clear DBSCAN object to free memory immediately
-                del dbscan
+                # Get sparse distance matrix using radius_neighbors_graph
+                # mode='distance' gives us the actual distances for metric='precomputed'
+                sparse_distances = nbrs.radius_neighbors_graph(X, loc_precision, mode='distance')
+
+                # Clear NearestNeighbors object to free memory
+                del nbrs
+                gc.collect()
+
+                # Step 2: Use DBSCAN with pre-computed sparse distances
+                # This is much more memory efficient than recomputing neighborhoods
+                dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples, metric='precomputed')
+                cluster_labels = dbscan.fit_predict(sparse_distances)
+
+                # Clear DBSCAN and sparse matrix to free memory immediately
+                del dbscan, sparse_distances
                 gc.collect()
 
                 # Analyze clustering results
@@ -3317,9 +3359,17 @@ class Drift_Correction_Functions:
                         }
                         clustering_metadata.append(cluster_metadata)
 
+                        # Memory monitoring for large datasets (before cleanup)
+                        if n_locs > 10000:
+                            print(f"Processed large region {region_id}: {len(validated_locs)}/{n_locs} locs validated")
+
                         # Clean up intermediate arrays to free memory
                         del X, cluster_labels, validated_locs
                         gc.collect()
+
+                        # Extra cleanup for large regions
+                        if n_locs > 10000:
+                            gc.collect()
 
             except Exception as e:
                 # Skip this region if clustering fails
