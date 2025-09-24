@@ -3223,17 +3223,17 @@ class Drift_Correction_Functions:
             mean_x, mean_y = np.mean(X[:, 0]), np.mean(X[:, 1])
             std_x, std_y = np.std(X[:, 0]), np.std(X[:, 1])
 
-            # Apply 2σ elliptical filter: (dx/σx)² + (dy/σy)² <= 4.0
+            # Apply 1.5σ elliptical filter: (dx/σx)² + (dy/σy)² <= 2.25
             # This removes outliers before expensive distance matrix computation
             if std_x > 0 and std_y > 0:
                 dx = (X[:, 0] - mean_x) / std_x
                 dy = (X[:, 1] - mean_y) / std_y
                 elliptical_distance = dx**2 + dy**2
-                within_2sigma = elliptical_distance <= 4.0  # 2σ threshold
+                within_1_5sigma = elliptical_distance <= 2.25  # 1.5σ threshold
 
                 # Filter the data
-                X_filtered = X[within_2sigma]
-                original_indices = np.where(within_2sigma)[0]
+                X_filtered = X[within_1_5sigma]
+                original_indices = np.where(within_1_5sigma)[0]
 
                 print(f"  Pre-filtering: {len(X)} → {len(X_filtered)} points (removed {len(X) - len(X_filtered)} outliers)")
             else:

@@ -1354,8 +1354,8 @@ def _parallel_picked_locs_rectangle(
     """
     Parallelised version of rectangle picking for picked_locs.
 
-    Uses chunk-based processing to efficiently distribute work across processes.
-    Only beneficial for larger numbers of picks (>= 8).
+    Uses ThreadPoolExecutor with shared memory for efficient parallel processing.
+    Much faster than ProcessPoolExecutor due to reduced serialization overhead.
 
     Args:
         locs: Localisation data
@@ -1369,7 +1369,7 @@ def _parallel_picked_locs_rectangle(
     Returns:
         List of localisation arrays, one per pick
     """
-    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     import multiprocessing as mp
     import math
 
@@ -1383,16 +1383,8 @@ def _parallel_picked_locs_rectangle(
         )
 
     try:
-        # Calculate optimal chunking
-        n_cores = min(mp.cpu_count(), 8)  # Limit cores for memory efficiency
-        chunk_size = max(1, math.ceil(len(picks) / n_cores))
-
-        # Create chunks of picks with their indices
-        pick_chunks = []
-        for i in range(0, len(picks), chunk_size):
-            chunk_picks = picks[i : i + chunk_size]
-            chunk_indices = list(range(i, min(i + chunk_size, len(picks))))
-            pick_chunks.append((chunk_indices, chunk_picks))
+        # Calculate optimal thread count - use more threads since they're lightweight
+        n_threads = min(mp.cpu_count() * 2, len(picks), 16)  # Up to 16 threads
 
         # Set up progress tracking
         progress_bar_context = None
@@ -1403,56 +1395,50 @@ def _parallel_picked_locs_rectangle(
             import ProgressUtils
 
             progress_bar_context = ProgressUtils.analysis_progress_bar(
-                total=len(picks), desc="Picking locs (parallel chunks)"
+                total=len(picks), desc="Picking locs (parallel threads)"
             )
             progress = progress_bar_context.__enter__()
 
         try:
-            # Process chunks in parallel
-            with ProcessPoolExecutor(max_workers=n_cores) as executor:
-                # Submit chunk processing jobs
-                futures = []
-                for chunk_indices, chunk_picks in pick_chunks:
+            # Process individual picks with ThreadPool (no chunking needed)
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                # Submit individual pick processing jobs
+                future_to_index = {}
+                for i, pick in enumerate(picks):
                     future = executor.submit(
-                        _process_rectangle_pick_chunk,
+                        _process_single_rectangle_pick,
                         locs,
-                        chunk_indices,
-                        chunk_picks,
+                        i,
+                        pick,
                         pick_size,
                         add_group,
                     )
-                    futures.append((future, len(chunk_picks)))
+                    future_to_index[future] = i
 
-                # Collect results from chunks
+                # Collect results as they complete (more efficient than waiting sequentially)
                 picked_locs = [None] * len(picks)
 
-                for future, chunk_size_actual in futures:
+                for future in as_completed(future_to_index):
                     try:
-                        chunk_results = future.result()
+                        original_idx, result = future.result()
+                        picked_locs[original_idx] = result
 
-                        # Place results in correct positions
-                        for original_idx, result in chunk_results:
-                            picked_locs[original_idx] = result
-
-                        total_completed += chunk_size_actual
+                        total_completed += 1
 
                         # Update progress
                         if callback == "console" and progress:
-                            progress.update(chunk_size_actual)
+                            progress.update(1)
                         elif callback is not None:
                             callback(total_completed)
 
                     except Exception as e:
-                        print(f"Warning: Processing chunk failed with error: {e}")
-                        # Fill failed chunk positions with empty arrays
-                        for original_idx in range(len(picked_locs)):
-                            if picked_locs[original_idx] is None:
-                                picked_locs[original_idx] = np.array(
-                                    [], dtype=locs.dtype
-                                ).view(np.recarray)
+                        # Handle individual pick failures gracefully
+                        original_idx = future_to_index[future]
+                        print(f"Warning: Processing pick {original_idx} failed with error: {e}")
+                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(np.recarray)
 
                         if callback == "console" and progress:
-                            progress.update(chunk_size_actual)
+                            progress.update(1)
                         elif callback is not None:
                             callback(total_completed)
 
@@ -1476,21 +1462,79 @@ def _parallel_picked_locs_rectangle(
         )
 
 
-def _process_rectangle_pick_chunk(
-    locs, chunk_indices, chunk_picks, pick_size, add_group
+def _process_single_rectangle_pick(
+    locs, original_idx, pick, pick_size, add_group
 ):
     """
-    Process a chunk of rectangle picks (efficient chunk-based multiprocessing).
+    Process a single rectangle pick (efficient thread-based processing).
 
     Args:
-        locs: Localisation data
-        chunk_indices: List of original indices for picks in this chunk
-        chunk_picks: List of rectangle picks in format [((xs,ys), (xe,ye)), ...]
+        locs: Localisation data (shared in memory across threads)
+        original_idx: Original index of this pick
+        pick: Rectangle pick in format ((xs,ys), (xe,ye))
         pick_size: Size of the pick region
         add_group: Whether to add group IDs
 
     Returns:
-        List of (original_index, filtered_localizations) tuples
+        Tuple of (original_index, filtered_localizations)
+    """
+    try:
+        # Import required modules
+        import lib
+        import numpy as np
+
+        # Process the single pick
+        (xs, ys), (xe, ye) = pick
+
+        # Get rectangle corners
+        X, Y = lib.get_pick_rectangle_corners(xs, ys, xe, ye, pick_size)
+        x_min, x_max = min(X), max(X)
+        y_min, y_max = min(Y), max(Y)
+
+        # Filter localizations by bounding box (fast pre-filter)
+        group_locs = locs[
+            (locs.xc > x_min)
+            & (locs.xc < x_max)
+            & (locs.yc > y_min)
+            & (locs.yc < y_max)
+        ]
+
+        # Apply precise rectangle filtering
+        group_locs = lib.locs_in_rectangle(group_locs, X, Y)
+
+        # Add rotated coordinates
+        angle = 0.5 * np.pi - np.arctan2((ye - ys), (xe - xs))
+        x_shifted = group_locs.xc - xs
+        y_shifted = group_locs.yc - ys
+        x_pick_rot = x_shifted * np.cos(angle) - y_shifted * np.sin(angle)
+        y_pick_rot = x_shifted * np.sin(angle) + y_shifted * np.cos(angle)
+
+        group_locs = lib.append_to_rec(group_locs, x_pick_rot, "x_pick_rot")
+        group_locs = lib.append_to_rec(group_locs, y_pick_rot, "y_pick_rot")
+
+        # Add group ID if requested (use original index for group ID)
+        if add_group:
+            group = original_idx * np.ones(len(group_locs), dtype=np.int32)
+            group_locs = lib.append_to_rec(group_locs, group, "group")
+
+        # Sort by frame
+        group_locs.sort(kind="mergesort", order="frame")
+
+        return (original_idx, group_locs)
+
+    except Exception as e:
+        # Return empty result on error
+        return (original_idx, np.array([], dtype=locs.dtype).view(np.recarray))
+
+
+def _process_rectangle_pick_chunk(
+    locs, chunk_indices, chunk_picks, pick_size, add_group
+):
+    """
+    DEPRECATED: Process a chunk of rectangle picks (efficient chunk-based multiprocessing).
+
+    This function is kept for backward compatibility but is no longer used.
+    The new ThreadPoolExecutor approach processes individual picks instead of chunks.
     """
     try:
         # Import required modules (needed in each worker process)
@@ -1566,8 +1610,8 @@ def _parallel_picked_locs_circle(
     """
     Parallelised version of circle picking for picked_locs.
 
-    Uses chunk-based processing to efficiently distribute work across processes.
-    Only beneficial for larger numbers of picks (>= 8).
+    Uses ThreadPoolExecutor with shared memory for efficient parallel processing.
+    Much faster than ProcessPoolExecutor due to reduced serialization overhead.
 
     Args:
         locs: Localisation data
@@ -1581,7 +1625,7 @@ def _parallel_picked_locs_circle(
     Returns:
         List of localisation arrays, one per pick
     """
-    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     import multiprocessing as mp
     import math
 
@@ -1595,16 +1639,8 @@ def _parallel_picked_locs_circle(
         )
 
     try:
-        # Calculate optimal chunking
-        n_cores = min(mp.cpu_count(), 8)  # Limit cores for memory efficiency
-        chunk_size = max(1, math.ceil(len(picks) / n_cores))
-
-        # Create chunks of picks with their indices
-        pick_chunks = []
-        for i in range(0, len(picks), chunk_size):
-            chunk_picks = picks[i : i + chunk_size]
-            chunk_indices = list(range(i, min(i + chunk_size, len(picks))))
-            pick_chunks.append((chunk_indices, chunk_picks))
+        # Calculate optimal thread count - use more threads since they're lightweight
+        n_threads = min(mp.cpu_count() * 2, len(picks), 16)  # Up to 16 threads
 
         # Set up progress tracking
         progress_bar_context = None
@@ -1615,58 +1651,52 @@ def _parallel_picked_locs_circle(
             import ProgressUtils
 
             progress_bar_context = ProgressUtils.analysis_progress_bar(
-                total=len(picks), desc="Picking locs (parallel circles)"
+                total=len(picks), desc="Picking locs (parallel threads)"
             )
             progress = progress_bar_context.__enter__()
 
         try:
-            # Process chunks in parallel
-            with ProcessPoolExecutor(max_workers=n_cores) as executor:
-                # Submit chunk processing jobs
-                futures = []
-                for chunk_indices, chunk_picks in pick_chunks:
+            # Process individual picks with ThreadPool (no chunking needed)
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                # Submit individual pick processing jobs
+                future_to_index = {}
+                for i, pick in enumerate(picks):
                     future = executor.submit(
-                        _process_circle_pick_chunk,
+                        _process_single_circle_pick,
                         locs,
                         width,
                         height,
-                        chunk_indices,
-                        chunk_picks,
+                        i,
+                        pick,
                         pick_size,
                         add_group,
                     )
-                    futures.append((future, len(chunk_picks)))
+                    future_to_index[future] = i
 
-                # Collect results from chunks
+                # Collect results as they complete (more efficient than waiting sequentially)
                 picked_locs = [None] * len(picks)
 
-                for future, chunk_size_actual in futures:
+                for future in as_completed(future_to_index):
                     try:
-                        chunk_results = future.result()
+                        original_idx, result = future.result()
+                        picked_locs[original_idx] = result
 
-                        # Place results in correct positions
-                        for original_idx, result in chunk_results:
-                            picked_locs[original_idx] = result
-
-                        total_completed += chunk_size_actual
+                        total_completed += 1
 
                         # Update progress
                         if callback == "console" and progress:
-                            progress.update(chunk_size_actual)
+                            progress.update(1)
                         elif callback is not None:
                             callback(total_completed)
 
                     except Exception as e:
-                        print(f"Warning: Processing chunk failed with error: {e}")
-                        # Fill failed chunk positions with empty arrays
-                        for original_idx in range(len(picked_locs)):
-                            if picked_locs[original_idx] is None:
-                                picked_locs[original_idx] = np.array(
-                                    [], dtype=locs.dtype
-                                ).view(np.recarray)
+                        # Handle individual pick failures gracefully
+                        original_idx = future_to_index[future]
+                        print(f"Warning: Processing circle pick {original_idx} failed with error: {e}")
+                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(np.recarray)
 
                         if callback == "console" and progress:
-                            progress.update(chunk_size_actual)
+                            progress.update(1)
                         elif callback is not None:
                             callback(total_completed)
 
@@ -1690,11 +1720,60 @@ def _parallel_picked_locs_circle(
         )
 
 
+def _process_single_circle_pick(
+    locs, width, height, original_idx, pick, pick_size, add_group
+):
+    """
+    Process a single circle pick (efficient thread-based processing).
+
+    Args:
+        locs: Localisation data (shared in memory across threads)
+        width: Image width
+        height: Image height
+        original_idx: Original index of this pick
+        pick: Circle pick coordinate (x, y)
+        pick_size: Radius of the pick circle
+        add_group: Whether to add group IDs
+
+    Returns:
+        Tuple of (original_index, filtered_localizations)
+    """
+    try:
+        # Import required modules
+        import lib
+        import numpy as np
+
+        # Process the single pick
+        x, y = pick
+
+        # Use spatial index for efficient filtering
+        index_blocks = get_index_blocks(locs, width, height, pick_size)
+        block_locs = get_block_locs_at(x, y, index_blocks)
+        group_locs = lib.locs_at(x, y, block_locs, pick_size)
+
+        # Add group ID if requested (use original index for group ID)
+        if add_group:
+            group = original_idx * np.ones(len(group_locs), dtype=np.int32)
+            group_locs = lib.append_to_rec(group_locs, group, "group")
+
+        # Sort by frame
+        group_locs.sort(kind="mergesort", order="frame")
+
+        return (original_idx, group_locs)
+
+    except Exception as e:
+        # Return empty result on error
+        return (original_idx, np.array([], dtype=locs.dtype).view(np.recarray))
+
+
 def _process_circle_pick_chunk(
     locs, width, height, chunk_indices, chunk_picks, pick_size, add_group
 ):
     """
-    Process a chunk of circle picks (efficient chunk-based multiprocessing).
+    DEPRECATED: Process a chunk of circle picks (efficient chunk-based multiprocessing).
+
+    This function is kept for backward compatibility but is no longer used.
+    The new ThreadPoolExecutor approach processes individual picks instead of chunks.
 
     Args:
         locs: Localisation data
