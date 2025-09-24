@@ -3283,43 +3283,50 @@ class Drift_Correction_Functions:
                             for label in set(cluster_labels)
                             if label != -1
                         ]
-                        largest_cluster_label = max(cluster_sizes, key=lambda x: x[1])[
-                            0
-                        ]
+                        largest_cluster_label, largest_cluster_size = max(cluster_sizes, key=lambda x: x[1])
 
-                        # Extract localizations from the largest cluster
-                        main_cluster_mask = cluster_labels == largest_cluster_label
-                        validated_locs = puncta_locs[main_cluster_mask]
-                        validated_fiducials.append(validated_locs)
+                        # CRITICAL: Check if largest cluster meets min_samples requirement
+                        if largest_cluster_size >= min_samples:
+                            # Extract localizations from the largest cluster
+                            main_cluster_mask = cluster_labels == largest_cluster_label
+                            validated_locs = puncta_locs[main_cluster_mask]
+                            validated_fiducials.append(validated_locs)
 
-                        # Store clustering metadata
-                        cluster_metadata = {
-                            "region_id": region_id,
-                            "original_n_locs": n_locs,
-                            "validated_n_locs": len(validated_locs),
-                            "n_clusters": n_clusters,
-                            "n_noise": n_noise,
-                            "noise_fraction": n_noise / n_locs,
-                            "largest_cluster_size": np.sum(main_cluster_mask),
-                            "threshold_used": threshold_distance,
-                            "clustering_method": "BIRCH",
-                            "sample_size": sample_size if n_points > sample_size else n_points,
-                            "precision_factor": precision_factor,
-                            "min_samples_factor": min_samples_factor,
-                            "cluster_labels": cluster_labels,
-                            "cluster_center_x": np.mean(validated_locs["xc"]),
-                            "cluster_center_y": np.mean(validated_locs["yc"]),
-                            "cluster_std_x": np.std(validated_locs["xc"]),
-                            "cluster_std_y": np.std(validated_locs["yc"]),
-                        }
-                        clustering_metadata.append(cluster_metadata)
+                            # Store clustering metadata (only for validated clusters)
+                            cluster_metadata = {
+                                "region_id": region_id,
+                                "original_n_locs": n_locs,
+                                "validated_n_locs": len(validated_locs),
+                                "n_clusters": n_clusters,
+                                "n_noise": n_noise,
+                                "noise_fraction": n_noise / n_locs,
+                                "largest_cluster_size": largest_cluster_size,
+                                "threshold_used": threshold_distance,
+                                "clustering_method": "BIRCH",
+                                "sample_size": sample_size if n_points > sample_size else n_points,
+                                "precision_factor": precision_factor,
+                                "min_samples_factor": min_samples_factor,
+                                "min_samples_used": min_samples,
+                                "cluster_labels": cluster_labels,
+                                "cluster_center_x": np.mean(validated_locs["xc"]),
+                                "cluster_center_y": np.mean(validated_locs["yc"]),
+                                "cluster_std_x": np.std(validated_locs["xc"]),
+                                "cluster_std_y": np.std(validated_locs["yc"]),
+                            }
+                            clustering_metadata.append(cluster_metadata)
 
-                        # Memory monitoring for large datasets (before cleanup)
-                        if n_locs > 10000:
-                            print(f"Processed large region {region_id}: {len(validated_locs)}/{n_locs} locs validated")
+                            # Memory monitoring for large datasets (before cleanup)
+                            if n_locs > 10000:
+                                print(f"Processed large region {region_id}: {len(validated_locs)}/{n_locs} locs validated")
 
-                        # Clean up intermediate arrays to free memory
-                        del cluster_labels, validated_locs
+                            # Clean up intermediate arrays to free memory
+                            del validated_locs
+                        else:
+                            # Skip this region - largest cluster doesn't meet min_samples requirement
+                            print(f"  Region {region_id}: Largest cluster ({largest_cluster_size} points) < min_samples ({min_samples}), discarding")
+
+                        # Clean up intermediate arrays regardless of validation status
+                        del cluster_labels
                         gc.collect()
 
                         # Extra cleanup for large regions
@@ -4017,78 +4024,57 @@ class Drift_Correction_Functions:
         n_regions = len(selected_puncta)
         n_validated = len(validated_fiducials)
 
-        # Create column of 2x2 plots, one for each validated region
-        n_plots_per_region = 4  # 2x2 grid per region
-        total_cols = 2
-        total_rows = max(1, n_validated * 2)  # 2 rows per validated region
-
-        fig, axes = plotter.two_column_plot(
-            ncolumns=total_cols,
-            nrows=total_rows,
-            widthratio=[1.0, 1.0],
-            heightratio=[1.0] * total_rows,
-            width=12,
-            height=6 * n_validated,
-        )
-
-        # Handle case where axes might be 1D
-        if total_rows == 1:
-            axes = axes.reshape(1, -1) if hasattr(axes, 'reshape') else np.array([axes])
-        elif total_cols == 1:
-            axes = axes.reshape(-1, 1) if hasattr(axes, 'reshape') else axes
-
-        fig.suptitle(
-            f"{title} - Individual Region Analysis (Validated: {n_validated})",
-            fontsize=16,
-        )
-
-        # Create individual 2x2 plots for each validated region
+        # Create individual 2x2 plot for each validated region (separate figures)
         try:
             import matplotlib.cm as cm
             colors = cm.tab10(np.linspace(0, 1, max(n_regions, 10)))
         except:
             colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
 
-        # Plot each validated region in a 2x2 grid
+        saved_files = []
+
+        # Plot each validated region in its own separate 2x2 figure
         for region_idx, (fiducial_locs, meta) in enumerate(zip(validated_fiducials, clustering_metadata)):
             region_id = meta["region_id"]
             original_puncta = selected_puncta[region_id]
 
-            # Calculate row positions for this region (2 rows per region)
-            start_row = region_idx * 2
+            # Create individual 2x2 figure for this region
+            fig, axes = plotter.two_column_plot(
+                ncolumns=2,
+                nrows=2,
+                widthratio=[1.0, 1.0],
+                heightratio=[1.0, 1.0],
+                width=12,
+                height=10,
+            )
 
-            # Get the 4 axes for this region's 2x2 grid
-            if total_rows > 1:
-                ax_tl = axes[start_row, 0]      # Top-left
-                ax_tr = axes[start_row, 1]      # Top-right
-                ax_bl = axes[start_row + 1, 0]  # Bottom-left
-                ax_br = axes[start_row + 1, 1]  # Bottom-right
-            else:
-                # Single row case
-                ax_tl = axes[0]
-                ax_tr = axes[1] if len(axes) > 1 else axes[0]
-                ax_bl = axes[0]
-                ax_br = axes[1] if len(axes) > 1 else axes[0]
+            fig.suptitle(
+                f"{title} - Region {region_id+1} Analysis ({len(fiducial_locs):,} validated points)",
+                fontsize=14,
+            )
 
             region_color = colors[region_id % len(colors)]
 
-            # Plot 1: Original puncta for this region
+            # Plot 1: Original puncta for this region (top-left)
+            ax_tl = axes[0, 0]
             self._plot_region_data_with_datashader(ax_tl, [original_puncta], [region_color],
-                                                  f"Region {region_id+1}: Original Puncta\n({len(original_puncta):,} points)")
+                                                  f"Original Puncta ({len(original_puncta):,} points)")
 
-            # Plot 2: Validated fiducial points only
+            # Plot 2: Validated fiducial points only (top-right)
+            ax_tr = axes[0, 1]
             self._plot_region_data_with_datashader(ax_tr, [fiducial_locs], [region_color],
-                                                  f"Region {region_id+1}: Validated Fiducial\n({len(fiducial_locs):,} points)")
+                                                  f"Validated Fiducial ({len(fiducial_locs):,} points)")
 
-            # Plot 3: Clustering overlay (original + validated)
+            # Plot 3: Clustering overlay (bottom-left)
+            ax_bl = axes[1, 0]
             all_x = np.concatenate([original_puncta['xc'], fiducial_locs['xc']])
             all_y = np.concatenate([original_puncta['yc'], fiducial_locs['yc']])
             types = ['original'] * len(original_puncta) + ['validated'] * len(fiducial_locs)
 
-            self._plot_clustering_overlay(ax_bl, all_x, all_y, types,
-                                        f"Region {region_id+1}: Clustering Overlay")
+            self._plot_clustering_overlay(ax_bl, all_x, all_y, types, "Clustering Overlay")
 
-            # Plot 4: Clustering statistics
+            # Plot 4: Clustering statistics (bottom-right)
+            ax_br = axes[1, 1]
             ax_br.axis('off')
             stats_text = f"Region {region_id+1} Statistics:\n\n"
             stats_text += f"• Original Points: {len(original_puncta):,}\n"
@@ -4096,9 +4082,11 @@ class Drift_Correction_Functions:
             stats_text += f"• Retention Rate: {100*len(fiducial_locs)/len(original_puncta):.1f}%\n"
             stats_text += f"• Noise Fraction: {meta['noise_fraction']:.3f}\n"
             stats_text += f"• N Clusters: {meta['n_clusters']}\n"
+            stats_text += f"• Largest Cluster: {meta['largest_cluster_size']:,}\n"
+            if 'min_samples_used' in meta:
+                stats_text += f"• Min Samples Req: {meta['min_samples_used']}\n"
             if 'eps' in meta:
                 stats_text += f"• DBSCAN eps: {meta['eps']:.2f}\n"
-                stats_text += f"• Min Samples: {meta['min_samples']}\n"
 
             # Quality indicator
             if meta['noise_fraction'] < 0.2:
@@ -4114,19 +4102,140 @@ class Drift_Correction_Functions:
             stats_text += f"\nQuality: {quality}"
 
             ax_br.text(0.05, 0.95, stats_text, transform=ax_br.transAxes,
-                      fontsize=10, verticalalignment='top', fontfamily='monospace',
+                      fontsize=11, verticalalignment='top', fontfamily='monospace',
                       bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.1))
 
-        if output_figure_path:
-            fig.savefig(f"{base_path}_overview.png", dpi=300, bbox_inches="tight")
+            # Save individual region figure
+            if output_figure_path:
+                region_filename = f"{base_path}_region_{region_id+1:02d}.png"
+                fig.savefig(region_filename, dpi=300, bbox_inches="tight")
+                saved_files.append(region_filename)
 
-        import matplotlib.pyplot as plt
-        plt.show()
+            import matplotlib.pyplot as plt
+            plt.show()
+            plt.close(fig)  # Close to free memory
+
+        # Create a summary figure with overall statistics
+        if n_validated > 0:
+            fig_summary, axes_summary = plotter.two_column_plot(
+                ncolumns=2,
+                nrows=2,
+                widthratio=[1.0, 1.0],
+                heightratio=[1.0, 1.0],
+                width=12,
+                height=8,
+            )
+
+            fig_summary.suptitle(
+                f"{title} - Summary Statistics ({n_validated} validated regions)",
+                fontsize=14,
+            )
+
+            # Summary plot 1: Validation statistics
+            ax1 = axes_summary[0, 0]
+            if clustering_metadata:
+                region_ids = [meta["region_id"] for meta in clustering_metadata]
+                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
+                x_pos = np.arange(len(region_ids))
+
+                # Color bars based on validation (low noise = good)
+                bar_colors = []
+                for noise_frac in noise_fractions:
+                    if noise_frac < 0.2:  # Good
+                        bar_colors.append("green")
+                    elif noise_frac < 0.5:  # Moderate
+                        bar_colors.append("orange")
+                    else:  # Poor
+                        bar_colors.append("red")
+
+                ax1.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+                ax1.set_xlabel("Validated Region")
+                ax1.set_ylabel("Noise Fraction")
+                ax1.set_title("Clustering Quality (Lower = Better)")
+                ax1.set_xticks(x_pos)
+                ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax1.grid(True, alpha=0.3)
+
+            # Summary plot 2: Retention rates
+            ax2 = axes_summary[0, 1]
+            if clustering_metadata:
+                retention_rates = []
+                for i, meta in enumerate(clustering_metadata):
+                    region_id = meta["region_id"]
+                    original_count = len(selected_puncta[region_id])
+                    validated_count = len(validated_fiducials[i])
+                    retention_rates.append(100 * validated_count / original_count)
+
+                x_pos = np.arange(len(region_ids))
+                ax2.bar(x_pos, retention_rates, alpha=0.7, color='lightcoral')
+                ax2.set_xlabel("Validated Region")
+                ax2.set_ylabel("Retention Rate (%)")
+                ax2.set_title("Localization Retention")
+                ax2.set_xticks(x_pos)
+                ax2.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax2.grid(True, alpha=0.3)
+
+            # Summary plot 3: Overall statistics (text)
+            ax3 = axes_summary[1, 0]
+            ax3.axis("off")
+            if clustering_metadata:
+                total_input_locs = sum(len(puncta) for puncta in selected_puncta)
+                total_validated_locs = sum(len(fiducial) for fiducial in validated_fiducials)
+
+                summary_text = f"Overall Results:\n\n"
+                summary_text += f"• Input Regions: {n_regions}\n"
+                summary_text += f"• Validated Regions: {n_validated}\n"
+                summary_text += f"• Validation Rate: {100*n_validated/n_regions:.1f}%\n"
+                filtered_out = n_regions - n_validated
+                summary_text += f"• Filtered Out: {filtered_out}\n\n"
+                summary_text += f"• Total Input Locs: {total_input_locs:,}\n"
+                summary_text += f"• Total Validated Locs: {total_validated_locs:,}\n"
+                summary_text += f"• Overall Retention: {100*total_validated_locs/total_input_locs:.1f}%\n\n"
+
+                # Min samples statistics
+                if clustering_metadata and 'min_samples_used' in clustering_metadata[0]:
+                    min_samples_used = clustering_metadata[0]['min_samples_used']
+                    summary_text += f"Min Samples Filter: {min_samples_used}\n"
+                    summary_text += f"(Removes clusters < {min_samples_used} points)\n\n"
+
+                # Quality distribution
+                excellent = sum(1 for meta in clustering_metadata if meta['noise_fraction'] < 0.2)
+                good = sum(1 for meta in clustering_metadata if 0.2 <= meta['noise_fraction'] < 0.5)
+                poor = sum(1 for meta in clustering_metadata if meta['noise_fraction'] >= 0.5)
+
+                summary_text += f"Quality Distribution:\n"
+                summary_text += f"• Excellent: {excellent}/{n_validated}\n"
+                summary_text += f"• Good: {good}/{n_validated}\n"
+                summary_text += f"• Poor: {poor}/{n_validated}"
+
+                ax3.text(0.05, 0.95, summary_text, transform=ax3.transAxes,
+                        fontsize=11, verticalalignment='top', fontfamily='monospace')
+
+            # Summary plot 4: Quality distribution histogram
+            ax4 = axes_summary[1, 1]
+            if clustering_metadata:
+                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
+                ax4.hist(noise_fractions, bins=max(5, min(10, n_validated)), alpha=0.7,
+                        color='lightgreen', edgecolor='black')
+                ax4.set_xlabel("Noise Fraction")
+                ax4.set_ylabel("Count")
+                ax4.set_title("Quality Distribution")
+                ax4.grid(True, alpha=0.3)
+
+            # Save summary figure
+            if output_figure_path:
+                summary_filename = f"{base_path}_summary.png"
+                fig_summary.savefig(summary_filename, dpi=300, bbox_inches="tight")
+                saved_files.append(summary_filename)
+
+            plt.show()
+            plt.close(fig_summary)
 
         # Print summary
         if output_figure_path:
             print(f"Clustering results saved as:")
-            print(f"  - {base_path}_overview.png")
+            for filename in saved_files:
+                print(f"  - {filename}")
 
     def _plot_region_data_with_datashader(self, ax, data_list, color_list, title):
         """Plot region data using datashader for large datasets, regular plotting for small ones."""
@@ -4261,7 +4370,6 @@ class Drift_Correction_Functions:
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
         ax.axis("equal")
-        ax.legend()
 
     def _plot_individual_clustering_details(
         self,
