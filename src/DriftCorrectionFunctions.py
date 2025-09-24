@@ -3218,28 +3218,61 @@ class Drift_Correction_Functions:
                 int(min_samples_factor * frame_count / 1000), 5
             )  # Scale by 1000, minimum 5
 
+            # Step 0: Pre-filter points using 2σ Gaussian assumption to reduce memory load
+            # Calculate centroid and standard deviations for elliptical filtering
+            mean_x, mean_y = np.mean(X[:, 0]), np.mean(X[:, 1])
+            std_x, std_y = np.std(X[:, 0]), np.std(X[:, 1])
+
+            # Apply 2σ elliptical filter: (dx/σx)² + (dy/σy)² <= 4.0
+            # This removes outliers before expensive distance matrix computation
+            if std_x > 0 and std_y > 0:
+                dx = (X[:, 0] - mean_x) / std_x
+                dy = (X[:, 1] - mean_y) / std_y
+                elliptical_distance = dx**2 + dy**2
+                within_2sigma = elliptical_distance <= 4.0  # 2σ threshold
+
+                # Filter the data
+                X_filtered = X[within_2sigma]
+                original_indices = np.where(within_2sigma)[0]
+
+                print(f"  Pre-filtering: {len(X)} → {len(X_filtered)} points (removed {len(X) - len(X_filtered)} outliers)")
+            else:
+                # If no variation, keep all points
+                X_filtered = X
+                original_indices = np.arange(len(X))
+
             # Apply memory-optimized DBSCAN clustering with pre-computed sparse neighborhoods
             try:
                 # Step 1: Pre-compute sparse neighborhoods using NearestNeighbors (memory efficient)
                 # This avoids the expensive query complexity in DBSCAN
                 nbrs = NearestNeighbors(radius=loc_precision, algorithm='ball_tree')
-                nbrs.fit(X)
+                nbrs.fit(X_filtered)
 
                 # Get sparse distance matrix using radius_neighbors_graph
                 # mode='distance' gives us the actual distances for metric='precomputed'
-                sparse_distances = nbrs.radius_neighbors_graph(X, loc_precision, mode='distance')
+                sparse_distances = nbrs.radius_neighbors_graph(X_filtered, loc_precision, mode='distance')
 
                 # Clear NearestNeighbors object to free memory
-                del nbrs
+                del X, nbrs
                 gc.collect()
 
                 # Step 2: Use DBSCAN with pre-computed sparse distances
                 # This is much more memory efficient than recomputing neighborhoods
                 dbscan = DBSCAN(eps=loc_precision, min_samples=min_samples, metric='precomputed')
-                cluster_labels = dbscan.fit_predict(sparse_distances)
+                cluster_labels_filtered = dbscan.fit_predict(sparse_distances)
 
                 # Clear DBSCAN and sparse matrix to free memory immediately
                 del dbscan, sparse_distances
+                gc.collect()
+
+                # Map filtered cluster labels back to original data indices
+                # Initialize all original points as noise (-1)
+                cluster_labels = np.full(len(puncta_locs), -1, dtype=int)
+                # Assign cluster labels only to points that passed the 2σ filter
+                cluster_labels[original_indices] = cluster_labels_filtered
+
+                # Clear filtered arrays to free memory
+                del X_filtered, cluster_labels_filtered, original_indices
                 gc.collect()
 
                 # Analyze clustering results
@@ -3292,7 +3325,7 @@ class Drift_Correction_Functions:
                             print(f"Processed large region {region_id}: {len(validated_locs)}/{n_locs} locs validated")
 
                         # Clean up intermediate arrays to free memory
-                        del X, cluster_labels, validated_locs
+                        del cluster_labels, validated_locs
                         gc.collect()
 
                         # Extra cleanup for large regions
