@@ -551,3 +551,51 @@ class DriftPlotter:
 
         except Exception as e:
             print(f"⚠️ Failed to create simplified puncta selection plot: {e}")
+
+    def plot_individual_clustering_details(
+        self,
+        selected_puncta: List[np.recarray],
+        validated_fiducials: List[np.recarray],
+        clustering_metadata: List[Dict[str, Any]],
+        base_path: str,
+        title: str,
+    ) -> None:
+        """Create detailed plots for individual clustering results using PlottingFunctions."""
+        print("⚠️ plot_individual_clustering_details not implemented in DriftPlotter yet")
+
+    def plot_clustering_results(
+        self,
+        selected_puncta: List[np.recarray],
+        validated_fiducials: List[np.recarray],
+        clustering_metadata: List[Dict[str, Any]],
+        output_figure_path: Optional[str],
+        title: str,
+    ) -> None:
+        """Create visualization of DBSCAN clustering results using PlottingFunctions."""
+        print("⚠️ plot_clustering_results not implemented in DriftPlotter yet")
+
+    def plot_clustering_summary_only(
+        self,
+        selected_puncta: List[np.recarray],
+        validated_fiducials: List[np.recarray],
+        clustering_metadata: List[Dict[str, Any]],
+        output_figure_path: Optional[str],
+        title: str,
+    ) -> None:
+        """Create summary visualization only (individual clusters already plotted per iteration)."""
+        print("⚠️ plot_clustering_summary_only not implemented in DriftPlotter yet")
+
+    def create_separate_plots(
+        self,
+        smoothed_image: np.ndarray,
+        binary_mask: np.ndarray,
+        region_centers: List[Tuple[int, int]],
+        hist: np.ndarray,
+        bin_edges: np.ndarray,
+        threshold: float,
+        pixelsize: float,
+        output_figure_path: Optional[str],
+        title: str,
+    ) -> None:
+        """Create separate detailed plots for density detection analysis."""
+        print("⚠️ create_separate_plots not implemented in DriftPlotter yet")
