@@ -3374,8 +3374,8 @@ class Drift_Correction_Functions:
 
 
         # Set labels and formatting
-        ax.set_xlabel('X Position (nm)')
-        ax.set_ylabel('Y Position (nm)')
+        ax.set_xlabel('X Position (pixels)')
+        ax.set_ylabel('Y Position (pixels)')
         ax.set_title(f'Gaussian Fitting - Region {region_id+1}')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal', adjustable='box')
@@ -3460,23 +3460,23 @@ class Drift_Correction_Functions:
             ax1 = axes_summary[0, 0]
             if clustering_metadata:
                 region_ids = [meta["region_id"] for meta in clustering_metadata]
-                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
+                retention_rates = [meta["retention_rate"] for meta in clustering_metadata]
                 x_pos = np.arange(len(region_ids))
 
                 # Color bars based on validation (low noise = good)
                 bar_colors = []
-                for noise_frac in noise_fractions:
-                    if noise_frac < 0.2:  # Good
+                for retention_rate in retention_rates:
+                    if retention_rate > 0.8:  # Good
                         bar_colors.append("green")
-                    elif noise_frac < 0.5:  # Moderate
+                    elif retention_rate > 0.5:  # Moderate
                         bar_colors.append("orange")
                     else:  # Poor
                         bar_colors.append("red")
 
-                ax1.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+                ax1.bar(x_pos, retention_rates, alpha=0.7, color=bar_colors)
                 ax1.set_xlabel("Validated Region")
-                ax1.set_ylabel("Noise Fraction")
-                ax1.set_title("Clustering Quality (Lower = Better)")
+                ax1.set_ylabel("Retention Rate")
+                ax1.set_title("Clustering Quality (Higher = Better)")
                 ax1.set_xticks(x_pos)
                 ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids])
                 ax1.grid(True, alpha=0.3)
@@ -3524,9 +3524,9 @@ class Drift_Correction_Functions:
                     summary_text += f"(Removes clusters < {min_samples_used} points)\n\n"
 
                 # Quality distribution
-                excellent = sum(1 for meta in clustering_metadata if meta['noise_fraction'] < 0.2)
-                good = sum(1 for meta in clustering_metadata if 0.2 <= meta['noise_fraction'] < 0.5)
-                poor = sum(1 for meta in clustering_metadata if meta['noise_fraction'] >= 0.5)
+                excellent = sum(1 for meta in clustering_metadata if meta['retention_rate'] > 0.8)
+                good = sum(1 for meta in clustering_metadata if 0.5 <= meta['retention_rate'] <= 0.8)
+                poor = sum(1 for meta in clustering_metadata if meta['retention_rate'] < 0.5)
 
                 summary_text += f"Quality Distribution:\n"
                 summary_text += f"• Excellent: {excellent}/{n_validated}\n"
@@ -3539,10 +3539,10 @@ class Drift_Correction_Functions:
             # Summary plot 4: Quality distribution histogram
             ax4 = axes_summary[1, 1]
             if clustering_metadata:
-                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
-                ax4.hist(noise_fractions, bins=max(5, min(10, n_validated)), alpha=0.7,
+                retention_rates = [meta["retention_rate"] for meta in clustering_metadata]
+                ax4.hist(retention_rates, bins=max(5, min(10, n_validated)), alpha=0.7,
                         color='lightgreen', edgecolor='black')
-                ax4.set_xlabel("Noise Fraction")
+                ax4.set_xlabel("Retention Rate")
                 ax4.set_ylabel("Count")
                 ax4.set_title("Quality Distribution")
                 ax4.grid(True, alpha=0.3)
@@ -4266,7 +4266,7 @@ class Drift_Correction_Functions:
             stats_text += f"• Original Points: {len(original_puncta):,}\n"
             stats_text += f"• Validated Points: {len(fiducial_locs):,}\n"
             stats_text += f"• Retention Rate: {100*len(fiducial_locs)/len(original_puncta):.1f}%\n"
-            stats_text += f"• Noise Fraction: {meta['noise_fraction']:.3f}\n"
+            stats_text += f"• Noise Fraction: {1.0 - meta['retention_rate']:.3f}\n"
             stats_text += f"• N Clusters: {meta['n_clusters']}\n"
             stats_text += f"• Largest Cluster: {meta['largest_cluster_size']:,}\n"
             if 'min_samples_used' in meta:
@@ -4275,10 +4275,10 @@ class Drift_Correction_Functions:
                 stats_text += f"• DBSCAN eps: {meta['eps']:.2f}\n"
 
             # Quality indicator
-            if meta['noise_fraction'] < 0.2:
+            if meta['retention_rate'] > 0.8:
                 quality = "Excellent ✓"
                 color = "green"
-            elif meta['noise_fraction'] < 0.5:
+            elif meta['retention_rate'] > 0.5:
                 quality = "Good ~"
                 color = "orange"
             else:
@@ -4321,23 +4321,23 @@ class Drift_Correction_Functions:
             ax1 = axes_summary[0, 0]
             if clustering_metadata:
                 region_ids = [meta["region_id"] for meta in clustering_metadata]
-                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
+                retention_rates = [meta["retention_rate"] for meta in clustering_metadata]
                 x_pos = np.arange(len(region_ids))
 
                 # Color bars based on validation (low noise = good)
                 bar_colors = []
-                for noise_frac in noise_fractions:
-                    if noise_frac < 0.2:  # Good
+                for retention_rate in retention_rates:
+                    if retention_rate > 0.8:  # Good
                         bar_colors.append("green")
-                    elif noise_frac < 0.5:  # Moderate
+                    elif retention_rate > 0.5:  # Moderate
                         bar_colors.append("orange")
                     else:  # Poor
                         bar_colors.append("red")
 
-                ax1.bar(x_pos, noise_fractions, alpha=0.7, color=bar_colors)
+                ax1.bar(x_pos, retention_rates, alpha=0.7, color=bar_colors)
                 ax1.set_xlabel("Validated Region")
-                ax1.set_ylabel("Noise Fraction")
-                ax1.set_title("Clustering Quality (Lower = Better)")
+                ax1.set_ylabel("Retention Rate")
+                ax1.set_title("Clustering Quality (Higher = Better)")
                 ax1.set_xticks(x_pos)
                 ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids])
                 ax1.grid(True, alpha=0.3)
@@ -4385,9 +4385,9 @@ class Drift_Correction_Functions:
                     summary_text += f"(Removes clusters < {min_samples_used} points)\n\n"
 
                 # Quality distribution
-                excellent = sum(1 for meta in clustering_metadata if meta['noise_fraction'] < 0.2)
-                good = sum(1 for meta in clustering_metadata if 0.2 <= meta['noise_fraction'] < 0.5)
-                poor = sum(1 for meta in clustering_metadata if meta['noise_fraction'] >= 0.5)
+                excellent = sum(1 for meta in clustering_metadata if meta['retention_rate'] > 0.8)
+                good = sum(1 for meta in clustering_metadata if 0.5 <= meta['retention_rate'] <= 0.8)
+                poor = sum(1 for meta in clustering_metadata if meta['retention_rate'] < 0.5)
 
                 summary_text += f"Quality Distribution:\n"
                 summary_text += f"• Excellent: {excellent}/{n_validated}\n"
@@ -4400,10 +4400,10 @@ class Drift_Correction_Functions:
             # Summary plot 4: Quality distribution histogram
             ax4 = axes_summary[1, 1]
             if clustering_metadata:
-                noise_fractions = [meta["noise_fraction"] for meta in clustering_metadata]
-                ax4.hist(noise_fractions, bins=max(5, min(10, n_validated)), alpha=0.7,
+                retention_rates = [meta["retention_rate"] for meta in clustering_metadata]
+                ax4.hist(retention_rates, bins=max(5, min(10, n_validated)), alpha=0.7,
                         color='lightgreen', edgecolor='black')
-                ax4.set_xlabel("Noise Fraction")
+                ax4.set_xlabel("Retention Rate")
                 ax4.set_ylabel("Count")
                 ax4.set_title("Quality Distribution")
                 ax4.grid(True, alpha=0.3)
@@ -4837,7 +4837,7 @@ class Drift_Correction_Functions:
             ax.set_ylabel("Y (pixels)")
             ax.set_title(
                 f'Region {region_id} - {len(fiducial_locs)}/{meta["original_n_locs"]} locs\n'
-                f'Noise: {meta["noise_fraction"]*100:.1f}%'
+                f'Noise: {(1.0 - meta["retention_rate"])*100:.1f}%'
             )
             ax.legend(fontsize=8)
             ax.grid(True, alpha=0.3)
