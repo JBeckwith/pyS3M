@@ -3160,7 +3160,6 @@ class Drift_Correction_Functions:
         retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
-        birch_sample_size: Optional[int] = None,  # Kept for compatibility but unused
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,
@@ -3177,7 +3176,6 @@ class Drift_Correction_Functions:
             retention_percentage: Percentage of data to keep (0.0 to 1.0), default 0.9 (90%)
             min_samples_factor: Minimum samples factor for filtering regions
             frame_count: Total number of frames (for calculating min samples)
-            birch_sample_size: Unused parameter, kept for compatibility
             output_figure_path: Optional path to save Gaussian fitting visualization
             title: Title for the plots
             create_plot: Whether to create visualization plots
