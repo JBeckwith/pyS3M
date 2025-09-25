@@ -3382,7 +3382,7 @@ class Drift_Correction_Functions:
 
         fig.suptitle(
             f"{title} - Region {region_id+1} Gaussian Validation",
-            fontsize=12,
+            fontsize=7,
         )
 
         # Create datasets for plotting: discarded points first, then kept points
@@ -3412,28 +3412,14 @@ class Drift_Correction_Functions:
             legend_elements = [Patch(facecolor=color, label=label) for color, label in zip(colors, labels)]
             ax.legend(handles=legend_elements, loc='upper right')
 
-        # Add Gaussian center and threshold circle
+        # Debug: print coordinate information for verification
         center_x = metadata['gaussian_center_x']
         center_y = metadata['gaussian_center_y']
-        r_threshold = r_threshold  # Use the passed parameter
-
-        # Debug: print coordinate information
         print(f"  DEBUG: Center=({center_x:.1f}, {center_y:.1f}), Threshold radius={r_threshold:.1f}")
         if data_arrays:
             all_x = np.concatenate([data['xc'] for data in data_arrays])
             all_y = np.concatenate([data['yc'] for data in data_arrays])
             print(f"  DEBUG: Data range: X=[{np.min(all_x):.1f}, {np.max(all_x):.1f}], Y=[{np.min(all_y):.1f}, {np.max(all_y):.1f}]")
-
-        # Plot Gaussian center
-        ax.scatter([center_x], [center_y], c='blue', s=100, marker='x', linewidth=3,
-                  label='Gaussian Center', zorder=10)
-
-        # Add threshold circle
-        from matplotlib.patches import Circle
-        circle = Circle((center_x, center_y), r_threshold, fill=False,
-                       color='blue', linestyle='--', linewidth=2, alpha=0.7,
-                       label=f'Threshold (r={r_threshold:.1f}nm)')
-        ax.add_patch(circle)
 
         # Set labels and formatting
         ax.set_xlabel('X Position (nm)')
