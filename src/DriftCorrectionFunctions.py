@@ -3478,7 +3478,7 @@ class Drift_Correction_Functions:
                 ax1.set_ylabel("Retention Rate")
                 ax1.set_title("Clustering Quality (Higher = Better)")
                 ax1.set_xticks(x_pos)
-                ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids], rotation=90)
                 ax1.grid(True, alpha=0.3)
 
             # Summary plot 2: Retention rates
@@ -3497,7 +3497,7 @@ class Drift_Correction_Functions:
                 ax2.set_ylabel("Retention Rate (%)")
                 ax2.set_title("Localization Retention")
                 ax2.set_xticks(x_pos)
-                ax2.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax2.set_xticklabels([f"R{rid+1}" for rid in region_ids], rotation=90)
                 ax2.grid(True, alpha=0.3)
 
             # Summary plot 3: Overall statistics (text)
@@ -4339,7 +4339,7 @@ class Drift_Correction_Functions:
                 ax1.set_ylabel("Retention Rate")
                 ax1.set_title("Clustering Quality (Higher = Better)")
                 ax1.set_xticks(x_pos)
-                ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax1.set_xticklabels([f"R{rid+1}" for rid in region_ids], rotation=90)
                 ax1.grid(True, alpha=0.3)
 
             # Summary plot 2: Retention rates
@@ -4358,7 +4358,7 @@ class Drift_Correction_Functions:
                 ax2.set_ylabel("Retention Rate (%)")
                 ax2.set_title("Localization Retention")
                 ax2.set_xticks(x_pos)
-                ax2.set_xticklabels([f"R{rid+1}" for rid in region_ids])
+                ax2.set_xticklabels([f"R{rid+1}" for rid in region_ids], rotation=90)
                 ax2.grid(True, alpha=0.3)
 
             # Summary plot 3: Overall statistics (text)
@@ -4850,179 +4850,178 @@ class Drift_Correction_Functions:
 
         plotter.save_plot(f"{base_path}_details.png", dpi=300, bbox_inches="tight")
 
+    def apply_validated_fiducial_drift_correction(
+        self,
+        locs: np.recarray,
+        validated_fiducials: List[np.recarray],
+        x_err_field: str = 'xc_err',
+        y_err_field: str = 'yc_err'
+    ) -> Tuple[np.recarray, Dict[str, np.ndarray]]:
+        """
+        Apply drift correction using validated fiducials.
 
+        For each cluster, subtracts the median (x, y) value, then calculates drift_x and drift_y
+        by averaging over all validated fiducials, weighting by inverse error (lower error = more weight).
+        Does not interpolate - frames without fiducials are dropped from the corrected dataset.
 
-def apply_validated_fiducial_drift_correction(
-    locs: np.recarray,
-    validated_fiducials: List[np.recarray],
-    x_err_field: str = 'xc_err',
-    y_err_field: str = 'yc_err'
-) -> Tuple[np.recarray, Dict[str, np.ndarray]]:
-    """
-    Apply drift correction using validated fiducials.
+        Parameters
+        ----------
+        locs : np.recarray
+            Full localization dataset with fields: xc, yc, frame, and error fields
+        validated_fiducials : List[np.recarray]
+            List of validated fiducial clusters, each with fields: xc, yc, frame, and error fields
+        x_err_field : str, default 'xc_err'
+            Field name for x-coordinate error
+        y_err_field : str, default 'yc_err'
+            Field name for y-coordinate error
 
-    For each cluster, subtracts the median (x, y) value, then calculates drift_x and drift_y
-    by averaging over all validated fiducials, weighting by inverse error (lower error = more weight).
-    Does not interpolate - frames without fiducials are dropped from the corrected dataset.
+        Returns
+        -------
+        corrected_locs : np.recarray
+            Drift-corrected localizations with additional 'is_fiducial' field
+        drift_info : Dict[str, np.ndarray]
+            Dictionary containing:
+            - 'frames': frame numbers with drift correction
+            - 'drift_x': x drift correction for each frame
+            - 'drift_y': y drift correction for each frame
+            - 'n_fiducials_per_frame': number of fiducials used per frame
+        """
+        if not validated_fiducials:
+            raise ValueError("No validated fiducials provided")
 
-    Parameters
-    ----------
-    locs : np.recarray
-        Full localization dataset with fields: xc, yc, frame, and error fields
-    validated_fiducials : List[np.recarray]
-        List of validated fiducial clusters, each with fields: xc, yc, frame, and error fields
-    x_err_field : str, default 'xc_err'
-        Field name for x-coordinate error
-    y_err_field : str, default 'yc_err'
-        Field name for y-coordinate error
+        # Check if error fields exist in the data
+        sample_fiducial = validated_fiducials[0]
+        has_x_err = x_err_field in sample_fiducial.dtype.names
+        has_y_err = y_err_field in sample_fiducial.dtype.names
 
-    Returns
-    -------
-    corrected_locs : np.recarray
-        Drift-corrected localizations with additional 'is_fiducial' field
-    drift_info : Dict[str, np.ndarray]
-        Dictionary containing:
-        - 'frames': frame numbers with drift correction
-        - 'drift_x': x drift correction for each frame
-        - 'drift_y': y drift correction for each frame
-        - 'n_fiducials_per_frame': number of fiducials used per frame
-    """
-    if not validated_fiducials:
-        raise ValueError("No validated fiducials provided")
+        if not has_x_err or not has_y_err:
+            # Use uniform weights if error fields don't exist
+            print(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.")
+            has_x_err = has_y_err = False
 
-    # Check if error fields exist in the data
-    sample_fiducial = validated_fiducials[0]
-    has_x_err = x_err_field in sample_fiducial.dtype.names
-    has_y_err = y_err_field in sample_fiducial.dtype.names
+        # Step 1: Subtract median from each cluster and collect all corrected fiducial positions
+        median_corrected_fiducials = []
 
-    if not has_x_err or not has_y_err:
-        # Use uniform weights if error fields don't exist
-        print(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.")
-        has_x_err = has_y_err = False
+        for fiducial_cluster in validated_fiducials:
+            if len(fiducial_cluster) == 0:
+                continue
 
-    # Step 1: Subtract median from each cluster and collect all corrected fiducial positions
-    median_corrected_fiducials = []
+            # Calculate median position for this cluster
+            median_x = np.median(fiducial_cluster.xc)
+            median_y = np.median(fiducial_cluster.yc)
 
-    for fiducial_cluster in validated_fiducials:
-        if len(fiducial_cluster) == 0:
-            continue
+            # Create corrected positions (subtract median)
+            corrected_cluster = fiducial_cluster.copy()
+            corrected_cluster.xc = fiducial_cluster.xc - median_x
+            corrected_cluster.yc = fiducial_cluster.yc - median_y
 
-        # Calculate median position for this cluster
-        median_x = np.median(fiducial_cluster.xc)
-        median_y = np.median(fiducial_cluster.yc)
+            median_corrected_fiducials.extend(corrected_cluster)
 
-        # Create corrected positions (subtract median)
-        corrected_cluster = fiducial_cluster.copy()
-        corrected_cluster.xc = fiducial_cluster.xc - median_x
-        corrected_cluster.yc = fiducial_cluster.yc - median_y
+        if not median_corrected_fiducials:
+            raise ValueError("No valid fiducials found after median subtraction")
 
-        median_corrected_fiducials.extend(corrected_cluster)
+        # Convert to array for easier manipulation
+        all_corrected_fiducials = np.array(median_corrected_fiducials)
 
-    if not median_corrected_fiducials:
-        raise ValueError("No valid fiducials found after median subtraction")
+        # Step 2: Calculate weighted average drift for each frame
+        min_frame = int(locs.frame.min())
+        max_frame = int(locs.frame.max())
 
-    # Convert to array for easier manipulation
-    all_corrected_fiducials = np.array(median_corrected_fiducials)
+        drift_x = []
+        drift_y = []
+        valid_frames = []
+        n_fiducials_per_frame = []
 
-    # Step 2: Calculate weighted average drift for each frame
-    min_frame = int(locs.frame.min())
-    max_frame = int(locs.frame.max())
+        for frame in range(min_frame, max_frame + 1):
+            # Get fiducials for this frame
+            frame_mask = all_corrected_fiducials['frame'] == frame
+            frame_fiducials = all_corrected_fiducials[frame_mask]
 
-    drift_x = []
-    drift_y = []
-    valid_frames = []
-    n_fiducials_per_frame = []
+            if len(frame_fiducials) == 0:
+                # No fiducials for this frame - skip it
+                continue
 
-    for frame in range(min_frame, max_frame + 1):
-        # Get fiducials for this frame
-        frame_mask = all_corrected_fiducials['frame'] == frame
-        frame_fiducials = all_corrected_fiducials[frame_mask]
+            valid_frames.append(frame)
+            n_fiducials_per_frame.append(len(frame_fiducials))
 
-        if len(frame_fiducials) == 0:
-            # No fiducials for this frame - skip it
-            continue
+            if has_x_err and has_y_err:
+                # Use inverse error weighting (lower error = higher weight)
+                x_weights = 1.0 / (frame_fiducials[x_err_field] + 1e-10)  # Small epsilon to avoid division by zero
+                y_weights = 1.0 / (frame_fiducials[y_err_field] + 1e-10)
 
-        valid_frames.append(frame)
-        n_fiducials_per_frame.append(len(frame_fiducials))
+                # Weighted average
+                drift_x_frame = np.average(frame_fiducials.xc, weights=x_weights)
+                drift_y_frame = np.average(frame_fiducials.yc, weights=y_weights)
+            else:
+                # Uniform weighting
+                drift_x_frame = np.mean(frame_fiducials.xc)
+                drift_y_frame = np.mean(frame_fiducials.yc)
 
-        if has_x_err and has_y_err:
-            # Use inverse error weighting (lower error = higher weight)
-            x_weights = 1.0 / (frame_fiducials[x_err_field] + 1e-10)  # Small epsilon to avoid division by zero
-            y_weights = 1.0 / (frame_fiducials[y_err_field] + 1e-10)
+            drift_x.append(drift_x_frame)
+            drift_y.append(drift_y_frame)
 
-            # Weighted average
-            drift_x_frame = np.average(frame_fiducials.xc, weights=x_weights)
-            drift_y_frame = np.average(frame_fiducials.yc, weights=y_weights)
-        else:
-            # Uniform weighting
-            drift_x_frame = np.mean(frame_fiducials.xc)
-            drift_y_frame = np.mean(frame_fiducials.yc)
+        if not valid_frames:
+            raise ValueError("No frames with fiducials found")
 
-        drift_x.append(drift_x_frame)
-        drift_y.append(drift_y_frame)
+        # Convert to arrays
+        valid_frames = np.array(valid_frames)
+        drift_x = np.array(drift_x)
+        drift_y = np.array(drift_y)
+        n_fiducials_per_frame = np.array(n_fiducials_per_frame)
 
-    if not valid_frames:
-        raise ValueError("No frames with fiducials found")
+        # Step 3: Apply drift correction to full dataset
+        # Only keep localizations from frames where we have drift correction
+        frame_mask = np.isin(locs.frame, valid_frames)
+        corrected_locs = locs[frame_mask].copy()
 
-    # Convert to arrays
-    valid_frames = np.array(valid_frames)
-    drift_x = np.array(drift_x)
-    drift_y = np.array(drift_y)
-    n_fiducials_per_frame = np.array(n_fiducials_per_frame)
+        # Create drift lookup dictionary for fast access
+        drift_lookup_x = dict(zip(valid_frames, drift_x))
+        drift_lookup_y = dict(zip(valid_frames, drift_y))
 
-    # Step 3: Apply drift correction to full dataset
-    # Only keep localizations from frames where we have drift correction
-    frame_mask = np.isin(locs.frame, valid_frames)
-    corrected_locs = locs[frame_mask].copy()
+        # Apply drift correction
+        for i, loc in enumerate(corrected_locs):
+            frame = loc.frame
+            corrected_locs[i].xc = loc.xc - drift_lookup_x[frame]
+            corrected_locs[i].yc = loc.yc - drift_lookup_y[frame]
 
-    # Create drift lookup dictionary for fast access
-    drift_lookup_x = dict(zip(valid_frames, drift_x))
-    drift_lookup_y = dict(zip(valid_frames, drift_y))
+        # Step 4: Label fiducials in the dataset
+        # Create set of all fiducial positions for fast lookup
+        fiducial_positions = set()
+        for fiducial_cluster in validated_fiducials:
+            for fiducial in fiducial_cluster:
+                # Use (x, y, frame) tuple as unique identifier
+                fiducial_positions.add((fiducial.xc, fiducial.yc, fiducial.frame))
 
-    # Apply drift correction
-    for i, loc in enumerate(corrected_locs):
-        frame = loc.frame
-        corrected_locs[i].xc = loc.xc - drift_lookup_x[frame]
-        corrected_locs[i].yc = loc.yc - drift_lookup_y[frame]
+        # Add is_fiducial field to corrected localizations
+        # First, get the original dtype and add the new field
+        original_dtype = corrected_locs.dtype
+        new_dtype = original_dtype.descr + [('is_fiducial', '?')]  # Boolean field
 
-    # Step 4: Label fiducials in the dataset
-    # Create set of all fiducial positions for fast lookup
-    fiducial_positions = set()
-    for fiducial_cluster in validated_fiducials:
-        for fiducial in fiducial_cluster:
-            # Use (x, y, frame) tuple as unique identifier
-            fiducial_positions.add((fiducial.xc, fiducial.yc, fiducial.frame))
+        # Create new array with additional field
+        final_corrected_locs = np.empty(len(corrected_locs), dtype=new_dtype)
 
-    # Add is_fiducial field to corrected localizations
-    # First, get the original dtype and add the new field
-    original_dtype = corrected_locs.dtype
-    new_dtype = original_dtype.descr + [('is_fiducial', '?')]  # Boolean field
+        # Copy existing data
+        for field in original_dtype.names:
+            final_corrected_locs[field] = corrected_locs[field]
 
-    # Create new array with additional field
-    final_corrected_locs = np.empty(len(corrected_locs), dtype=new_dtype)
+        # Set is_fiducial flags
+        for i, loc in enumerate(corrected_locs):
+            # Check if this localization is a fiducial (before drift correction)
+            original_pos = (loc.xc + drift_lookup_x[loc.frame],
+                           loc.yc + drift_lookup_y[loc.frame],
+                           loc.frame)
+            final_corrected_locs[i].is_fiducial = original_pos in fiducial_positions
 
-    # Copy existing data
-    for field in original_dtype.names:
-        final_corrected_locs[field] = corrected_locs[field]
+        # Prepare drift info dictionary
+        drift_info = {
+            'frames': valid_frames,
+            'drift_x': drift_x,
+            'drift_y': drift_y,
+            'n_fiducials_per_frame': n_fiducials_per_frame
+        }
 
-    # Set is_fiducial flags
-    for i, loc in enumerate(corrected_locs):
-        # Check if this localization is a fiducial (before drift correction)
-        original_pos = (loc.xc + drift_lookup_x[loc.frame],
-                       loc.yc + drift_lookup_y[loc.frame],
-                       loc.frame)
-        final_corrected_locs[i].is_fiducial = original_pos in fiducial_positions
+        print(f"Drift correction applied to {len(final_corrected_locs)} localizations")
+        print(f"Used {len(valid_frames)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
+        print(f"Average {np.mean(n_fiducials_per_frame):.1f} fiducials per frame")
 
-    # Prepare drift info dictionary
-    drift_info = {
-        'frames': valid_frames,
-        'drift_x': drift_x,
-        'drift_y': drift_y,
-        'n_fiducials_per_frame': n_fiducials_per_frame
-    }
-
-    print(f"Drift correction applied to {len(final_corrected_locs)} localizations")
-    print(f"Used {len(valid_frames)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
-    print(f"Average {np.mean(n_fiducials_per_frame):.1f} fiducials per frame")
-
-    return final_corrected_locs, drift_info
+        return final_corrected_locs, drift_info
