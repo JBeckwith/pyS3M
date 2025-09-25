@@ -3190,6 +3190,27 @@ class Drift_Correction_Functions:
             PlottingFunctions_module,
         )
 
+    def _create_separate_plots(
+        self,
+        smoothed_image: np.ndarray,
+        binary_mask: np.ndarray,
+        region_centers: List[Tuple[int, int]],
+        hist: np.ndarray,
+        bin_edges: np.ndarray,
+        threshold: float,
+        pixelsize: float,
+        output_figure_path: Optional[str],
+        title: str,
+        PlottingFunctions_module=None,
+    ) -> None:
+        """Create separate detailed plots for density detection analysis."""
+        if self.plotter is not None:
+            self.plotter.create_separate_plots(
+                smoothed_image, binary_mask, region_centers, hist, bin_edges,
+                threshold, pixelsize, output_figure_path, title
+            )
+        else:
+            print("⚠️ DriftPlotter not available, skipping separate plots")
 
     def _plot_clustering_results(
         self,
