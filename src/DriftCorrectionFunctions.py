@@ -3306,7 +3306,7 @@ class Drift_Correction_Functions:
                     print(f"  Region {region_id}: Not enough kept points ({n_kept}) < min_samples ({min_samples}), discarding")
 
                 # Clean up intermediate arrays
-                del X, kept_mask, radial_distances
+                del X, kept_mask, radial_distances_pixels, radial_distances_nm
                 gc.collect()
 
                 # Extra cleanup for large regions
@@ -3415,6 +3415,14 @@ class Drift_Correction_Functions:
         # Add Gaussian center and threshold circle
         center_x = metadata['gaussian_center_x']
         center_y = metadata['gaussian_center_y']
+        r_threshold = r_threshold  # Use the passed parameter
+
+        # Debug: print coordinate information
+        print(f"  DEBUG: Center=({center_x:.1f}, {center_y:.1f}), Threshold radius={r_threshold:.1f}")
+        if data_arrays:
+            all_x = np.concatenate([data['xc'] for data in data_arrays])
+            all_y = np.concatenate([data['yc'] for data in data_arrays])
+            print(f"  DEBUG: Data range: X=[{np.min(all_x):.1f}, {np.max(all_x):.1f}], Y=[{np.min(all_y):.1f}, {np.max(all_y):.1f}]")
 
         # Plot Gaussian center
         ax.scatter([center_x], [center_y], c='blue', s=100, marker='x', linewidth=3,
@@ -3456,7 +3464,7 @@ class Drift_Correction_Functions:
             quality_color = "lightcoral"
 
         ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                fontsize=9, verticalalignment='top', fontfamily='monospace',
+                fontsize=5, verticalalignment='top', fontfamily='monospace',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=quality_color, alpha=0.7))
 
         # Save if path provided
