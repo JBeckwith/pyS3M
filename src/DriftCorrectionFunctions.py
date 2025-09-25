@@ -2788,40 +2788,6 @@ class Drift_Correction_Functions:
         except Exception as e:
             print(f"⚠️ Failed to create fiducial detection plot: {e}")
 
-    def undrift_with_detected_fiducials(
-        self, detection_result: FiducialDetectionResult, **params
-    ) -> Tuple[np.recarray, DriftResult]:
-        """Perform drift correction using previously detected fiducials.
-
-        Args:
-            detection_result: Result from detect_fiducials()
-            **params: Additional drift correction parameters
-
-        Returns:
-            Tuple of (corrected_locs, drift_result)
-
-        Example:
-            >>> DCF = Drift_Correction_Functions()
-            >>> # First detect fiducials
-            >>> detection_result = DCF.detect_fiducials(locs, info)
-            >>> # Then perform drift correction
-            >>> corrected, drift = DCF.undrift_with_detected_fiducials(detection_result)
-        """
-        # Use the localizations with group field for drift correction
-        return self.undrift(
-            locs=detection_result.locs_with_groups,
-            info=[
-                {
-                    "Width": detection_result.detection_image.shape[1],
-                    "Height": detection_result.detection_image.shape[0],
-                    "Frames": len(np.unique(detection_result.locs_with_groups.frame)),
-                    "Pixelsize": detection_result.detection_params["pixelsize"]
-                    / 1000,  # Convert nm to μm
-                }
-            ],
-            method="fiducial",
-            **params,
-        )
 
     def detect_high_density_regions_from_image(
         self,
@@ -3256,12 +3222,6 @@ class Drift_Correction_Functions:
                 kept_mask = radial_distances_pixels <= r_threshold_pixels
                 n_kept = np.sum(kept_mask)
 
-                print(f"    Gaussian center: ({mean[0]:.1f}, {mean[1]:.1f}) pixels = ({mean[0]*pixelsize:.1f}, {mean[1]*pixelsize:.1f}) nm")
-                print(f"    Data range: X=[{np.min(X[:, 0]):.1f}, {np.max(X[:, 0]):.1f}] pixels, Y=[{np.min(X[:, 1]):.1f}, {np.max(X[:, 1]):.1f}] pixels")
-                print(f"    Gaussian sigma: {sigma_pixels:.1f} pixels = {sigma_nm:.1f} nm")
-                print(f"    Radial threshold: {r_threshold_pixels:.1f} pixels = {r_threshold_nm:.1f} nm")
-                print(f"    Kept: {n_kept}/{n_locs} ({100*n_kept/n_locs:.1f}%)")
-
                 if n_kept >= min_samples:
                     # Extract validated localizations
                     validated_locs = puncta_locs[kept_mask]
@@ -3378,11 +3338,11 @@ class Drift_Correction_Functions:
             return
 
         # Create a single column plot using PlottingFunctions
-        fig, ax = plotter.one_column_plot(width=2.5, height=2.5)
+        fig, ax = plotter.one_column_plot(width=3.5, height=3.5)
 
         fig.suptitle(
             f"{title} - Region {region_id+1} Gaussian Validation",
-            fontsize=7,
+            fontsize=9,
         )
 
         # Create datasets for plotting: discarded points first, then kept points
@@ -3412,14 +3372,6 @@ class Drift_Correction_Functions:
             legend_elements = [Patch(facecolor=color, label=label) for color, label in zip(colors, labels)]
             ax.legend(handles=legend_elements, loc='upper right')
 
-        # Debug: print coordinate information for verification
-        center_x = metadata['gaussian_center_x']
-        center_y = metadata['gaussian_center_y']
-        print(f"  DEBUG: Center=({center_x:.1f}, {center_y:.1f}), Threshold radius={r_threshold:.1f}")
-        if data_arrays:
-            all_x = np.concatenate([data['xc'] for data in data_arrays])
-            all_y = np.concatenate([data['yc'] for data in data_arrays])
-            print(f"  DEBUG: Data range: X=[{np.min(all_x):.1f}, {np.max(all_x):.1f}], Y=[{np.min(all_y):.1f}, {np.max(all_y):.1f}]")
 
         # Set labels and formatting
         ax.set_xlabel('X Position (nm)')
@@ -3427,10 +3379,6 @@ class Drift_Correction_Functions:
         ax.set_title(f'Gaussian Fitting - Region {region_id+1}')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal', adjustable='box')
-
-        # Update legend to include Gaussian elements
-        handles, existing_labels = ax.get_legend_handles_labels()
-        ax.legend(handles, existing_labels, loc='upper right')
 
         # Add statistics text box
         stats_text = f"Stats:\n"
@@ -3450,7 +3398,7 @@ class Drift_Correction_Functions:
             quality_color = "lightcoral"
 
         ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                fontsize=5, verticalalignment='top', fontfamily='monospace',
+                fontsize=6, verticalalignment='top', fontfamily='monospace',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=quality_color, alpha=0.7))
 
         # Save if path provided
@@ -3741,14 +3689,15 @@ class Drift_Correction_Functions:
             )
 
         # Overlay binary mask as contours (keep as is - efficient)
-        ax1.contour(
+        contour_lines = ax1.contour(
             binary_mask,
             levels=[0.5],
             colors="blue",
             linewidths=1,
             alpha=0.5,
-            label="Detected regions",
         )
+        # Add label to contour for legend
+        contour_lines.collections[0].set_label("Detected regions")
 
         # Plot region centers and selection boxes (optimized)
         half_box = box_size_pixels / 2.0
@@ -4901,112 +4850,179 @@ class Drift_Correction_Functions:
 
         plotter.save_plot(f"{base_path}_details.png", dpi=300, bbox_inches="tight")
 
-    def undrift_with_fiducial_detection(
-        self,
-        locs: np.recarray,
-        info: list,
-        threshold_percentile: float = 99.0,
-        box_size_nm: float = 900.0,
-        min_frames_fraction: float = 0.8,
-        histogram_bins: int = 256,
-        **params,
-    ) -> Tuple[np.recarray, DriftResult, Dict[str, Any]]:
-        """Complete fiducial drift correction workflow with automatic fiducial detection.
 
-        This is a user-friendly wrapper that combines automatic fiducial detection
-        with drift correction. It allows fine-tuning of detection parameters while
-        providing sensible defaults.
 
-        Args:
-            locs: Localization data (group field not required)
-            info: Metadata list containing frame count and image dimensions
-            threshold_percentile: Histogram percentile threshold for fiducial detection (0-100)
-            box_size_nm: Box size for fiducial detection in nanometers
-            min_frames_fraction: Minimum fraction of frames for valid fiducial (0-1)
-            histogram_bins: Number of bins for histogram analysis
-            **params: Additional drift correction parameters
+def apply_validated_fiducial_drift_correction(
+    locs: np.recarray,
+    validated_fiducials: List[np.recarray],
+    x_err_field: str = 'xc_err',
+    y_err_field: str = 'yc_err'
+) -> Tuple[np.recarray, Dict[str, np.ndarray]]:
+    """
+    Apply drift correction using validated fiducials.
 
-        Returns:
-            Tuple of (corrected_locs, drift_result, detection_info)
-            - corrected_locs: Drift-corrected localizations
-            - drift_result: Drift correction results with metadata
-            - detection_info: Information about fiducial detection process
+    For each cluster, subtracts the median (x, y) value, then calculates drift_x and drift_y
+    by averaging over all validated fiducials, weighting by inverse error (lower error = more weight).
+    Does not interpolate - frames without fiducials are dropped from the corrected dataset.
 
-        Raises:
-            DriftCorrectionError: If fiducial detection fails or no valid fiducials found
+    Parameters
+    ----------
+    locs : np.recarray
+        Full localization dataset with fields: xc, yc, frame, and error fields
+    validated_fiducials : List[np.recarray]
+        List of validated fiducial clusters, each with fields: xc, yc, frame, and error fields
+    x_err_field : str, default 'xc_err'
+        Field name for x-coordinate error
+    y_err_field : str, default 'yc_err'
+        Field name for y-coordinate error
 
-        Example:
-            >>> DCF = Drift_Correction_Functions()
-            >>> # Basic usage with defaults
-            >>> corrected, drift, info = DCF.undrift_with_fiducial_detection(locs, metadata)
-            >>>
-            >>> # Fine-tune detection parameters
-            >>> corrected, drift, info = DCF.undrift_with_fiducial_detection(
-            ...     locs, metadata,
-            ...     threshold_percentile=95.0,  # Lower threshold for more candidates
-            ...     box_size_nm=1200.0,         # Larger search box
-            ...     min_frames_fraction=0.6     # Allow fiducials with fewer localizations
-            ... )
-            >>>
-            >>> print(f"Found {info['n_fiducials']} fiducials")
-            >>> print(f"Drift range: X [{drift.drift_x.min():.2f}, {drift.drift_x.max():.2f}]")
-        """
-        # Store original parameters for reporting
-        detection_params = {
-            "threshold_percentile": threshold_percentile,
-            "box_size_nm": box_size_nm,
-            "min_frames_fraction": min_frames_fraction,
-            "histogram_bins": histogram_bins,
-        }
+    Returns
+    -------
+    corrected_locs : np.recarray
+        Drift-corrected localizations with additional 'is_fiducial' field
+    drift_info : Dict[str, np.ndarray]
+        Dictionary containing:
+        - 'frames': frame numbers with drift correction
+        - 'drift_x': x drift correction for each frame
+        - 'drift_y': y drift correction for each frame
+        - 'n_fiducials_per_frame': number of fiducials used per frame
+    """
+    if not validated_fiducials:
+        raise ValueError("No validated fiducials provided")
 
-        try:
-            # Step 1: Detect fiducials using the new separated function
-            detection_result = self.detect_fiducials(
-                locs=locs,
-                info=info,
-                threshold_percentile=threshold_percentile,
-                box_size_nm=box_size_nm,
-                min_frames_fraction=min_frames_fraction,
-                histogram_bins=histogram_bins,
-                plot_results=False,  # No plot for the combined workflow
-                save_plot=None,
-            )
+    # Check if error fields exist in the data
+    sample_fiducial = validated_fiducials[0]
+    has_x_err = x_err_field in sample_fiducial.dtype.names
+    has_y_err = y_err_field in sample_fiducial.dtype.names
 
-            # Step 2: Apply drift correction using detected fiducials
-            corrected_locs, drift_result = self.undrift_with_detected_fiducials(
-                detection_result=detection_result, **params
-            )
+    if not has_x_err or not has_y_err:
+        # Use uniform weights if error fields don't exist
+        print(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.")
+        has_x_err = has_y_err = False
 
-            # Create detection info for backward compatibility
-            detection_info = {
-                "detection_params": detection_params,
-                "n_fiducials": detection_result.n_fiducials,
-                "fiducial_groups": list(range(detection_result.n_fiducials)),
-                "frames_per_fiducial": detection_result.metadata[
-                    "localizations_per_fiducial"
-                ],
-                "success": True,
-                "message": f"Successfully detected {detection_result.n_fiducials} fiducials",
-                "total_candidates": detection_result.metadata["total_candidates"],
-                "threshold_used": detection_result.metadata["threshold_used"],
-            }
+    # Step 1: Subtract median from each cluster and collect all corrected fiducial positions
+    median_corrected_fiducials = []
 
-            return corrected_locs, drift_result, detection_info
+    for fiducial_cluster in validated_fiducials:
+        if len(fiducial_cluster) == 0:
+            continue
 
-        except DriftCorrectionError as e:
-            # Provide detailed error information for troubleshooting
-            detection_info = {
-                "detection_params": detection_params,
-                "n_fiducials": 0,
-                "fiducial_groups": [],
-                "frames_per_fiducial": [],
-                "success": False,
-                "message": str(e),
-                "troubleshooting": {
-                    "try_lower_threshold": "Reduce threshold_percentile (e.g., 95.0 or 90.0)",
-                    "try_larger_box": "Increase box_size_nm (e.g., 1200.0)",
-                    "try_lower_min_frames": "Reduce min_frames_fraction (e.g., 0.6 or 0.5)",
-                    "check_data": "Ensure localizations contain bright, stationary markers",
-                },
-            }
-            raise DriftCorrectionError(f"Fiducial detection failed: {e}") from e
+        # Calculate median position for this cluster
+        median_x = np.median(fiducial_cluster.xc)
+        median_y = np.median(fiducial_cluster.yc)
+
+        # Create corrected positions (subtract median)
+        corrected_cluster = fiducial_cluster.copy()
+        corrected_cluster.xc = fiducial_cluster.xc - median_x
+        corrected_cluster.yc = fiducial_cluster.yc - median_y
+
+        median_corrected_fiducials.extend(corrected_cluster)
+
+    if not median_corrected_fiducials:
+        raise ValueError("No valid fiducials found after median subtraction")
+
+    # Convert to array for easier manipulation
+    all_corrected_fiducials = np.array(median_corrected_fiducials)
+
+    # Step 2: Calculate weighted average drift for each frame
+    min_frame = int(locs.frame.min())
+    max_frame = int(locs.frame.max())
+
+    drift_x = []
+    drift_y = []
+    valid_frames = []
+    n_fiducials_per_frame = []
+
+    for frame in range(min_frame, max_frame + 1):
+        # Get fiducials for this frame
+        frame_mask = all_corrected_fiducials['frame'] == frame
+        frame_fiducials = all_corrected_fiducials[frame_mask]
+
+        if len(frame_fiducials) == 0:
+            # No fiducials for this frame - skip it
+            continue
+
+        valid_frames.append(frame)
+        n_fiducials_per_frame.append(len(frame_fiducials))
+
+        if has_x_err and has_y_err:
+            # Use inverse error weighting (lower error = higher weight)
+            x_weights = 1.0 / (frame_fiducials[x_err_field] + 1e-10)  # Small epsilon to avoid division by zero
+            y_weights = 1.0 / (frame_fiducials[y_err_field] + 1e-10)
+
+            # Weighted average
+            drift_x_frame = np.average(frame_fiducials.xc, weights=x_weights)
+            drift_y_frame = np.average(frame_fiducials.yc, weights=y_weights)
+        else:
+            # Uniform weighting
+            drift_x_frame = np.mean(frame_fiducials.xc)
+            drift_y_frame = np.mean(frame_fiducials.yc)
+
+        drift_x.append(drift_x_frame)
+        drift_y.append(drift_y_frame)
+
+    if not valid_frames:
+        raise ValueError("No frames with fiducials found")
+
+    # Convert to arrays
+    valid_frames = np.array(valid_frames)
+    drift_x = np.array(drift_x)
+    drift_y = np.array(drift_y)
+    n_fiducials_per_frame = np.array(n_fiducials_per_frame)
+
+    # Step 3: Apply drift correction to full dataset
+    # Only keep localizations from frames where we have drift correction
+    frame_mask = np.isin(locs.frame, valid_frames)
+    corrected_locs = locs[frame_mask].copy()
+
+    # Create drift lookup dictionary for fast access
+    drift_lookup_x = dict(zip(valid_frames, drift_x))
+    drift_lookup_y = dict(zip(valid_frames, drift_y))
+
+    # Apply drift correction
+    for i, loc in enumerate(corrected_locs):
+        frame = loc.frame
+        corrected_locs[i].xc = loc.xc - drift_lookup_x[frame]
+        corrected_locs[i].yc = loc.yc - drift_lookup_y[frame]
+
+    # Step 4: Label fiducials in the dataset
+    # Create set of all fiducial positions for fast lookup
+    fiducial_positions = set()
+    for fiducial_cluster in validated_fiducials:
+        for fiducial in fiducial_cluster:
+            # Use (x, y, frame) tuple as unique identifier
+            fiducial_positions.add((fiducial.xc, fiducial.yc, fiducial.frame))
+
+    # Add is_fiducial field to corrected localizations
+    # First, get the original dtype and add the new field
+    original_dtype = corrected_locs.dtype
+    new_dtype = original_dtype.descr + [('is_fiducial', '?')]  # Boolean field
+
+    # Create new array with additional field
+    final_corrected_locs = np.empty(len(corrected_locs), dtype=new_dtype)
+
+    # Copy existing data
+    for field in original_dtype.names:
+        final_corrected_locs[field] = corrected_locs[field]
+
+    # Set is_fiducial flags
+    for i, loc in enumerate(corrected_locs):
+        # Check if this localization is a fiducial (before drift correction)
+        original_pos = (loc.xc + drift_lookup_x[loc.frame],
+                       loc.yc + drift_lookup_y[loc.frame],
+                       loc.frame)
+        final_corrected_locs[i].is_fiducial = original_pos in fiducial_positions
+
+    # Prepare drift info dictionary
+    drift_info = {
+        'frames': valid_frames,
+        'drift_x': drift_x,
+        'drift_y': drift_y,
+        'n_fiducials_per_frame': n_fiducials_per_frame
+    }
+
+    print(f"Drift correction applied to {len(final_corrected_locs)} localizations")
+    print(f"Used {len(valid_frames)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
+    print(f"Average {np.mean(n_fiducials_per_frame):.1f} fiducials per frame")
+
+    return final_corrected_locs, drift_info
