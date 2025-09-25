@@ -18,7 +18,6 @@ import gc
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from concurrent.futures import ThreadPoolExecutor
-from sklearn.cluster import Birch
 
 # Matplotlib imports (needed for drift correction plotting)
 import matplotlib.pyplot as plt
@@ -3158,39 +3157,49 @@ class Drift_Correction_Functions:
     def identify_real_fiducials_with_clustering(
         self,
         selected_puncta: List[np.recarray],
-        precision_factor: float = 3.0,
+        retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
-        birch_sample_size: Optional[int] = 10000,
+        birch_sample_size: Optional[int] = None,  # Kept for compatibility but unused
         output_figure_path: Optional[str] = None,
-        title: str = "Fiducial Clustering Analysis",
+        title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
-        """Identify real fiducials from selected puncta using BIRCH clustering.
+        """Identify real fiducials from selected puncta using single Gaussian distribution fitting.
 
         This function takes puncta (localizations) from select_puncta_from_regions
-        and applies BIRCH clustering to identify real fiducial markers by requiring
-        spatial clustering of localizations. BIRCH is much more memory-efficient than DBSCAN
-        and uses a sample-then-predict strategy for large datasets.
+        and applies single Gaussian mixture fitting to identify real fiducial markers.
+        It fits each region to a single 2D Gaussian and keeps a specified percentage
+        of points based on their distance from the Gaussian center.
 
         Args:
             selected_puncta: List of localization arrays from select_puncta_from_regions
-            precision_factor: Multiplier for localization precision to set BIRCH threshold parameter
-            min_samples_factor: Fraction of frame_count (unused in BIRCH but kept for compatibility)
-            frame_count: Total number of frames (for reference)
-            birch_sample_size: Number of points to sample for BIRCH training (None = use all data)
-            output_figure_path: Optional path to save clustering visualization
-            title: Title for visualization plots
+            retention_percentage: Percentage of data to keep (0.0 to 1.0), default 0.9 (90%)
+            min_samples_factor: Minimum samples factor for filtering regions
+            frame_count: Total number of frames (for calculating min samples)
+            birch_sample_size: Unused parameter, kept for compatibility
+            output_figure_path: Optional path to save Gaussian fitting visualization
+            title: Title for the plots
             create_plot: Whether to create visualization plots
 
         Returns:
             Tuple containing:
             - List of localization arrays for validated fiducials
-            - Metadata dictionary with clustering statistics
+            - Metadata dictionary with Gaussian fitting statistics
         """
 
         validated_fiducials = []
         clustering_metadata = []
+
+        # Pre-calculate radial CDF threshold for 2D Gaussian
+        # For retention percentage p, solve: 1 - exp(-(r/s)^2/2) = p
+        # This gives: r_threshold = s * sqrt(-2 * ln(1 - p))
+        if retention_percentage <= 0 or retention_percentage >= 1:
+            raise ValueError("retention_percentage must be between 0 and 1")
+
+        # Calculate the radial threshold factor (r/s ratio)
+        radial_threshold_factor = np.sqrt(-2 * np.log(1 - retention_percentage))
+        print(f"Using radial threshold factor: {radial_threshold_factor:.3f} for {retention_percentage*100:.1f}% retention")
 
         # Process each puncta region
         for region_id, puncta_locs in enumerate(selected_puncta):
@@ -3199,152 +3208,104 @@ class Drift_Correction_Functions:
             if n_locs < 10:  # Skip regions with too few localizations for clustering
                 continue
 
-            # Prepare data for DBSCAN
+            # Prepare data for Gaussian fitting
             X = np.vstack([puncta_locs["xc"], puncta_locs["yc"]]).T
-
-            # Calculate localization precision-based eps parameter
-            if hasattr(puncta_locs, "xc_err") and hasattr(puncta_locs, "yc_err"):
-                loc_precision = precision_factor * (
-                    np.mean(puncta_locs["xc_err"]) + np.mean(puncta_locs["yc_err"])
-                )
-            else:
-                # Fallback: estimate precision from localization spread
-                loc_precision = (
-                    precision_factor
-                    * (np.std(puncta_locs["xc"]) + np.std(puncta_locs["yc"]))
-                    / 10
-                )
 
             # Calculate minimum samples requirement
             min_samples = max(
                 int(min_samples_factor * frame_count / 1000), 5
             )  # Scale by 1000, minimum 5
 
-            # Apply memory-efficient BIRCH clustering with sampling strategy
+            # Check if region has enough points
+            if n_locs < min_samples:
+                print(f"  Region {region_id}: Too few points ({n_locs}) < min_samples ({min_samples}), skipping")
+                continue
+
+            # Apply single Gaussian mixture fitting
             try:
-                # Step 1: Sample data for BIRCH training if dataset is large
-                n_points = len(X)
-                if birch_sample_size is None:
-                    sample_size = n_points  # Use all data
+                from sklearn.mixture import GaussianMixture
+
+                print(f"  Fitting single Gaussian to {n_locs} points in region {region_id}")
+
+                # Fit single Gaussian component
+                gm = GaussianMixture(n_components=1, random_state=0)
+                gm.fit(X)
+
+                # Get Gaussian parameters
+                mean = gm.means_[0]  # Center of Gaussian
+                covariance = gm.covariances_[0]  # Covariance matrix
+
+                # Calculate standard deviation (sigma) for radial distance
+                # For 2D Gaussian, use average of eigenvalues as characteristic scale
+                eigenvals = np.linalg.eigvals(covariance)
+                sigma = np.sqrt(np.mean(eigenvals))
+
+                # Calculate radial distances from center
+                dx = X[:, 0] - mean[0]
+                dy = X[:, 1] - mean[1]
+                radial_distances = np.sqrt(dx**2 + dy**2)
+
+                # Apply radial threshold for percentage retention
+                # r_threshold = sigma * radial_threshold_factor
+                r_threshold = sigma * radial_threshold_factor
+
+                # Keep points within the radial threshold
+                kept_mask = radial_distances <= r_threshold
+                n_kept = np.sum(kept_mask)
+
+                print(f"    Gaussian center: ({mean[0]:.1f}, {mean[1]:.1f})")
+                print(f"    Gaussian sigma: {sigma:.1f} nm")
+                print(f"    Radial threshold: {r_threshold:.1f} nm")
+                print(f"    Kept: {n_kept}/{n_locs} ({100*n_kept/n_locs:.1f}%)")
+
+                if n_kept >= min_samples:
+                    # Extract validated localizations
+                    validated_locs = puncta_locs[kept_mask]
+                    validated_fiducials.append(validated_locs)
+
+                    # Store Gaussian fitting metadata
+                    gaussian_metadata = {
+                        "region_id": region_id,
+                        "original_n_locs": n_locs,
+                        "validated_n_locs": n_kept,
+                        "retention_rate": n_kept / n_locs,
+                        "gaussian_center_x": mean[0],
+                        "gaussian_center_y": mean[1],
+                        "gaussian_sigma": sigma,
+                        "radial_threshold": r_threshold,
+                        "fitting_method": "Single Gaussian",
+                        "retention_percentage": retention_percentage,
+                        "min_samples_factor": min_samples_factor,
+                        "min_samples_used": min_samples,
+                        "kept_mask": kept_mask,
+                        "radial_distances": radial_distances,
+                    }
+                    clustering_metadata.append(gaussian_metadata)
+
+                    # Plot this validated region immediately
+                    if create_plot:
+                        self._plot_single_gaussian_validation(
+                            puncta_locs, validated_locs, kept_mask, radial_distances,
+                            region_id, gaussian_metadata, output_figure_path, title, r_threshold
+                        )
+
+                    # Clean up intermediate arrays to free memory
+                    del validated_locs
                 else:
-                    sample_size = min(birch_sample_size, n_points)  # Use specified sample size
+                    # Skip this region - not enough points meet retention criteria
+                    print(f"  Region {region_id}: Not enough kept points ({n_kept}) < min_samples ({min_samples}), discarding")
 
-                if n_points > sample_size:
-                    # Randomly sample points for BIRCH training
-                    np.random.seed(42)  # For reproducibility
-                    sample_indices = np.random.choice(n_points, sample_size, replace=False)
-                    X_sample = X[sample_indices]
-                    print(f"  BIRCH training on {sample_size} sampled points from {n_points} total")
-                else:
-                    X_sample = X
-                    sample_indices = np.arange(n_points)
-                    print(f"  BIRCH training on all {n_points} points")
-
-                # Step 2: Configure BIRCH parameters
-                # threshold: Maximum distance between a point and cluster centroid to assign it
-                # branching_factor: Maximum number of subclusters in each CF node
-                # n_clusters: Auto-determine clusters or set to None for natural clustering
-                threshold_distance = loc_precision * 1.5  # Slightly larger than DBSCAN eps
-
-                birch = Birch(
-                    threshold=threshold_distance,
-                    branching_factor=50,  # Balance memory vs accuracy
-                    n_clusters=None,  # Let BIRCH determine clusters naturally
-                    compute_labels=True
-                )
-
-                # Step 3: Train BIRCH on sample data
-                birch.fit(X_sample)
-                sample_labels = birch.labels_
-
-                # Count valid clusters in sample (excluding noise points if any)
-                sample_cluster_ids = set(sample_labels)
-                if -1 in sample_cluster_ids:
-                    sample_cluster_ids.remove(-1)  # Remove noise label if present
-                n_sample_clusters = len(sample_cluster_ids)
-
-                print(f"  BIRCH found {n_sample_clusters} clusters in sample data")
-
-                # Step 4: Predict on full dataset using trained BIRCH model
-                cluster_labels = birch.predict(X)
-
-                # Clear sample data to free memory
-                del X, X_sample, sample_labels
+                # Clean up intermediate arrays
+                del X, kept_mask, radial_distances
                 gc.collect()
 
-                # Analyze clustering results
-                cluster_ids = set(cluster_labels)
-                if -1 in cluster_ids:
-                    cluster_ids.remove(-1)  # Remove noise label if present
-                n_clusters = len(cluster_ids)
-                n_noise = np.sum(cluster_labels == -1)
-
-                # Consider this a valid fiducial if we have at least one significant cluster
-                if n_clusters >= 1 and n_noise < 0.8 * n_locs:  # Less than 80% noise
-                    # Keep only the largest cluster (main fiducial core)
-                    if n_clusters > 0:
-                        cluster_sizes = [
-                            (label, np.sum(cluster_labels == label))
-                            for label in set(cluster_labels)
-                            if label != -1
-                        ]
-                        largest_cluster_label, largest_cluster_size = max(cluster_sizes, key=lambda x: x[1])
-
-                        # CRITICAL: Check if largest cluster meets min_samples requirement
-                        if largest_cluster_size >= min_samples:
-                            # Extract localizations from the largest cluster
-                            main_cluster_mask = cluster_labels == largest_cluster_label
-                            validated_locs = puncta_locs[main_cluster_mask]
-                            validated_fiducials.append(validated_locs)
-
-                            # Store clustering metadata (only for validated clusters)
-                            cluster_metadata = {
-                                "region_id": region_id,
-                                "original_n_locs": n_locs,
-                                "validated_n_locs": len(validated_locs),
-                                "n_clusters": n_clusters,
-                                "n_noise": n_noise,
-                                "noise_fraction": n_noise / n_locs,
-                                "largest_cluster_size": largest_cluster_size,
-                                "threshold_used": threshold_distance,
-                                "clustering_method": "BIRCH",
-                                "sample_size": sample_size if n_points > sample_size else n_points,
-                                "precision_factor": precision_factor,
-                                "min_samples_factor": min_samples_factor,
-                                "min_samples_used": min_samples,
-                                "cluster_labels": cluster_labels,
-                                "cluster_center_x": np.mean(validated_locs["xc"]),
-                                "cluster_center_y": np.mean(validated_locs["yc"]),
-                                "cluster_std_x": np.std(validated_locs["xc"]),
-                                "cluster_std_y": np.std(validated_locs["yc"]),
-                            }
-                            clustering_metadata.append(cluster_metadata)
-
-                            # Plot this validated cluster immediately
-                            if create_plot:
-                                self._plot_single_cluster_validation(
-                                    puncta_locs, validated_locs, cluster_labels,
-                                    region_id, cluster_metadata, output_figure_path, title
-                                )
-
-
-                            # Clean up intermediate arrays to free memory
-                            del validated_locs
-                        else:
-                            # Skip this region - largest cluster doesn't meet min_samples requirement
-                            print(f"  Region {region_id}: Largest cluster ({largest_cluster_size} points) < min_samples ({min_samples}), discarding")
-
-                        # Clean up intermediate arrays regardless of validation status
-                        del cluster_labels
-                        gc.collect()
-
-                        # Extra cleanup for large regions
-                        if n_locs > 10000:
-                            gc.collect()
+                # Extra cleanup for large regions
+                if n_locs > 10000:
+                    gc.collect()
 
             except Exception as e:
-                # Skip this region if clustering fails
-                print(f"Warning: BIRCH clustering failed for region {region_id}: {e}")
+                # Skip this region if Gaussian fitting fails
+                print(f"Warning: Gaussian fitting failed for region {region_id}: {e}")
                 continue
 
         # Create summary visualization if requested (individual clusters already plotted)
@@ -3366,10 +3327,11 @@ class Drift_Correction_Functions:
                 if selected_puncta
                 else 0
             ),
-            "clustering_parameters": {
-                "precision_factor": precision_factor,
+            "fitting_parameters": {
+                "retention_percentage": retention_percentage,
                 "min_samples_factor": min_samples_factor,
                 "frame_count": frame_count,
+                "radial_threshold_factor": radial_threshold_factor,
             },
             "region_details": clustering_metadata,
             "total_input_locs": sum(len(puncta) for puncta in selected_puncta),
@@ -3380,98 +3342,117 @@ class Drift_Correction_Functions:
 
         return validated_fiducials, summary_metadata
 
-    def _plot_single_cluster_validation(
+
+    def _plot_single_gaussian_validation(
         self,
         original_puncta: np.recarray,
         validated_locs: np.recarray,
-        cluster_labels: np.ndarray,
+        kept_mask: np.ndarray,
+        radial_distances: np.ndarray,
         region_id: int,
         metadata: Dict[str, Any],
         output_figure_path: Optional[str],
         title: str,
+        r_threshold: float,
     ) -> None:
-        """Plot individual cluster validation results immediately after processing."""
+        """Plot individual Gaussian validation results showing kept vs discarded points."""
 
         try:
-            import PlottingFunctions
             import matplotlib.pyplot as plt
+            import numpy as np
 
-            plotter = PlottingFunctions.Plotter(poster=False)
         except ImportError:
-            print("PlottingFunctions not available, skipping cluster plot")
+            print("Matplotlib not available, skipping Gaussian plot")
             return
 
-        # Create a single 2x2 figure for this cluster
-        fig, axes = plotter.two_column_plot(
-            ncolumns=2,
-            nrows=2,
-            widthratio=[1.0, 1.0],
-            heightratio=[1.0, 1.0],
-            width=10,
-            height=8,
-        )
+        # Create a single plot figure
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
         fig.suptitle(
-            f"{title} - Region {region_id+1} Cluster Validation",
+            f"{title} - Region {region_id+1} Gaussian Validation",
             fontsize=12,
         )
 
-        # Plot 1: Original puncta (top-left)
-        ax1 = axes[0, 0]
-        self._plot_region_data_with_datashader(
-            ax1, [original_puncta], ['blue'],
-            f"Original Puncta ({len(original_puncta):,})"
-        )
+        # Create datasets for plotting: discarded points first, then kept points
+        data_arrays = []
+        colors = []
+        labels = []
 
-        # Plot 2: Validated cluster (top-right)
-        ax2 = axes[0, 1]
-        self._plot_region_data_with_datashader(
-            ax2, [validated_locs], ['red'],
-            f"Validated Cluster ({len(validated_locs):,})"
-        )
+        # Add discarded points first (so kept points appear on top)
+        discarded_mask = ~kept_mask
+        if np.any(discarded_mask):
+            data_arrays.append(original_puncta[discarded_mask])
+            colors.append('grey')
+            labels.append(f'Discarded ({np.sum(discarded_mask):,})')
 
-        # Plot 3: Clustering overlay (bottom-left)
-        ax3 = axes[1, 0]
-        all_x = np.concatenate([original_puncta['xc'], validated_locs['xc']])
-        all_y = np.concatenate([original_puncta['yc'], validated_locs['yc']])
-        types = ['original'] * len(original_puncta) + ['validated'] * len(validated_locs)
-        self._plot_clustering_overlay(ax3, all_x, all_y, types, "Clustering Result")
+        # Add kept points
+        if np.any(kept_mask):
+            data_arrays.append(original_puncta[kept_mask])
+            colors.append('red')
+            labels.append(f'Kept ({np.sum(kept_mask):,})')
 
-        # Plot 4: Statistics (bottom-right)
-        ax4 = axes[1, 1]
-        ax4.axis('off')
+        # Use datashader for plotting
+        if data_arrays:
+            self._plot_region_data_with_datashader(ax, data_arrays, colors, labels)
 
-        stats_text = f"Region {region_id+1}:\n\n"
-        stats_text += f"• Original: {metadata['original_n_locs']:,}\n"
-        stats_text += f"• Validated: {metadata['validated_n_locs']:,}\n"
-        stats_text += f"• Retention: {100*metadata['validated_n_locs']/metadata['original_n_locs']:.1f}%\n"
-        stats_text += f"• Clusters: {metadata['n_clusters']}\n"
-        stats_text += f"• Noise: {metadata['noise_fraction']:.3f}\n"
-        stats_text += f"• Min Samples: {metadata.get('min_samples_used', 'N/A')}\n"
+            # Add manual legend for datashader plots
+            from matplotlib.patches import Patch
+            legend_elements = [Patch(facecolor=color, label=label) for color, label in zip(colors, labels)]
+            ax.legend(handles=legend_elements, loc='upper right')
 
-        # Quality assessment
-        if metadata['noise_fraction'] < 0.2:
-            quality = "Excellent ✓"
-            color = "green"
-        elif metadata['noise_fraction'] < 0.5:
-            quality = "Good ~"
-            color = "orange"
+        # Add Gaussian center and threshold circle
+        center_x = metadata['gaussian_center_x']
+        center_y = metadata['gaussian_center_y']
+
+        # Plot Gaussian center
+        ax.scatter([center_x], [center_y], c='blue', s=100, marker='x', linewidth=3,
+                  label='Gaussian Center', zorder=10)
+
+        # Add threshold circle
+        from matplotlib.patches import Circle
+        circle = Circle((center_x, center_y), r_threshold, fill=False,
+                       color='blue', linestyle='--', linewidth=2, alpha=0.7,
+                       label=f'Threshold (r={r_threshold:.1f}nm)')
+        ax.add_patch(circle)
+
+        # Set labels and formatting
+        ax.set_xlabel('X Position (nm)')
+        ax.set_ylabel('Y Position (nm)')
+        ax.set_title(f'Gaussian Fitting - Region {region_id+1}')
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', adjustable='box')
+
+        # Update legend to include Gaussian elements
+        handles, existing_labels = ax.get_legend_handles_labels()
+        ax.legend(handles, existing_labels, loc='upper right')
+
+        # Add statistics text box
+        stats_text = f"Stats:\n"
+        stats_text += f"Original: {metadata['original_n_locs']:,}\n"
+        stats_text += f"Kept: {metadata['validated_n_locs']:,}\n"
+        stats_text += f"Retention: {100*metadata['retention_rate']:.1f}%\n"
+        stats_text += f"Gaussian σ: {metadata['gaussian_sigma']:.1f} nm\n"
+        stats_text += f"Threshold: {metadata['radial_threshold']:.1f} nm"
+
+        # Quality assessment based on retention rate
+        retention_rate = metadata['retention_rate']
+        if 0.8 <= retention_rate <= 0.95:
+            quality_color = "lightgreen"
+        elif 0.7 <= retention_rate < 0.8 or 0.95 < retention_rate <= 1.0:
+            quality_color = "lightyellow"
         else:
-            quality = "Poor ✗"
-            color = "red"
+            quality_color = "lightcoral"
 
-        stats_text += f"\nQuality: {quality}"
-
-        ax4.text(0.05, 0.9, stats_text, transform=ax4.transAxes,
-                fontsize=10, verticalalignment='top', fontfamily='monospace',
-                bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.1))
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                fontsize=9, verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=quality_color, alpha=0.7))
 
         # Save if path provided
         if output_figure_path:
             base_path = output_figure_path.rsplit(".", 1)[0] if "." in output_figure_path else output_figure_path
-            cluster_filename = f"{base_path}_cluster_region_{region_id+1:02d}.png"
-            fig.savefig(cluster_filename, dpi=300, bbox_inches="tight")
-            print(f"Saved cluster plot: {cluster_filename}")
+            gaussian_filename = f"{base_path}_gaussian_region_{region_id+1:02d}.png"
+            fig.savefig(gaussian_filename, dpi=300, bbox_inches="tight")
+            print(f"Saved Gaussian plot: {gaussian_filename}")
 
         plt.show()
         plt.close(fig)
@@ -4515,10 +4496,17 @@ class Drift_Correction_Functions:
                     if len(data_list) > 1:
                         df['group'] = df['group'].astype('category')
                         agg = canvas.points(df, 'x', 'y', ds.count_cat('group'))
-                        img = ds.tf.shade(agg, color_key=color_list, how='eq_hist')
+                        # Create color key dictionary for datashader
+                        color_key = {f'group_{i}': color_list[i] for i in range(len(data_list))}
+                        img = ds.tf.shade(agg, color_key=color_key, how='eq_hist')
                     else:
                         agg = canvas.points(df, 'x', 'y', ds.count())
-                        img = ds.tf.shade(agg, cmap=cc.fire, how='eq_hist')
+                        # Use the specified color if available, otherwise default
+                        if color_list and color_list[0] in ['red', 'grey']:
+                            color_map = cc.fire if color_list[0] == 'red' else cc.gray
+                        else:
+                            color_map = cc.fire
+                        img = ds.tf.shade(agg, cmap=color_map, how='eq_hist')
 
                     # Display the image
                     extent = [df.x.min(), df.x.max(), df.y.min(), df.y.max()]
