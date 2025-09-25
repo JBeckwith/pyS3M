@@ -3160,6 +3160,7 @@ class Drift_Correction_Functions:
         retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
+        pixelsize: float = 69.0,
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,
@@ -3176,6 +3177,7 @@ class Drift_Correction_Functions:
             retention_percentage: Percentage of data to keep (0.0 to 1.0), default 0.9 (90%)
             min_samples_factor: Minimum samples factor for filtering regions
             frame_count: Total number of frames (for calculating min samples)
+            pixelsize: Pixel size in nm for distance calculations
             output_figure_path: Optional path to save Gaussian fitting visualization
             title: Title for the plots
             create_plot: Whether to create visualization plots
@@ -3236,24 +3238,28 @@ class Drift_Correction_Functions:
                 # Calculate standard deviation (sigma) for radial distance
                 # For 2D Gaussian, use average of eigenvalues as characteristic scale
                 eigenvals = np.linalg.eigvals(covariance)
-                sigma = np.sqrt(np.mean(eigenvals))
+                sigma_pixels = np.sqrt(np.mean(eigenvals))
+                sigma_nm = sigma_pixels * pixelsize
 
                 # Calculate radial distances from center
                 dx = X[:, 0] - mean[0]
                 dy = X[:, 1] - mean[1]
-                radial_distances = np.sqrt(dx**2 + dy**2)
+                radial_distances_pixels = np.sqrt(dx**2 + dy**2)
+                radial_distances_nm = radial_distances_pixels * pixelsize
 
                 # Apply radial threshold for percentage retention
                 # r_threshold = sigma * radial_threshold_factor
-                r_threshold = sigma * radial_threshold_factor
+                r_threshold_pixels = sigma_pixels * radial_threshold_factor
+                r_threshold_nm = r_threshold_pixels * pixelsize
 
-                # Keep points within the radial threshold
-                kept_mask = radial_distances <= r_threshold
+                # Keep points within the radial threshold (using pixel values)
+                kept_mask = radial_distances_pixels <= r_threshold_pixels
                 n_kept = np.sum(kept_mask)
 
-                print(f"    Gaussian center: ({mean[0]:.1f}, {mean[1]:.1f})")
-                print(f"    Gaussian sigma: {sigma:.1f} nm")
-                print(f"    Radial threshold: {r_threshold:.1f} nm")
+                print(f"    Gaussian center: ({mean[0]:.1f}, {mean[1]:.1f}) pixels = ({mean[0]*pixelsize:.1f}, {mean[1]*pixelsize:.1f}) nm")
+                print(f"    Data range: X=[{np.min(X[:, 0]):.1f}, {np.max(X[:, 0]):.1f}] pixels, Y=[{np.min(X[:, 1]):.1f}, {np.max(X[:, 1]):.1f}] pixels")
+                print(f"    Gaussian sigma: {sigma_pixels:.1f} pixels = {sigma_nm:.1f} nm")
+                print(f"    Radial threshold: {r_threshold_pixels:.1f} pixels = {r_threshold_nm:.1f} nm")
                 print(f"    Kept: {n_kept}/{n_locs} ({100*n_kept/n_locs:.1f}%)")
 
                 if n_kept >= min_samples:
@@ -3267,24 +3273,30 @@ class Drift_Correction_Functions:
                         "original_n_locs": n_locs,
                         "validated_n_locs": n_kept,
                         "retention_rate": n_kept / n_locs,
-                        "gaussian_center_x": mean[0],
-                        "gaussian_center_y": mean[1],
-                        "gaussian_sigma": sigma,
-                        "radial_threshold": r_threshold,
+                        "gaussian_center_x": mean[0],  # pixels
+                        "gaussian_center_y": mean[1],  # pixels
+                        "gaussian_center_x_nm": mean[0] * pixelsize,  # nm
+                        "gaussian_center_y_nm": mean[1] * pixelsize,  # nm
+                        "gaussian_sigma_pixels": sigma_pixels,  # pixels
+                        "gaussian_sigma_nm": sigma_nm,  # nm
+                        "radial_threshold_pixels": r_threshold_pixels,  # pixels
+                        "radial_threshold_nm": r_threshold_nm,  # nm
                         "fitting_method": "Single Gaussian",
                         "retention_percentage": retention_percentage,
                         "min_samples_factor": min_samples_factor,
                         "min_samples_used": min_samples,
+                        "pixelsize": pixelsize,
                         "kept_mask": kept_mask,
-                        "radial_distances": radial_distances,
+                        "radial_distances_pixels": radial_distances_pixels,
+                        "radial_distances_nm": radial_distances_nm,
                     }
                     clustering_metadata.append(gaussian_metadata)
 
                     # Plot this validated region immediately
                     if create_plot:
                         self._plot_single_gaussian_validation(
-                            puncta_locs, validated_locs, kept_mask, radial_distances,
-                            region_id, gaussian_metadata, output_figure_path, title, r_threshold
+                            puncta_locs, validated_locs, kept_mask, radial_distances_pixels,
+                            region_id, gaussian_metadata, output_figure_path, title, r_threshold_pixels
                         )
 
                     # Clean up intermediate arrays to free memory
@@ -3356,15 +3368,17 @@ class Drift_Correction_Functions:
         """Plot individual Gaussian validation results showing kept vs discarded points."""
 
         try:
+            import PlottingFunctions
             import matplotlib.pyplot as plt
             import numpy as np
 
+            plotter = PlottingFunctions.Plotter(poster=False)
         except ImportError:
-            print("Matplotlib not available, skipping Gaussian plot")
+            print("PlottingFunctions not available, skipping Gaussian plot")
             return
 
-        # Create a single plot figure
-        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        # Create a single column plot using PlottingFunctions
+        fig, ax = plotter.one_column_plot(width=2.5, height=2.5)
 
         fig.suptitle(
             f"{title} - Region {region_id+1} Gaussian Validation",
@@ -3429,8 +3443,8 @@ class Drift_Correction_Functions:
         stats_text += f"Original: {metadata['original_n_locs']:,}\n"
         stats_text += f"Kept: {metadata['validated_n_locs']:,}\n"
         stats_text += f"Retention: {100*metadata['retention_rate']:.1f}%\n"
-        stats_text += f"Gaussian σ: {metadata['gaussian_sigma']:.1f} nm\n"
-        stats_text += f"Threshold: {metadata['radial_threshold']:.1f} nm"
+        stats_text += f"Gaussian σ: {metadata['gaussian_sigma_nm']:.1f} nm\n"
+        stats_text += f"Threshold: {metadata['radial_threshold_nm']:.1f} nm"
 
         # Quality assessment based on retention rate
         retention_rate = metadata['retention_rate']
