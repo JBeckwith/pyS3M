@@ -32,6 +32,14 @@ sys.path.append(module_dir)
 
 import ProgressUtils
 
+# Import our new plotting module
+try:
+    from DriftPlotting import DriftPlotter
+    _drift_plotter = DriftPlotter()
+except ImportError:
+    warnings.warn("Could not import DriftPlotter. Plotting features may be limited.")
+    _drift_plotter = None
+
 try:
     import render
     import imageprocess
@@ -1831,6 +1839,11 @@ class Drift_Correction_Functions:
     def __init__(self):
         """Initialize drift correction functions."""
         self.factory = DriftCorrectionFactory()
+        try:
+            from DriftPlotting import DriftPlotter
+            self.plotter = DriftPlotter()
+        except ImportError:
+            self.plotter = None
 
     def undrift(
         self,
@@ -2466,200 +2479,13 @@ class Drift_Correction_Functions:
         save_path: Optional[str] = None,
     ) -> None:
         """Create step-by-step visualization of fiducial detection process."""
-        if PlottingFunctions is None:
-            print("⚠️ PlottingFunctions not available, skipping step-by-step plots")
-            return
-
-        try:
-            # Create plotter instance
-            plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
-
-            # Extract metadata
-            meta = CoordinateProcessor.extract_metadata(info)
-            pixelsize = meta.get("pixelsize", 69.0)  # nm
-            box_size_pixels = result.metadata["box_size_pixels"]
-
-            # Create figure with 2x2 subplots using PlottingFunctions
-            fig, axes = plotter.two_column_plot(
-                ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
+        # Delegate to the new DriftPlotter module
+        if _drift_plotter is not None:
+            _drift_plotter.plot_fiducial_detection_steps(
+                image, hist, threshold, all_picks, valid_picks, result, info, save_path
             )
-
-            fig.suptitle(
-                "Fiducial Detection Process - Step by Step",
-                fontsize=10,
-                fontweight="bold",
-            )
-
-            # Step 1: Original rendered image using PlottingFunctions
-            axes[0, 0] = plotter.image_plot(
-                axes[0, 0],
-                data=image,
-                pixelsize=pixelsize,
-                cmap="hot",
-                cbarlabel="Intensity",
-                scalebarsize=1000,
-                vmax=np.percentile(image, 99.99),
-                vmin=np.percentile(image, 0.1),
-                scalebarlabel="1 μm",
-            )
-            axes[0, 0].set_title("Step 1: Rendered Localization Image")
-
-            # Step 2: Image histogram (using matplotlib as PlottingFunctions doesn't have histogram)
-            hist_values, bin_edges = hist
-            axes[0, 1] = plotter.histogram_plot(
-                axes[0, 1], data=hist_values, bins=bin_edges, xaxislabel="Intensity"
-            )  # Create empty histogram plot
-            ymin, ymax = axes[0, 1].get_ylim()
-            axes[0, 1].axvline(
-                threshold,
-                ymin=0,
-                ymax=ymax,
-                color="red",
-                linestyle="--",
-                linewidth=2,
-                label=f'Threshold = {threshold:.1f}\n({result.detection_params["threshold_percentile"]}th percentile)',
-            )
-            axes[0, 1].set_ylim(ymin, ymax)
-            axes[0, 1].set_title("Step 2: Intensity Histogram & Threshold")
-
-            # Step 3: Threshold regions and candidates using PlottingFunctions
-            if all_picks:
-                # Extract coordinates from point format (x, y)
-                all_x = np.array([pick[0] for pick in all_picks])
-                all_y = np.array([pick[1] for pick in all_picks])
-
-                # Use PlottingFunctions image_scatter_plot for candidates
-                axes[1, 0] = plotter.image_scatter_plot(
-                    axes[1, 0],
-                    data=image,
-                    xdata=all_y,
-                    ydata=all_x,
-                    cmap="hot",
-                    cbar="on",
-                    cbarlabel="Intensity",
-                    label=f"All Candidates ({len(all_picks)})",
-                    labelcolor="yellow",
-                    pixelsize=pixelsize,
-                    scalebarsize=1000,
-                    scalebarlabel="1 μm",
-                    scattercolor="yellow",
-                    vmax=np.percentile(image, 99.99),
-                    vmin=np.percentile(image, 0.1),
-                    s=150,
-                    scatteralpha=0.8,
-                )
-            else:
-                # No candidates found - just show image
-                axes[1, 0] = plotter.image_plot(
-                    axes[1, 0],
-                    data=image,
-                    pixelsize=pixelsize,
-                    cmap="hot",
-                    cbarlabel="Intensity",
-                    scalebarsize=1000,
-                    scalebarlabel="1 μm",
-                )
-
-            axes[1, 0].set_title(
-                f"Step 3: Above-Threshold Regions & Candidates\n(Search radius: {box_size_pixels // 2} pixels)"
-            )
-
-            # Step 4: Final validated fiducials using PlottingFunctions
-            if valid_picks:
-                # Extract coordinates from point format (x, y)
-                valid_x = np.array([pick[0] for pick in valid_picks])
-                valid_y = np.array([pick[1] for pick in valid_picks])
-
-                # Use PlottingFunctions image_scatter_plot for valid fiducials
-                axes[1, 1] = plotter.image_scatter_plot(
-                    axes[1, 1],
-                    data=image,
-                    xdata=valid_y,
-                    ydata=valid_x,
-                    cmap="hot",
-                    cbar="on",
-                    cbarlabel="Intensity",
-                    label=f"Valid Fiducials ({len(valid_picks)})",
-                    labelcolor="cyan",
-                    pixelsize=pixelsize,
-                    scalebarsize=1000,
-                    scalebarlabel="1 μm",
-                    scattercolor="cyan",
-                    vmax=np.percentile(image, 99.99),
-                    vmin=np.percentile(image, 0.1),
-                    s=100,
-                    scatteralpha=1.0,
-                )
-
-                # Add colored circles and numbers for each fiducial (must use matplotlib for custom patches)
-                color_list = [
-                    "red",
-                    "blue",
-                    "green",
-                    "orange",
-                    "purple",
-                    "brown",
-                    "pink",
-                    "gray",
-                    "olive",
-                    "cyan",
-                ]
-                colors = (color_list * (len(valid_picks) // len(color_list) + 1))[
-                    : len(valid_picks)
-                ]
-                for i, (x, y) in enumerate(zip(valid_x, valid_y)):
-                    # Draw colored circle (requires direct matplotlib)
-                    circle = patches.Circle(
-                        (x, y),
-                        radius=box_size_pixels // 3,
-                        color=colors[i],
-                        alpha=0.7,
-                        linewidth=2,
-                        fill=False,
-                    )
-                    axes[1, 1].add_patch(circle)
-
-                    # Add fiducial number (requires direct matplotlib)
-                    axes[1, 1].text(
-                        x,
-                        y,
-                        str(i + 1),
-                        ha="center",
-                        va="center",
-                        fontsize=12,
-                        fontweight="bold",
-                        color="white",
-                        bbox=dict(
-                            boxstyle="round,pad=0.2", facecolor=colors[i], alpha=0.8
-                        ),
-                    )
-            else:
-                axes[1, 1] = plotter.image_plot(
-                    axes[1, 1],
-                    data=image,
-                    pixelsize=pixelsize,
-                    cmap="hot",
-                    cbarlabel="Intensity",
-                    vmax=np.percentile(image, 99.99),
-                    vmin=np.percentile(image, 0.1),
-                    scalebarsize=1000,
-                    scalebarlabel="1 μm",
-                )
-
-            axes[1, 1].set_title(
-                f"Step 4: Final Valid Fiducials\n(Min {result.metadata['min_localisations_required']:.0f} localisations each)"
-            )
-
-            # Save if path provided
-            if save_path:
-                plt.savefig(save_path, dpi=300, bbox_inches="tight")
-                print(f"📊 Step-by-step fiducial detection plot saved to: {save_path}")
-
-            plt.show()
-
-        except Exception as e:
-            print(f"⚠️ Error creating step-by-step fiducial detection plot: {e}")
-
+        else:
+            print("⚠️ DriftPlotter not available, skipping step-by-step plots")
     def _plot_fiducial_detection_results(
         self,
         result: FiducialDetectionResult,
@@ -2667,126 +2493,10 @@ class Drift_Correction_Functions:
         save_path: Optional[str] = None,
     ) -> None:
         """Create a plot of fiducial detection results using PlottingFunctions."""
-        if PlottingFunctions is None:
-            print("⚠️ PlottingFunctions not available, skipping plot creation")
-            return
-
-        try:
-            # Create plotter instance
-            plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
-
-            # Extract metadata for plotting
-            meta = CoordinateProcessor.extract_metadata(info)
-            pixelsize = meta.get("pixelsize", 130.0)  # nm
-
-            # Create figure
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-
-            # Left plot: Detection image with fiducial markers
-            # Get fiducial coordinates for scatter overlay (fixed coordinate order)
-            fiducial_x = [
-                pick[0] for pick in result.picks
-            ]  # X coordinates (first element)
-            fiducial_y = [
-                pick[1] for pick in result.picks
-            ]  # Y coordinates (second element)
-
-            plotter.image_scatter_plot(
-                ax1,
-                data=result.detection_image,
-                xdata=np.array(fiducial_x),
-                ydata=np.array(fiducial_y),
-                cmap="hot",
-                cbar="on",
-                cbarlabel="Intensity",
-                label=f"Detected Fiducials ({result.n_fiducials})",
-                labelcolor="cyan",
-                pixelsize=pixelsize,
-                scalebarsize=1000,  # 1μm scale bar
-                scalebarlabel="1 μm",
-                scattercolor="cyan",
-                s=100,  # Larger marker size
-                scatteralpha=0.8,
-            )
-            ax1.set_title("Fiducial Detection Results")
-
-            # Right plot: Fiducial localizations colored by group
-            fiducial_locs = result.locs_with_groups[result.locs_with_groups.group >= 0]
-
-            if len(fiducial_locs) > 0:
-                unique_groups = np.unique(fiducial_locs.group)
-                try:
-                    # Use basic colors - colormaps are causing issues with Pylance
-                    color_list = [
-                        "red",
-                        "blue",
-                        "green",
-                        "orange",
-                        "purple",
-                        "brown",
-                        "pink",
-                        "gray",
-                        "olive",
-                        "cyan",
-                    ]
-                    colors = (color_list * (len(unique_groups) // len(color_list) + 1))[
-                        : len(unique_groups)
-                    ]
-                except:
-                    # Ultimate fallback
-                    colors = ["red"] * len(unique_groups)
-
-                for i, group_id in enumerate(unique_groups):
-                    group_locs = fiducial_locs[fiducial_locs.group == group_id]
-                    ax2.scatter(
-                        group_locs.xc * 1000,  # Convert to nm for plotting
-                        group_locs.yc * 1000,
-                        s=2,
-                        alpha=0.6,
-                        c=[colors[i]],
-                        label=f"Fiducial {group_id+1} ({len(group_locs)} locs)",
-                        rasterized=True,
-                    )
-
-            ax2.set_xlabel("X (nm)")
-            ax2.set_ylabel("Y (nm)")
-            ax2.set_title("Fiducial Localizations by Group")
-            ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-            ax2.set_aspect("equal")
-            ax2.grid(True, alpha=0.3)
-
-            # Add summary text
-            summary_text = (
-                f"Detection Summary:\n"
-                f"• Threshold: {result.detection_params['threshold_percentile']:.1f}%\n"
-                f"• Box size: {result.detection_params['box_size_nm']:.0f} nm\n"
-                f"• Min frames: {result.detection_params['min_frames_fraction']:.1%}\n"
-                f"• Candidates found: {result.metadata['total_candidates']}\n"
-                f"• Valid fiducials: {result.n_fiducials}"
-            )
-
-            fig.text(
-                0.02,
-                0.98,
-                summary_text,
-                transform=fig.transFigure,
-                verticalalignment="top",
-                fontsize=9,
-                bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.8),
-            )
-
-            plt.tight_layout()
-            plt.subplots_adjust(left=0.15)  # Make room for summary text
-
-            if save_path:
-                plt.savefig(save_path, dpi=150, bbox_inches="tight")
-                print(f"✅ Fiducial detection plot saved to: {save_path}")
-
-            plt.show()
-
-        except Exception as e:
-            print(f"⚠️ Failed to create fiducial detection plot: {e}")
+        if self.plotter is not None:
+            self.plotter.plot_fiducial_detection_results(result, info, save_path)
+        else:
+            print("⚠️ DriftPlotter not available, skipping plot creation")
 
 
     def detect_high_density_regions_from_image(
@@ -4425,144 +4135,36 @@ class Drift_Correction_Functions:
 
     def _plot_region_data_with_datashader(self, ax, data_list, color_list, title):
         """Plot region data using datashader for large datasets, regular plotting for small ones."""
-        total_points = sum(len(data) for data in data_list)
-
-        if total_points > 1000:  # Use datashader for large datasets
-            try:
-                import datashader as ds
-                import pandas as pd
-                import colorcet as cc
-
-                # Combine all data
-                all_data = []
-                for i, data in enumerate(data_list):
-                    df_part = pd.DataFrame({
-                        'x': data['xc'],
-                        'y': data['yc'],
-                        'group': f'group_{i}'
-                    })
-                    all_data.append(df_part)
-
-                if all_data:
-                    df = pd.concat(all_data, ignore_index=True)
-
-                    # Create datashader canvas
-                    canvas = ds.Canvas(plot_width=400, plot_height=400)
-                    if len(data_list) > 1:
-                        df['group'] = df['group'].astype('category')
-                        agg = canvas.points(df, 'x', 'y', ds.count_cat('group'))
-                        # Create color key dictionary for datashader
-                        color_key = {f'group_{i}': color_list[i] for i in range(len(data_list))}
-                        img = ds.tf.shade(agg, color_key=color_key, how='eq_hist')
-                    else:
-                        agg = canvas.points(df, 'x', 'y', ds.count())
-                        # Use the specified color if available, otherwise default
-                        if color_list and color_list[0] in ['red', 'grey']:
-                            color_map = cc.fire if color_list[0] == 'red' else cc.gray
-                        else:
-                            color_map = cc.fire
-                        img = ds.tf.shade(agg, cmap=color_map, how='eq_hist')
-
-                    # Display the image
-                    extent = [df.x.min(), df.x.max(), df.y.min(), df.y.max()]
-                    ax.imshow(img.to_pil(), extent=extent, aspect='equal', origin='lower')
-                    ax.set_xlim(extent[0], extent[1])
-                    ax.set_ylim(extent[2], extent[3])
-
-            except ImportError:
-                # Fallback to subsampled regular plotting
-                for i, data in enumerate(data_list):
-                    color = color_list[i % len(color_list)]
-                    # Heavy subsampling for display
-                    max_points = 500
-                    if len(data) > max_points:
-                        indices = np.random.choice(len(data), max_points, replace=False)
-                        display_data = data[indices]
-                    else:
-                        display_data = data
-
-                    ax.plot(display_data['xc'], display_data['yc'], '.',
-                           color=color, markersize=2, alpha=0.6)
+        if self.plotter is not None:
+            self.plotter.plot_region_data_with_datashader(ax, data_list, color_list, title)
         else:
-            # Standard plotting for smaller datasets
+            # Basic fallback without datashader
             for i, data in enumerate(data_list):
-                color = color_list[i % len(color_list)]
+                color = color_list[i % len(color_list)] if color_list else 'blue'
                 ax.plot(data['xc'], data['yc'], '.', color=color, markersize=2, alpha=0.6)
-
-        ax.set_xlabel("X (pixels)")
-        ax.set_ylabel("Y (pixels)")
-        ax.set_title(title)
-        ax.grid(True, alpha=0.3)
-        ax.axis("equal")
+            ax.set_xlabel("X (pixels)")
+            ax.set_ylabel("Y (pixels)")
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3)
+            ax.axis("equal")
 
     def _plot_clustering_overlay(self, ax, all_x, all_y, types, title):
         """Plot clustering overlay showing original vs validated points."""
-        total_points = len(all_x)
-
-        if total_points > 1000:  # Use datashader for large datasets
-            try:
-                import datashader as ds
-                import pandas as pd
-                import colorcet as cc
-
-                df = pd.DataFrame({
-                    'x': all_x,
-                    'y': all_y,
-                    'type': types
-                })
-                df['type'] = df['type'].astype('category')
-
-                # Create datashader canvas
-                canvas = ds.Canvas(plot_width=400, plot_height=400)
-                agg = canvas.points(df, 'x', 'y', ds.count_cat('type'))
-
-                # Custom color key: light gray for original, bright color for validated
-                color_key = ['lightgray', 'red']
-                img = ds.tf.shade(agg, color_key=color_key, how='eq_hist')
-
-                # Display the image
-                extent = [df.x.min(), df.x.max(), df.y.min(), df.y.max()]
-                ax.imshow(img.to_pil(), extent=extent, aspect='equal', origin='lower')
-                ax.set_xlim(extent[0], extent[1])
-                ax.set_ylim(extent[2], extent[3])
-
-            except ImportError:
-                # Fallback to subsampled regular plotting
-                original_mask = np.array(types) == 'original'
-                validated_mask = np.array(types) == 'validated'
-
-                # Background points (heavily subsampled)
-                original_x, original_y = all_x[original_mask], all_y[original_mask]
-                if len(original_x) > 200:
-                    indices = np.random.choice(len(original_x), 200, replace=False)
-                    original_x, original_y = original_x[indices], original_y[indices]
-
-                ax.plot(original_x, original_y, '.', color='lightgray',
-                       markersize=1, alpha=0.3, label='Original')
-
-                # Validated points (less subsampling)
-                validated_x, validated_y = all_x[validated_mask], all_y[validated_mask]
-                if len(validated_x) > 500:
-                    indices = np.random.choice(len(validated_x), 500, replace=False)
-                    validated_x, validated_y = validated_x[indices], validated_y[indices]
-
-                ax.plot(validated_x, validated_y, '.', color='red',
-                       markersize=3, alpha=0.9, label='Validated')
+        if self.plotter is not None:
+            self.plotter.plot_clustering_overlay(ax, all_x, all_y, types, title)
         else:
-            # Standard plotting for smaller datasets
+            # Basic fallback without datashader
             original_mask = np.array(types) == 'original'
             validated_mask = np.array(types) == 'validated'
-
             ax.plot(all_x[original_mask], all_y[original_mask], '.',
                    color='lightgray', markersize=1, alpha=0.3, label='Original')
             ax.plot(all_x[validated_mask], all_y[validated_mask], '.',
                    color='red', markersize=3, alpha=0.9, label='Validated')
-
-        ax.set_xlabel("X (pixels)")
-        ax.set_ylabel("Y (pixels)")
-        ax.set_title(title)
-        ax.grid(True, alpha=0.3)
-        ax.axis("equal")
+            ax.set_xlabel("X (pixels)")
+            ax.set_ylabel("Y (pixels)")
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3)
+            ax.axis("equal")
 
     def _plot_individual_clustering_details(
         self,
@@ -4894,15 +4496,26 @@ class Drift_Correction_Functions:
         has_x_err = x_err_field in sample_fiducial.dtype.names
         has_y_err = y_err_field in sample_fiducial.dtype.names
 
+        # Get min and max frames
+        min_frame = int(locs.frame.min())
+        max_frame = int(locs.frame.max())
+
         if not has_x_err or not has_y_err:
             # Use uniform weights if error fields don't exist
-            print(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.")
+            print(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.", flush=True)
             has_x_err = has_y_err = False
 
         # Step 1: Subtract median from each cluster and collect all corrected fiducial positions
-        median_corrected_fiducials = []
+        unique_frames = np.unique(locs.frame)
+        frame_to_idx = {frame: i for i, frame in enumerate(unique_frames)}
 
-        for fiducial_cluster in validated_fiducials:
+        # Store corrected positions for each frame and fiducial cluster
+        all_corrected_x = np.full([len(unique_frames), len(validated_fiducials)], np.nan)
+        all_corrected_y = np.full([len(unique_frames), len(validated_fiducials)], np.nan)
+        all_fiducial_weights_x = np.full([len(unique_frames), len(validated_fiducials)], np.nan)
+        all_fiducial_weights_y = np.full([len(unique_frames), len(validated_fiducials)], np.nan)
+
+        for i, fiducial_cluster in enumerate(validated_fiducials):
             if len(fiducial_cluster) == 0:
                 continue
 
@@ -4911,117 +4524,200 @@ class Drift_Correction_Functions:
             median_y = np.median(fiducial_cluster.yc)
 
             # Create corrected positions (subtract median)
-            corrected_cluster = fiducial_cluster.copy()
-            corrected_cluster.xc = fiducial_cluster.xc - median_x
-            corrected_cluster.yc = fiducial_cluster.yc - median_y
+            corrected_x = fiducial_cluster.xc - median_x
+            corrected_y = fiducial_cluster.yc - median_y
+            frames = np.asarray(fiducial_cluster.frame, dtype=np.int_)
 
-            median_corrected_fiducials.extend(corrected_cluster)
+            # Check for unique frames (no duplicates within cluster)
+            if len(frames) == len(np.unique(frames)):
+                # Map frame numbers to array indices
+                frame_indices = [frame_to_idx[frame] for frame in frames]
 
-        if not median_corrected_fiducials:
-            raise ValueError("No valid fiducials found after median subtraction")
+                all_corrected_x[frame_indices, i] = corrected_x
+                all_corrected_y[frame_indices, i] = corrected_y
 
-        # Convert to array for easier manipulation
-        all_corrected_fiducials = np.array(median_corrected_fiducials)
-
-        # Step 2: Calculate weighted average drift for each frame
-        min_frame = int(locs.frame.min())
-        max_frame = int(locs.frame.max())
-
-        drift_x = []
-        drift_y = []
-        valid_frames = []
-        n_fiducials_per_frame = []
-
-        for frame in range(min_frame, max_frame + 1):
-            # Get fiducials for this frame
-            frame_mask = all_corrected_fiducials['frame'] == frame
-            frame_fiducials = all_corrected_fiducials[frame_mask]
-
-            if len(frame_fiducials) == 0:
-                # No fiducials for this frame - skip it
+                # Store weights (inverse of error)
+                if has_x_err and has_y_err:
+                    all_fiducial_weights_x[frame_indices, i] = 1.0 / (1e-10 + fiducial_cluster[x_err_field])
+                    all_fiducial_weights_y[frame_indices, i] = 1.0 / (1e-10 + fiducial_cluster[y_err_field])
+                else:
+                    all_fiducial_weights_x[frame_indices, i] = 1.0
+                    all_fiducial_weights_y[frame_indices, i] = 1.0
+            else:
+                print(f"\rWarning: Fiducial cluster {i} has multiple localizations in the same frame. Skipping this cluster.    ", end='', flush=True)
                 continue
 
-            valid_frames.append(frame)
-            n_fiducials_per_frame.append(len(frame_fiducials))
+        # Check if we have any valid fiducials
+        if np.all(np.isnan(all_corrected_x)):
+            raise ValueError("No valid fiducials found after median subtraction")
 
-            if has_x_err and has_y_err:
-                # Use inverse error weighting (lower error = higher weight)
-                x_weights = 1.0 / (frame_fiducials[x_err_field] + 1e-10)  # Small epsilon to avoid division by zero
-                y_weights = 1.0 / (frame_fiducials[y_err_field] + 1e-10)
+        # Filter fiducials using variance and RMS distance criteria
+        def filter_fiducials_fast(all_corrected_x, all_corrected_y, variance_threshold=3.0, rms_threshold=2.0):
+            """
+            Fast filtering of fiducial traces using variance ratio and RMS distance.
 
-                # Weighted average
-                drift_x_frame = np.average(frame_fiducials.xc, weights=x_weights)
-                drift_y_frame = np.average(frame_fiducials.yc, weights=y_weights)
-            else:
-                # Uniform weighting
-                drift_x_frame = np.mean(frame_fiducials.xc)
-                drift_y_frame = np.mean(frame_fiducials.yc)
+            Parameters:
+            - all_corrected_x, all_corrected_y: [n_frames, n_fiducials] arrays
+            - variance_threshold: Remove if variance > threshold * median_variance
+            - rms_threshold: Remove if RMS > threshold * median_RMS
+            """
+            n_frames, n_fiducials = all_corrected_x.shape
+            valid_fiducials = np.ones(n_fiducials, dtype=bool)
 
-            drift_x.append(drift_x_frame)
-            drift_y.append(drift_y_frame)
+            # Step 1: Variance Ratio Filter (removes obviously noisy fiducials)
+            print("Filtering by variance ratio...", end='', flush=True)
 
-        if not valid_frames:
-            raise ValueError("No frames with fiducials found")
+            x_variances = np.nanvar(all_corrected_x, axis=0)  # Variance for each fiducial
+            y_variances = np.nanvar(all_corrected_y, axis=0)
+            combined_variances = x_variances + y_variances  # Total variance per fiducial
 
-        # Convert to arrays
-        valid_frames = np.array(valid_frames)
-        drift_x = np.array(drift_x)
-        drift_y = np.array(drift_y)
-        n_fiducials_per_frame = np.array(n_fiducials_per_frame)
+            # Remove fiducials with NaN variance (all NaN data)
+            nan_variance_mask = np.isnan(combined_variances)
+            valid_fiducials[nan_variance_mask] = False
+
+            # Calculate median variance from valid fiducials
+            valid_variances = combined_variances[~nan_variance_mask]
+            if len(valid_variances) == 0:
+                raise ValueError("No valid fiducials found")
+
+            median_variance = np.median(valid_variances)
+
+            # Remove high-variance fiducials
+            high_variance_mask = combined_variances > (variance_threshold * median_variance)
+            valid_fiducials[high_variance_mask] = False
+
+            n_removed_variance = np.sum(high_variance_mask)
+            print(f"\rRemoved {n_removed_variance} high-variance fiducials.    ", flush=True)
+
+            # Step 2: RMS Distance Filter (removes systematically different fiducials)
+            print("Filtering by RMS distance...", end='', flush=True)
+
+            # Calculate consensus drift using only remaining valid fiducials
+            valid_x = all_corrected_x[:, valid_fiducials]
+            valid_y = all_corrected_y[:, valid_fiducials]
+
+            consensus_drift_x = np.nanmean(valid_x, axis=1)  # [n_frames]
+            consensus_drift_y = np.nanmean(valid_y, axis=1)
+
+            # Calculate RMS distance from consensus for each remaining fiducial
+            rms_distances = np.zeros(n_fiducials)
+            rms_distances.fill(np.nan)
+
+            valid_indices = np.where(valid_fiducials)[0]
+            for i, fid_idx in enumerate(valid_indices):
+                fid_x = all_corrected_x[:, fid_idx]
+                fid_y = all_corrected_y[:, fid_idx]
+
+                # Calculate RMS distance (only for non-NaN frames)
+                valid_frames_rms = ~(np.isnan(fid_x) | np.isnan(fid_y))
+                if np.sum(valid_frames_rms) > 0:
+                    dx = fid_x[valid_frames_rms] - consensus_drift_x[valid_frames_rms]
+                    dy = fid_y[valid_frames_rms] - consensus_drift_y[valid_frames_rms]
+                    rms_distances[fid_idx] = np.sqrt(np.mean(dx**2 + dy**2))
+
+            # Remove fiducials with high RMS distance
+            valid_rms = rms_distances[valid_fiducials]
+            median_rms = np.nanmedian(valid_rms)
+
+            high_rms_mask = rms_distances > (rms_threshold * median_rms)
+            high_rms_mask[np.isnan(rms_distances)] = False  # Don't remove NaN RMS
+
+            valid_fiducials[high_rms_mask] = False
+            n_removed_rms = np.sum(high_rms_mask)
+
+            print(f"\rRemoved {n_removed_rms} high-RMS fiducials.    ", flush=True)
+
+            # Summary
+            n_final = np.sum(valid_fiducials)
+            n_total_removed = n_fiducials - n_final
+            print(f"Final: {n_final}/{n_fiducials} fiducials retained ({n_total_removed} removed)", flush=True)
+
+            return valid_fiducials, {
+                'n_variance_filtered': n_removed_variance,
+                'n_rms_filtered': n_removed_rms,
+                'median_variance': median_variance,
+                'median_rms': median_rms,
+                'variance_threshold_used': variance_threshold * median_variance,
+                'rms_threshold_used': rms_threshold * median_rms
+            }
+
+        # Apply the filtering
+        valid_fiducials, _ = filter_fiducials_fast(all_corrected_x, all_corrected_y)
+
+        # Apply the filter to all arrays
+        all_corrected_x = all_corrected_x[:, valid_fiducials]
+        all_corrected_y = all_corrected_y[:, valid_fiducials]
+        all_fiducial_weights_x = all_fiducial_weights_x[:, valid_fiducials]
+        all_fiducial_weights_y = all_fiducial_weights_y[:, valid_fiducials]
+
+        ma_x = np.ma.MaskedArray(all_corrected_x, mask=np.isnan(all_corrected_x))
+        ma_y = np.ma.MaskedArray(all_corrected_y, mask=np.isnan(all_corrected_x))
+        ma_x_err = np.ma.MaskedArray(all_fiducial_weights_x, mask=np.isnan(all_fiducial_weights_x))
+        ma_y_err = np.ma.MaskedArray(all_fiducial_weights_y, mask=np.isnan(all_fiducial_weights_y))
+
+        drift_x = np.ma.average(ma_x, weights=ma_x_err, axis=1)
+        drift_y = np.ma.average(ma_y, weights=ma_y_err, axis=1)
+
+        # Find which frames have valid drift corrections (not NaN/masked)
+        mask_x = np.ma.is_masked(drift_x) if hasattr(drift_x, 'mask') else np.zeros(len(drift_x), dtype=bool)
+        mask_y = np.ma.is_masked(drift_y) if hasattr(drift_y, 'mask') else np.zeros(len(drift_y), dtype=bool)
+        valid_frame_mask = np.logical_not(mask_x | mask_y)
+
+        valid_frame_numbers = unique_frames[valid_frame_mask]
+        valid_drift_x = np.asarray(drift_x[valid_frame_mask])
+        valid_drift_y = np.asarray(drift_y[valid_frame_mask])
+
+        # Ensure we have arrays, not scalars (handle single-frame case)
+        if np.isscalar(valid_frame_numbers):
+            valid_frame_numbers = np.array([valid_frame_numbers])
+        if np.isscalar(valid_drift_x):
+            valid_drift_x = np.array([valid_drift_x])
+        if np.isscalar(valid_drift_y):
+            valid_drift_y = np.array([valid_drift_y])
 
         # Step 3: Apply drift correction to full dataset
         # Only keep localizations from frames where we have drift correction
-        frame_mask = np.isin(locs.frame, valid_frames)
+        frame_mask = np.isin(locs.frame, valid_frame_numbers)
         corrected_locs = locs[frame_mask].copy()
 
         # Create drift lookup dictionary for fast access
-        drift_lookup_x = dict(zip(valid_frames, drift_x))
-        drift_lookup_y = dict(zip(valid_frames, drift_y))
+        drift_lookup_x = dict(zip(valid_frame_numbers, valid_drift_x))
+        drift_lookup_y = dict(zip(valid_frame_numbers, valid_drift_y))
 
-        # Apply drift correction
-        for i, loc in enumerate(corrected_locs):
-            frame = loc.frame
-            corrected_locs[i].xc = loc.xc - drift_lookup_x[frame]
-            corrected_locs[i].yc = loc.yc - drift_lookup_y[frame]
-
-        # Step 4: Label fiducials in the dataset
-        # Create set of all fiducial positions for fast lookup
+        # Step 4: Create fiducial position set for labeling (before drift correction)
         fiducial_positions = set()
         for fiducial_cluster in validated_fiducials:
             for fiducial in fiducial_cluster:
                 # Use (x, y, frame) tuple as unique identifier
                 fiducial_positions.add((fiducial.xc, fiducial.yc, fiducial.frame))
 
-        # Add is_fiducial field to corrected localizations
-        # First, get the original dtype and add the new field
-        original_dtype = corrected_locs.dtype
-        new_dtype = original_dtype.descr + [('is_fiducial', '?')]  # Boolean field
+        # Apply drift correction AND label fiducials in one pass
+        is_fiducial_flags = np.zeros(len(corrected_locs), dtype=bool)
+        for i in range(len(corrected_locs)):
+            frame = corrected_locs[i].frame
 
-        # Create new array with additional field
-        final_corrected_locs = np.empty(len(corrected_locs), dtype=new_dtype)
-
-        # Copy existing data
-        for field in original_dtype.names:
-            final_corrected_locs[field] = corrected_locs[field]
-
-        # Set is_fiducial flags
-        for i, loc in enumerate(corrected_locs):
             # Check if this localization is a fiducial (before drift correction)
-            original_pos = (loc.xc + drift_lookup_x[loc.frame],
-                           loc.yc + drift_lookup_y[loc.frame],
-                           loc.frame)
-            final_corrected_locs[i].is_fiducial = original_pos in fiducial_positions
+            original_pos = (corrected_locs[i].xc, corrected_locs[i].yc, frame)
+            is_fiducial_flags[i] = original_pos in fiducial_positions
+
+            # Apply drift correction in-place
+            corrected_locs[i].xc -= drift_lookup_x[frame]
+            corrected_locs[i].yc -= drift_lookup_y[frame]
+
+        # Add is_fiducial field efficiently using numpy.lib.recfunctions
+        from numpy.lib import recfunctions as rfn
+        final_corrected_locs = rfn.append_fields(corrected_locs, 'is_fiducial', is_fiducial_flags, dtypes='?')
 
         # Prepare drift info dictionary
         drift_info = {
-            'frames': valid_frames,
-            'drift_x': drift_x,
-            'drift_y': drift_y,
-            'n_fiducials_per_frame': n_fiducials_per_frame
+            'frames': valid_frame_numbers,
+            'drift_x': valid_drift_x,
+            'drift_y': valid_drift_y,
+            'n_fiducials_per_frame': np.sum(~np.isnan(all_corrected_x), axis=1)[valid_frame_mask]
         }
 
         print(f"Drift correction applied to {len(final_corrected_locs)} localizations")
-        print(f"Used {len(valid_frames)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
-        print(f"Average {np.mean(n_fiducials_per_frame):.1f} fiducials per frame")
+        print(f"Used {len(valid_frame_numbers)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
+        print(f"Average {np.mean(drift_info['n_fiducials_per_frame']):.1f} fiducials per frame")
 
         return final_corrected_locs, drift_info
