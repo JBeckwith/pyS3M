@@ -182,7 +182,13 @@ class SuperRes_Functions:
         ymax = np.min([int(ycentre + ROI_size / 2), height])
 
         # Skip non-square ROIs
-        if xmax - xmin != ymax - ymin:
+        roi_width = xmax - xmin
+        roi_height = ymax - ymin
+        if roi_width != roi_height:
+            return None
+
+        # Also check if ROI size is reasonable (not too small)
+        if roi_width < 4 or roi_height < 4:
             return None
 
         # Determine which data to use for fitting
@@ -197,6 +203,15 @@ class SuperRes_Functions:
             )
         else:
             raw_roi = data_for_fitting[xmin:xmax, ymin:ymax]
+
+        # Verify ROI is actually square (sanity check)
+        if raw_roi.shape[0] != raw_roi.shape[1]:
+            import logging
+            logging.warning(f"Non-square ROI extracted: {raw_roi.shape}, expected {roi_width}x{roi_height}")
+            logging.warning(f"  Boundaries: xmin={xmin}, xmax={xmax}, ymin={ymin}, ymax={ymax}")
+            logging.warning(f"  Image dims: width={width}, height={height}")
+            logging.warning(f"  Center: ({xcentre}, {ycentre}), ROI_size={ROI_size}")
+            return None
 
         # Extract camera parameter ROIs for conversion
         gain_roi = (
@@ -238,8 +253,8 @@ class SuperRes_Functions:
             smoothed_roi, read_noise=read_noise_roi, dtype="float32"
         )
 
-        # Extract mask ROI
-        mask_roi = masks[xmin:xmax, ymin:ymax, :]
+        # Extract mask ROI (note: masks are indexed as [row, col] = [y, x])
+        mask_roi = masks[ymin:ymax, xmin:xmax, :]
 
         # Return processed data and metadata
         coords = (xmin, ymin)
