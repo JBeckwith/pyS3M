@@ -234,9 +234,11 @@ class NileRedThresholdTuner:
         self.roi_info = self._get_roi_info(folder_path)
 
         # Determine how many frames to load for each stack
-        # Use the temporal median window, but cap at reasonable size for preview
-        stack_size = min(temporal_median_window, 200)  # Cap at 200 frames for memory
+        # Use the temporal median window (don't cap - user controls this)
+        stack_size = temporal_median_window
         half_window = stack_size // 2
+
+        print(f"Temporal median window: {temporal_median_window} frames (±{half_window} from center)")
 
         try:
             result = {
@@ -1129,8 +1131,20 @@ class NileRedThresholdTuner:
                     detection_frames_for_plot.append(display_frame)
 
                     # For fitting: compute temporal median subtracted data
+                    # Use centered window around the test frame
                     print(f"  Computing temporal median for fitting...")
-                    temporal_median = np.median(stack, axis=0).astype(np.float64)
+
+                    # Calculate window bounds centered on test_idx
+                    half_window = current_temporal_median_window // 2
+                    start_idx = max(0, test_idx - half_window)
+                    end_idx = min(len(stack), test_idx + half_window + 1)
+
+                    # Extract window and compute median
+                    window_frames = stack[start_idx:end_idx]
+                    temporal_median = np.median(window_frames, axis=0).astype(np.float64)
+
+                    print(f"    Using {len(window_frames)} frames (indices {start_idx}-{end_idx-1}) for median")
+
                     median_subtracted = display_frame.astype(np.float64) - temporal_median
                     median_subtracted = np.maximum(median_subtracted, 0)  # Clip negatives
 
