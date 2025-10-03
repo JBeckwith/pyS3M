@@ -208,8 +208,122 @@ class NileRedThresholdTuner:
             print(f"Error finding TIFF files in {folder_path}: {e}")
             return []
 
+    def load_frame_stacks_for_temporal_median(
+        self, folder_path: str, temporal_median_window: int
+    ) -> Optional[Dict[str, any]]:
+        """Load frame stacks for temporal median preview.
+
+        Returns a dict containing:
+        - 'stacks': List of 3 frame stacks (each stack has temporal_median_window frames)
+        - 'test_frame_indices': List of 3 indices within each stack for the test frame
+        - 'display_frames': List of 3 frames to display (the middle frame of each stack)
+        """
+        tiff_files = self.find_tiff_files(folder_path)
+
+        if not tiff_files:
+            print(f"No TIFF files found in {folder_path}")
+            return None
+
+        # Check for metadata files to get ROI information
+        self.roi_info = self._get_roi_info(folder_path)
+
+        # Determine how many frames to load for each stack
+        # Use the temporal median window, but cap at reasonable size for preview
+        stack_size = min(temporal_median_window, 200)  # Cap at 200 frames for memory
+        half_window = stack_size // 2
+
+        try:
+            result = {
+                'stacks': [],
+                'test_frame_indices': [],
+                'display_frames': []
+            }
+
+            if len(tiff_files) == 1:
+                # Single file: load 3 stacks centered at frames 50, 200, 400
+                print(f"Single TIFF file detected: {os.path.basename(tiff_files[0])}")
+                with tifffile.TiffFile(tiff_files[0]) as tif:
+                    total_frames = len(tif.pages)
+                    print(f"Total frames available: {total_frames}")
+                    print(f"Loading stacks of {stack_size} frames for temporal median preview")
+
+                    # Target center frames for the stacks
+                    target_centers = [50, 200, 400]
+
+                    for center_idx in target_centers:
+                        # Adjust if we're near the end of the file
+                        center_idx = min(center_idx, total_frames - 1)
+
+                        # Calculate stack boundaries
+                        start_idx = max(0, center_idx - half_window)
+                        end_idx = min(total_frames, center_idx + half_window)
+
+                        # Load the stack
+                        stack_frames = []
+                        for idx in range(start_idx, end_idx):
+                            frame = tif.pages[idx].asarray().astype(np.float64)
+                            stack_frames.append(frame)
+
+                        if len(stack_frames) > 0:
+                            # Index of the display frame within this stack
+                            display_idx = center_idx - start_idx
+                            display_idx = min(display_idx, len(stack_frames) - 1)
+
+                            result['stacks'].append(np.array(stack_frames))
+                            result['test_frame_indices'].append(display_idx)
+                            result['display_frames'].append(stack_frames[display_idx])
+
+                            print(f"  Loaded stack: frames {start_idx+1}-{end_idx} ({len(stack_frames)} frames), display frame at index {display_idx}")
+
+            else:
+                # Multiple files: load stack from 10% position in first 3 files
+                print(f"Multiple TIFF files detected: {len(tiff_files)} files")
+                files_to_process = tiff_files[:3]
+
+                for i, tiff_file in enumerate(files_to_process):
+                    print(f"Processing file {i+1}: {os.path.basename(tiff_file)}")
+                    with tifffile.TiffFile(tiff_file) as tif:
+                        total_frames = len(tif.pages)
+
+                        # Center at 10% of stack
+                        center_idx = int(total_frames * 0.1)
+
+                        # Calculate stack boundaries
+                        start_idx = max(0, center_idx - half_window)
+                        end_idx = min(total_frames, center_idx + half_window)
+
+                        # Load the stack
+                        stack_frames = []
+                        for idx in range(start_idx, end_idx):
+                            frame = tif.pages[idx].asarray().astype(np.float64)
+                            stack_frames.append(frame)
+
+                        if len(stack_frames) > 0:
+                            # Index of the display frame within this stack
+                            display_idx = center_idx - start_idx
+                            display_idx = min(display_idx, len(stack_frames) - 1)
+
+                            result['stacks'].append(np.array(stack_frames))
+                            result['test_frame_indices'].append(display_idx)
+                            result['display_frames'].append(stack_frames[display_idx])
+
+                            print(f"  Loaded stack: frames {start_idx+1}-{end_idx} ({len(stack_frames)} frames), display frame at index {display_idx}")
+
+            if len(result['stacks']) == 0:
+                print("No frame stacks could be loaded")
+                return None
+
+            print(f"Successfully loaded {len(result['stacks'])} frame stacks for temporal median preview")
+            return result
+
+        except Exception as e:
+            print(f"Error loading frame stacks: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def load_test_frames(self, folder_path: str) -> Optional[List[np.ndarray]]:
-        """Load 3 test frames with improved logic for single vs multiple files"""
+        """Load 3 test frames with improved logic for single vs multiple files (legacy mode without temporal median)"""
         tiff_files = self.find_tiff_files(folder_path)
 
         if not tiff_files:
@@ -288,6 +402,97 @@ class NileRedThresholdTuner:
             print(f"Error loading frames: {e}")
             return None
 
+    def test_spot_detection_with_temporal_median(
+        self,
+        frame_stack: np.ndarray,
+        test_frame_index: int,
+        pfa: float,
+        sigma: float,
+        fraction_true: float,
+        wavelength: float,
+        use_variance_aware: bool = True,
+        temporal_median_window: int = 100,
+    ) -> Tuple[np.ndarray, int, np.ndarray]:
+        """Test spot detection with temporal median subtraction.
+
+        Args:
+            frame_stack: 3D array of frames (n_frames, height, width)
+            test_frame_index: Index of the frame to test within the stack
+            pfa: False alarm probability
+            sigma: Sigma parameter
+            fraction_true: Fraction true parameter
+            wavelength: Peak wavelength
+            use_variance_aware: Use variance-aware demosaicing
+            temporal_median_window: Window size for temporal median
+
+        Returns:
+            (detected_spots, num_spots, processed_frame): spots array, count, and the processed frame after temporal median
+        """
+        try:
+            # Calculate temporal median
+            print(f"  Computing temporal median from {len(frame_stack)} frames...")
+            temporal_median = np.median(frame_stack, axis=0).astype(np.float64)
+
+            # Subtract temporal median from test frame
+            test_frame = frame_stack[test_frame_index].astype(np.float64)
+            frame_after_median = test_frame - temporal_median
+
+            # Clip negative values to zero (can't have negative photon counts)
+            frame_after_median = np.maximum(frame_after_median, 0)
+
+            print(f"  Frame before temporal median: {test_frame.min():.0f} - {test_frame.max():.0f}")
+            print(f"  Temporal median: {temporal_median.min():.0f} - {temporal_median.max():.0f}")
+            print(f"  Frame after subtraction: {frame_after_median.min():.0f} - {frame_after_median.max():.0f}")
+
+            # Apply demosaicing based on setting
+            if use_variance_aware and self.camera_data:
+                # Get camera data cropped to ROI if available
+                camera_data_to_use = (
+                    self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+                    if self.roi_info
+                    else self.camera_data
+                )
+
+                # Check if calibration data needs to be resized to match image
+                image_shape = frame_after_median.shape
+                variance_shape = camera_data_to_use["variance"].shape
+
+                if image_shape != variance_shape:
+                    print(f"Warning: Image shape {image_shape} != calibration data shape {variance_shape}")
+                    print("Falling back to standard demosaicing")
+                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_median)
+                else:
+                    # Use variance-aware demosaicing
+                    demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                        frame_after_median,
+                        variance_map=camera_data_to_use["variance"],
+                        offset_map=camera_data_to_use["offset"],
+                        gain=camera_data_to_use["gain"],
+                        grayscale=True
+                    )
+            else:
+                # Use standard grayscale demosaicing
+                demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_median)
+
+            detected_spots = self.sdf.detect_puncta_in_image(
+                image=demosaiced_image,
+                pfa=pfa,
+                wavelength=wavelength,
+                sigma=sigma,
+                fraction_true=fraction_true,
+                pixel_size=0.069,  # Standard pixel size
+                NA=1.49,  # Standard NA
+                mf_factor=3.0,  # Standard match filter factor
+                local_factor=3.0,  # Standard local factor
+            )
+            return detected_spots, len(detected_spots), frame_after_median
+
+        except Exception as e:
+            print(f"Error in spot detection with temporal median: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.array([]), 0, frame_stack[test_frame_index]
+
     def test_spot_detection(
         self,
         image: np.ndarray,
@@ -297,7 +502,7 @@ class NileRedThresholdTuner:
         wavelength: float,
         use_variance_aware: bool = True,
     ) -> Tuple[np.ndarray, int]:
-        """Test spot detection with given parameters on demosaiced image"""
+        """Test spot detection with given parameters on demosaiced image (no temporal median)"""
         try:
             # Apply demosaicing based on setting
             if use_variance_aware and self.camera_data:
@@ -577,12 +782,6 @@ class NileRedThresholdTuner:
         print(f"Type: {folder_type}, Wavelength: {default_wavelength}")
         print(f"{'='*80}")
 
-        # Load test frames
-        frames = self.load_test_frames(folder_path)
-        if frames is None:
-            print("Could not load test frames, skipping...")
-            return None
-
         # Start with default parameters
         current_pfa = self.default_pfa
         current_sigma = self.default_sigma
@@ -592,18 +791,87 @@ class NileRedThresholdTuner:
         current_use_temporal_median = self.default_use_temporal_median
         current_temporal_median_window = self.default_temporal_median_window
 
+        # Load data based on whether temporal median is enabled
+        frames = None
+        frame_stack_data = None
+
+        if current_use_temporal_median:
+            print("\nTemporal median enabled - loading frame stacks...")
+            frame_stack_data = self.load_frame_stacks_for_temporal_median(
+                folder_path, current_temporal_median_window
+            )
+            if frame_stack_data is None:
+                print("Could not load frame stacks, skipping...")
+                return None
+        else:
+            print("\nTemporal median disabled - loading individual test frames...")
+            frames = self.load_test_frames(folder_path)
+            if frames is None:
+                print("Could not load test frames, skipping...")
+                return None
+
         fig_or_file = None
 
         while True:
+            # Reload data if temporal median setting changed
+            needs_reload = False
+            if current_use_temporal_median and frame_stack_data is None:
+                needs_reload = True
+                print("\nTemporal median enabled - loading frame stacks...")
+                frame_stack_data = self.load_frame_stacks_for_temporal_median(
+                    folder_path, current_temporal_median_window
+                )
+                if frame_stack_data is None:
+                    print("Could not load frame stacks, disabling temporal median...")
+                    current_use_temporal_median = False
+                    needs_reload = True
+
+            if not current_use_temporal_median and frames is None:
+                needs_reload = True
+                print("\nLoading individual test frames...")
+                frames = self.load_test_frames(folder_path)
+                if frames is None:
+                    print("Could not load test frames, skipping folder...")
+                    return None
+
             # Test current parameters on all frames
-            detection_results = self.test_spot_detection_multi_frame(
-                frames,
-                current_pfa,
-                current_sigma,
-                current_fraction_true,
-                current_wavelength,
-                current_use_variance_aware,
-            )
+            if current_use_temporal_median and frame_stack_data is not None:
+                # Use temporal median-aware detection
+                detection_results = []
+                frames_to_display = []
+
+                for i, (stack, test_idx, display_frame) in enumerate(zip(
+                    frame_stack_data['stacks'],
+                    frame_stack_data['test_frame_indices'],
+                    frame_stack_data['display_frames']
+                )):
+                    print(f"Processing stack {i+1}/3 with temporal median...")
+                    spots, num_spots, processed_frame = self.test_spot_detection_with_temporal_median(
+                        stack,
+                        test_idx,
+                        current_pfa,
+                        current_sigma,
+                        current_fraction_true,
+                        current_wavelength,
+                        current_use_variance_aware,
+                        current_temporal_median_window,
+                    )
+                    detection_results.append((spots, num_spots))
+                    frames_to_display.append(processed_frame)
+
+                # Use processed frames for display
+                frames_for_plot = frames_to_display
+            else:
+                # Use regular detection without temporal median
+                detection_results = self.test_spot_detection_multi_frame(
+                    frames,
+                    current_pfa,
+                    current_sigma,
+                    current_fraction_true,
+                    current_wavelength,
+                    current_use_variance_aware,
+                )
+                frames_for_plot = frames
 
             # Calculate total spots across all frames
             total_spots = sum(num_spots for _, num_spots in detection_results)
@@ -614,7 +882,7 @@ class NileRedThresholdTuner:
 
             # Plot results using multi-frame display
             fig_or_file = self.plot_detection_results_multi_frame(
-                frames,
+                frames_for_plot,
                 detection_results,
                 current_pfa,
                 current_sigma,
@@ -711,8 +979,14 @@ class NileRedThresholdTuner:
                 print(f"Temporal median subtraction {new_status}")
                 if current_use_temporal_median:
                     print(f"  Will use moving median window of {current_temporal_median_window} frames")
+                    # Need to reload frame stacks
+                    frame_stack_data = None
+                    frames = None  # Clear regular frames
                 else:
                     print("  Note: No temporal median subtraction will be applied")
+                    # Need to reload regular frames
+                    frames = None
+                    frame_stack_data = None  # Clear frame stacks
 
             elif choice == "7":
                 # Adjust temporal median window
@@ -721,8 +995,12 @@ class NileRedThresholdTuner:
                         input(f"Enter new temporal median window (current: {current_temporal_median_window} frames): ").strip()
                     )
                     if 10 <= new_window <= 500:
+                        old_window = current_temporal_median_window
                         current_temporal_median_window = new_window
-                        print(f"Temporal median window set to {new_window} frames")
+                        print(f"Temporal median window changed from {old_window} to {new_window} frames")
+                        # Need to reload frame stacks with new window size
+                        if current_use_temporal_median:
+                            frame_stack_data = None  # Force reload on next iteration
                     else:
                         print("Window must be between 10 and 500 frames")
                 except ValueError:

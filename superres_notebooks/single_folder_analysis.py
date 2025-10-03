@@ -6,8 +6,8 @@ Processes one folder and exits - called by batch_analysis.sh for complete isolat
 Each invocation gets a fresh Python interpreter to prevent memory leaks.
 
 Usage:
-    python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic>
-    
+    python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <use_temporal_median> <temporal_median_window>
+
     type: 'sm' or 'imaging'
     scratch_folder_path: full path to scratch folder (for processing)
     original_folder_path: full path to original folder (for .h5 output)
@@ -16,6 +16,8 @@ Usage:
     sigma: sigma parameter (e.g., 1.5)
     fraction_true: fraction true parameter (e.g., 0.2)
     use_variance_aware_demosaic: use variance-aware demosaicing (true/false)
+    use_temporal_median: use temporal median subtraction (true/false)
+    temporal_median_window: window size for temporal median (frames, e.g., 100)
 
 Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
 """
@@ -28,10 +30,10 @@ import traceback
 
 
 def main():
-    # Check arguments - now expects 9 arguments (including script name) to include variance_aware_demosaic parameter
-    if len(sys.argv) != 9:
+    # Check arguments - now expects 11 arguments (including script name) for temporal median support
+    if len(sys.argv) != 11:
         print(
-            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic>"
+            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <use_temporal_median> <temporal_median_window>"
         )
         print("  type: 'sm' or 'imaging'")
         print("  scratch_folder_path: full path to scratch folder (for processing)")
@@ -41,6 +43,8 @@ def main():
         print("  sigma: sigma parameter (e.g., 1.5)")
         print("  fraction_true: fraction true parameter (e.g., 0.2)")
         print("  use_variance_aware_demosaic: use variance-aware demosaicing (true/false)")
+        print("  use_temporal_median: use temporal median subtraction (true/false)")
+        print("  temporal_median_window: window size for temporal median (frames)")
         sys.exit(1)
 
     folder_type = sys.argv[1]
@@ -51,11 +55,16 @@ def main():
     sigma = float(sys.argv[6])
     fraction_true = float(sys.argv[7])
     use_variance_aware_demosaic = sys.argv[8].lower() in ('true', '1', 'yes', 'on')
+    use_temporal_median = sys.argv[9].lower() in ('true', '1', 'yes', 'on')
+    temporal_median_window = int(sys.argv[10])
 
     print(
         f"Using threshold parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
     print(f"Variance-aware demosaicing: {use_variance_aware_demosaic}")
+    print(f"Temporal median subtraction: {use_temporal_median}")
+    if use_temporal_median:
+        print(f"Temporal median window: {temporal_median_window} frames")
 
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
     print(f"Processing: {scratch_folder_path}")
@@ -65,6 +74,9 @@ def main():
         f"Threshold Parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
     print(f"Use variance-aware demosaicing: {use_variance_aware_demosaic}")
+    print(f"Use temporal median: {use_temporal_median}")
+    if use_temporal_median:
+        print(f"Temporal median window: {temporal_median_window} frames")
     print(f"Started: {os.popen('date').read().strip()}")
     print()
 
@@ -232,6 +244,8 @@ def main():
                 fraction_true=fraction_true,
                 image_type=".tif",
                 use_variance_aware_demosaic=use_variance_aware_demosaic,
+                use_temporal_median=use_temporal_median,
+                temporal_median_window=temporal_median_window,
             )
             print("SM data processing completed")
         else:
@@ -254,6 +268,8 @@ def main():
                 fraction_true=fraction_true,
                 image_type=".tif",
                 use_variance_aware_demosaic=use_variance_aware_demosaic,
+                use_temporal_median=use_temporal_median,
+                temporal_median_window=temporal_median_window,
             )
             print("Imaging data processing completed")
 
