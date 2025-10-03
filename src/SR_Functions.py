@@ -9,6 +9,7 @@ import pandas as pd
 import os
 import sys
 import gc
+from enum import Enum
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
@@ -20,6 +21,19 @@ from ImageAnalysisFunctions import FittingStrategy
 import SpotDetectionFunctions
 import PlottingFunctions
 import sCMOSFunctions
+
+
+class TemporalMedianMode(Enum):
+    """Temporal median background subtraction modes.
+
+    Attributes:
+        NONE: No temporal median subtraction
+        FITTING_ONLY: Subtract temporal median for fitting only (detection uses original)
+        DETECTION_AND_FITTING: Subtract temporal median for both detection and fitting
+    """
+    NONE = 0
+    FITTING_ONLY = 1
+    DETECTION_AND_FITTING = 2
 
 
 class SuperRes_Functions:
@@ -246,7 +260,7 @@ class SuperRes_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         use_variance_aware_demosaic: bool = True,
-        use_temporal_median: bool = False,
+        temporal_median_mode: TemporalMedianMode = TemporalMedianMode.NONE,
         temporal_median_window: int = 100,
         frame_index: int = 1,
     ):
@@ -275,8 +289,10 @@ class SuperRes_Functions:
             sigma (float): Gaussian sigma for detection (default: 1.5)
             fraction_true (float): Expected fraction of true spots (default: 0.2)
             use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default: True)
-            use_temporal_median (bool): Apply temporal median background subtraction for fitting only.
-                Spot detection uses original data. (default: False)
+            temporal_median_mode (TemporalMedianMode): Temporal median background subtraction mode:
+                - NONE: No temporal median subtraction (default)
+                - FITTING_ONLY: Subtract temporal median for fitting only, detection uses original data
+                - DETECTION_AND_FITTING: Subtract temporal median for both detection and fitting
             temporal_median_window (int): Window for temporal median in frames, centered on the current
                 frame (e.g., 100 frames = 50 before + 50 after). (default: 100)
             frame_index (int): Which frame to analyze (default: 1)
@@ -349,9 +365,11 @@ class SuperRes_Functions:
         rqe = rqe[start_x : start_x + width, start_y : start_y + height]
         variance = variance[start_x : start_x + width, start_y : start_y + height]
 
-        # Prepare data for fitting (may be temporal median subtracted)
+        # Prepare data based on temporal median mode
+        raw_data_for_detection = raw_data
         raw_data_for_fitting = None
-        if use_temporal_median:
+
+        if temporal_median_mode != TemporalMedianMode.NONE:
             # Load surrounding frames for median calculation
             half_window = temporal_median_window // 2
 
@@ -370,9 +388,8 @@ class SuperRes_Functions:
             if frames_for_median.ndim == 2:
                 frames_for_median = frames_for_median[np.newaxis, :, :]
 
-            # Apply temporal median subtraction for fitting only
-            print(f"Applying temporal median subtraction for fitting (window={temporal_median_window}, frames={len(frame_range)})")
-            median_subtracted = self._compute_temporal_median(
+            # Compute temporal median subtraction
+            median_subtracted_stack = self._compute_temporal_median(
                 frames_for_median,
                 median_window=temporal_median_window,
                 buffer_frames=None  # Single frame analysis doesn't need buffer
@@ -380,15 +397,24 @@ class SuperRes_Functions:
 
             # Extract the requested frame from median-subtracted stack
             frame_offset_in_stack = frame_index - start_frame
-            raw_data_for_fitting = median_subtracted[frame_offset_in_stack]
+            median_subtracted = median_subtracted_stack[frame_offset_in_stack]
+
+            # Apply to detection and/or fitting based on mode
+            if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
+                print(f"Applying temporal median for BOTH detection and fitting (window={temporal_median_window}, frames={len(frame_range)})")
+                raw_data_for_detection = median_subtracted
+                raw_data_for_fitting = median_subtracted
+            elif temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
+                print(f"Applying temporal median for FITTING only (window={temporal_median_window}, frames={len(frame_range)})")
+                raw_data_for_fitting = median_subtracted
 
             # Cleanup
-            del frames_for_median, median_subtracted
+            del frames_for_median, median_subtracted_stack
             gc.collect()
 
-        # Demosaic the raw Bayer image for detection (use original data)
+        # Demosaic the raw Bayer image for detection
         image_to_analyse = self._demosaic_image(
-            raw_data,
+            raw_data_for_detection,
             use_variance_aware=use_variance_aware_demosaic,
             gain_map=gain_map,
             offset_map=offset_map,
@@ -409,10 +435,10 @@ class SuperRes_Functions:
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
-        # Detection uses original data, fitting uses temporal median subtracted if enabled
+        # Detection uses appropriate data based on mode, fitting may use median-subtracted
         for i in np.arange(len(detected_puncta)):
             result = self._process_roi(
-                raw_data,
+                raw_data_for_detection,
                 detected_puncta,
                 i,
                 width,
@@ -1060,7 +1086,7 @@ class SuperRes_Functions:
         fraction_true: float = 0.2,
         image_type=".tif",
         use_variance_aware_demosaic: bool = True,
-        use_temporal_median: bool = False,
+        temporal_median_mode: TemporalMedianMode = TemporalMedianMode.NONE,
         temporal_median_window: int = 100,
     ):
         """Cross-file imaging data fitting function.
@@ -1087,15 +1113,14 @@ class SuperRes_Functions:
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
-            use_temporal_median (bool): Whether to apply temporal median subtraction for fitting only.
-                If True, computes moving temporal median to remove slowly varying background from the
-                data used for fitting, while spot detection uses the original unprocessed data.
-                (default: False)
+            temporal_median_mode (TemporalMedianMode): Temporal median background subtraction mode:
+                - NONE: No temporal median subtraction (default)
+                - FITTING_ONLY: Subtract temporal median for fitting only, detection uses original data
+                - DETECTION_AND_FITTING: Subtract temporal median for both detection and fitting
             temporal_median_window (int): Window size (in frames) for temporal median calculation.
-                Only used if use_temporal_median=True. The median is centered on each frame (e.g., for
-                frame N with window=100, uses 50 frames before and 50 frames after). Larger windows
-                better remove slow drift but require more memory. Can load frames across file boundaries.
-                (default: 100)
+                The median is centered on each frame (e.g., for frame N with window=100, uses 50 frames
+                before and 50 frames after). Larger windows better remove slow drift but require more
+                memory. Can load frames across file boundaries. (default: 100)
 
         Returns:
             None: Writes results to HDF5 file in image_folder/Localisations.h5
@@ -1178,17 +1203,19 @@ class SuperRes_Functions:
 
                 print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
-                # Load chunk of raw data for detection
-                raw_data_for_detection = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+                # Load chunk of raw data
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
 
                 # Ensure raw_data is 3D even for single frame chunks
-                if raw_data_for_detection.ndim == 2:
-                    raw_data_for_detection = raw_data_for_detection[np.newaxis, :, :]
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
 
-                # Prepare data for fitting (may be temporal median subtracted)
+                # Prepare data based on temporal median mode
+                raw_data_for_detection = raw_data
                 raw_data_for_fitting = None
                 buffer_data = None
-                if use_temporal_median:
+
+                if temporal_median_mode != TemporalMedianMode.NONE:
                     half_window = temporal_median_window // 2
                     # Check if we need buffer frames from next chunk or next file
                     if chunk_end < file_frames:
@@ -1213,15 +1240,23 @@ class SuperRes_Functions:
                             if buffer_data.ndim == 2:
                                 buffer_data = buffer_data[np.newaxis, :, :]
 
-                    # Apply temporal median subtraction for fitting data only
-                    print(f"    Applying temporal median subtraction for fitting (window={temporal_median_window})")
-                    raw_data_for_fitting = self._compute_temporal_median(
-                        raw_data_for_detection,
+                    # Compute temporal median subtracted data
+                    median_subtracted = self._compute_temporal_median(
+                        raw_data,
                         median_window=temporal_median_window,
                         buffer_frames=buffer_data
                     )
 
-                # Demosaic the raw Bayer image for detection (use original data)
+                    # Apply to detection and/or fitting based on mode
+                    if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
+                        print(f"    Applying temporal median for BOTH detection and fitting (window={temporal_median_window})")
+                        raw_data_for_detection = median_subtracted
+                        raw_data_for_fitting = median_subtracted
+                    elif temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
+                        print(f"    Applying temporal median for FITTING only (window={temporal_median_window})")
+                        raw_data_for_fitting = median_subtracted
+
+                # Demosaic the raw Bayer image for detection
                 image_to_analyse = self._demosaic_image(
                     raw_data_for_detection,
                     use_variance_aware=use_variance_aware_demosaic,

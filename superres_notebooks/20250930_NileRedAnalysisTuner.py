@@ -41,7 +41,7 @@ try:
     from PlottingFunctions import Plotter
     from HelperFunctions import Helper_Functions
     from sCMOSFunctions import sCMOS_Functions
-    from SR_Functions import SuperRes_Functions
+    from SR_Functions import SuperRes_Functions, TemporalMedianMode
     from ImageAnalysisFunctions import Image_Analysis_Functions
     from MaskFunctions import Mask_Functions
     import matplotlib
@@ -90,7 +90,7 @@ class NileRedThresholdTuner:
         self.default_true_fraction = 0.2
         self.default_wavelength = 0.700  # 700nm - near-infrared region typical for Nile Red
         self.default_use_variance_aware = True  # Default to variance-aware demosaicing
-        self.default_use_temporal_median = True  # Default to using temporal median (ON by default)
+        self.default_temporal_median_mode = TemporalMedianMode.FITTING_ONLY  # Default: fitting only
         self.default_temporal_median_window = 100  # Default window size in frames
 
         # Results storage
@@ -1056,15 +1056,15 @@ class NileRedThresholdTuner:
         current_fraction_true = self.default_true_fraction
         current_wavelength = default_wavelength
         current_use_variance_aware = self.default_use_variance_aware
-        current_use_temporal_median = self.default_use_temporal_median
+        current_temporal_median_mode = self.default_temporal_median_mode
         current_temporal_median_window = self.default_temporal_median_window
 
-        # Load data based on whether temporal median is enabled
+        # Load data based on temporal median mode
         frames = None
         frame_stack_data = None
 
-        if current_use_temporal_median:
-            print("\nTemporal median enabled - loading frame stacks...")
+        if current_temporal_median_mode != TemporalMedianMode.NONE:
+            print(f"\nTemporal median mode: {current_temporal_median_mode.name} - loading frame stacks...")
             frame_stack_data = self.load_frame_stacks_for_temporal_median(
                 folder_path, current_temporal_median_window
             )
@@ -1081,36 +1081,32 @@ class NileRedThresholdTuner:
         fig_or_file = None
 
         while True:
-            # Reload data if temporal median setting changed
-            needs_reload = False
-            if current_use_temporal_median and frame_stack_data is None:
-                needs_reload = True
-                print("\nTemporal median enabled - loading frame stacks...")
+            # Reload data if temporal median mode changed
+            if current_temporal_median_mode != TemporalMedianMode.NONE and frame_stack_data is None:
+                print(f"\nTemporal median mode: {current_temporal_median_mode.name} - loading frame stacks...")
                 frame_stack_data = self.load_frame_stacks_for_temporal_median(
                     folder_path, current_temporal_median_window
                 )
                 if frame_stack_data is None:
                     print("Could not load frame stacks, disabling temporal median...")
-                    current_use_temporal_median = False
-                    needs_reload = True
+                    current_temporal_median_mode = TemporalMedianMode.NONE
 
-            if not current_use_temporal_median and frames is None:
-                needs_reload = True
+            if current_temporal_median_mode == TemporalMedianMode.NONE and frames is None:
                 print("\nLoading individual test frames...")
                 frames = self.load_test_frames(folder_path)
                 if frames is None:
                     print("Could not load test frames, skipping folder...")
                     return None
 
-            # Test current parameters on all frames
+            # Process all frames based on mode
             detection_results = []
             detection_frames_for_plot = []
             fitting_frames_for_plot = []
             original_frames_for_fitting = []
 
-            if current_use_temporal_median and frame_stack_data is not None:
-                # Use temporal median-aware detection and fitting
-                print("\nPerforming detection and fitting with temporal median...")
+            if current_temporal_median_mode != TemporalMedianMode.NONE and frame_stack_data is not None:
+                # Use temporal median processing
+                print(f"\nPerforming detection and fitting with temporal median mode: {current_temporal_median_mode.name}")
 
                 for i, (stack, test_idx, display_frame) in enumerate(zip(
                     frame_stack_data['stacks'],
@@ -1118,9 +1114,34 @@ class NileRedThresholdTuner:
                     frame_stack_data['display_frames']
                 )):
                     print(f"Processing stack {i+1}/3...")
-                    # Detection on original data
+
+                    # Compute temporal median subtracted data
+                    half_window = current_temporal_median_window // 2
+                    start_idx = max(0, test_idx - half_window)
+                    end_idx = min(len(stack), test_idx + half_window + 1)
+                    window_frames = stack[start_idx:end_idx]
+                    temporal_median = np.median(window_frames, axis=0).astype(np.float64)
+                    median_subtracted = display_frame.astype(np.float64) - temporal_median
+                    median_subtracted = np.maximum(median_subtracted, 0)  # Clip negatives
+
+                    print(f"  Using {len(window_frames)} frames (indices {start_idx}-{end_idx-1}) for median")
+
+                    # Determine which data to use for detection and fitting based on mode
+                    if current_temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
+                        detection_frame = median_subtracted
+                        fitting_frame = median_subtracted
+                        print(f"  Mode: BOTH detection and fitting use temporal median")
+                    elif current_temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
+                        detection_frame = display_frame
+                        fitting_frame = median_subtracted
+                        print(f"  Mode: Detection uses original, fitting uses temporal median")
+                    else:  # NONE (shouldn't reach here, but handle anyway)
+                        detection_frame = display_frame
+                        fitting_frame = display_frame
+
+                    # Perform detection
                     spots, num_spots = self.test_spot_detection(
-                        display_frame,
+                        detection_frame,
                         current_pfa,
                         current_sigma,
                         current_fraction_true,
@@ -1128,31 +1149,12 @@ class NileRedThresholdTuner:
                         current_use_variance_aware,
                     )
                     detection_results.append((spots, num_spots))
-                    detection_frames_for_plot.append(display_frame)
-
-                    # For fitting: compute temporal median subtracted data
-                    # Use centered window around the test frame
-                    print(f"  Computing temporal median for fitting...")
-
-                    # Calculate window bounds centered on test_idx
-                    half_window = current_temporal_median_window // 2
-                    start_idx = max(0, test_idx - half_window)
-                    end_idx = min(len(stack), test_idx + half_window + 1)
-
-                    # Extract window and compute median
-                    window_frames = stack[start_idx:end_idx]
-                    temporal_median = np.median(window_frames, axis=0).astype(np.float64)
-
-                    print(f"    Using {len(window_frames)} frames (indices {start_idx}-{end_idx-1}) for median")
-
-                    median_subtracted = display_frame.astype(np.float64) - temporal_median
-                    median_subtracted = np.maximum(median_subtracted, 0)  # Clip negatives
-
-                    fitting_frames_for_plot.append(median_subtracted)
+                    detection_frames_for_plot.append(detection_frame)
+                    fitting_frames_for_plot.append(fitting_frame)
                     original_frames_for_fitting.append(display_frame)
 
             else:
-                # Use regular detection without temporal median
+                # No temporal median
                 print("\nPerforming detection and fitting without temporal median...")
                 detection_results = self.test_spot_detection_multi_frame(
                     frames,
@@ -1163,7 +1165,7 @@ class NileRedThresholdTuner:
                     current_use_variance_aware,
                 )
                 detection_frames_for_plot = frames
-                fitting_frames_for_plot = frames  # Same as detection frames
+                fitting_frames_for_plot = frames
                 original_frames_for_fitting = frames
 
             # Perform fitting on detected spots
@@ -1176,12 +1178,11 @@ class NileRedThresholdTuner:
             )):
                 print(f"  Fitting frame {i+1}/3 ({num_spots} spots)...")
                 if num_spots > 0:
-                    # Fit on the appropriate data (median-subtracted if enabled, otherwise original)
                     fitted_coords = self.fit_detected_spots(
-                        fit_frame if current_use_temporal_median else orig_frame,
+                        fit_frame,
                         spots,
                         smoothing_function=None,
-                        ROI_size=12,
+                        ROI_size=20,
                     )
                     fitting_results.append(fitted_coords)
                     print(f"    Successfully fitted {len(fitted_coords)}/{num_spots} spots")
@@ -1202,6 +1203,7 @@ class NileRedThresholdTuner:
                     plt.close(fig_or_file)
 
             # Plot results using dual window display
+            use_temporal_median = current_temporal_median_mode != TemporalMedianMode.NONE
             fig_or_file = self.plot_detection_and_fitting_results(
                 detection_frames_for_plot,
                 fitting_frames_for_plot,
@@ -1211,19 +1213,19 @@ class NileRedThresholdTuner:
                 current_sigma,
                 current_fraction_true,
                 folder_name,
-                current_use_temporal_median,
+                use_temporal_median,
             )
 
             variance_aware_status = "enabled" if current_use_variance_aware else "disabled"
-            temporal_median_status = "ON" if current_use_temporal_median else "OFF"
+            temporal_median_mode_name = current_temporal_median_mode.name
             print(f"\nCurrent parameters:")
             print(f"  PFA (probability of false alarm): {current_pfa:.0e}")
             print(f"  Sigma : {current_sigma}")
             print(f"  Fraction true : {current_fraction_true}")
             print(f"  Wavelength: {current_wavelength}")
             print(f"  Variance-aware demosaicing: {variance_aware_status}")
-            print(f"  Temporal median: {temporal_median_status}")
-            if current_use_temporal_median:
+            print(f"  Temporal median mode: {temporal_median_mode_name}")
+            if current_temporal_median_mode != TemporalMedianMode.NONE:
                 print(f"  Temporal median window: {current_temporal_median_window} frames")
             print(f"\nResults:")
             print(f"  Detected spots: {total_detected} (across 3 frames)")
@@ -1235,7 +1237,7 @@ class NileRedThresholdTuner:
             print(f"  3. Adjust Fraction true (current: {current_fraction_true})")
             print(f"  4. Adjust wavelength (current: {current_wavelength})")
             print(f"  5. Toggle variance-aware demosaicing (current: {variance_aware_status})")
-            print(f"  6. Toggle temporal median (current: {temporal_median_status})")
+            print(f"  6. Change temporal median mode (current: {temporal_median_mode_name})")
             print(f"  7. Adjust temporal median window (current: {current_temporal_median_window} frames)")
             print(f"  8. Accept current parameters")
             print(f"  9. Skip this folder")
@@ -1299,20 +1301,25 @@ class NileRedThresholdTuner:
                     print("  Warning: Camera calibration data not available - will use standard demosaicing")
 
             elif choice == "6":
-                # Toggle temporal median
-                current_use_temporal_median = not current_use_temporal_median
-                new_status = "ON" if current_use_temporal_median else "OFF"
-                print(f"Temporal median subtraction {new_status}")
-                if current_use_temporal_median:
-                    print(f"  Will use moving median window of {current_temporal_median_window} frames")
-                    # Need to reload frame stacks
-                    frame_stack_data = None
-                    frames = None  # Clear regular frames
-                else:
-                    print("  Note: No temporal median subtraction will be applied")
-                    # Need to reload regular frames
+                # Cycle through temporal median modes
+                mode_options = [TemporalMedianMode.NONE, TemporalMedianMode.FITTING_ONLY, TemporalMedianMode.DETECTION_AND_FITTING]
+                current_idx = mode_options.index(current_temporal_median_mode)
+                next_idx = (current_idx + 1) % len(mode_options)
+                current_temporal_median_mode = mode_options[next_idx]
+
+                print(f"Temporal median mode changed to: {current_temporal_median_mode.name}")
+                if current_temporal_median_mode == TemporalMedianMode.NONE:
+                    print("  No temporal median subtraction")
                     frames = None
-                    frame_stack_data = None  # Clear frame stacks
+                    frame_stack_data = None
+                elif current_temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
+                    print(f"  Temporal median for FITTING only (window={current_temporal_median_window} frames)")
+                    frame_stack_data = None
+                    frames = None
+                elif current_temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
+                    print(f"  Temporal median for BOTH detection and fitting (window={current_temporal_median_window} frames)")
+                    frame_stack_data = None
+                    frames = None
 
             elif choice == "7":
                 # Adjust temporal median window
@@ -1325,7 +1332,7 @@ class NileRedThresholdTuner:
                         current_temporal_median_window = new_window
                         print(f"Temporal median window changed from {old_window} to {new_window} frames")
                         # Need to reload frame stacks with new window size
-                        if current_use_temporal_median:
+                        if current_temporal_median_mode != TemporalMedianMode.NONE:
                             frame_stack_data = None  # Force reload on next iteration
                     else:
                         print("Window must be between 10 and 500 frames")
@@ -1335,7 +1342,12 @@ class NileRedThresholdTuner:
             elif choice == "8":
                 # Accept parameters
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
-                    plt.close(fig_or_file)
+                    if isinstance(fig_or_file, tuple):
+                        for fig in fig_or_file:
+                            if fig is not None:
+                                plt.close(fig)
+                    else:
+                        plt.close(fig_or_file)
                 return {
                     "folder_path": folder_path,
                     "folder_type": folder_type,
@@ -1344,9 +1356,9 @@ class NileRedThresholdTuner:
                     "fraction_true": current_fraction_true,
                     "wavelength": current_wavelength,
                     "use_variance_aware": current_use_variance_aware,
-                    "use_temporal_median": current_use_temporal_median,
+                    "temporal_median_mode": current_temporal_median_mode.value,  # Save as integer
                     "temporal_median_window": current_temporal_median_window,
-                    "detected_spots": total_spots,
+                    "detected_spots": total_detected,
                 }
 
             elif choice == "9":
