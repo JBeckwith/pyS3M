@@ -236,7 +236,7 @@ def WLS_chi_nobounds(params, data, masks, weights, size, ravelsize):
     Returns:
         chi (numpy.ndarray): Vector of chi.
     """
-    x = np.arange(size)
+    x = np.arange(size, dtype=np.float32)
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
     gauss_2d[:, :] = WLS_model_nobounds(params, masks, x, gauss_2d)
@@ -257,7 +257,7 @@ def WLS_chi_nocolour_nobounds(params, data, weights, size, ravelsize):
     Returns:
         chi (numpy.ndarray): Vector of chi.
     """
-    x = np.arange(size)
+    x = np.arange(size, dtype=np.float32)
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
     gauss_2d[:, :] = WLS_nocolour_model_nobounds(params, data, x, gauss_2d)
@@ -278,7 +278,7 @@ def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
     Returns:
         chi (numpy.ndarray): Vector of chi.
     """
-    x = np.arange(size)
+    x = np.arange(size, dtype=np.float32)
     gauss_2d = np.zeros((size, size), dtype=np.float32)
     chi = np.zeros((size, size), dtype=np.float32)
     gauss_2d[:, :] = WLS_justcolour_model_nobounds(params, x, gauss_2d, locparams)
@@ -302,7 +302,7 @@ def WLS_rawcolour_chi_nobounds(
     Returns:
         chi (numpy.ndarray): Vector of chi.
     """
-    x = np.arange(size)
+    x = np.arange(size, dtype=np.float32)
     background_bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
     bayer_matrix = np.zeros(ravelsize, dtype=np.float32)
     gauss_2d = np.zeros((size, size), dtype=np.float32)

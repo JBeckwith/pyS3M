@@ -424,7 +424,9 @@ class StandardFittingProcessor(FittingProcessor):
             import traceback
             logging.warning(f"Fitting failed: {e}")
             logging.warning(f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
-            logging.warning(f"Data shapes - raw: {raw_data.shape}, smoothed: {smoothed_data.shape}, weights: {weights.shape}, mask: {mask.shape}")
+            logging.warning(f"Data shapes - data: {data.shape}, weights: {weights.shape}, masks: {masks.shape}")
+            logging.warning(f"Initial guess: {initial_guess}")
+            logging.warning(f"Data dtype: {data.dtype}, min: {data.min():.2f}, max: {data.max():.2f}")
             dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
             return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
