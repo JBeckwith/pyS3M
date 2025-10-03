@@ -570,6 +570,8 @@ class NileRedThresholdTuner:
             )
 
             # Create masks for the ROI
+            # Note: raw_frame.shape gives (height, width) = (num_rows, num_cols)
+            # In image coordinates: height is y-dimension, width is x-dimension
             height, width = raw_frame.shape
             if self.roi_info:
                 masks = self.mf.get_ROI_mask(

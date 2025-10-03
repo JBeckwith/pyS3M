@@ -194,15 +194,15 @@ class SuperRes_Functions:
         # Determine which data to use for fitting
         data_for_fitting = raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
 
-        # Extract raw ROI for fitting
+        # Extract raw ROI for fitting (note: arrays are [row, col] = [y, x])
         if is_multi_frame:
             raw_roi = (
-                data_for_fitting[frame, xmin:xmax, ymin:ymax]
+                data_for_fitting[frame, ymin:ymax, xmin:xmax]
                 if len(data_for_fitting.shape) > 2
-                else data_for_fitting[xmin:xmax, ymin:ymax]
+                else data_for_fitting[ymin:ymax, xmin:xmax]
             )
         else:
-            raw_roi = data_for_fitting[xmin:xmax, ymin:ymax]
+            raw_roi = data_for_fitting[ymin:ymax, xmin:xmax]
 
         # Verify ROI is actually square (sanity check)
         if raw_roi.shape[0] != raw_roi.shape[1]:
@@ -213,19 +213,19 @@ class SuperRes_Functions:
             logging.warning(f"  Center: ({xcentre}, {ycentre}), ROI_size={ROI_size}")
             return None
 
-        # Extract camera parameter ROIs for conversion
+        # Extract camera parameter ROIs for conversion (arrays are [y, x])
         gain_roi = (
-            gain_map[xmin:xmax, ymin:ymax]
+            gain_map[ymin:ymax, xmin:xmax]
             if not isinstance(gain_map, (int, float))
             else gain_map
         )
         offset_roi = (
-            offset_map[xmin:xmax, ymin:ymax]
+            offset_map[ymin:ymax, xmin:xmax]
             if not isinstance(offset_map, (int, float))
             else offset_map
         )
         rqe_roi = (
-            rqe[xmin:xmax, ymin:ymax] if not isinstance(rqe, (int, float)) else rqe
+            rqe[ymin:ymax, xmin:xmax] if not isinstance(rqe, (int, float)) else rqe
         )
 
         # Convert raw ROI to photoelectrons (skip if already in photoelectrons)
@@ -238,9 +238,9 @@ class SuperRes_Functions:
                 raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
             )
 
-        # Extract read_noise ROI for weights calculation
+        # Extract read_noise ROI for weights calculation (arrays are [y, x])
         read_noise_roi = (
-            read_noise[xmin:xmax, ymin:ymax]
+            read_noise[ymin:ymax, xmin:xmax]
             if not isinstance(read_noise, (int, float))
             else read_noise
         )
