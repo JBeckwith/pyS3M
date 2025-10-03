@@ -504,7 +504,7 @@ class NileRedThresholdTuner:
         raw_frame: np.ndarray,
         detected_spots: np.ndarray,
         smoothing_function=None,
-        ROI_size: int = 12,
+        ROI_size: int = 20,
     ) -> np.ndarray:
         """Fit detected spots using ROI extraction and fitting.
 

@@ -236,7 +236,7 @@ def main():
                 camera_data["readnoise"],
                 variance=camera_data["variance"],
                 pfa=pfa,
-                ROI_size=12,
+                ROI_size=20,
                 peak_wavelength=peak_wavelength,
                 NA=1.49,
                 pixel_size=0.069,
