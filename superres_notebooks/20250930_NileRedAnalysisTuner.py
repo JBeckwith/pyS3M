@@ -554,8 +554,13 @@ class NileRedThresholdTuner:
             rqe = camera_data_to_use.get("rqe", 1.0) if camera_data_to_use else 1.0
             read_noise = camera_data_to_use.get("readnoise", 1.6) if camera_data_to_use else 1.6
 
-            # Process each detected spot
-            fitted_coords = []
+            # Collect all ROIs first (for parallel fitting)
+            puncta_tofit = []
+            smoothed_puncta_tofit = []
+            weights_tofit = []
+            masks_tofit = []
+            relative_coords = []
+
             for i in range(len(detected_spots)):
                 result = self.srf._process_roi(
                     raw_frame,
@@ -576,25 +581,34 @@ class NileRedThresholdTuner:
 
                 if result is not None:
                     photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, _ = result
+                    puncta_tofit.append(photoelectron_roi)
+                    smoothed_puncta_tofit.append(smoothed_roi)
+                    weights_tofit.append(weights_roi)
+                    masks_tofit.append(mask_roi)
+                    relative_coords.append(coords)
 
-                    # Fit this single ROI
-                    from ImageAnalysisFunctions import FittingStrategy
-                    fit_results, _ = self.iaf.fit_puncta_parallel_method(
-                        [photoelectron_roi],
-                        [smoothed_roi],
-                        [weights_roi],
-                        [coords],
-                        [0],
-                        FittingStrategy.STANDARD,
-                        masks=[mask_roi],
-                    )
+            # Fit all ROIs in parallel (much faster than one-by-one)
+            if len(puncta_tofit) > 0:
+                from ImageAnalysisFunctions import FittingStrategy
+                fit_results, _ = self.iaf.fit_puncta_parallel_method(
+                    puncta_tofit,
+                    smoothed_puncta_tofit,
+                    weights_tofit,
+                    relative_coords,
+                    [0] * len(puncta_tofit),
+                    FittingStrategy.STANDARD,
+                    masks=masks_tofit,
+                )
 
-                    if len(fit_results) > 0:
-                        # Extract x, y coordinates from fit result
-                        xc, yc = fit_results[0][0], fit_results[0][1]  # xc, yc are first two columns
-                        fitted_coords.append([xc, yc])
+                # Extract x, y coordinates from fit results
+                fitted_coords = []
+                for i in range(len(fit_results)):
+                    xc, yc = fit_results[i][0], fit_results[i][1]  # xc, yc are first two columns
+                    fitted_coords.append([xc, yc])
 
-            return np.array(fitted_coords) if fitted_coords else np.array([])
+                return np.array(fitted_coords)
+            else:
+                return np.array([])
 
         except Exception as e:
             print(f"Error in fitting detected spots: {e}")
