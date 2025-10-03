@@ -544,14 +544,16 @@ class NileRedThresholdTuner:
         detected_spots: np.ndarray,
         smoothing_function=None,
         ROI_size: int = 16,
+        frame_is_photoelectrons: bool = False,
     ) -> np.ndarray:
         """Fit detected spots using ROI extraction and fitting.
 
         Args:
-            raw_frame: Raw frame data (2D)
+            raw_frame: Raw frame data (2D) - can be ADU or photoelectrons
             detected_spots: Detected spot coordinates (Nx2 or Nx3 array)
             smoothing_function: Optional smoothing function
             ROI_size: Size of ROI to extract around each spot
+            frame_is_photoelectrons: If True, raw_frame is already in photoelectrons
 
         Returns:
             Array of fitted spot coordinates (x, y) or empty array if no fits succeed
@@ -617,6 +619,8 @@ class NileRedThresholdTuner:
                     rqe=rqe,
                     frame_offset=0,
                     is_multi_frame=False,
+                    raw_data_for_fitting=raw_frame if frame_is_photoelectrons else None,
+                    fitting_data_is_photoelectrons=frame_is_photoelectrons,
                 )
 
                 if result is not None:
@@ -1216,6 +1220,9 @@ class NileRedThresholdTuner:
 
             # Perform fitting on detected spots
             print("\nFitting detected spots...")
+            # Determine if fitting frames are already in photoelectrons (from temporal median)
+            fitting_is_photoelectrons = (current_temporal_median_mode != TemporalMedianMode.NONE)
+
             fitting_results = []
             for i, ((spots, num_spots), orig_frame, fit_frame) in enumerate(zip(
                 detection_results,
@@ -1229,6 +1236,7 @@ class NileRedThresholdTuner:
                         spots,
                         smoothing_function=None,
                         ROI_size=16,
+                        frame_is_photoelectrons=fitting_is_photoelectrons,
                     )
                     fitting_results.append(fitted_coords)
                     print(f"    Successfully fitted {len(fitted_coords)}/{num_spots} spots")

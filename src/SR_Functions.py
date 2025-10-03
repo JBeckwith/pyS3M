@@ -142,6 +142,7 @@ class SuperRes_Functions:
         frame_offset=0,
         is_multi_frame=False,
         raw_data_for_fitting=None,
+        fitting_data_is_photoelectrons=False,
     ):
         """
         Process a single detected ROI to extract photoelectron data, smoothed data, and weights.
@@ -163,6 +164,8 @@ class SuperRes_Functions:
             is_multi_frame (bool): Whether data has multiple frames
             raw_data_for_fitting (np.ndarray): Optional separate raw data to use for fitting
                 (e.g., temporal median subtracted). If None, uses raw_data.
+            fitting_data_is_photoelectrons (bool): If True, raw_data_for_fitting is already
+                in photoelectrons and should not be converted again. Default False.
 
         Returns:
             tuple or None: (photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane)
@@ -210,10 +213,15 @@ class SuperRes_Functions:
             rqe[xmin:xmax, ymin:ymax] if not isinstance(rqe, (int, float)) else rqe
         )
 
-        # Convert raw ROI to photoelectrons
-        photoelectron_roi = self.io.convert_to_photoelectrons(
-            raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
-        )
+        # Convert raw ROI to photoelectrons (skip if already in photoelectrons)
+        if fitting_data_is_photoelectrons and raw_data_for_fitting is not None:
+            # Data is already in photoelectrons, no conversion needed
+            photoelectron_roi = raw_roi.astype(np.float32)
+        else:
+            # Convert from ADU to photoelectrons
+            photoelectron_roi = self.io.convert_to_photoelectrons(
+                raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
+            )
 
         # Extract read_noise ROI for weights calculation
         read_noise_roi = (

@@ -421,7 +421,10 @@ class StandardFittingProcessor(FittingProcessor):
             )
 
         except Exception as e:
+            import traceback
             logging.warning(f"Fitting failed: {e}")
+            logging.warning(f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
+            logging.warning(f"Data shapes - raw: {raw_data.shape}, smoothed: {smoothed_data.shape}, weights: {weights.shape}, mask: {mask.shape}")
             dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
             return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
