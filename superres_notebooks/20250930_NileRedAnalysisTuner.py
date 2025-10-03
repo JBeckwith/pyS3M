@@ -194,10 +194,10 @@ class NileRedThresholdTuner:
                 if leaf_dirs:
                     # Has subdirectories, process leaf directories
                     for leaf_dir in leaf_dirs:
-                        all_folders.append((leaf_dir, "imaging", 0.700))
+                        all_folders.append((leaf_dir, "imaging", 0.650))
                 else:
                     # No subdirectories, process this folder directly
-                    all_folders.append((folder, "imaging", 0.700))
+                    all_folders.append((folder, "imaging", 0.650))
 
         return all_folders
 
