@@ -18,14 +18,16 @@ import ctypes
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from itertools import chain
-import matplotlib.pyplot as plt
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+from ImportManager import get_module
 import postprocess
 import os
 from datetime import datetime
 import pandas as pd
+
+plt = get_module("matplotlib.pyplot")
 
 MAX_LOCS = int(1e6)
 

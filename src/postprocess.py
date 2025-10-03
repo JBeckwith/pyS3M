@@ -19,13 +19,13 @@ from scipy.spatial import distance
 
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing as mp
-import matplotlib.pyplot as plt
 import itertools
 import lmfit
 from collections import OrderedDict
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+from ImportManager import get_module, is_available
 import lib
 import render
 import imageprocess
@@ -33,6 +33,76 @@ from threading import Thread
 import ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
 from sklearn.neighbors import NearestNeighbors as NN
+
+plt = get_module("matplotlib.pyplot")
+
+
+def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
+    """Create standardized drift analysis plot using consolidated plotting."""
+    if not is_available("matplotlib.pyplot"):
+        print("⚠️ Matplotlib not available - skipping drift plot display")
+        return None, None
+
+    try:
+        from PlottingBase import AnalysisPlotter
+        plotter = AnalysisPlotter()
+
+        fig, axes = plotter.create_subplots(1, 2, figsize=(17, 6))
+        fig.suptitle("Estimated drift")
+
+        # Calculate time points for original measurements
+        t = (bounds[1:] + bounds[:-1]) / 2
+
+        # Left panel: Time series
+        ax1 = axes[0]
+        ax1.plot(drift.x, label="x interpolated")
+        ax1.plot(drift.y, label="y interpolated")
+        ax1.plot(t, shift_x, "o", label="x")
+        ax1.plot(t, shift_y, "o", label="y")
+        plotter.setup_axis(ax1, xlabel="Frame", ylabel="Drift (pixel)",
+                          title="", legend=True)
+
+        # Right panel: Trajectory
+        ax2 = axes[1]
+        ax2.plot(drift.x, drift.y)
+        ax2.plot(shift_x, shift_y, "o")
+        plotter.setup_axis(ax2, xlabel="x", ylabel="y", equal_aspect=True)
+
+        plotter.save_or_show(fig, save_path=save_path)
+        return fig, axes
+
+    except ImportError:
+        # Fallback to basic matplotlib if PlottingBase not available
+        if plt is None:
+            print("⚠️ Plotting not available - skipping drift analysis display")
+            return None, None
+
+        fig = plt.figure(figsize=(17, 6))
+        plt.suptitle("Estimated drift")
+
+        t = (bounds[1:] + bounds[:-1]) / 2
+
+        plt.subplot(1, 2, 1)
+        plt.plot(drift.x, label="x interpolated")
+        plt.plot(drift.y, label="y interpolated")
+        plt.plot(t, shift_x, "o", label="x")
+        plt.plot(t, shift_y, "o", label="y")
+        plt.legend(loc="best")
+        plt.xlabel("Frame")
+        plt.ylabel("Drift (pixel)")
+
+        plt.subplot(1, 2, 2)
+        plt.plot(drift.x, drift.y)
+        plt.plot(shift_x, shift_y, "o")
+        plt.axis("equal")
+        plt.xlabel("x")
+        plt.ylabel("y")
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+        return fig, None
 
 
 def get_index_blocks(locs, width, height, size, callback=None):
@@ -1139,10 +1209,36 @@ def undrift(
     info,
     segmentation,
     display=True,
+    save_path=None,
     segmentation_callback=None,
     rcc_callback=None,
 ):
-    """Undrift by RCC."""
+    """Undrift by RCC.
+
+    Parameters
+    ----------
+    locs : np.recarray
+        Localization data
+    info : list
+        Metadata
+    segmentation : int
+        Segmentation parameter
+    display : bool, optional
+        Whether to display drift analysis plot (default: True)
+    save_path : str, optional
+        Path to save drift analysis plot (default: None)
+    segmentation_callback : callable, optional
+        Callback for segmentation progress
+    rcc_callback : callable, optional
+        Callback for RCC progress
+
+    Returns
+    -------
+    drift : np.recarray
+        Calculated drift values
+    locs : np.recarray
+        Undrifted localization data
+    """
 
     bounds, segments = segment(
         locs,
@@ -1158,47 +1254,10 @@ def undrift(
     t_inter = np.arange(info[0]["Frames"])
     drift = (drift_x_pol(t_inter), drift_y_pol(t_inter))
     drift = np.rec.array(drift, dtype=[("x", "f"), ("y", "f")])
+
     if display:
-        fig1 = plt.figure(figsize=(17, 6))
-        plt.suptitle("Estimated drift")
-        plt.subplot(1, 2, 1)
-        plt.plot(drift.x, label="x interpolated")
-        plt.plot(drift.y, label="y interpolated")
-        t = (bounds[1:] + bounds[:-1]) / 2
-        plt.plot(
-            t,
-            shift_x,
-            "o",
-            color=list(plt.rcParams["axes.prop_cycle"])[0]["color"],
-            label="x",
-        )
-        plt.plot(
-            t,
-            shift_y,
-            "o",
-            color=list(plt.rcParams["axes.prop_cycle"])[1]["color"],
-            label="y",
-        )
-        plt.legend(loc="best")
-        plt.xlabel("Frame")
-        plt.ylabel("Drift (pixel)")
-        plt.subplot(1, 2, 2)
-        plt.plot(
-            drift.x,
-            drift.y,
-            color=list(plt.rcParams["axes.prop_cycle"])[2]["color"],
-        )
-        plt.plot(
-            shift_x,
-            shift_y,
-            "o",
-            color=list(plt.rcParams["axes.prop_cycle"])[2]["color"],
-        )
-        plt.axis("equal")
-        plt.xlabel("x")
-        plt.ylabel("y")
-        fig1.show()
-        plt.close(fig1)
+        _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=save_path)
+
     locs.xc -= drift.x[locs.frame]
     locs.yc -= drift.y[locs.frame]
     return drift, locs

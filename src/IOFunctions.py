@@ -681,6 +681,10 @@ class IO_Functions:
         Returns:
             np.ndarray: Smoothed data
         """
+        # If no smoothing function provided, return data as-is
+        if smoothing_function is None:
+            return data.astype(dtype)
+
         smoothed_data = data.copy()
 
         smoothing_args = smoothing_function.args

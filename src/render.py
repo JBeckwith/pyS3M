@@ -18,8 +18,13 @@ import sys
 import numpy as np
 import numba
 import scipy.signal as signal
-import matplotlib.pyplot as plt
-from matplotlib.colors import hsv_to_rgb, rgb_to_hsv
+
+module_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(module_dir)
+from ImportManager import get_module
+
+plt = get_module("matplotlib.pyplot")
+colors = get_module("matplotlib.colors")
 
 _DRAW_MAX_SIGMA = 3
 
@@ -527,7 +532,13 @@ def render_gaussian_colour(
 
     min_density = np.percentile(image_total, mindensperc)
     max_density = np.percentile(image_total, maxdensperc)
-    cmap = plt.get_cmap(cmap_string)
+    if plt:
+        cmap = plt.get_cmap(cmap_string)
+    else:
+        # Simple fallback colormap when matplotlib not available
+        def cmap(x):
+            # Create a simple grayscale colormap
+            return np.stack([x, x, x, np.ones_like(x)], axis=-1)
     normalised_density = np.clip(
         (image_total - min_density) / (max_density - min_density), 0, 1
     )
@@ -535,9 +546,13 @@ def render_gaussian_colour(
     normalised_wl = np.clip((image_spectral - c_min) / (c_max - c_min), 0, 1)
     rgb = cmap(normalised_wl)[..., :3]
     rgb[normalised_density < densitymin] = 0
-    hsv = rgb_to_hsv(rgb)
-    hsv[..., 1] = normalised_density
-    image_colour_gaussian = hsv_to_rgb(hsv)
+    if colors:
+        hsv = colors.rgb_to_hsv(rgb)
+        hsv[..., 1] = normalised_density
+        image_colour_gaussian = colors.hsv_to_rgb(hsv)
+    else:
+        # Fallback when matplotlib.colors not available
+        image_colour_gaussian = rgb * normalised_density[..., None]
 
     return len(x), image_total, image_colour_gaussian
 

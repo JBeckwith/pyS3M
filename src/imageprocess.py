@@ -13,18 +13,73 @@
 
 import os
 import sys
-import matplotlib.pyplot as plt
 import numpy as np
 from numpy import fft
 import lmfit
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+from ImportManager import get_module, is_available
 import ProgressUtils
 import lib
 import render
 import localise  # Changed from localize to localise
 import postprocess
+
+plt = get_module("matplotlib.pyplot")
+
+
+def _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=None):
+    """Create standardized image correlation display using consolidated plotting."""
+    if not is_available("matplotlib.pyplot"):
+        print("⚠️ Matplotlib not available - skipping correlation plot display")
+        return None, None
+
+    try:
+        from PlottingBase import AnalysisPlotter
+        plotter = AnalysisPlotter()
+
+        fig, axes = plotter.create_subplots(1, 3, figsize=(17, 10))
+
+        # Image A
+        im1 = axes[0].imshow(imageA, interpolation="none")
+        plotter.setup_axis(axes[0], title="Image A")
+
+        # Image B
+        im2 = axes[1].imshow(imageB, interpolation="none")
+        plotter.setup_axis(axes[1], title="Image B")
+
+        # Cross-correlation with peak marker
+        im3 = axes[2].imshow(XCorr, interpolation="none")
+        axes[2].plot(xc, yc, "x", color='red', markersize=10, markeredgewidth=2)
+        plotter.setup_axis(axes[2], title="Cross-correlation")
+
+        plotter.save_or_show(fig, save_path=save_path)
+        return fig, axes
+
+    except ImportError:
+        # Fallback to basic matplotlib if PlottingBase not available
+        if plt is None:
+            print("⚠️ Plotting not available - skipping correlation display")
+            return None, None
+
+        fig = plt.figure(figsize=(17, 10))
+        plt.subplot(1, 3, 1)
+        plt.imshow(imageA, interpolation="none")
+        plt.title("Image A")
+        plt.subplot(1, 3, 2)
+        plt.imshow(imageB, interpolation="none")
+        plt.title("Image B")
+        plt.subplot(1, 3, 3)
+        plt.imshow(XCorr, interpolation="none")
+        plt.plot(xc, yc, "x", color='red', markersize=10)
+        plt.title("Cross-correlation")
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+        return fig, None
 
 
 def xcorr(imageA, imageB):
@@ -33,7 +88,7 @@ def xcorr(imageA, imageB):
     return fft.fftshift(np.real(fft.ifft2((FimageA * CFimageB)))) / np.sqrt(imageA.size)
 
 
-def get_image_shift(imageA, imageB, box, roi=None, display=False):
+def get_image_shift(imageA, imageB, box, roi=None, display=False, save_path=None):
     """Computes the shift from imageA to imageB"""
     if (np.sum(imageA) == 0) or (np.sum(imageB) == 0):
         return 0, 0
@@ -95,16 +150,7 @@ def get_image_shift(imageA, imageB, box, roi=None, display=False):
         yc += Y_ + y_max_
 
         if display:
-            plt.figure(figsize=(17, 10))
-            plt.subplot(1, 3, 1)
-            plt.imshow(imageA, interpolation="none")
-            plt.subplot(1, 3, 2)
-            plt.imshow(imageB, interpolation="none")
-            plt.subplot(1, 3, 3)
-            plt.imshow(XCorr, interpolation="none")
-            plt.plot(xc, yc, "x")
-            plt.show()
-            plt.close()
+            _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=save_path)
 
         xc -= np.floor(X / 2)
         yc -= np.floor(Y / 2)

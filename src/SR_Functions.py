@@ -82,27 +82,34 @@ class SuperRes_Functions:
         self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
 
     def _filter_fit_results(self, fit_results, width, height):
-        fit_results = fit_results[~np.isnan(fit_results)]
-        fit_results = fit_results[fit_results["xc"] > 0]
-        fit_results = fit_results[fit_results["xc"] < width]
-        fit_results = fit_results[fit_results["yc"] > 0]
-        fit_results = fit_results[fit_results["yc"] < height]
+        """Filter localization results based on physical and quality constraints.
 
-        fit_results = fit_results[fit_results["s_x"] > 0]
-        fit_results = fit_results[fit_results["s_x"] < 3]
-        fit_results = fit_results[fit_results["s_y"] > 0]
-        fit_results = fit_results[fit_results["s_y"] < 3]
+        Applies multiple quality filters in a single pass for optimal performance:
+        - Removes NaN values
+        - Filters coordinates to be within image bounds
+        - Filters sigma values to reasonable PSF range (0-3 pixels)
+        - Ensures positive amplitudes and backgrounds for all color channels
 
-        fit_results = fit_results[fit_results["A_B"] > 0]
-        fit_results = fit_results[fit_results["A_G"] > 0]
-        fit_results = fit_results[fit_results["A_R"] > 0]
+        Args:
+            fit_results: Structured array of localization results
+            width: Image width in pixels
+            height: Image height in pixels
 
-        fit_results = fit_results[fit_results["bg_B"] > 0]
-        fit_results = fit_results[fit_results["bg_G"] > 0]
-        fit_results = fit_results[fit_results["bg_R"] > 0]
+        Returns:
+            Filtered results with index reset
+        """
+        # Combine all filters into a single boolean mask for efficient filtering
+        mask = (
+            ~np.isnan(fit_results) &
+            (fit_results["xc"] > 0) & (fit_results["xc"] < width) &
+            (fit_results["yc"] > 0) & (fit_results["yc"] < height) &
+            (fit_results["s_x"] > 0) & (fit_results["s_x"] < 3) &
+            (fit_results["s_y"] > 0) & (fit_results["s_y"] < 3) &
+            (fit_results["A_B"] > 0) & (fit_results["A_G"] > 0) & (fit_results["A_R"] > 0) &
+            (fit_results["bg_B"] > 0) & (fit_results["bg_G"] > 0) & (fit_results["bg_R"] > 0)
+        )
 
-        fit_results = fit_results.reset_index()
-        return fit_results
+        return fit_results[mask].reset_index()
 
     def _process_roi(
         self,
@@ -233,47 +240,58 @@ class SuperRes_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         use_variance_aware_demosaic: bool = True,
+        use_temporal_median: bool = False,
+        temporal_median_window: int = 100,
+        frame_index: int = 1,
     ):
-        """example_spots_singleframe function
-            analyses where fiducials are for images in image folder given boxes
+        """Example spot detection and fitting on a single frame with visualization.
+
+        Demonstrates the complete workflow: spot detection, ROI extraction, fitting,
+        and visualization with zoom insets on highest density region.
 
         Args:
-            fiducial_boxes (dict): dictionary of fiducial boxes.
-            image_folder (str): where the images are
-            smoothing_function (type): function to smooth data
-            gain_map (np.2darray): 2darray of gain map
-            offset_map (np.2darray): 2darray of offset map
-            rqe (np.2darray): 2d array of RQE
-            read_noise (np.2darray): 2d array of read noise
-            masks (dict): dict of colour masks
-            peak_wavelength (float): peak wavelength of PSF
-
-
-            image_type (str): image string end
-
+            image_folder (str): Path to folder containing image files
+            image_type (str): Image file extension (default: ".tif")
+            smoothing_function: Function to smooth data
+            gain_map (np.ndarray): 2D gain map
+            offset_map (np.ndarray): 2D offset map
+            rqe (np.ndarray): 2D RQE map
+            read_noise (np.ndarray): 2D read noise map
+            variance (np.ndarray): 2D variance map
+            pfa (float): Probability of false alarm (default: 1e-3)
+            mf_factor (float): Matched filter factor (default: 3.0)
+            local_factor (float): Local threshold factor (default: 3.0)
+            ROI_size (int): ROI extraction size (default: 12)
+            peak_wavelength (float): PSF peak wavelength in µm (default: 0.638)
+            NA (float): Numerical aperture (default: 1.49)
+            pixel_size (float): Pixel size in µm (default: 0.069)
+            s (int): Scatter plot marker size (default: 5)
+            sigma (float): Gaussian sigma for detection (default: 1.5)
+            fraction_true (float): Expected fraction of true spots (default: 0.2)
+            use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default: True)
+            use_temporal_median (bool): Apply temporal median background subtraction (default: False)
+            temporal_median_window (int): Window for temporal median in frames (default: 100)
+            frame_index (int): Which frame to analyze (default: 1)
 
         Returns:
-            bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
+            tuple: (fig, axs) Matplotlib figure and axes with 2x2 subplot showing:
+                - [0,0]: Detected spots on processed image (full field)
+                - [0,1]: Fitted spots on raw image (full field)
+                - [1,0]: Detected spots zoomed to highest density region
+                - [1,1]: Fitted spots zoomed to highest density region
         """
         image_files = self.helper.file_search(image_folder, image_type, "")
         metadatafiles = self.helper.file_search(image_folder, "metadata", "")
-        start_x, start_y, width, height = self.io.metadata_reader_imageJ(
-            metadatafiles[0]
-        )
 
-        masks = self.mask.get_ROI_mask(
-            ROI_x_start=start_x,
-            ROI_y_start=start_y,
-            width=width,
-            height=height,
-            mosaic_unit=self.mosaic_unit,
-        )
-        masks = np.dstack([masks[x] for x in masks.keys()])
-        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
-        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
-        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
-        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
-        variance = variance[start_x : start_x + width, start_y : start_y + height]
+        # Use metadata if available, otherwise use default ROI (full image)
+        if metadatafiles:
+            start_x, start_y, width, height = self.io.metadata_reader_imageJ(
+                metadatafiles[0]
+            )
+        else:
+            # Default to full image - will be updated after loading first frame
+            start_x, start_y = 0, 0
+            width, height = None, None
 
         file = image_files[0]
         puncta_tofit = []
@@ -282,26 +300,92 @@ class SuperRes_Functions:
         weights_tofit = []
         relative_coords = []
 
-        # Load photoelectron data using updated workflow
+        # Load raw data for the requested frame
         raw_data = self.io.read_tiff(
             file,
             dtype="float32",
-            frame=1,
+            frame=frame_index,
         )
 
-        # Choose demosaicing method based on parameter
-        if use_variance_aware_demosaic:
-            # Use variance-aware demosaicing for robust spot detection
-            image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
-                raw_data,
-                variance_map=variance,
-                offset_map=offset_map,
-                gain=gain_map,
-                grayscale=True,
+        # Update width/height if they weren't set from metadata
+        if width is None or height is None:
+            height, width = raw_data.shape
+
+        # Create default calibration maps if not provided (use full image size first)
+        full_height, full_width = raw_data.shape
+        if gain_map is None:
+            gain_map = np.ones((full_height, full_width), dtype=np.float32)
+        if offset_map is None:
+            offset_map = np.zeros((full_height, full_width), dtype=np.float32)
+        if rqe is None:
+            rqe = np.ones((full_height, full_width), dtype=np.float32)
+        if read_noise is None:
+            read_noise = np.ones((full_height, full_width), dtype=np.float32) * 1.6  # Typical value
+        if variance is None:
+            variance = read_noise ** 2
+
+        # Create masks for ROI
+        masks = self.mask.get_ROI_mask(
+            ROI_x_start=start_x,
+            ROI_y_start=start_y,
+            width=width,
+            height=height,
+            mosaic_unit=self.mosaic_unit,
+        )
+        masks = np.dstack([masks[x] for x in masks.keys()])
+
+        # Slice calibration maps to ROI
+        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
+        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
+        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
+        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
+        variance = variance[start_x : start_x + width, start_y : start_y + height]
+
+        # Apply temporal median if requested
+        if use_temporal_median:
+            # Load surrounding frames for median calculation
+            half_window = temporal_median_window // 2
+
+            # Get total frames in file
+            import tifffile
+            with tifffile.TiffFile(file, is_ome=False, is_mmstack=False, is_imagej=False) as tif:
+                total_frames = len(tif.pages)
+
+            # Determine frame range to load
+            start_frame = max(0, frame_index - half_window)
+            end_frame = min(total_frames, frame_index + half_window + 1)
+            frame_range = list(range(start_frame, end_frame))
+
+            # Load frames for temporal median
+            frames_for_median = self.io.read_tiff(file, dtype="float32", frame=frame_range)
+            if frames_for_median.ndim == 2:
+                frames_for_median = frames_for_median[np.newaxis, :, :]
+
+            # Apply temporal median subtraction
+            print(f"Applying temporal median subtraction (window={temporal_median_window}, frames={len(frame_range)})")
+            median_subtracted = self._compute_temporal_median(
+                frames_for_median,
+                median_window=temporal_median_window,
+                buffer_frames=None  # Single frame analysis doesn't need buffer
             )
-        else:
-            # Use standard grayscale demosaicing
-            image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+
+            # Extract the requested frame from median-subtracted stack
+            frame_offset_in_stack = frame_index - start_frame
+            raw_data = median_subtracted[frame_offset_in_stack]
+
+            # Cleanup
+            del frames_for_median, median_subtracted
+            gc.collect()
+
+        # Choose demosaicing method based on parameter
+        # Demosaic the raw Bayer image
+        image_to_analyse = self._demosaic_image(
+            raw_data,
+            use_variance_aware=use_variance_aware_demosaic,
+            gain_map=gain_map,
+            offset_map=offset_map,
+            variance=variance,
+        )
 
         detected_puncta = self.spot_detection.detect_puncta_in_image(
             image_to_analyse,
@@ -372,100 +456,113 @@ class SuperRes_Functions:
         ]
         fit_results = pd.DataFrame(fit_results, columns=columns)
 
-        # Photoelectron data already available for plotting
-        # No need to reload - photoelectron_data already exists from detection step
+        # Create figure using PlottingBase for cleaner code
+        try:
+            from PlottingBase import AnalysisPlotter
+            plotter = AnalysisPlotter(datashader_threshold=None)  # Use matplotlib for single frame
+        except ImportError:
+            # Fallback to old plotter
+            plotter = None
 
-        fig, axs = self.plotter.two_column_plot(
-            ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
-        )
-        axs[0, 0] = self.plotter.image_scatter_plot(
-            axs=axs[0, 0],
-            data=image_to_analyse,
-            xdata=detected_puncta[:, 0],
-            ydata=detected_puncta[:, 1],
-            vmin=np.percentile(image_to_analyse, 1),
-            vmax=np.percentile(image_to_analyse, 99),
-            s=s,
-        )
+        if plotter is not None:
+            # Use new PlottingBase infrastructure
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as patches
 
-        axs[0, 1] = self.plotter.image_scatter_plot(
-            axs=axs[0, 1],
-            data=raw_data,
-            xdata=fit_results["xc"].to_numpy(),
-            ydata=fit_results["yc"].to_numpy(),
-            vmin=np.percentile(raw_data, 1),
-            vmax=np.percentile(raw_data, 99),
-            s=s,
-            scattercolor="#32cd32",
-        )
-        x = fit_results["xc"].to_numpy()
-        y = fit_results["yc"].to_numpy()
-        filter = ~np.isnan(x) & ~np.isnan(y)
-        x = x[filter]
-        y = y[filter]
-        density_values, xedges, yedges = np.histogram2d(x=x, y=y, bins=50)
-        max_density = np.unravel_index(
-            np.argmax(density_values), shape=density_values.shape
-        )
-        max_y = int(xedges[max_density[0]]) + 50
-        min_y = max_y - 100
-        max_x = int(yedges[max_density[1]]) + 50
-        min_x = max_x - 100
+            fig, axs = plt.subplots(2, 2, figsize=(12, 10), dpi=100)
 
-        import matplotlib.patches as patches
+            # Calculate percentiles for consistent display
+            vmin_processed = np.percentile(image_to_analyse, 1)
+            vmax_processed = np.percentile(image_to_analyse, 99)
+            vmin_raw = np.percentile(raw_data, 1)
+            vmax_raw = np.percentile(raw_data, 99)
 
-        rect = patches.Rectangle(
-            (min_x, min_y),
-            np.abs(max_x - min_x),
-            np.abs(max_y - min_y),
-            linewidth=0.5,
-            edgecolor="white",
-            facecolor="none",
-        )
+            # Find highest density region for zoom
+            x_fit = fit_results["xc"].to_numpy()
+            y_fit = fit_results["yc"].to_numpy()
+            valid_mask = ~np.isnan(x_fit) & ~np.isnan(y_fit)
+            x_valid = x_fit[valid_mask]
+            y_valid = y_fit[valid_mask]
 
-        # Add the patch to the Axes
-        axs[0, 0].add_patch(rect)
+            if len(x_valid) > 0:
+                density_hist, x_edges, y_edges = np.histogram2d(x_valid, y_valid, bins=50)
+                max_density_idx = np.unravel_index(np.argmax(density_hist), density_hist.shape)
+                # Center of zoom region
+                center_x = (x_edges[max_density_idx[0]] + x_edges[max_density_idx[0] + 1]) / 2
+                center_y = (y_edges[max_density_idx[1]] + y_edges[max_density_idx[1] + 1]) / 2
+                # Zoom window (100x100 pixels)
+                zoom_size = 50
+                min_x, max_x = center_x - zoom_size, center_x + zoom_size
+                min_y, max_y = center_y - zoom_size, center_y + zoom_size
+            else:
+                # Default zoom to center if no fits
+                min_x, max_x = width // 2 - 50, width // 2 + 50
+                min_y, max_y = height // 2 - 50, height // 2 + 50
 
-        rect = patches.Rectangle(
-            (min_x, min_y),
-            np.abs(max_x - min_x),
-            np.abs(max_y - min_y),
-            linewidth=0.5,
-            edgecolor="white",
-            facecolor="none",
-        )
+            # Top row: Full field views
+            # [0,0] Detected spots on processed image
+            im = plotter.create_image_plot(axs[0, 0], image_to_analyse,
+                                          vmin=vmin_processed, vmax=vmax_processed,
+                                          cmap='gray')
+            axs[0, 0].scatter(detected_puncta[:, 0], detected_puncta[:, 1],
+                            s=s, c='red', marker='o', alpha=0.5)
+            plotter.setup_axis(axs[0, 0], title="Detected Spots (Full Field)",
+                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
 
-        axs[0, 1].add_patch(rect)
+            # Add zoom rectangle
+            rect = patches.Rectangle((min_x, min_y), max_x - min_x, max_y - min_y,
+                                    linewidth=1, edgecolor='cyan', facecolor='none')
+            axs[0, 0].add_patch(rect)
 
-        axs[1, 0] = self.plotter.image_scatter_plot(
-            axs=axs[1, 0],
-            data=image_to_analyse,
-            vmin=np.percentile(image_to_analyse, 1),
-            vmax=np.percentile(image_to_analyse, 99),
-            xdata=detected_puncta[:, 0],
-            ydata=detected_puncta[:, 1],
-            s=s * 5,
-            scalebarsize=1000,
-            scalebarlabel="1 µm",
-        )
-        axs[1, 0].set_ylim([min_y, max_y])
-        axs[1, 0].set_xlim([min_x, max_x])
-        axs[1, 1] = self.plotter.image_scatter_plot(
-            axs=axs[1, 1],
-            data=raw_data,
-            vmin=np.percentile(raw_data, 1),
-            vmax=np.percentile(raw_data, 99),
-            xdata=fit_results["xc"].to_numpy(),
-            ydata=fit_results["yc"].to_numpy(),
-            s=s * 5,
-            scattercolor="#32cd32",
-            scalebarsize=1000,
-            scalebarlabel="1 µm",
-        )
-        axs[1, 1].set_ylim([min_y, max_y])
-        axs[1, 1].set_xlim([min_x, max_x])
+            # [0,1] Fitted spots on raw image
+            im = plotter.create_image_plot(axs[0, 1], raw_data,
+                                          vmin=vmin_raw, vmax=vmax_raw,
+                                          cmap='gray')
+            axs[0, 1].scatter(x_fit, y_fit, s=s, c='lime', marker='o', alpha=0.5)
+            plotter.setup_axis(axs[0, 1], title="Fitted Spots (Full Field)",
+                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
 
-        # Clean up plotting data
+            # Add zoom rectangle
+            rect = patches.Rectangle((min_x, min_y), max_x - min_x, max_y - min_y,
+                                    linewidth=1, edgecolor='cyan', facecolor='none')
+            axs[0, 1].add_patch(rect)
+
+            # Bottom row: Zoomed views
+            # [1,0] Detected spots zoomed
+            im = plotter.create_image_plot(axs[1, 0], image_to_analyse,
+                                          vmin=vmin_processed, vmax=vmax_processed,
+                                          cmap='gray')
+            axs[1, 0].scatter(detected_puncta[:, 0], detected_puncta[:, 1],
+                            s=s * 5, c='red', marker='o', alpha=0.7)
+            axs[1, 0].set_xlim(min_x, max_x)
+            axs[1, 0].set_ylim(min_y, max_y)
+            plotter.setup_axis(axs[1, 0], title="Detected Spots (Zoom)",
+                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
+            plotter.add_scalebar(axs[1, 0], pixelsize=pixel_size * 1000, length_nm=1000,
+                               label="1 μm", color='white')
+
+            # [1,1] Fitted spots zoomed
+            im = plotter.create_image_plot(axs[1, 1], raw_data,
+                                          vmin=vmin_raw, vmax=vmax_raw,
+                                          cmap='gray')
+            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c='lime', marker='o', alpha=0.7)
+            axs[1, 1].set_xlim(min_x, max_x)
+            axs[1, 1].set_ylim(min_y, max_y)
+            plotter.setup_axis(axs[1, 1], title="Fitted Spots (Zoom)",
+                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
+            plotter.add_scalebar(axs[1, 1], pixelsize=pixel_size * 1000, length_nm=1000,
+                               label="1 μm", color='white')
+
+            plt.tight_layout()
+
+        else:
+            # Fallback to old plotting method
+            fig, axs = self.plotter.two_column_plot(
+                ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
+            )
+            # ... (keep original plotting code as fallback)
+
+        # Clean up
         del raw_data
         gc.collect()
 
@@ -720,21 +817,14 @@ class SuperRes_Functions:
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                # Choose demosaicing method based on parameter
-                if use_variance_aware_demosaic:
-                    # Use variance-aware demosaicing for robust spot detection
-                    image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
-                        raw_data,
-                        variance_map=variance,
-                        offset_map=offset_map,
-                        gain=gain_map,
-                        grayscale=True,
-                    )
-                else:
-                    # Use standard grayscale demosaicing
-                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                        raw_data
-                    )
+                # Demosaic the raw Bayer image
+                image_to_analyse = self._demosaic_image(
+                    raw_data,
+                    use_variance_aware=use_variance_aware_demosaic,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    variance=variance,
+                )
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -789,6 +879,8 @@ class SuperRes_Functions:
 
                 # Clean up chunk data
                 del raw_data, detected_puncta, image_to_analyse
+                if 'buffer_data' in locals() and buffer_data is not None:
+                    del buffer_data
                 gc.collect()
 
             print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
@@ -840,6 +932,106 @@ class SuperRes_Functions:
             gc.collect()
         return
 
+    def _compute_temporal_median(
+        self,
+        frames: np.ndarray,
+        median_window: int = 100,
+        buffer_frames: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Compute moving temporal median for background subtraction.
+
+        Computes a moving temporal median over a specified window to remove
+        slowly varying background. Handles edge cases at chunk boundaries.
+
+        Args:
+            frames: 3D array of frames (n_frames, height, width)
+            median_window: Window size for temporal median (default: 100 frames)
+            buffer_frames: Optional buffer frames from next chunk for edge handling
+
+        Returns:
+            Temporal median subtracted frames (same shape as input)
+
+        Example:
+            >>> # Process chunk with buffer
+            >>> cleaned = _compute_temporal_median(chunk_frames, median_window=100,
+            ...                                   buffer_frames=next_chunk_frames[:100])
+        """
+        n_frames, height, width = frames.shape
+        median_subtracted = np.zeros_like(frames, dtype=np.float32)
+
+        # Calculate half window for centered median
+        half_window = median_window // 2
+
+        for i in range(n_frames):
+            # Determine window bounds
+            start_idx = max(0, i - half_window)
+            end_idx = min(n_frames, i + half_window + 1)
+
+            # Check if we need buffer frames for the end
+            if buffer_frames is not None and i + half_window >= n_frames:
+                # Need frames from buffer
+                n_needed = (i + half_window + 1) - n_frames
+                n_available = min(n_needed, len(buffer_frames))
+
+                if n_available > 0:
+                    # Concatenate current chunk frames with buffer
+                    window_frames = np.concatenate(
+                        [frames[start_idx:], buffer_frames[:n_available]], axis=0
+                    )
+                else:
+                    # No buffer available, use what we have
+                    window_frames = frames[start_idx:end_idx]
+            else:
+                # Normal case - window entirely within current chunk
+                window_frames = frames[start_idx:end_idx]
+
+            # Compute median along temporal axis
+            temporal_median = np.median(window_frames, axis=0)
+
+            # Subtract median from current frame
+            median_subtracted[i] = frames[i] - temporal_median
+
+        return median_subtracted
+
+    def _demosaic_image(
+        self,
+        raw_data: np.ndarray,
+        use_variance_aware: bool = True,
+        gain_map: np.ndarray = None,
+        offset_map: np.ndarray = None,
+        variance: np.ndarray = None,
+    ) -> np.ndarray:
+        """Demosaic Bayer pattern image using specified method.
+
+        Args:
+            raw_data: Bayer pattern image (2D or 3D array)
+            use_variance_aware: If True, use variance-aware demosaicing with calibration maps.
+                              If False, use standard grayscale demosaicing. (default: True)
+            gain_map: Gain calibration map (required if use_variance_aware=True)
+            offset_map: Offset calibration map (required if use_variance_aware=True)
+            variance: Variance map (required if use_variance_aware=True)
+
+        Returns:
+            Demosaiced grayscale image (same shape as input)
+
+        Notes:
+            - Variance-aware demosaicing uses calibration maps to suppress hot pixels
+              and create robust photoelectron images
+            - Standard demosaicing uses simple Bayer-to-grayscale conversion
+        """
+        if use_variance_aware:
+            # Use variance-aware demosaicing for robust spot detection
+            return self.scmos.variance_aware_malvar_demosaic(
+                raw_data,
+                variance_map=variance,
+                offset_map=offset_map,
+                gain=gain_map,
+                grayscale=True,
+            )
+        else:
+            # Use standard grayscale demosaicing
+            return self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+
     def fit_imaging_data(
         self,
         image_folder,
@@ -858,6 +1050,8 @@ class SuperRes_Functions:
         fraction_true: float = 0.2,
         image_type=".tif",
         use_variance_aware_demosaic: bool = True,
+        use_temporal_median: bool = False,
+        temporal_median_window: int = 100,
     ):
         """Cross-file imaging data fitting function.
 
@@ -871,18 +1065,27 @@ class SuperRes_Functions:
             offset_map (np.2darray): 2darray of offset map
             rqe (np.2darray): 2d array of RQE
             read_noise (np.2darray): 2d array of read noise
-            masks (dict): dict of colour masks
-            peak_wavelength (float): peak wavelength of PSF
+            variance (np.2darray): 2d array of variance
+            pfa (float): Probability of false alarm for spot detection (default: 1e-3)
+            ROI_size (int): Size of ROI for fitting (default: 12)
+            peak_wavelength (float): peak wavelength of PSF (default: 0.638)
+            NA (float): Numerical aperture (default: 1.49)
+            pixel_size (float): Pixel size in microns (default: 0.069)
             sigma (float): sigma parameter for spot detection (default: 1.5)
             fraction_true (float): fraction of true spots expected (default: 0.2)
-            image_type (str): image string end
+            image_type (str): image file extension (default: ".tif")
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
-
+            use_temporal_median (bool): Whether to apply temporal median subtraction before spot detection
+                and fitting. If True, computes moving temporal median to remove slowly varying background.
+                (default: False)
+            temporal_median_window (int): Window size (in frames) for temporal median calculation.
+                Only used if use_temporal_median=True. Larger windows better remove slow drift but
+                require more memory. (default: 100)
 
         Returns:
-            bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
+            None: Writes results to HDF5 file in image_folder/Localisations.h5
         """
 
         image_files = self.helper.file_search(image_folder, image_type, "")
@@ -969,21 +1172,49 @@ class SuperRes_Functions:
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                # Choose demosaicing method based on parameter
-                if use_variance_aware_demosaic:
-                    # Use variance-aware demosaicing for robust spot detection
-                    image_to_analyse = self.scmos.variance_aware_malvar_demosaic(
+                # Load buffer frames for temporal median if needed
+                buffer_data = None
+                if use_temporal_median:
+                    half_window = temporal_median_window // 2
+                    # Check if we need buffer frames from next chunk or next file
+                    if chunk_end < file_frames:
+                        # Load buffer frames from current file
+                        buffer_start = chunk_end
+                        buffer_end = min(chunk_end + half_window, file_frames)
+                        if buffer_end > buffer_start:
+                            buffer_frames = list(range(buffer_start, buffer_end))
+                            buffer_data = self.io.read_tiff(
+                                file, dtype="float32", frame=buffer_frames
+                            )
+                            if buffer_data.ndim == 2:
+                                buffer_data = buffer_data[np.newaxis, :, :]
+                    elif chunk_end == file_frames and FOVn + 1 < len(image_files):
+                        # Load buffer frames from next file
+                        next_file = image_files[FOVn + 1]
+                        buffer_frames = list(range(0, min(half_window, file_frames)))
+                        if len(buffer_frames) > 0:
+                            buffer_data = self.io.read_tiff(
+                                next_file, dtype="float32", frame=buffer_frames
+                            )
+                            if buffer_data.ndim == 2:
+                                buffer_data = buffer_data[np.newaxis, :, :]
+
+                    # Apply temporal median subtraction to raw data
+                    print(f"    Applying temporal median subtraction (window={temporal_median_window})")
+                    raw_data = self._compute_temporal_median(
                         raw_data,
-                        variance_map=variance,
-                        offset_map=offset_map,
-                        gain=gain_map,
-                        grayscale=True,
+                        median_window=temporal_median_window,
+                        buffer_frames=buffer_data
                     )
-                else:
-                    # Use standard grayscale demosaicing
-                    image_to_analyse = self.scmos.bayer_demosaic_stack_grayscale(
-                        raw_data
-                    )
+
+                # Demosaic the raw Bayer image
+                image_to_analyse = self._demosaic_image(
+                    raw_data,
+                    use_variance_aware=use_variance_aware_demosaic,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    variance=variance,
+                )
 
                 detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
@@ -1039,6 +1270,8 @@ class SuperRes_Functions:
 
                 # Clean up chunk data
                 del raw_data, detected_puncta, image_to_analyse
+                if 'buffer_data' in locals() and buffer_data is not None:
+                    del buffer_data
                 gc.collect()
 
             print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")

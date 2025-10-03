@@ -40,6 +40,40 @@ except ImportError:
     warnings.warn("Could not import DriftPlotter. Plotting features may be limited.")
     _drift_plotter = None
 
+# Import our specialised algorithm modules
+try:
+    from FiducialDetection import FiducialDetector
+    _fiducial_detector = FiducialDetector()
+except ImportError:
+    warnings.warn("Could not import FiducialDetector. Fiducial detection features may be limited.")
+    _fiducial_detector = None
+
+try:
+    from RCCAlgorithm import RCCAlgorithm
+    _rcc_algorithm = RCCAlgorithm()
+except ImportError:
+    warnings.warn("Could not import RCCAlgorithm. RCC algorithm features may be limited.")
+    _rcc_algorithm = None
+
+try:
+    from AIMAlgorithm import AIMAlgorithm
+    _aim_algorithm = AIMAlgorithm()
+except ImportError:
+    warnings.warn("Could not import AIMAlgorithm. AIM algorithm features may be limited.")
+    _aim_algorithm = None
+
+try:
+    from CoordinateProcessing import CoordinateProcessor, SegmentationHandler, DriftCorrectionError as CoordDriftError
+    _coordinate_processor = CoordinateProcessor()
+    _segmentation_handler = SegmentationHandler()
+except ImportError:
+    warnings.warn("Could not import CoordinateProcessing. Coordinate processing features may be limited.")
+    _coordinate_processor = None
+    _segmentation_handler = None
+    # Define fallback error class if import fails
+    class CoordDriftError(Exception):
+        pass
+
 try:
     import render
     import imageprocess
@@ -60,7 +94,7 @@ class DriftMethod(Enum):
 
     RCC = "rcc"
     AIM = "aim"
-    FIDUCIAL = "fiducial"  # Fiducial-based drift correction using picked localizations
+    FIDUCIAL = "fiducial"  # Fiducial-based drift correction using picked localisations
     AUTO = "auto"  # Automatically select based on data characteristics
 
 
@@ -172,16 +206,16 @@ class FiducialDetectionResult:
 
     Attributes:
         picks: List of (x, y) coordinates for detected fiducials
-        picked_localizations: List of localization arrays, one per fiducial
+        picked_localisations: List of localisation arrays, one per fiducial
         detection_image: Rendered image used for detection
-        locs_with_groups: Original localizations with group field added
+        locs_with_groups: Original localisations with group field added
         n_fiducials: Number of detected fiducials
         detection_params: Parameters used for detection
         metadata: Additional detection metadata
     """
 
     picks: List[Tuple[float, float]]
-    picked_localizations: List[np.recarray]
+    picked_localisations: List[np.recarray]
     detection_image: np.ndarray
     locs_with_groups: np.recarray
     n_fiducials: int
@@ -189,122 +223,8 @@ class FiducialDetectionResult:
     metadata: Dict[str, Any]
 
 
-class SegmentationHandler:
-    """Utilities for temporal segmentation of localization data."""
-
-    @staticmethod
-    def create_segments(n_frames: int, segmentation: int) -> np.ndarray:
-        """Create segmentation bounds for drift correction.
-
-        Args:
-            n_frames: Total number of frames
-            segmentation: Frames per segment
-
-        Returns:
-            Array of segment boundary frames
-        """
-        return np.concatenate((np.arange(0, n_frames, segmentation), [n_frames]))
-
-    @staticmethod
-    def n_segments(n_frames: int, segmentation: int) -> int:
-        """Calculate number of segments."""
-        return int(np.round(n_frames / segmentation))
-
-    @staticmethod
-    def standardize_frame_indexing(locs: np.recarray) -> np.ndarray:
-        """Standardize frame indices to start at 1.
-
-        Args:
-            locs: Localization data
-
-        Returns:
-            Frame indices starting at 1
-        """
-        return locs.frame + 1 - locs.frame.min()
-
-
-class CoordinateProcessor:
-    """Utilities for coordinate processing and validation."""
-
-    @staticmethod
-    def extract_metadata(info: list) -> Dict[str, float]:
-        """Extract required metadata from info list.
-
-        Args:
-            info: List of metadata dictionaries
-
-        Returns:
-            Dictionary with width, height, frames, pixelsize
-
-        Raises:
-            DriftCorrectionError: If required metadata is missing
-        """
-        width = height = pixelsize = n_frames = np.nan
-
-        for inf in info:
-            if val := inf.get("Width"):
-                width = val
-            if val := inf.get("Height"):
-                height = val
-            if val := inf.get("Frames"):
-                n_frames = val
-            if val := inf.get("Pixelsize"):
-                pixelsize = val
-
-        if np.isnan(width * height * pixelsize * n_frames):
-            raise DriftCorrectionError(
-                "Missing required metadata. Need 'Width', 'Height', 'Frames', 'Pixelsize'"
-            )
-
-        return {
-            "width": width,
-            "height": height,
-            "n_frames": n_frames,
-            "pixelsize": pixelsize,
-        }
-
-    @staticmethod
-    def validate_localizations(locs: np.recarray) -> None:
-        """Validate localization data format.
-
-        Args:
-            locs: Localization record array
-
-        Raises:
-            DriftCorrectionError: If required columns are missing
-        """
-        required_cols = ["xc", "yc", "frame"]
-        missing_cols = [col for col in required_cols if not hasattr(locs, col)]
-
-        if missing_cols:
-            raise DriftCorrectionError(f"Missing required columns: {missing_cols}")
-
-    @staticmethod
-    def apply_drift_correction(
-        locs: np.recarray, drift_result: DriftResult
-    ) -> np.recarray:
-        """Apply drift correction to localizations.
-
-        Args:
-            locs: Localization data to correct
-            drift_result: Drift correction result
-
-        Returns:
-            Corrected localizations (copy with corrections applied)
-        """
-        # Create a copy to avoid modifying original data
-        corrected_locs = locs.copy()
-
-        # Apply x,y drift (ensure frame indices are within bounds)
-        frame_indices = np.clip(corrected_locs.frame, 0, len(drift_result.drift_x) - 1)
-        corrected_locs.xc -= drift_result.drift_x[frame_indices]
-        corrected_locs.yc -= drift_result.drift_y[frame_indices]
-
-        # Apply z drift if available
-        if drift_result.drift_z is not None and hasattr(corrected_locs, "z"):
-            corrected_locs.z -= drift_result.drift_z[frame_indices]
-
-        return corrected_locs
+# Note: SegmentationHandler and CoordinateProcessor are now imported from CoordinateProcessing.py
+# This reduces duplication and improves code organization
 
 
 class DriftCorrector(ABC):
@@ -314,10 +234,10 @@ class DriftCorrector(ABC):
     def calculate_drift(
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> DriftResult:
-        """Calculate drift correction for localizations.
+        """Calculate drift correction for localisations.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             params: Drift correction parameters
 
@@ -337,7 +257,7 @@ class DriftCorrector(ABC):
         """Complete drift correction workflow.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             params: Drift correction parameters
 
@@ -346,13 +266,15 @@ class DriftCorrector(ABC):
         """
         # Validate inputs
         params.validate()
-        CoordinateProcessor.validate_localizations(locs)
+        CoordinateProcessor.validate_localisations(locs)
 
         # Calculate drift
         drift_result = self.calculate_drift(locs, info, params)
 
         # Apply correction
-        corrected_locs = CoordinateProcessor.apply_drift_correction(locs, drift_result)
+        corrected_locs = CoordinateProcessor.apply_drift_correction(
+            locs, drift_result.drift_x, drift_result.drift_y, drift_result.drift_z
+        )
 
         return corrected_locs, drift_result
 
@@ -374,7 +296,7 @@ class RCCDriftCorrector(DriftCorrector):
         """Calculate drift using RCC method.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             params: Drift correction parameters
 
@@ -423,7 +345,7 @@ class RCCDriftCorrector(DriftCorrector):
         """Generate temporal segments for RCC analysis.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Original metadata list (for render compatibility)
             meta: Extracted metadata
             params: Drift parameters
@@ -480,6 +402,8 @@ class RCCDriftCorrector(DriftCorrector):
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Interpolate drift to all frames using splines.
 
+        Now delegates to CoordinateProcessor for consistent interpolation.
+
         Args:
             bounds: Segment boundaries
             shift_x: X shifts between segments
@@ -489,15 +413,7 @@ class RCCDriftCorrector(DriftCorrector):
         Returns:
             Tuple of (drift_x, drift_y) for all frames
         """
-        t = (bounds[1:] + bounds[:-1]) / 2
-        drift_x_pol = InterpolatedUnivariateSpline(t, shift_x, k=3)
-        drift_y_pol = InterpolatedUnivariateSpline(t, shift_y, k=3)
-
-        t_inter = np.arange(n_frames)
-        drift_x = drift_x_pol(t_inter)
-        drift_y = drift_y_pol(t_inter)
-
-        return drift_x, drift_y
+        return CoordinateProcessor.interpolate_drift(bounds, shift_x, shift_y, n_frames, method="cubic")
 
 
 class AIMDriftCorrector(DriftCorrector):
@@ -538,13 +454,13 @@ class AIMDriftCorrector(DriftCorrector):
         l1_coords: np.ndarray,
         l1_counts: np.ndarray,
     ) -> int:
-        """Count the number of intersected localizations between two datasets.
+        """Count the number of intersected localisations between two datasets.
 
         Args:
-            l0_coords: Unique coordinates of reference localizations
-            l0_counts: Counts of unique reference localizations
-            l1_coords: Unique coordinates of target localizations
-            l1_counts: Counts of unique target localizations
+            l0_coords: Unique coordinates of reference localisations
+            l0_counts: Counts of unique reference localisations
+            l1_coords: Unique coordinates of target localisations
+            l1_counts: Counts of unique target localisations
 
         Returns:
             Number of intersections
@@ -573,10 +489,10 @@ class AIMDriftCorrector(DriftCorrector):
         """Run intersection counting across local search region with multithreading.
 
         Args:
-            l0_coords: Unique coordinates of reference localizations
-            l0_counts: Counts of reference localizations
-            l1_coords: Unique coordinates of target localizations
-            l1_counts: Counts of target localizations
+            l0_coords: Unique coordinates of reference localisations
+            l0_counts: Counts of reference localisations
+            l1_coords: Unique coordinates of target localisations
+            l1_counts: Counts of target localisations
             shifts_xy: 1D array with x and y shifts
             box: Side length of local search region
 
@@ -621,9 +537,9 @@ class AIMDriftCorrector(DriftCorrector):
         """Convert target coordinates to 1D array and count intersections.
 
         Args:
-            l0_coords: Unique values of reference localizations
-            l0_counts: Counts of unique reference localizations
-            x1, y1: x and y coordinates of target localizations
+            l0_coords: Unique values of reference localisations
+            l0_counts: Counts of unique reference localisations
+            x1, y1: x and y coordinates of target localisations
             intersect_d: Intersect distance in camera pixels
             width_units: Width of camera image in units of intersect_d
             shifts_xy: 1D array with x and y shifts
@@ -637,7 +553,7 @@ class AIMDriftCorrector(DriftCorrector):
         y1_units = np.round(y1 / intersect_d)
         l1 = np.int32(x1_units + y1_units * width_units)  # 1d list
 
-        # get unique values and counts of the target localizations
+        # get unique values and counts of the target localisations
         l1_coords, l1_counts = np.unique(l1, return_counts=True)
 
         # run the intersections counting
@@ -661,9 +577,9 @@ class AIMDriftCorrector(DriftCorrector):
         """Convert 3D target coordinates to 1D array and count intersections.
 
         Args:
-            l0_coords: Unique values of reference localizations
-            l0_counts: Counts of unique reference localizations
-            x1, y1, z1: x, y, and z coordinates of target localizations
+            l0_coords: Unique values of reference localisations
+            l0_counts: Counts of unique reference localisations
+            x1, y1, z1: x, y, and z coordinates of target localisations
             intersect_d: Intersect distance in camera pixels
             width_units: Width of camera image in units of intersect_d
             height_units: Height of camera image in units of intersect_d
@@ -680,7 +596,7 @@ class AIMDriftCorrector(DriftCorrector):
             x1_units + y1_units * width_units + z1_units * width_units * height_units
         )  # 1d list
 
-        # get unique values and counts of the target localizations
+        # get unique values and counts of the target localisations
         l1_coords, l1_counts = np.unique(l1, return_counts=True)
 
         # run the intersections counting
@@ -754,14 +670,14 @@ class AIMDriftCorrector(DriftCorrector):
         aim_round: int = 1,
         progress_callback: Optional[Callable[[int], None]] = None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Maximize intersection (undrift) for 2D localizations.
+        """Maximize intersection (undrift) for 2D localisations.
 
         This is the core AIM algorithm implementation.
 
         Args:
-            x, y: x and y coordinates of localizations
-            ref_x, ref_y: x and y coordinates of reference localizations
-            frame: Frame indices of localizations
+            x, y: x and y coordinates of localisations
+            ref_x, ref_y: x and y coordinates of reference localisations
+            frame: Frame indices of localisations
             seg_bounds: Segmentation bounds defining temporal intervals
             intersect_d: Intersect distance in camera pixels
             roi_r: Search region radius in camera pixels
@@ -808,13 +724,13 @@ class AIMDriftCorrector(DriftCorrector):
         def _process_segment(s):
             nonlocal rel_drift_x, rel_drift_y
 
-            # get the target localizations within the current segment
+            # get the target localisations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
             x1 = x[min_frame_idx & max_frame_idx]
             y1 = y[min_frame_idx & max_frame_idx]
 
-            # skip if no localizations in this segment
+            # skip if no localisations in this segment
             if len(x1) == 0:
                 if s > 0:
                     drift_x[s] = drift_x[s - 1]
@@ -825,7 +741,7 @@ class AIMDriftCorrector(DriftCorrector):
             x1 += rel_drift_x
             y1 += rel_drift_y
 
-            # count the number of intersected localizations
+            # count the number of intersected localisations
             roi_cc = AIMDriftCorrector._point_intersect_2d(
                 l0_coords,
                 l0_counts,
@@ -930,7 +846,7 @@ class AIMDriftCorrector(DriftCorrector):
         """Cubic spline interpolation following original MATLAB AIM implementation.
 
         This method replicates the original MATLAB interpolation approach:
-        1. Calculates segment centers as measurement points
+        1. Calculates segment centres as measurement points
         2. Extends with boundary extrapolation points
         3. Uses cubic spline interpolation for smooth drift correction
 
@@ -944,8 +860,8 @@ class AIMDriftCorrector(DriftCorrector):
         Returns:
             Tuple of (drift_x_full, drift_y_full) arrays for all frames
         """
-        # Calculate segment centers (where we have actual measurements)
-        seg_centers = (seg_bounds[1:] + seg_bounds[:-1]) / 2
+        # Calculate segment centres (where we have actual measurements)
+        seg_centres = (seg_bounds[1:] + seg_bounds[:-1]) / 2
         track_interval = seg_bounds[1] - seg_bounds[0]  # Assuming uniform intervals
         track_num = len(drift_x)
 
@@ -1022,7 +938,7 @@ class AIMDriftCorrector(DriftCorrector):
         aim_round: int = 1,
         progress_callback: Optional[Callable[[int], None]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Maximize intersection (undrift) for 3D localizations.
+        """Maximize intersection (undrift) for 3D localisations.
 
         Args:
             x, y, z: Coordinates (x,y in pixels, z in nm)
@@ -1073,14 +989,14 @@ class AIMDriftCorrector(DriftCorrector):
         def _process_segment_z(s):
             nonlocal rel_drift_z
 
-            # get the target localizations within the current segment
+            # get the target localisations within the current segment
             min_frame_idx = frame > seg_bounds[s]
             max_frame_idx = frame <= seg_bounds[s + 1]
             x1 = x[min_frame_idx & max_frame_idx]
             y1 = y[min_frame_idx & max_frame_idx]
             z1 = z[min_frame_idx & max_frame_idx]
 
-            # skip if no localizations in this segment
+            # skip if no localisations in this segment
             if len(x1) == 0:
                 if s > 0:
                     drift_z[s] = drift_z[s - 1]
@@ -1089,7 +1005,7 @@ class AIMDriftCorrector(DriftCorrector):
             # undrifting from the previous round
             z1 += rel_drift_z
 
-            # count the number of intersected localizations
+            # count the number of intersected localisations
             roi_cc = AIMDriftCorrector._point_intersect_3d(
                 l0_coords,
                 l0_counts,
@@ -1128,7 +1044,7 @@ class AIMDriftCorrector(DriftCorrector):
         t_inter = np.arange(seg_bounds[-1]) + 1
         drift_z = drift_z_pol(t_inter)
 
-        # undrift the localizations
+        # undrift the localisations
         z_pdc = z - drift_z[frame - 1]
 
         # convert back to nm
@@ -1147,7 +1063,7 @@ class AIMDriftCorrector(DriftCorrector):
         """Calculate drift using AIM method.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             params: Drift correction parameters
 
@@ -1165,7 +1081,7 @@ class AIMDriftCorrector(DriftCorrector):
             int(meta["n_frames"]), params.segmentation
         )
 
-        # Get reference localizations (first segment)
+        # Get reference localisations (first segment)
         ref_mask = frame <= params.segmentation
         ref_x = locs.xc[ref_mask]
         ref_y = locs.yc[ref_mask]
@@ -1273,7 +1189,7 @@ class AIMDriftCorrector(DriftCorrector):
         height = meta["height"]
         pixelsize = meta["pixelsize"]
 
-        # Get reference localizations for Z (first segment)
+        # Get reference localisations for Z (first segment)
         ref_mask = frame <= params.segmentation
         ref_x = x_pdc[ref_mask]
         ref_y = y_pdc[ref_mask]
@@ -1329,18 +1245,18 @@ class AIMDriftCorrector(DriftCorrector):
 
 
 class FiducialDriftCorrector(DriftCorrector):
-    """Fiducial-based drift corrector using picked localizations.
+    """Fiducial-based drift corrector using picked localisations.
 
     This method calculates drift using manually selected fiducial markers
     (e.g., gold nanoparticles, fluorescent beads) that should remain stationary
     during the experiment.
 
     The algorithm:
-    1. Takes pre-selected fiducial localizations (picked manually or automatically)
-    2. Removes center-of-mass offset for each fiducial
+    1. Takes pre-selected fiducial localisations (picked manually or automatically)
+    2. Removes centre-of-mass offset for each fiducial
     3. Calculates weighted average drift across all fiducials
     4. Uses inverse mean squared deviation as weights (more stable fiducials get higher weight)
-    5. Interpolates drift for frames without localizations
+    5. Interpolates drift for frames without localisations
     """
 
     def __init__(self):
@@ -1353,10 +1269,10 @@ class FiducialDriftCorrector(DriftCorrector):
     def calculate_drift(
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> DriftResult:
-        """Calculate drift using fiducial localizations.
+        """Calculate drift using fiducial localisations.
 
         Args:
-            locs: Localization data. If no 'group' field exists and auto_detect_fiducials=True,
+            locs: Localisation data. If no 'group' field exists and auto_detect_fiducials=True,
                   fiducials will be detected automatically
             info: Metadata list containing frame count information
             params: Drift correction parameters with fiducial detection settings
@@ -1378,11 +1294,11 @@ class FiducialDriftCorrector(DriftCorrector):
         meta = CoordinateProcessor.extract_metadata(info)
         n_frames = int(meta["n_frames"])
 
-        # Group localizations by fiducial ID
+        # Group localisations by fiducial ID
         picked_locs = self._group_fiducials(locs)
 
         if len(picked_locs) == 0:
-            raise DriftCorrectionError("No fiducial localizations found")
+            raise DriftCorrectionError("No fiducial localisations found")
 
         # Calculate drift for each coordinate
         drift_x = self._calculate_coordinate_drift(picked_locs, n_frames, "xc")
@@ -1405,13 +1321,13 @@ class FiducialDriftCorrector(DriftCorrector):
         return result
 
     def _group_fiducials(self, locs: np.recarray) -> List[np.recarray]:
-        """Group localizations by fiducial ID.
+        """Group localisations by fiducial ID.
 
         Args:
-            locs: Localization data with 'group' field
+            locs: Localisation data with 'group' field
 
         Returns:
-            List of localization arrays, one per fiducial
+            List of localisation arrays, one per fiducial
         """
         picked_locs = []
         unique_groups = np.unique(locs.group)
@@ -1427,10 +1343,10 @@ class FiducialDriftCorrector(DriftCorrector):
     def _calculate_coordinate_drift(
         self, picked_locs: List[np.recarray], n_frames: int, coordinate: str
     ) -> np.ndarray:
-        """Calculate drift in a given coordinate using fiducial localizations.
+        """Calculate drift in a given coordinate using fiducial localisations.
 
         Args:
-            picked_locs: List of localization arrays for each fiducial
+            picked_locs: List of localisation arrays for each fiducial
             n_frames: Total number of frames
             coordinate: Coordinate name ("xc", "yc", or "z")
 
@@ -1446,7 +1362,7 @@ class FiducialDriftCorrector(DriftCorrector):
         drift = np.empty((n_picks, n_frames), dtype=np.float32)
         drift.fill(np.nan)
 
-        # Calculate drift for each fiducial (remove center of mass offset)
+        # Calculate drift for each fiducial (remove centre of mass offset)
         for i, fiducial_locs in enumerate(picked_locs):
             if hasattr(fiducial_locs, coordinate):
                 coordinates = getattr(fiducial_locs, coordinate)
@@ -1488,7 +1404,9 @@ class FiducialDriftCorrector(DriftCorrector):
         return drift_mean.astype(np.float32)
 
     def _interpolate_missing_frames(self, drift_mean: np.ndarray) -> np.ndarray:
-        """Interpolate drift for frames without localizations.
+        """Interpolate drift for frames without localisations.
+
+        Now delegates to CoordinateProcessor for consistent interpolation.
 
         Args:
             drift_mean: Drift array with possible NaN values
@@ -1496,38 +1414,20 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             Interpolated drift array
         """
-        # Find valid (non-NaN) frames
-        valid_mask = ~np.isnan(drift_mean)
-        valid_indices = np.where(valid_mask)[0]
-
-        if len(valid_indices) == 0:
-            # No valid data - return zeros
-            return np.zeros_like(drift_mean)
-        elif len(valid_indices) == 1:
-            # Only one valid point - use constant value
-            drift_mean[:] = drift_mean[valid_indices[0]]
-        else:
-            # Interpolate between valid points
-            invalid_indices = np.where(~valid_mask)[0]
-            if len(invalid_indices) > 0:
-                drift_mean[invalid_indices] = np.interp(
-                    invalid_indices, valid_indices, drift_mean[valid_indices]
-                )
-
-        return drift_mean
+        return CoordinateProcessor.interpolate_missing_frames(drift_mean, method="linear")
 
     def _detect_and_add_fiducials(
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> np.recarray:
-        """Automatically detect fiducials and add group field to localizations.
+        """Automatically detect fiducials and add group field to localisations.
 
         Args:
-            locs: Localization data without group field
+            locs: Localisation data without group field
             info: Metadata list
             params: Drift parameters with fiducial detection settings
 
         Returns:
-            New localization array with group field added
+            New localisation array with group field added
         """
         if render is None or imageprocess is None:
             raise DriftCorrectionError(
@@ -1539,7 +1439,7 @@ class FiducialDriftCorrector(DriftCorrector):
         pixelsize = meta.get("pixelsize", 69.0)  # Default fallback
         n_frames = int(meta["n_frames"])
 
-        # Render localizations to image for fiducial detection
+        # Render localisations to image for fiducial detection
         image = render.render(
             locs=locs,
             info=info,
@@ -1567,7 +1467,7 @@ class FiducialDriftCorrector(DriftCorrector):
             )
 
         y, x, _ = localise.identify_in_image(image, threshold, box=box)
-        # Format picks as rectangles centered on detected points
+        # Format picks as rectangles centreed on detected points
         half_box = box // 2
         picks = [((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)]
 
@@ -1576,7 +1476,7 @@ class FiducialDriftCorrector(DriftCorrector):
                 "No fiducial candidates detected. Try lowering threshold_percentile."
             )
 
-        # Filter picks by minimum localizations per fiducial
+        # Filter picks by minimum localisations per fiducial
         min_n = params.fiducial_min_frames_fraction * n_frames
 
         try:
@@ -1586,7 +1486,7 @@ class FiducialDriftCorrector(DriftCorrector):
                 "postprocess module required for fiducial detection"
             )
 
-        # Get localizations for each pick
+        # Get localisations for each pick
         width = int(meta["width"])
         height = int(meta["height"])
         temp_picked_locs = postprocess.picked_locs(
@@ -1599,7 +1499,7 @@ class FiducialDriftCorrector(DriftCorrector):
             add_group=False,
         )
 
-        # Keep only picks with sufficient localizations
+        # Keep only picks with sufficient localisations
         valid_picks = []
         valid_picked_locs = []
         for i, pick in enumerate(picks):
@@ -1609,21 +1509,21 @@ class FiducialDriftCorrector(DriftCorrector):
 
         if len(valid_picks) == 0:
             raise DriftCorrectionError(
-                f"No fiducials found with minimum {min_n:.0f} localizations. "
+                f"No fiducials found with minimum {min_n:.0f} localisations. "
                 f"Try lowering fiducial_min_frames_fraction or threshold_percentile."
             )
 
-        # Create new localization array with group field
+        # Create new localisation array with group field
         return self._add_group_field(locs, valid_picked_locs, valid_picks)
 
     def _add_group_field(
         self, locs: np.recarray, picked_locs: list, picks: list
     ) -> np.recarray:
-        """Add group field to localizations based on fiducial assignments.
+        """Add group field to localisations based on fiducial assignments.
 
         Args:
-            locs: Original localizations
-            picked_locs: List of localizations for each fiducial
+            locs: Original localisations
+            picked_locs: List of localisations for each fiducial
             picks: List of pick coordinates
 
         Returns:
@@ -1632,9 +1532,9 @@ class FiducialDriftCorrector(DriftCorrector):
         # Create group field array, initialize with -1 (non-fiducial)
         group = np.full(len(locs), -1, dtype=np.int32)
 
-        # Assign group IDs to fiducial localizations
+        # Assign group IDs to fiducial localisations
         for group_id, fiducial_locs in enumerate(picked_locs):
-            # Find indices of these localizations in original array
+            # Find indices of these localisations in original array
             for fid_loc in fiducial_locs:
                 # Match by frame and coordinate (within small tolerance)
                 matches = (
@@ -1759,7 +1659,7 @@ def undrift_rcc(
     """Apply RCC drift correction (backward compatible interface).
 
     Args:
-        locs: Localization data
+        locs: Localisation data
         info: Metadata list
         segmentation: Frames per segment
         display: Whether to display results
@@ -1788,7 +1688,7 @@ def undrift_aim(
     """Apply AIM drift correction (backward compatible interface).
 
     Args:
-        locs: Localization data
+        locs: Localisation data
         info: Metadata list
         segmentation: Frames per segment
         intersect_d: Intersection distance (camera pixels)
@@ -1815,7 +1715,7 @@ def undrift_auto(
     """Apply automatic drift correction method selection.
 
     Args:
-        locs: Localization data
+        locs: Localisation data
         info: Metadata list
         **kwargs: Parameters passed to DriftParameters
 
@@ -1839,11 +1739,38 @@ class Drift_Correction_Functions:
     def __init__(self):
         """Initialize drift correction functions."""
         self.factory = DriftCorrectionFactory()
+
+        # Initialize plotting functionality
         try:
             from DriftPlotting import DriftPlotter
             self.plotter = DriftPlotter()
         except ImportError:
             self.plotter = None
+
+        # Initialize specialised algorithm modules
+        try:
+            from FiducialDetection import FiducialDetector
+            self.fiducial_detector = FiducialDetector(drift_correction_instance=self)
+        except ImportError:
+            self.fiducial_detector = None
+
+        try:
+            from RCCAlgorithm import RCCAlgorithm
+            self.rcc_algorithm = RCCAlgorithm(drift_correction_instance=self)
+        except ImportError:
+            self.rcc_algorithm = None
+
+        try:
+            from AIMAlgorithm import AIMAlgorithm
+            self.aim_algorithm = AIMAlgorithm(drift_correction_instance=self)
+        except ImportError:
+            self.aim_algorithm = None
+
+        try:
+            from CoordinateProcessing import CoordinateProcessor
+            self.coordinate_processor = CoordinateProcessor(drift_correction_instance=self)
+        except ImportError:
+            self.coordinate_processor = None
 
     def undrift(
         self,
@@ -1855,7 +1782,7 @@ class Drift_Correction_Functions:
         """Universal drift correction interface.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             method: Drift correction method ("rcc", "aim", "auto")
             **params: Method-specific parameters
@@ -1908,6 +1835,272 @@ class Drift_Correction_Functions:
             ),
         }
 
+    # Delegation methods for specialised algorithm modules
+
+    # Fiducial Detection delegation methods
+    def detect_high_density_regions_from_image(self, *args, **kwargs):
+        """Delegate to FiducialDetector.detect_high_density_regions_from_image"""
+        if self.fiducial_detector is None:
+            raise RuntimeError("FiducialDetector module not available")
+        return self.fiducial_detector.detect_high_density_regions_from_image(*args, **kwargs)
+
+    def select_puncta_from_regions(self, *args, **kwargs):
+        """Delegate to FiducialDetector.select_puncta_from_regions"""
+        if self.fiducial_detector is None:
+            raise RuntimeError("FiducialDetector module not available")
+        return self.fiducial_detector.select_puncta_from_regions(*args, **kwargs)
+
+    def identify_real_fiducials_with_clustering_delegated(self, *args, **kwargs):
+        """Delegate to FiducialDetector.identify_real_fiducials_with_clustering"""
+        if self.fiducial_detector is None:
+            raise RuntimeError("FiducialDetector module not available")
+        return self.fiducial_detector.identify_real_fiducials_with_clustering(*args, **kwargs)
+
+    # RCC Algorithm delegation methods
+    def run_rcc_2d(self, *args, **kwargs):
+        """Delegate to RCCAlgorithm.run_rcc_2d"""
+        if self.rcc_algorithm is None:
+            raise RuntimeError("RCCAlgorithm module not available")
+        return self.rcc_algorithm.run_rcc_2d(*args, **kwargs)
+
+    def run_rcc_3d(self, *args, **kwargs):
+        """Delegate to RCCAlgorithm.run_rcc_3d"""
+        if self.rcc_algorithm is None:
+            raise RuntimeError("RCCAlgorithm module not available")
+        return self.rcc_algorithm.run_rcc_3d(*args, **kwargs)
+
+    # AIM Algorithm delegation methods
+    def run_aim_2d(self, *args, **kwargs):
+        """Delegate to AIMAlgorithm.run_aim_2d"""
+        if self.aim_algorithm is None:
+            raise RuntimeError("AIMAlgorithm module not available")
+        return self.aim_algorithm.run_aim_2d(*args, **kwargs)
+
+    def run_aim_3d(self, *args, **kwargs):
+        """Delegate to AIMAlgorithm.run_aim_3d"""
+        if self.aim_algorithm is None:
+            raise RuntimeError("AIMAlgorithm module not available")
+        return self.aim_algorithm.run_aim_3d(*args, **kwargs)
+
+    # Coordinate Processing delegation methods
+    def convert_pixels_to_nm(self, *args, **kwargs):
+        """Delegate to CoordinateProcessor.convert_pixels_to_nm"""
+        if self.coordinate_processor is None:
+            raise RuntimeError("CoordinateProcessor module not available")
+        return self.coordinate_processor.convert_pixels_to_nm(*args, **kwargs)
+
+    def undrift_with_fiducial_detection(
+        self,
+        locs: np.recarray,
+        info: list,
+        histogram_bins: int = 256,
+        threshold_percentile: float = 99.0,
+        box_size_nm: float = 600.0,
+        min_localisations_per_region: int = 100,
+        retention_percentage: float = 0.9,
+        create_plots: bool = False,
+        output_dir: str = "./fiducial_detection",
+    ) -> DriftResult:
+        """Automatically detect fiducials and perform drift correction.
+
+        This is a high-level convenience method that:
+        1. Renders localisations to an image
+        2. Detects high-density regions (potential fiducials)
+        3. Selects localisations within those regions
+        4. Validates fiducials using clustering
+        5. Performs fiducial-based drift correction
+
+        Args:
+            locs: Localisation data (xc, yc, frame fields required)
+            info: Metadata list containing image dimensions and frame info
+            histogram_bins: Number of bins for histogram analysis
+            threshold_percentile: Percentile threshold for fiducial detection (0-100)
+            box_size_nm: Size of selection box around each fiducial (nm)
+            min_localisations_per_region: Minimum localisations required per fiducial
+            retention_percentage: Fraction of points to retain during validation (0-1)
+            create_plots: Whether to create diagnostic plots
+            output_dir: Directory to save plots (if create_plots=True)
+
+        Returns:
+            DriftResult object with drift_x, drift_y arrays and metadata
+
+        Raises:
+            DriftCorrectionError: If fiducial detection or drift correction fails
+        """
+        # Extract metadata
+        meta = CoordinateProcessor.extract_metadata(info)
+        pixelsize = meta.get("pixelsize", 100.0)
+        n_frames = int(meta["n_frames"])
+
+        # Step 1: Render localisations to image
+        print("Step 1/5: Rendering localisations to image...")
+        if render is None:
+            raise DriftCorrectionError("render module required for fiducial detection")
+
+        _, image = render.render(
+            locs=locs,
+            info=info,
+            oversampling=1,
+            blur_method="smooth",
+        )
+
+        # Step 2: Detect high-density regions
+        print("Step 2/5: Detecting high-density regions...")
+        region_centres, binary_mask, threshold, detection_meta = (
+            self.fiducial_detector.detect_high_density_regions_from_image(
+                smoothed_image=image,
+                histogram_bins=histogram_bins,
+                threshold_percentile=threshold_percentile,
+                pixelsize=pixelsize,
+                output_figure_path=f"{output_dir}/01_density_detection.png" if create_plots else None,
+                create_plot=create_plots,
+            )
+        )
+
+        print(f"  Found {detection_meta['n_regions_detected']} potential fiducial regions")
+
+        if detection_meta['n_regions_detected'] == 0:
+            raise DriftCorrectionError("No fiducial regions detected. Try lowering threshold_percentile.")
+
+        # Step 3: Select puncta from regions
+        print("Step 3/5: Selecting localisations from regions...")
+        selected_puncta, selection_meta = (
+            self.fiducial_detector.select_puncta_from_regions(
+                locs=locs,
+                region_centres=region_centres,
+                binary_mask=binary_mask,
+                pixelsize=pixelsize,
+                selection_box_size_nm=box_size_nm,
+                min_localisations_per_region=min_localisations_per_region,
+                output_figure_path=f"{output_dir}/02_puncta_selection.png" if create_plots else None,
+                create_plot=create_plots,
+            )
+        )
+
+        print(f"  Selected {selection_meta['n_regions_selected']} fiducial candidates")
+
+        if selection_meta['n_regions_selected'] == 0:
+            raise DriftCorrectionError(
+                f"No valid fiducials with >={min_localisations_per_region} localisations. "
+                "Try lowering min_localisations_per_region or threshold_percentile."
+            )
+
+        # Step 4: Validate fiducials using clustering
+        print("Step 4/5: Validating fiducials with clustering...")
+        validated_fiducials, validation_meta = (
+            self.fiducial_detector.identify_real_fiducials_with_clustering(
+                selected_puncta=selected_puncta,
+                retention_percentage=retention_percentage,
+                pixelsize=pixelsize,
+                output_figure_path=f"{output_dir}/03_fiducial_validation.png" if create_plots else None,
+                create_plot=create_plots,
+            )
+        )
+
+        print(f"  Validated {len(validated_fiducials)} final fiducials")
+
+        if len(validated_fiducials) == 0:
+            raise DriftCorrectionError(
+                "No fiducials passed validation. Check your detection parameters."
+            )
+
+        # Step 5: Add group field and perform drift correction
+        print("Step 5/5: Performing fiducial-based drift correction...")
+        locs_with_groups = self._add_group_field(locs, validated_fiducials, region_centres)
+
+        # Use the fiducial corrector directly
+        fiducial_corrector = FiducialDriftCorrector()
+        params = DriftParameters()  # Use default parameters
+        result = fiducial_corrector.calculate_drift(locs_with_groups, info, params)
+
+        # Add detection metadata to result
+        result.metadata.update({
+            "detection_method": "automatic",
+            "n_regions_detected": detection_meta['n_regions_detected'],
+            "n_fiducials_selected": selection_meta['n_regions_selected'],
+            "n_fiducials_validated": len(validated_fiducials),
+            "detection_params": {
+                "histogram_bins": histogram_bins,
+                "threshold_percentile": threshold_percentile,
+                "box_size_nm": box_size_nm,
+                "min_localisations_per_region": min_localisations_per_region,
+                "retention_percentage": retention_percentage,
+            }
+        })
+
+        print(f"✓ Drift correction complete using {len(validated_fiducials)} fiducials")
+
+        return result
+
+    def _add_group_field(
+        self, locs: np.recarray, picked_locs: list, picks: list
+    ) -> np.recarray:
+        """Add group field to localisations based on fiducial assignments.
+
+        Args:
+            locs: Original localisations
+            picked_locs: List of localisations for each fiducial
+            picks: List of pick coordinates (not used, for compatibility)
+
+        Returns:
+            New recarray with group field added
+        """
+        # Create group field array, initialize with -1 (non-fiducial)
+        group = np.full(len(locs), -1, dtype=np.int32)
+
+        # Assign group IDs to fiducial localisations
+        for group_id, fiducial_locs in enumerate(picked_locs):
+            # Find indices of these localisations in original array
+            for fid_loc in fiducial_locs:
+                # Match by frame and coordinate (within small tolerance)
+                matches = (
+                    (locs.frame == fid_loc.frame)
+                    & (np.abs(locs.xc - fid_loc.xc) < 0.1)
+                    & (np.abs(locs.yc - fid_loc.yc) < 0.1)
+                )
+                group[matches] = group_id
+
+        # Create new dtype with group field
+        original_dtype = locs.dtype
+        group_dtype = np.dtype(original_dtype.descr + [("group", "i4")])
+
+        # Create new recarray with group field
+        new_locs = np.empty(len(locs), dtype=group_dtype)
+
+        # Copy original data
+        for field in original_dtype.names:
+            new_locs[field] = locs[field]
+
+        # Add group data
+        new_locs["group"] = group
+
+        # Convert to recarray
+        return new_locs.view(np.recarray)
+
+    def convert_nm_to_pixels(self, *args, **kwargs):
+        """Delegate to CoordinateProcessor.convert_nm_to_pixels"""
+        if self.coordinate_processor is None:
+            raise RuntimeError("CoordinateProcessor module not available")
+        return self.coordinate_processor.convert_nm_to_pixels(*args, **kwargs)
+
+    def apply_drift_correction(self, *args, **kwargs):
+        """Delegate to CoordinateProcessor.apply_drift_correction"""
+        if self.coordinate_processor is None:
+            raise RuntimeError("CoordinateProcessor module not available")
+        return self.coordinate_processor.apply_drift_correction(*args, **kwargs)
+
+    def create_spatial_grid(self, *args, **kwargs):
+        """Delegate to CoordinateProcessor.create_spatial_grid"""
+        if self.coordinate_processor is None:
+            raise RuntimeError("CoordinateProcessor module not available")
+        return self.coordinate_processor.create_spatial_grid(*args, **kwargs)
+
+    def bin_localisations_spatially(self, *args, **kwargs):
+        """Delegate to CoordinateProcessor.bin_localisations_spatially"""
+        if self.coordinate_processor is None:
+            raise RuntimeError("CoordinateProcessor module not available")
+        return self.coordinate_processor.bin_localisations_spatially(*args, **kwargs)
+
     def _detect_fiducials_with_chunking(
         self,
         locs: np.recarray,
@@ -1922,7 +2115,7 @@ class Drift_Correction_Functions:
         """Detect fiducials using temporal chunking for drift-robust detection.
 
         Args:
-            locs: Localization data
+            locs: Localisation data
             info: Metadata list
             threshold_percentile: Percentile threshold for detection
             box_size_nm: Box size in nanometers
@@ -1966,12 +2159,12 @@ class Drift_Correction_Functions:
         all_chunk_histograms = []
 
         for chunk_idx, (start_frame, end_frame) in enumerate(chunk_boundaries):
-            # Extract localizations for this chunk
+            # Extract localisations for this chunk
             chunk_mask = (locs.frame >= start_frame) & (locs.frame <= end_frame)
             chunk_locs = locs[chunk_mask]
 
             if len(chunk_locs) == 0:
-                print(f"Warning: Chunk {chunk_idx + 1} has no localizations")
+                print(f"Warning: Chunk {chunk_idx + 1} has no localisations")
                 continue
 
             print(
@@ -2143,13 +2336,13 @@ class Drift_Correction_Functions:
         n_chunks: int = 10,
         max_linking_distance_nm: float = 500.0,
     ) -> FiducialDetectionResult:
-        """Detect fiducial markers in localization data.
+        """Detect fiducial markers in localisation data.
 
         This function automatically detects fiducial markers and creates a visualization
         using PlottingFunctions. Supports temporal chunking for datasets with strong drift.
 
         Args:
-            locs: Localization data (group field not required)
+            locs: Localisation data (group field not required)
             info: Metadata list containing frame count and image dimensions
             threshold_percentile: Histogram percentile threshold for fiducial detection (0-100)
             box_size_nm: Box size for fiducial detection in nanometers
@@ -2239,8 +2432,8 @@ class Drift_Correction_Functions:
                     )
 
                 y, x, _ = localise.identify_in_image(image, threshold, box=box)
-                # Format picks as rectangles centered on detected points
-                # Each rectangle is box×box pixels around the center point
+                # Format picks as rectangles centreed on detected points
+                # Each rectangle is box×box pixels around the centre point
                 half_box = box // 2
                 picks = [
                     ((xi - half_box, yi), (xi + half_box, yi)) for xi, yi in zip(x, y)
@@ -2295,7 +2488,7 @@ class Drift_Correction_Functions:
             # Create result object
             result = FiducialDetectionResult(
                 picks=valid_picks,
-                picked_localizations=valid_picked_locs,
+                picked_localisations=valid_picked_locs,
                 detection_image=image,
                 locs_with_groups=locs_with_groups,
                 n_fiducials=len(valid_picks),
@@ -2346,7 +2539,7 @@ class Drift_Correction_Functions:
             if show_progress:
                 progress_bar_context = ProgressUtils.clean_progress_bar(
                     total=len(picked_locs_list),
-                    desc=f"Adding group field to {len(locs):,} localizations (index-based)",
+                    desc=f"Adding group field to {len(locs):,} localisations (index-based)",
                 )
                 progress_bar = progress_bar_context.__enter__()
 
@@ -2354,8 +2547,8 @@ class Drift_Correction_Functions:
                 # Process all fiducial groups using index-based approach
                 for group_id, fiducial_locs in enumerate(picked_locs_list):
                     if len(fiducial_locs) > 0:
-                        # Find indices of fiducial localizations in original array
-                        # This is the key optimization: use indices instead of coordinate matching
+                        # Find indices of fiducial localisations in original array
+                        # This is the key optimisation: use indices instead of coordinate matching
                         indices = self._find_indices_in_original_locs(
                             locs, fiducial_locs
                         )
@@ -2384,14 +2577,14 @@ class Drift_Correction_Functions:
     def _find_indices_in_original_locs(
         self, locs: np.recarray, fiducial_locs: np.recarray
     ) -> np.ndarray:
-        """Find indices of fiducial localizations in the original localization array.
+        """Find indices of fiducial localisations in the original localisation array.
 
         Uses ultra-fast hash-based lookup for massive datasets.
         Expected ~1000x speedup over coordinate matching approach.
 
         Args:
-            locs: Original localization array
-            fiducial_locs: Fiducial localizations to find indices for
+            locs: Original localisation array
+            fiducial_locs: Fiducial localisations to find indices for
 
         Returns:
             Array of indices where fiducial_locs appear in locs
@@ -2403,7 +2596,7 @@ class Drift_Correction_Functions:
         # Round coordinates to 6 decimal places for reliable hashing
         round_factor = 1e6
 
-        # Create unique keys for each localization in the original array
+        # Create unique keys for each localisation in the original array
         locs_frames = locs.frame.astype(np.int32)
         locs_xc_rounded = np.round(locs.xc * round_factor).astype(np.int64)
         locs_yc_rounded = np.round(locs.yc * round_factor).astype(np.int64)
@@ -2425,7 +2618,7 @@ class Drift_Correction_Functions:
             else:
                 hash_to_index[key] = i
 
-        # Find indices for fiducial localizations using hash lookup
+        # Find indices for fiducial localisations using hash lookup
         indices = []
 
         fid_frames = fiducial_locs.frame.astype(np.int32)
@@ -2526,7 +2719,7 @@ class Drift_Correction_Functions:
 
         Returns:
             Tuple containing:
-            - List of (y, x) coordinates of detected high-density region centers
+            - List of (y, x) coordinates of detected high-density region centres
             - Binary mask of detected regions
             - Threshold value used for detection
             - Metadata dictionary with detection statistics
@@ -2557,8 +2750,8 @@ class Drift_Correction_Functions:
 
         labeled_regions, n_regions = ndimage.label(binary_mask)
 
-        # Calculate region centers and properties
-        region_centers = []
+        # Calculate region centres and properties
+        region_centres = []
         region_stats = []
 
         for region_id in range(1, n_regions + 1):
@@ -2566,10 +2759,10 @@ class Drift_Correction_Functions:
             region_coords = np.where(region_mask)
 
             if len(region_coords[0]) > 0:
-                # Calculate center of mass
-                center_y = np.mean(region_coords[0])
-                center_x = np.mean(region_coords[1])
-                region_centers.append((int(center_y), int(center_x)))
+                # Calculate centre of mass
+                centre_y = np.mean(region_coords[0])
+                centre_x = np.mean(region_coords[1])
+                region_centres.append((int(centre_y), int(centre_x)))
 
                 # Calculate region statistics
                 region_area = np.sum(region_mask)
@@ -2578,7 +2771,7 @@ class Drift_Correction_Functions:
 
                 region_stats.append(
                     {
-                        "center": (center_y, center_x),
+                        "centre": (centre_y, centre_x),
                         "area_pixels": region_area,
                         "total_intensity": region_intensity,
                         "max_intensity": region_max_intensity,
@@ -2593,7 +2786,7 @@ class Drift_Correction_Functions:
             self._plot_density_detection_results(
                 smoothed_image,
                 binary_mask,
-                region_centers,
+                region_centres,
                 hist,
                 bin_edges,
                 threshold,
@@ -2617,16 +2810,16 @@ class Drift_Correction_Functions:
             "region_area_fraction": np.sum(binary_mask) / binary_mask.size,
         }
 
-        return region_centers, binary_mask, threshold, metadata
+        return region_centres, binary_mask, threshold, metadata
 
     def select_puncta_from_regions(
         self,
         locs: np.recarray,
-        region_centers: List[Tuple[int, int]],
+        region_centres: List[Tuple[int, int]],
         binary_mask: np.ndarray,
         pixelsize: float = 100.0,
         selection_box_size_nm: float = 600.0,
-        min_localizations_per_region: int = 10,
+        min_localisations_per_region: int = 10,
         output_figure_path: Optional[str] = None,
         title: str = "Puncta Selection from Regions",
         create_plot: bool = True,
@@ -2634,22 +2827,22 @@ class Drift_Correction_Functions:
         use_datashader_threshold: int = 1000,
         memory_optimize: bool = True,
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
-        """Select puncta (localizations) from detected high-density regions using postprocess.picked_locs.
+        """Select puncta (localisations) from detected high-density regions using postprocess.picked_locs.
 
         This function takes the output from detect_high_density_regions_from_image
-        and selects localizations within rectangular boxes around each detected region center
+        and selects localisations within rectangular boxes around each detected region centre
         to create potential fiducial candidates. Uses the optimized postprocess.picked_locs
         function with Rectangle shape, creating axis-aligned boxes by using diagonal picks
         with appropriate width parameters. Automatically enables parallelization for 8+ regions
         for improved performance on large datasets.
 
         Args:
-            locs: Localization data with xc, yc, frame fields
-            region_centers: List of (y, x) coordinates from density detection
+            locs: Localisation data with xc, yc, frame fields
+            region_centres: List of (y, x) coordinates from density detection
             binary_mask: Binary mask from density detection
             pixelsize: Pixel size in nm for coordinate conversion
-            selection_box_size_nm: Size of square selection box around each region center (nm)
-            min_localizations_per_region: Minimum number of localizations required for a valid region
+            selection_box_size_nm: Size of square selection box around each region centre (nm)
+            min_localisations_per_region: Minimum number of localisations required for a valid region
             output_figure_path: Optional path to save selection visualization
             title: Title for visualization plots
             create_plot: Whether to create visualization plots
@@ -2658,7 +2851,7 @@ class Drift_Correction_Functions:
 
         Returns:
             Tuple containing:
-            - List of localization arrays, one per valid region
+            - List of localisation arrays, one per valid region
             - Metadata dictionary with selection statistics
         """
 
@@ -2668,17 +2861,17 @@ class Drift_Correction_Functions:
                 "postprocess module not available - cannot use picked_locs function"
             )
 
-        # Handle empty region centers
-        if not region_centers:
+        # Handle empty region centres
+        if not region_centres:
             metadata = {
                 "n_regions_input": 0,
                 "n_regions_selected": 0,
                 "selection_criteria": {
-                    "min_localizations": min_localizations_per_region,
+                    "min_localisations": min_localisations_per_region,
                     "selection_box_size_nm": selection_box_size_nm,
                     "selection_box_size_pixels": 0.0,
                 },
-                "rejection_reasons": {"too_few_localizations": 0, "accepted": 0},
+                "rejection_reasons": {"too_few_localisations": 0, "accepted": 0},
                 "region_statistics": [],
             }
             return [], metadata
@@ -2690,10 +2883,10 @@ class Drift_Correction_Functions:
         # Create horizontal line picks for Rectangle shape (following existing pattern)
         # Rectangle implementation creates boxes around lines defined by two points
         picks = []
-        for center_y, center_x in region_centers:
-            # Create horizontal line through center - much simpler!
+        for centre_y, centre_x in region_centres:
+            # Create horizontal line through centre - much simpler!
             picks.append(
-                ((center_x - half_box, center_y), (center_x + half_box, center_y))
+                ((centre_x - half_box, centre_y), (centre_x + half_box, centre_y))
             )
 
         # Use postprocess.picked_locs with parallelization if we have 8+ picks
@@ -2717,7 +2910,7 @@ class Drift_Correction_Functions:
             del picks
             gc.collect()
 
-        # Filter results based on minimum localization count and build statistics
+        # Filter results based on minimum localisation count and build statistics
         selected_puncta = []
         region_stats = []
 
@@ -2727,21 +2920,21 @@ class Drift_Correction_Functions:
 
         # Memory-optimized processing: stream through regions, immediate filtering and cleanup
         rejected_count = 0
-        for region_id, (region_locs, (center_y, center_x)) in enumerate(
-            zip(picked_locs_arrays, region_centers)
+        for region_id, (region_locs, (centre_y, centre_x)) in enumerate(
+            zip(picked_locs_arrays, region_centres)
         ):
             n_locs = len(region_locs)
 
-            # Apply localization count filter FIRST (Option C: Lazy statistics)
-            if n_locs >= min_localizations_per_region:
+            # Apply localisation count filter FIRST (Option C: Lazy statistics)
+            if n_locs >= min_localisations_per_region:
                 selected_puncta.append(region_locs)
 
                 # Only calculate statistics for regions that passed the filter
                 region_stat = {
                     "region_id": region_id,
-                    "center_y": center_y,
-                    "center_x": center_x,
-                    "n_localizations": n_locs,
+                    "centre_y": centre_y,
+                    "centre_x": centre_x,
+                    "n_localisations": n_locs,
                     "mean_x": np.mean(region_locs.xc),
                     "mean_y": np.mean(region_locs.yc),
                     "std_x": np.std(region_locs.xc),
@@ -2751,10 +2944,10 @@ class Drift_Correction_Functions:
                     "selection_box_size_nm": selection_box_size_nm,
                     "selection_box_size_pixels": box_size_pixels,
                     "box_boundaries": {
-                        "x_min": center_x - half_box,
-                        "x_max": center_x + half_box,
-                        "y_min": center_y - half_box,
-                        "y_max": center_y + half_box,
+                        "x_min": centre_x - half_box,
+                        "x_max": centre_x + half_box,
+                        "y_min": centre_y - half_box,
+                        "y_max": centre_y + half_box,
                     },
                 }
 
@@ -2781,14 +2974,14 @@ class Drift_Correction_Functions:
         if memory_optimize:
             del picked_locs_arrays
             gc.collect()
-            print(f"Memory optimization: Freed intermediate arrays after region processing")
+            print(f"Memory optimisation: Freed intermediate arrays after region processing")
 
         # Create visualization if requested
         if create_plot:
             self._plot_puncta_selection_results(
                 locs,
                 selected_puncta,
-                region_centers,
+                region_centres,
                 binary_mask,
                 region_stats,
                 box_size_pixels,
@@ -2799,7 +2992,7 @@ class Drift_Correction_Functions:
                 use_datashader_threshold,
             )
 
-            # Memory optimization: clear plot data if requested
+            # Memory optimisation: clear plot data if requested
             if memory_optimize:
                 plt.close('all')  # Close all figure windows to free memory
                 gc.collect()
@@ -2808,22 +3001,22 @@ class Drift_Correction_Functions:
         total_locs_selected = sum(len(puncta) for puncta in selected_puncta)
 
         metadata = {
-            "n_regions_input": len(region_centers),
+            "n_regions_input": len(region_centres),
             "n_regions_selected": len(selected_puncta),
             "n_regions_rejected": rejected_count,
             "selection_rate": (
-                len(selected_puncta) / len(region_centers) if region_centers else 0
+                len(selected_puncta) / len(region_centres) if region_centres else 0
             ),
             "selection_criteria": {
-                "min_localizations": min_localizations_per_region,
+                "min_localisations": min_localisations_per_region,
                 "selection_box_size_nm": selection_box_size_nm,
                 "selection_box_size_pixels": box_size_pixels,
             },
             "region_statistics": region_stats,
-            "total_selected_localizations": total_locs_selected,
+            "total_selected_localisations": total_locs_selected,
             "memory_optimized": memory_optimize,
             "rejection_reasons": {
-                "too_few_localizations": rejected_count,
+                "too_few_localisations": rejected_count,
                 "accepted": len(selected_puncta),
             },
         }
@@ -2843,13 +3036,13 @@ class Drift_Correction_Functions:
     ) -> Tuple[List[np.recarray], Dict[str, Any]]:
         """Identify real fiducials from selected puncta using single Gaussian distribution fitting.
 
-        This function takes puncta (localizations) from select_puncta_from_regions
+        This function takes puncta (localisations) from select_puncta_from_regions
         and applies single Gaussian mixture fitting to identify real fiducial markers.
         It fits each region to a single 2D Gaussian and keeps a specified percentage
-        of points based on their distance from the Gaussian center.
+        of points based on their distance from the Gaussian centre.
 
         Args:
-            selected_puncta: List of localization arrays from select_puncta_from_regions
+            selected_puncta: List of localisation arrays from select_puncta_from_regions
             retention_percentage: Percentage of data to keep (0.0 to 1.0), default 0.9 (90%)
             min_samples_factor: Minimum samples factor for filtering regions
             frame_count: Total number of frames (for calculating min samples)
@@ -2860,7 +3053,7 @@ class Drift_Correction_Functions:
 
         Returns:
             Tuple containing:
-            - List of localization arrays for validated fiducials
+            - List of localisation arrays for validated fiducials
             - Metadata dictionary with Gaussian fitting statistics
         """
 
@@ -2881,7 +3074,7 @@ class Drift_Correction_Functions:
         for region_id, puncta_locs in enumerate(selected_puncta):
             n_locs = len(puncta_locs)
 
-            if n_locs < 10:  # Skip regions with too few localizations for clustering
+            if n_locs < 10:  # Skip regions with too few localisations for clustering
                 continue
 
             # Prepare data for Gaussian fitting
@@ -2917,7 +3110,7 @@ class Drift_Correction_Functions:
                 sigma_pixels = np.sqrt(np.mean(eigenvals))
                 sigma_nm = sigma_pixels * pixelsize
 
-                # Calculate radial distances from center
+                # Calculate radial distances from centre
                 dx = X[:, 0] - mean[0]
                 dy = X[:, 1] - mean[1]
                 radial_distances_pixels = np.sqrt(dx**2 + dy**2)
@@ -2933,7 +3126,7 @@ class Drift_Correction_Functions:
                 n_kept = np.sum(kept_mask)
 
                 if n_kept >= min_samples:
-                    # Extract validated localizations
+                    # Extract validated localisations
                     validated_locs = puncta_locs[kept_mask]
                     validated_fiducials.append(validated_locs)
 
@@ -2943,10 +3136,10 @@ class Drift_Correction_Functions:
                         "original_n_locs": n_locs,
                         "validated_n_locs": n_kept,
                         "retention_rate": n_kept / n_locs,
-                        "gaussian_center_x": mean[0],  # pixels
-                        "gaussian_center_y": mean[1],  # pixels
-                        "gaussian_center_x_nm": mean[0] * pixelsize,  # nm
-                        "gaussian_center_y_nm": mean[1] * pixelsize,  # nm
+                        "gaussian_centre_x": mean[0],  # pixels
+                        "gaussian_centre_y": mean[1],  # pixels
+                        "gaussian_centre_x_nm": mean[0] * pixelsize,  # nm
+                        "gaussian_centre_y_nm": mean[1] * pixelsize,  # nm
                         "gaussian_sigma_pixels": sigma_pixels,  # pixels
                         "gaussian_sigma_nm": sigma_nm,  # nm
                         "radial_threshold_pixels": r_threshold_pixels,  # pixels
@@ -3141,7 +3334,7 @@ class Drift_Correction_Functions:
         self,
         all_locs: np.recarray,
         selected_puncta: List[np.recarray],
-        region_centers: List[Tuple[int, int]],
+        region_centres: List[Tuple[int, int]],
         binary_mask: np.ndarray,
         region_stats: List[Dict[str, Any]],
         box_size_pixels: float,
@@ -3154,7 +3347,7 @@ class Drift_Correction_Functions:
         """Create visualization of puncta selection results."""
         if self.plotter is not None:
             self.plotter.plot_puncta_selection_results(
-                all_locs, selected_puncta, region_centers, binary_mask,
+                all_locs, selected_puncta, region_centres, binary_mask,
                 region_stats, box_size_pixels, pixelsize, output_figure_path,
                 title, plot_individual_regions, use_datashader_threshold
             )
@@ -3165,7 +3358,7 @@ class Drift_Correction_Functions:
         self,
         smoothed_image: np.ndarray,
         binary_mask: np.ndarray,
-        region_centers: List[Tuple[int, int]],
+        region_centres: List[Tuple[int, int]],
         hist: np.ndarray,
         bin_edges: np.ndarray,
         threshold: float,
@@ -3180,7 +3373,7 @@ class Drift_Correction_Functions:
         self._create_separate_plots(
             smoothed_image,
             binary_mask,
-            region_centers,
+            region_centres,
             hist,
             bin_edges,
             threshold,
@@ -3194,7 +3387,7 @@ class Drift_Correction_Functions:
         self,
         smoothed_image: np.ndarray,
         binary_mask: np.ndarray,
-        region_centers: List[Tuple[int, int]],
+        region_centres: List[Tuple[int, int]],
         hist: np.ndarray,
         bin_edges: np.ndarray,
         threshold: float,
@@ -3206,7 +3399,7 @@ class Drift_Correction_Functions:
         """Create separate detailed plots for density detection analysis."""
         if self.plotter is not None:
             self.plotter.create_separate_plots(
-                smoothed_image, binary_mask, region_centers, hist, bin_edges,
+                smoothed_image, binary_mask, region_centres, hist, bin_edges,
                 threshold, pixelsize, output_figure_path, title
             )
         else:
@@ -3277,6 +3470,82 @@ class Drift_Correction_Functions:
         else:
             print("⚠️ DriftPlotter not available, skipping individual clustering details plots")
 
+    def _filter_fiducials_fast(self, all_corrected_x, all_corrected_y, variance_threshold=3.0, rms_threshold=2.0):
+        """
+        Fast filtering of fiducial traces using variance ratio and RMS distance.
+
+        Parameters:
+        - all_corrected_x, all_corrected_y: [n_frames, n_fiducials] arrays
+        - variance_threshold: Remove if variance > threshold * median_variance
+        - rms_threshold: Remove if RMS > threshold * median_RMS
+        """
+        n_frames, n_fiducials = all_corrected_x.shape
+        valid_fiducials = np.ones(n_fiducials, dtype=bool)
+
+        # Step 1: Variance Ratio Filter (removes obviously noisy fiducials)
+        print("Filtering by variance ratio...", end='', flush=True)
+
+        x_variances = np.nanvar(all_corrected_x, axis=0)  # Variance for each fiducial
+        y_variances = np.nanvar(all_corrected_y, axis=0)
+        combined_variances = x_variances + y_variances  # Total variance per fiducial
+
+        # Find median of non-NaN variances
+        finite_variances = combined_variances[~np.isnan(combined_variances)]
+        if len(finite_variances) == 0:
+            print("No valid variances found")
+            return np.zeros(n_fiducials, dtype=bool), {}
+
+        median_variance = np.median(finite_variances)
+        threshold_variance = variance_threshold * median_variance
+
+        # Remove high-variance fiducials
+        variance_mask = combined_variances <= threshold_variance
+        n_removed_variance = np.sum(~variance_mask)
+        valid_fiducials &= variance_mask
+
+        print(f"\rRemoved {n_removed_variance} high-variance fiducials.    ", end='', flush=True)
+        print("\rFiltering by RMS distance...", end='', flush=True)
+
+        # Step 2: RMS Distance Filter (removes drifty fiducials)
+        rms_distances = np.sqrt(
+            np.nanmean(all_corrected_x ** 2 + all_corrected_y ** 2, axis=0)
+        )
+
+        # Find median RMS
+        finite_rms = rms_distances[~np.isnan(rms_distances)]
+        if len(finite_rms) == 0:
+            print("No valid RMS distances found")
+            return valid_fiducials, {
+                'n_variance_filtered': n_removed_variance,
+                'n_rms_filtered': 0,
+                'median_variance': median_variance,
+                'median_rms': np.nan
+            }
+
+        median_rms = np.median(finite_rms)
+        threshold_rms = rms_threshold * median_rms
+
+        # Remove high-RMS fiducials
+        rms_mask = rms_distances <= threshold_rms
+        n_removed_rms = np.sum(~rms_mask)
+        valid_fiducials &= rms_mask
+
+        print(f"\rRemoved {n_removed_rms} high-RMS fiducials.    ", end='', flush=True)
+
+        # Summary
+        n_total_removed = n_removed_variance + n_removed_rms
+        n_final = np.sum(valid_fiducials)
+        print(f"\rFinal: {n_final}/{n_fiducials} fiducials retained ({n_total_removed} removed)    ", flush=True)
+
+        return valid_fiducials, {
+            'n_variance_filtered': n_removed_variance,
+            'n_rms_filtered': n_removed_rms,
+            'median_variance': median_variance,
+            'median_rms': median_rms,
+            'variance_threshold_used': variance_threshold * median_variance,
+            'rms_threshold_used': rms_threshold * median_rms
+        }
+
     def apply_validated_fiducial_drift_correction(
         self,
         locs: np.recarray,
@@ -3294,7 +3563,7 @@ class Drift_Correction_Functions:
         Parameters
         ----------
         locs : np.recarray
-            Full localization dataset with fields: xc, yc, frame, and error fields
+            Full localisation dataset with fields: xc, yc, frame, and error fields
         validated_fiducials : List[np.recarray]
             List of validated fiducial clusters, each with fields: xc, yc, frame, and error fields
         x_err_field : str, default 'xc_err'
@@ -3305,7 +3574,7 @@ class Drift_Correction_Functions:
         Returns
         -------
         corrected_locs : np.recarray
-            Drift-corrected localizations with additional 'is_fiducial' field
+            Drift-corrected localisations with additional 'is_fiducial' field
         drift_info : Dict[str, np.ndarray]
             Dictionary containing:
             - 'frames': frame numbers with drift correction
@@ -3369,105 +3638,15 @@ class Drift_Correction_Functions:
                     all_fiducial_weights_x[frame_indices, i] = 1.0
                     all_fiducial_weights_y[frame_indices, i] = 1.0
             else:
-                print(f"\rWarning: Fiducial cluster {i} has multiple localizations in the same frame. Skipping this cluster.    ", end='', flush=True)
+                print(f"\rWarning: Fiducial cluster {i} has multiple localisations in the same frame. Skipping this cluster.    ", end='', flush=True)
                 continue
 
         # Check if we have any valid fiducials
         if np.all(np.isnan(all_corrected_x)):
             raise ValueError("No valid fiducials found after median subtraction")
 
-        # Filter fiducials using variance and RMS distance criteria
-        def filter_fiducials_fast(all_corrected_x, all_corrected_y, variance_threshold=3.0, rms_threshold=2.0):
-            """
-            Fast filtering of fiducial traces using variance ratio and RMS distance.
-
-            Parameters:
-            - all_corrected_x, all_corrected_y: [n_frames, n_fiducials] arrays
-            - variance_threshold: Remove if variance > threshold * median_variance
-            - rms_threshold: Remove if RMS > threshold * median_RMS
-            """
-            n_frames, n_fiducials = all_corrected_x.shape
-            valid_fiducials = np.ones(n_fiducials, dtype=bool)
-
-            # Step 1: Variance Ratio Filter (removes obviously noisy fiducials)
-            print("Filtering by variance ratio...", end='', flush=True)
-
-            x_variances = np.nanvar(all_corrected_x, axis=0)  # Variance for each fiducial
-            y_variances = np.nanvar(all_corrected_y, axis=0)
-            combined_variances = x_variances + y_variances  # Total variance per fiducial
-
-            # Remove fiducials with NaN variance (all NaN data)
-            nan_variance_mask = np.isnan(combined_variances)
-            valid_fiducials[nan_variance_mask] = False
-
-            # Calculate median variance from valid fiducials
-            valid_variances = combined_variances[~nan_variance_mask]
-            if len(valid_variances) == 0:
-                raise ValueError("No valid fiducials found")
-
-            median_variance = np.median(valid_variances)
-
-            # Remove high-variance fiducials
-            high_variance_mask = combined_variances > (variance_threshold * median_variance)
-            valid_fiducials[high_variance_mask] = False
-
-            n_removed_variance = np.sum(high_variance_mask)
-            print(f"\rRemoved {n_removed_variance} high-variance fiducials.    ", flush=True)
-
-            # Step 2: RMS Distance Filter (removes systematically different fiducials)
-            print("Filtering by RMS distance...", end='', flush=True)
-
-            # Calculate consensus drift using only remaining valid fiducials
-            valid_x = all_corrected_x[:, valid_fiducials]
-            valid_y = all_corrected_y[:, valid_fiducials]
-
-            consensus_drift_x = np.nanmean(valid_x, axis=1)  # [n_frames]
-            consensus_drift_y = np.nanmean(valid_y, axis=1)
-
-            # Calculate RMS distance from consensus for each remaining fiducial
-            rms_distances = np.zeros(n_fiducials)
-            rms_distances.fill(np.nan)
-
-            valid_indices = np.where(valid_fiducials)[0]
-            for i, fid_idx in enumerate(valid_indices):
-                fid_x = all_corrected_x[:, fid_idx]
-                fid_y = all_corrected_y[:, fid_idx]
-
-                # Calculate RMS distance (only for non-NaN frames)
-                valid_frames_rms = ~(np.isnan(fid_x) | np.isnan(fid_y))
-                if np.sum(valid_frames_rms) > 0:
-                    dx = fid_x[valid_frames_rms] - consensus_drift_x[valid_frames_rms]
-                    dy = fid_y[valid_frames_rms] - consensus_drift_y[valid_frames_rms]
-                    rms_distances[fid_idx] = np.sqrt(np.mean(dx**2 + dy**2))
-
-            # Remove fiducials with high RMS distance
-            valid_rms = rms_distances[valid_fiducials]
-            median_rms = np.nanmedian(valid_rms)
-
-            high_rms_mask = rms_distances > (rms_threshold * median_rms)
-            high_rms_mask[np.isnan(rms_distances)] = False  # Don't remove NaN RMS
-
-            valid_fiducials[high_rms_mask] = False
-            n_removed_rms = np.sum(high_rms_mask)
-
-            print(f"\rRemoved {n_removed_rms} high-RMS fiducials.    ", flush=True)
-
-            # Summary
-            n_final = np.sum(valid_fiducials)
-            n_total_removed = n_fiducials - n_final
-            print(f"Final: {n_final}/{n_fiducials} fiducials retained ({n_total_removed} removed)", flush=True)
-
-            return valid_fiducials, {
-                'n_variance_filtered': n_removed_variance,
-                'n_rms_filtered': n_removed_rms,
-                'median_variance': median_variance,
-                'median_rms': median_rms,
-                'variance_threshold_used': variance_threshold * median_variance,
-                'rms_threshold_used': rms_threshold * median_rms
-            }
-
-        # Apply the filtering
-        valid_fiducials, _ = filter_fiducials_fast(all_corrected_x, all_corrected_y)
+        # Apply the filtering using extracted helper method
+        valid_fiducials, _ = self._filter_fiducials_fast(all_corrected_x, all_corrected_y)
 
         # Apply the filter to all arrays
         all_corrected_x = all_corrected_x[:, valid_fiducials]
@@ -3501,7 +3680,7 @@ class Drift_Correction_Functions:
             valid_drift_y = np.array([valid_drift_y])
 
         # Step 3: Apply drift correction to full dataset
-        # Only keep localizations from frames where we have drift correction
+        # Only keep localisations from frames where we have drift correction
         frame_mask = np.isin(locs.frame, valid_frame_numbers)
         corrected_locs = locs[frame_mask].copy()
 
@@ -3526,7 +3705,7 @@ class Drift_Correction_Functions:
         for i in range(len(corrected_locs)):
             frame = corrected_locs[i].frame
 
-            # Check if this localization is a fiducial (before drift correction)
+            # Check if this localisation is a fiducial (before drift correction)
             original_pos = (corrected_locs[i].xc, corrected_locs[i].yc, frame)
             is_fiducial_flags[i] = original_pos in fiducial_positions
 
@@ -3536,7 +3715,12 @@ class Drift_Correction_Functions:
 
         # Add is_fiducial field efficiently using numpy.lib.recfunctions
         from numpy.lib import recfunctions as rfn
-        final_corrected_locs = rfn.append_fields(corrected_locs, 'is_fiducial', is_fiducial_flags, dtypes='?')
+
+        # Use append_fields with asrecarray=True to ensure we get a recarray, not MaskedArray
+        final_corrected_locs = rfn.append_fields(
+            corrected_locs, 'is_fiducial', is_fiducial_flags,
+            dtypes=bool, asrecarray=True, usemask=False
+        )
 
         # Prepare drift info dictionary
         drift_info = {
@@ -3546,7 +3730,7 @@ class Drift_Correction_Functions:
             'n_fiducials_per_frame': np.sum(~np.isnan(all_corrected_x), axis=1)[valid_frame_mask]
         }
 
-        print(f"Drift correction applied to {len(final_corrected_locs)} localizations")
+        print(f"Drift correction applied to {len(final_corrected_locs)} localisations")
         print(f"Used {len(valid_frame_numbers)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
         print(f"Average {np.mean(drift_info['n_fiducials_per_frame']):.1f} fiducials per frame")
 

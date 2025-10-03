@@ -14,19 +14,31 @@ panel labels are 8 point font, ticks are 7 point font,
 annotations and legends are 6 point font.
 """
 from typing import Optional, List, Tuple, Any, Union
-import matplotlib  # requires 3.8.0
-import matplotlib.pyplot as plt
-import matplotlib.ticker as plticker
-from matplotlib.ticker import MultipleLocator
-from matplotlib.animation import FuncAnimation, PillowWriter
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import numpy as np
-import sys
-import os
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+# Use centralised import management and base plotting classes
+from ImportManager import get_module, safe_import, is_available
+from PlottingBase import PublicationPlotter, PlottingConfig
+
+# Get modules through import manager
+matplotlib = get_module("matplotlib")
+plt = get_module("matplotlib.pyplot")
+
+# For backwards compatibility, keep direct imports but manage them centrally
+try:
+    import matplotlib.ticker as plticker
+    from matplotlib.ticker import MultipleLocator
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+except ImportError as e:
+    print(f"⚠️ Some matplotlib components not available: {e}")
+    plticker = None
+    MultipleLocator = None
+    FuncAnimation = None
+    PillowWriter = None
+    make_axes_locatable = None
+    AnchoredSizeBar = None
 
 
 class PlotConstants:
@@ -54,8 +66,12 @@ class PlotConstants:
     DEFAULT_GRID_LINE_WIDTH = 0.25
 
 
-class Plotter:
-    """A class for creating figure-quality plots with consistent styling."""
+class Plotter(PublicationPlotter):
+    """A class for creating figure-quality plots with consistent styling.
+
+    Now inherits from PublicationPlotter for enhanced functionality while
+    maintaining backwards compatibility with existing code.
+    """
 
     def __init__(self, poster: bool = False, dark_background: bool = False):
         """Initialize the Plotter class.
@@ -64,6 +80,10 @@ class Plotter:
             poster: Whether to use poster-style formatting (larger fonts/lines).
             dark_background: Whether to use dark background style.
         """
+        # Initialize base plotter with appropriate configuration
+        super().__init__(poster=poster, dark_background=dark_background)
+
+        # Maintain backwards compatibility
         self.poster = poster
         self.db = dark_background
 
@@ -747,7 +767,7 @@ class Plotter:
         return axs
 
     def _setup_colorbar(self, im, axs, cbarlabel: str, location: str = "right") -> None:
-        """Set up colorbar for plots.
+        """Set up colorbar for plots using consolidated base functionality.
 
         Args:
             im: Image object.
@@ -755,9 +775,11 @@ class Plotter:
             cbarlabel: Colorbar label.
             location: Colorbar location.
         """
+        # Use the base class colorbar functionality
+        cbar = self.add_colorbar(im, axs, label=cbarlabel, location=location)
+
+        # Apply custom font sizing for publication quality
         font_size = self._get_plot_font_size()
-        cbar = plt.colorbar(im, fraction=0.045, pad=0.02, ax=axs, location=location)
-        cbar.set_label(cbarlabel, rotation=90, labelpad=1, fontsize=font_size)
         cbar.ax.tick_params(labelsize=font_size - 1, pad=0.1, width=0.5, length=2)
 
     def contourf_plot(
@@ -824,7 +846,7 @@ class Plotter:
         labelcolor: str,
         location: str = "lower right",
     ) -> None:
-        """Set up scale bar for image plots.
+        """Set up scale bar for image plots using consolidated base functionality.
 
         Args:
             axs: Axes object.
@@ -834,18 +856,15 @@ class Plotter:
             labelcolor: Label color.
             location: Scale bar location.
         """
-        pixvals = scalebarsize / pixelsize
-        scalebar = AnchoredSizeBar(
-            axs.transData,
-            pixvals,
-            scalebarlabel,
-            location,
-            pad=0.1,
+        # Use the base class scalebar functionality
+        self.add_scalebar(
+            axs,
+            pixelsize=pixelsize,
+            length_nm=scalebarsize,
+            location=location,
             color=labelcolor,
-            frameon=False,
-            size_vertical=1,
+            label=scalebarlabel
         )
-        axs.add_artist(scalebar)
 
     def image_plot(
         self,
