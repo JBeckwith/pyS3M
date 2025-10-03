@@ -54,8 +54,8 @@ check_threshold_params() {
             echo "INFO: Using full format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware)"
             log_message "INFO: Full format detected (6 fields)"
         elif [ "$field_count" -eq 8 ]; then
-            echo "INFO: Using temporal median format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware|use_temporal_median|temporal_median_window)"
-            log_message "INFO: Temporal median format detected (8 fields)"
+            echo "INFO: Using temporal median mode format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware|temporal_median_mode|temporal_median_window)"
+            log_message "INFO: Temporal median mode format detected (8 fields)"
         else
             echo "WARNING: Unexpected format ($field_count fields)"
             log_message "WARNING: Unexpected format with $field_count fields"
@@ -70,13 +70,13 @@ check_threshold_params() {
 # Function to get threshold parameters for a folder
 get_threshold_params() {
     local folder_path="$1"
-    local default_pfa="1e-4"
+    local default_pfa="1e-3"
     local default_sigma="1.5"
-    local default_fraction_true="0.2"
+    local default_fraction_true="0.1"
     local default_wavelength="$2"
     local default_use_variance_aware="true"
-    local default_use_temporal_median="true"
-    local default_temporal_median_window="100"
+    local default_temporal_median_mode="1"  # 1=FITTING_ONLY
+    local default_temporal_median_window="500"
 
     # Look for exact match first
     local params_line=$(grep -v "^#" "$THRESHOLD_PARAMS_FILE" | grep "^$folder_path|" | head -1)
@@ -86,16 +86,16 @@ get_threshold_params() {
         local field_count=$(echo "$params_line" | tr '|' '\n' | wc -l)
 
         if [ "$field_count" -eq 8 ]; then
-            # Temporal median format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware|use_temporal_median|temporal_median_window
+            # Temporal median mode format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware|temporal_median_mode|temporal_median_window
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local sigma=$(echo "$params_line" | cut -d'|' -f3)
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
             local use_variance_aware=$(echo "$params_line" | cut -d'|' -f6)
-            local use_temporal_median=$(echo "$params_line" | cut -d'|' -f7)
+            local temporal_median_mode=$(echo "$params_line" | cut -d'|' -f7)
             local temporal_median_window=$(echo "$params_line" | cut -d'|' -f8)
-            echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $use_temporal_median $temporal_median_window"
-            log_message "Using temporal median parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median=$use_temporal_median, window=$temporal_median_window"
+            echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $temporal_median_mode $temporal_median_window"
+            log_message "Using temporal median mode parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median_mode=$temporal_median_mode, window=$temporal_median_window"
         elif [ "$field_count" -eq 6 ]; then
             # Full format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
@@ -103,31 +103,31 @@ get_threshold_params() {
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
             local use_variance_aware=$(echo "$params_line" | cut -d'|' -f6)
-            echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $default_use_temporal_median $default_temporal_median_window"
-            log_message "Using full parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median=$default_use_temporal_median (default), window=$default_temporal_median_window (default)"
+            echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $default_temporal_median_mode $default_temporal_median_window"
+            log_message "Using full parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median_mode=$default_temporal_median_mode (default), window=$default_temporal_median_window (default)"
         elif [ "$field_count" -eq 5 ]; then
             # Enhanced format: folder_path|pfa|sigma|fraction_true|wavelength
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local sigma=$(echo "$params_line" | cut -d'|' -f3)
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
-            echo "$pfa $sigma $fraction_true $wavelength $default_use_variance_aware $default_use_temporal_median $default_temporal_median_window"
-            log_message "Using enhanced parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$default_use_variance_aware (default), temporal_median=$default_use_temporal_median (default), window=$default_temporal_median_window (default)"
+            echo "$pfa $sigma $fraction_true $wavelength $default_use_variance_aware $default_temporal_median_mode $default_temporal_median_window"
+            log_message "Using enhanced parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$default_use_variance_aware (default), temporal_median_mode=$default_temporal_median_mode (default), window=$default_temporal_median_window (default)"
         elif [ "$field_count" -eq 4 ]; then
             # Legacy format: folder_path|pfa|perc_threshold|wavelength
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local perc_threshold=$(echo "$params_line" | cut -d'|' -f3)  # Ignored in new format
             local wavelength=$(echo "$params_line" | cut -d'|' -f4)
-            echo "$pfa $default_sigma $default_fraction_true $wavelength $default_use_variance_aware $default_use_temporal_median $default_temporal_median_window"
-            log_message "Using legacy parameters for $folder_path: pfa=$pfa, sigma=$default_sigma (default), fraction_true=$default_fraction_true (default), wavelength=$wavelength, variance_aware=$default_use_variance_aware (default), temporal_median=$default_use_temporal_median (default), window=$default_temporal_median_window (default)"
+            echo "$pfa $default_sigma $default_fraction_true $wavelength $default_use_variance_aware $default_temporal_median_mode $default_temporal_median_window"
+            log_message "Using legacy parameters for $folder_path: pfa=$pfa, sigma=$default_sigma (default), fraction_true=$default_fraction_true (default), wavelength=$wavelength, variance_aware=$default_use_variance_aware (default), temporal_median_mode=$default_temporal_median_mode (default), window=$default_temporal_median_window (default)"
         else
             # Invalid format, use defaults
-            echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware $default_use_temporal_median $default_temporal_median_window"
+            echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware $default_temporal_median_mode $default_temporal_median_window"
             log_message "Invalid parameter format for $folder_path, using defaults"
         fi
     else
         # Use defaults
-        echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware $default_use_temporal_median $default_temporal_median_window"
+        echo "$default_pfa $default_sigma $default_fraction_true $default_wavelength $default_use_variance_aware $default_temporal_median_mode $default_temporal_median_window"
         log_message "Using default parameters for $folder_path"
     fi
 }
@@ -487,8 +487,8 @@ process_folder() {
     local fraction_true="${threshold_params[2]}"
     local param_wavelength="${threshold_params[3]}"
     local use_variance_aware="${threshold_params[4]:-true}"
-    local use_temporal_median="${threshold_params[5]:-true}"
-    local temporal_median_window="${threshold_params[6]:-100}"
+    local temporal_median_mode="${threshold_params[5]:-1}"
+    local temporal_median_window="${threshold_params[6]:-500}"
 
     # Use parameter wavelength if available, fallback to passed wavelength
     if [ "$param_wavelength" != "$wavelength" ] && [ -n "$param_wavelength" ]; then
@@ -519,7 +519,7 @@ process_folder() {
         echo "Sigma: $sigma"
         echo "Fraction True: $fraction_true"
         echo "Variance-aware demosaicing: $use_variance_aware"
-        echo "Temporal median subtraction: $use_temporal_median"
+        echo "Temporal median mode: $temporal_median_mode (0=NONE, 1=FITTING_ONLY, 2=DETECTION_AND_FITTING)"
         echo "Temporal median window: $temporal_median_window frames"
         echo "Started: $(date)"
         echo "========================================"
@@ -602,8 +602,8 @@ process_folder() {
     export PYTHONHASHSEED=0
     export MALLOC_TRIM_THRESHOLD_=65536
 
-    # Use variance-aware demosaicing and temporal median settings from threshold parameters file
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "$use_variance_aware" "$use_temporal_median" "$temporal_median_window" >> "$LOG_FILE" 2>&1; then
+    # Use variance-aware demosaicing and temporal median mode settings from threshold parameters file
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "$use_variance_aware" "$temporal_median_mode" "$temporal_median_window" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis

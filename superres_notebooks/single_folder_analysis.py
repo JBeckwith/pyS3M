@@ -6,7 +6,7 @@ Processes one folder and exits - called by batch_analysis.sh for complete isolat
 Each invocation gets a fresh Python interpreter to prevent memory leaks.
 
 Usage:
-    python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <use_temporal_median> <temporal_median_window>
+    python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <temporal_median_mode> <temporal_median_window>
 
     type: 'sm' or 'imaging'
     scratch_folder_path: full path to scratch folder (for processing)
@@ -16,8 +16,8 @@ Usage:
     sigma: sigma parameter (e.g., 1.5)
     fraction_true: fraction true parameter (e.g., 0.2)
     use_variance_aware_demosaic: use variance-aware demosaicing (true/false)
-    use_temporal_median: use temporal median subtraction (true/false)
-    temporal_median_window: window size for temporal median (frames, e.g., 100)
+    temporal_median_mode: temporal median mode (0=NONE, 1=FITTING_ONLY, 2=DETECTION_AND_FITTING)
+    temporal_median_window: window size for temporal median (frames, e.g., 500)
 
 Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
 """
@@ -33,7 +33,7 @@ def main():
     # Check arguments - now expects 11 arguments (including script name) for temporal median support
     if len(sys.argv) != 11:
         print(
-            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <use_temporal_median> <temporal_median_window>"
+            "Usage: python3 single_folder_analysis.py <type> <scratch_folder_path> <original_folder_path> <wavelength> <pfa> <sigma> <fraction_true> <use_variance_aware_demosaic> <temporal_median_mode> <temporal_median_window>"
         )
         print("  type: 'sm' or 'imaging'")
         print("  scratch_folder_path: full path to scratch folder (for processing)")
@@ -43,7 +43,7 @@ def main():
         print("  sigma: sigma parameter (e.g., 1.5)")
         print("  fraction_true: fraction true parameter (e.g., 0.2)")
         print("  use_variance_aware_demosaic: use variance-aware demosaicing (true/false)")
-        print("  use_temporal_median: use temporal median subtraction (true/false)")
+        print("  temporal_median_mode: temporal median mode (0=NONE, 1=FITTING_ONLY, 2=DETECTION_AND_FITTING)")
         print("  temporal_median_window: window size for temporal median (frames)")
         sys.exit(1)
 
@@ -55,15 +55,19 @@ def main():
     sigma = float(sys.argv[6])
     fraction_true = float(sys.argv[7])
     use_variance_aware_demosaic = sys.argv[8].lower() in ('true', '1', 'yes', 'on')
-    use_temporal_median = sys.argv[9].lower() in ('true', '1', 'yes', 'on')
+    temporal_median_mode = int(sys.argv[9])  # 0=NONE, 1=FITTING_ONLY, 2=DETECTION_AND_FITTING
     temporal_median_window = int(sys.argv[10])
+
+    # Map mode to readable name
+    mode_names = {0: "NONE", 1: "FITTING_ONLY", 2: "DETECTION_AND_FITTING"}
+    mode_name = mode_names.get(temporal_median_mode, "UNKNOWN")
 
     print(
         f"Using threshold parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
     print(f"Variance-aware demosaicing: {use_variance_aware_demosaic}")
-    print(f"Temporal median subtraction: {use_temporal_median}")
-    if use_temporal_median:
+    print(f"Temporal median mode: {mode_name} ({temporal_median_mode})")
+    if temporal_median_mode != 0:
         print(f"Temporal median window: {temporal_median_window} frames")
 
     print(f"=== pyBayerSMLM Single Folder Analysis ===")
@@ -74,8 +78,8 @@ def main():
         f"Threshold Parameters: pfa={pfa}, sigma={sigma}, fraction_true={fraction_true}"
     )
     print(f"Use variance-aware demosaicing: {use_variance_aware_demosaic}")
-    print(f"Use temporal median: {use_temporal_median}")
-    if use_temporal_median:
+    print(f"Temporal median mode: {mode_name} ({temporal_median_mode})")
+    if temporal_median_mode != 0:
         print(f"Temporal median window: {temporal_median_window} frames")
     print(f"Started: {os.popen('date').read().strip()}")
     print()
@@ -139,6 +143,7 @@ def main():
         # Import modules (do this late to avoid import overhead for skipped folders)
         print("Importing modules...")
         import IOFunctions
+        from SR_Functions import TemporalMedianMode
 
         # Optimize TIFF reading performance with aggressive memory mapping
         print("Configuring memory-efficient TIFF reading...")
@@ -221,6 +226,9 @@ def main():
 
         print("Setup complete, starting analysis...")
 
+        # Convert temporal_median_mode integer to enum
+        temporal_median_mode_enum = TemporalMedianMode(temporal_median_mode)
+
         # Process data using SR_Functions
         SupRes_F = functions["SupRes_F"]
 
@@ -244,7 +252,7 @@ def main():
                 fraction_true=fraction_true,
                 image_type=".tif",
                 use_variance_aware_demosaic=use_variance_aware_demosaic,
-                use_temporal_median=use_temporal_median,
+                temporal_median_mode=temporal_median_mode_enum,
                 temporal_median_window=temporal_median_window,
             )
             print("SM data processing completed")
@@ -268,7 +276,7 @@ def main():
                 fraction_true=fraction_true,
                 image_type=".tif",
                 use_variance_aware_demosaic=use_variance_aware_demosaic,
-                use_temporal_median=use_temporal_median,
+                temporal_median_mode=temporal_median_mode_enum,
                 temporal_median_window=temporal_median_window,
             )
             print("Imaging data processing completed")
