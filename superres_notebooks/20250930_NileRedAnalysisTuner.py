@@ -220,9 +220,9 @@ class NileRedThresholdTuner:
         """Load frame stacks for temporal median preview.
 
         Returns a dict containing:
-        - 'stacks': List of 3 frame stacks (each stack has temporal_median_window frames)
+        - 'stacks': List of 3 frame stacks (each stack has temporal_median_window frames in photoelectrons)
         - 'test_frame_indices': List of 3 indices within each stack for the test frame
-        - 'display_frames': List of 3 frames to display (the middle frame of each stack)
+        - 'display_frames': List of 3 frames to display (the middle frame of each stack in photoelectrons)
         """
         tiff_files = self.find_tiff_files(folder_path)
 
@@ -233,12 +233,25 @@ class NileRedThresholdTuner:
         # Check for metadata files to get ROI information
         self.roi_info = self._get_roi_info(folder_path)
 
+        # Get camera calibration data for ADU to photoelectron conversion
+        camera_data_to_use = (
+            self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+            if self.roi_info and self.camera_data
+            else self.camera_data
+        )
+
+        if not camera_data_to_use:
+            print("Warning: No camera calibration data available for photoelectron conversion")
+            print("         Temporal median will be computed on raw ADU values")
+
         # Determine how many frames to load for each stack
         # Use the temporal median window (don't cap - user controls this)
         stack_size = temporal_median_window
         half_window = stack_size // 2
 
         print(f"Temporal median window: {temporal_median_window} frames (±{half_window} from center)")
+        if camera_data_to_use:
+            print("Converting frames to photoelectrons for temporal median computation")
 
         try:
             result = {
@@ -266,11 +279,23 @@ class NileRedThresholdTuner:
                         start_idx = max(0, center_idx - half_window)
                         end_idx = min(total_frames, center_idx + half_window)
 
-                        # Load the stack
+                        # Load the stack and convert to photoelectrons
                         stack_frames = []
                         for idx in range(start_idx, end_idx):
-                            frame = tif.pages[idx].asarray().astype(np.float64)
-                            stack_frames.append(frame)
+                            frame_adu = tif.pages[idx].asarray().astype(np.float32)
+
+                            # Convert to photoelectrons if camera data available
+                            if camera_data_to_use:
+                                frame_pe = self.iof.convert_to_photoelectrons(
+                                    frame_adu,
+                                    gain_map=camera_data_to_use["gain"],
+                                    offset_map=camera_data_to_use["offset"],
+                                    rqe=camera_data_to_use["rqe"]
+                                )
+                            else:
+                                frame_pe = frame_adu  # Use raw ADU if no calibration
+
+                            stack_frames.append(frame_pe)
 
                         if len(stack_frames) > 0:
                             # Index of the display frame within this stack
@@ -300,11 +325,23 @@ class NileRedThresholdTuner:
                         start_idx = max(0, center_idx - half_window)
                         end_idx = min(total_frames, center_idx + half_window)
 
-                        # Load the stack
+                        # Load the stack and convert to photoelectrons
                         stack_frames = []
                         for idx in range(start_idx, end_idx):
-                            frame = tif.pages[idx].asarray().astype(np.float64)
-                            stack_frames.append(frame)
+                            frame_adu = tif.pages[idx].asarray().astype(np.float32)
+
+                            # Convert to photoelectrons if camera data available
+                            if camera_data_to_use:
+                                frame_pe = self.iof.convert_to_photoelectrons(
+                                    frame_adu,
+                                    gain_map=camera_data_to_use["gain"],
+                                    offset_map=camera_data_to_use["offset"],
+                                    rqe=camera_data_to_use["rqe"]
+                                )
+                            else:
+                                frame_pe = frame_adu  # Use raw ADU if no calibration
+
+                            stack_frames.append(frame_pe)
 
                         if len(stack_frames) > 0:
                             # Index of the display frame within this stack
@@ -563,6 +600,7 @@ class NileRedThresholdTuner:
             masks_tofit = []
             relative_coords = []
 
+            skipped_rois = 0
             for i in range(len(detected_spots)):
                 result = self.srf._process_roi(
                     raw_frame,
@@ -588,6 +626,11 @@ class NileRedThresholdTuner:
                     weights_tofit.append(weights_roi)
                     masks_tofit.append(mask_roi)
                     relative_coords.append(coords)
+                else:
+                    skipped_rois += 1
+
+            if skipped_rois > 0:
+                print(f"  Skipped {skipped_rois} ROIs (edge/non-square)")
 
             # Fit all ROIs in parallel (much faster than one-by-one)
             if len(puncta_tofit) > 0:
@@ -614,6 +657,9 @@ class NileRedThresholdTuner:
 
         except Exception as e:
             print(f"Error in fitting detected spots: {e}")
+            print(f"  raw_frame shape: {raw_frame.shape}, dtype: {raw_frame.dtype}")
+            print(f"  Number of spots to fit: {len(detected_spots)}")
+            print(f"  ROI_size: {ROI_size}")
             import traceback
             traceback.print_exc()
             return np.array([])
@@ -1120,9 +1166,9 @@ class NileRedThresholdTuner:
                     start_idx = max(0, test_idx - half_window)
                     end_idx = min(len(stack), test_idx + half_window + 1)
                     window_frames = stack[start_idx:end_idx]
-                    temporal_median = np.median(window_frames, axis=0).astype(np.float64)
-                    median_subtracted = display_frame.astype(np.float64) - temporal_median
-                    median_subtracted = np.maximum(median_subtracted, 0)  # Clip negatives
+                    temporal_median = np.median(window_frames, axis=0).astype(np.float32)
+                    median_subtracted = display_frame.astype(np.float32) - temporal_median
+                    median_subtracted = np.maximum(median_subtracted, 0).astype(np.float32)  # Clip negatives and ensure float32
 
                     print(f"  Using {len(window_frames)} frames (indices {start_idx}-{end_idx-1}) for median")
 
