@@ -154,8 +154,9 @@ class extract_SMs:
             xmax = int(locations[0, i]) + int(image_size / 2)
             ymin = int(locations[1, i]) - int(image_size / 2)
             ymax = int(locations[1, i]) + int(image_size / 2)
+            # Extract ROI using correct indexing [frame, y, x]
             trace_matrix[i, :] = np.sum(
-                np.sum(image_stack[:, xmin:xmax, ymin:ymax], axis=-1), axis=-1
+                np.sum(image_stack[:, ymin:ymax, xmin:xmax], axis=-1), axis=-1
             )
             print(
                 "Summed trace {}/{}".format(i + 1, len(labels)),

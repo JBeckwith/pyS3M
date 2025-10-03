@@ -171,8 +171,10 @@ class SuperRes_Functions:
             tuple or None: (photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane)
                           Returns None if ROI is invalid (not square)
         """
-        xcentre = detected_puncta[i, 0]
-        ycentre = detected_puncta[i, 1]
+        # detected_puncta stores [row, col, frame] from np.where()
+        # row = y, col = x (confirmed by test_real_spot_detection.py)
+        ycentre = detected_puncta[i, 0]  # First index is row (y)
+        xcentre = detected_puncta[i, 1]  # Second index is col (x)
         frame = detected_puncta[i, 2] if is_multi_frame else 0
 
         # Calculate ROI boundaries
@@ -381,12 +383,12 @@ class SuperRes_Functions:
         )
         masks = np.dstack([masks[x] for x in masks.keys()])
 
-        # Slice calibration maps to ROI
-        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
-        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
-        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
-        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
-        variance = variance[start_x : start_x + width, start_y : start_y + height]
+        # Slice calibration maps to ROI using correct indexing [y, x]
+        gain_map = gain_map[start_y : start_y + height, start_x : start_x + width]
+        offset_map = offset_map[start_y : start_y + height, start_x : start_x + width]
+        read_noise = read_noise[start_y : start_y + height, start_x : start_x + width]
+        rqe = rqe[start_y : start_y + height, start_x : start_x + width]
+        variance = variance[start_y : start_y + height, start_x : start_x + width]
 
         # Prepare data based on temporal median mode
         raw_data_for_detection = raw_data
@@ -563,7 +565,8 @@ class SuperRes_Functions:
             im = plotter.create_image_plot(axs[0, 0], image_to_analyse,
                                           vmin=vmin_processed, vmax=vmax_processed,
                                           cmap='gray')
-            axs[0, 0].scatter(detected_puncta[:, 0], detected_puncta[:, 1],
+            # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
+            axs[0, 0].scatter(detected_puncta[:, 1], detected_puncta[:, 0],
                             s=s, c='red', marker='o', alpha=0.5)
             plotter.setup_axis(axs[0, 0], title="Detected Spots (Full Field)",
                              xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
@@ -591,7 +594,8 @@ class SuperRes_Functions:
             im = plotter.create_image_plot(axs[1, 0], image_to_analyse,
                                           vmin=vmin_processed, vmax=vmax_processed,
                                           cmap='gray')
-            axs[1, 0].scatter(detected_puncta[:, 0], detected_puncta[:, 1],
+            # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
+            axs[1, 0].scatter(detected_puncta[:, 1], detected_puncta[:, 0],
                             s=s * 5, c='red', marker='o', alpha=0.7)
             axs[1, 0].set_xlim(min_x, max_x)
             axs[1, 0].set_ylim(min_y, max_y)
@@ -710,12 +714,13 @@ class SuperRes_Functions:
                     fval = int(
                         frame - (1000 * (i + 1))
                     )  # frames are labelled for post-hoc analysis
-                    puncta_tofit.append(photoelectron_data[fval, xmin:xmax, ymin:ymax])
+                    # Extract ROIs using correct numpy indexing [row, col] = [y, x]
+                    puncta_tofit.append(photoelectron_data[fval, ymin:ymax, xmin:xmax])
                     smoothed_puncta_tofit.append(
-                        smoothed_data[fval, xmin:xmax, ymin:ymax]
+                        smoothed_data[fval, ymin:ymax, xmin:xmax]
                     )
-                    masks_tofit.append(masks[xmin:xmax, ymin:ymax, :])
-                    weights_tofit.append(weights[fval, xmin:xmax, ymin:ymax])
+                    masks_tofit.append(masks[ymin:ymax, xmin:xmax, :])
+                    weights_tofit.append(weights[fval, ymin:ymax, xmin:xmax])
                     relative_coords.append((xmin, ymin))
                     planes.append(frame)  # label
         del photoelectron_data, smoothed_data, weights, detected_puncta
@@ -808,11 +813,12 @@ class SuperRes_Functions:
             mosaic_unit=self.mosaic_unit,
         )
         masks = np.dstack([masks[x] for x in masks.keys()])
-        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
-        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
-        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
-        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
-        variance = variance[start_x : start_x + width, start_y : start_y + height]
+        # Slice calibration maps using correct indexing [y, x]
+        gain_map = gain_map[start_y : start_y + height, start_x : start_x + width]
+        offset_map = offset_map[start_y : start_y + height, start_x : start_x + width]
+        read_noise = read_noise[start_y : start_y + height, start_x : start_x + width]
+        rqe = rqe[start_y : start_y + height, start_x : start_x + width]
+        variance = variance[start_y : start_y + height, start_x : start_x + width]
 
         result_params = [
             "xc",
@@ -1166,11 +1172,12 @@ class SuperRes_Functions:
             mosaic_unit=self.mosaic_unit,
         )
         masks = np.dstack([masks[x] for x in masks.keys()])
-        gain_map = gain_map[start_x : start_x + width, start_y : start_y + height]
-        offset_map = offset_map[start_x : start_x + width, start_y : start_y + height]
-        read_noise = read_noise[start_x : start_x + width, start_y : start_y + height]
-        rqe = rqe[start_x : start_x + width, start_y : start_y + height]
-        variance = variance[start_x : start_x + width, start_y : start_y + height]
+        # Slice calibration maps using correct indexing [y, x]
+        gain_map = gain_map[start_y : start_y + height, start_x : start_x + width]
+        offset_map = offset_map[start_y : start_y + height, start_x : start_x + width]
+        read_noise = read_noise[start_y : start_y + height, start_x : start_x + width]
+        rqe = rqe[start_y : start_y + height, start_x : start_x + width]
+        variance = variance[start_y : start_y + height, start_x : start_x + width]
 
         result_params = [
             "xc",
