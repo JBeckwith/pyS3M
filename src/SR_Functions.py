@@ -127,12 +127,13 @@ class SuperRes_Functions:
         rqe=1.0,
         frame_offset=0,
         is_multi_frame=False,
+        raw_data_for_fitting=None,
     ):
         """
         Process a single detected ROI to extract photoelectron data, smoothed data, and weights.
 
         Args:
-            raw_data (np.ndarray): Full raw camera image data in ADU
+            raw_data (np.ndarray): Full raw camera image data in ADU (used for extraction)
             detected_puncta (np.ndarray): Array of detected puncta coordinates
             i (int): Index of current puncta to process
             width (int): Image width
@@ -146,6 +147,8 @@ class SuperRes_Functions:
             rqe (matrix or float): Relative quantum efficiency map
             frame_offset (int): Frame offset for plane labeling
             is_multi_frame (bool): Whether data has multiple frames
+            raw_data_for_fitting (np.ndarray): Optional separate raw data to use for fitting
+                (e.g., temporal median subtracted). If None, uses raw_data.
 
         Returns:
             tuple or None: (photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane)
@@ -165,15 +168,18 @@ class SuperRes_Functions:
         if xmax - xmin != ymax - ymin:
             return None
 
-        # Extract raw ROI
+        # Determine which data to use for fitting
+        data_for_fitting = raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
+
+        # Extract raw ROI for fitting
         if is_multi_frame:
             raw_roi = (
-                raw_data[frame, xmin:xmax, ymin:ymax]
-                if len(raw_data.shape) > 2
-                else raw_data[xmin:xmax, ymin:ymax]
+                data_for_fitting[frame, xmin:xmax, ymin:ymax]
+                if len(data_for_fitting.shape) > 2
+                else data_for_fitting[xmin:xmax, ymin:ymax]
             )
         else:
-            raw_roi = raw_data[xmin:xmax, ymin:ymax]
+            raw_roi = data_for_fitting[xmin:xmax, ymin:ymax]
 
         # Extract camera parameter ROIs for conversion
         gain_roi = (
@@ -269,8 +275,10 @@ class SuperRes_Functions:
             sigma (float): Gaussian sigma for detection (default: 1.5)
             fraction_true (float): Expected fraction of true spots (default: 0.2)
             use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default: True)
-            use_temporal_median (bool): Apply temporal median background subtraction (default: False)
-            temporal_median_window (int): Window for temporal median in frames (default: 100)
+            use_temporal_median (bool): Apply temporal median background subtraction for fitting only.
+                Spot detection uses original data. (default: False)
+            temporal_median_window (int): Window for temporal median in frames, centered on the current
+                frame (e.g., 100 frames = 50 before + 50 after). (default: 100)
             frame_index (int): Which frame to analyze (default: 1)
 
         Returns:
@@ -341,7 +349,8 @@ class SuperRes_Functions:
         rqe = rqe[start_x : start_x + width, start_y : start_y + height]
         variance = variance[start_x : start_x + width, start_y : start_y + height]
 
-        # Apply temporal median if requested
+        # Prepare data for fitting (may be temporal median subtracted)
+        raw_data_for_fitting = None
         if use_temporal_median:
             # Load surrounding frames for median calculation
             half_window = temporal_median_window // 2
@@ -361,8 +370,8 @@ class SuperRes_Functions:
             if frames_for_median.ndim == 2:
                 frames_for_median = frames_for_median[np.newaxis, :, :]
 
-            # Apply temporal median subtraction
-            print(f"Applying temporal median subtraction (window={temporal_median_window}, frames={len(frame_range)})")
+            # Apply temporal median subtraction for fitting only
+            print(f"Applying temporal median subtraction for fitting (window={temporal_median_window}, frames={len(frame_range)})")
             median_subtracted = self._compute_temporal_median(
                 frames_for_median,
                 median_window=temporal_median_window,
@@ -371,14 +380,13 @@ class SuperRes_Functions:
 
             # Extract the requested frame from median-subtracted stack
             frame_offset_in_stack = frame_index - start_frame
-            raw_data = median_subtracted[frame_offset_in_stack]
+            raw_data_for_fitting = median_subtracted[frame_offset_in_stack]
 
             # Cleanup
             del frames_for_median, median_subtracted
             gc.collect()
 
-        # Choose demosaicing method based on parameter
-        # Demosaic the raw Bayer image
+        # Demosaic the raw Bayer image for detection (use original data)
         image_to_analyse = self._demosaic_image(
             raw_data,
             use_variance_aware=use_variance_aware_demosaic,
@@ -401,6 +409,7 @@ class SuperRes_Functions:
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
+        # Detection uses original data, fitting uses temporal median subtracted if enabled
         for i in np.arange(len(detected_puncta)):
             result = self._process_roi(
                 raw_data,
@@ -417,6 +426,7 @@ class SuperRes_Functions:
                 rqe=rqe,
                 frame_offset=0,
                 is_multi_frame=False,
+                raw_data_for_fitting=raw_data_for_fitting,
             )
 
             if result is None:
@@ -1077,12 +1087,15 @@ class SuperRes_Functions:
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
-            use_temporal_median (bool): Whether to apply temporal median subtraction before spot detection
-                and fitting. If True, computes moving temporal median to remove slowly varying background.
+            use_temporal_median (bool): Whether to apply temporal median subtraction for fitting only.
+                If True, computes moving temporal median to remove slowly varying background from the
+                data used for fitting, while spot detection uses the original unprocessed data.
                 (default: False)
             temporal_median_window (int): Window size (in frames) for temporal median calculation.
-                Only used if use_temporal_median=True. Larger windows better remove slow drift but
-                require more memory. (default: 100)
+                Only used if use_temporal_median=True. The median is centered on each frame (e.g., for
+                frame N with window=100, uses 50 frames before and 50 frames after). Larger windows
+                better remove slow drift but require more memory. Can load frames across file boundaries.
+                (default: 100)
 
         Returns:
             None: Writes results to HDF5 file in image_folder/Localisations.h5
@@ -1165,14 +1178,15 @@ class SuperRes_Functions:
 
                 print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
-                # Load chunk of raw data
-                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+                # Load chunk of raw data for detection
+                raw_data_for_detection = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
 
                 # Ensure raw_data is 3D even for single frame chunks
-                if raw_data.ndim == 2:
-                    raw_data = raw_data[np.newaxis, :, :]
+                if raw_data_for_detection.ndim == 2:
+                    raw_data_for_detection = raw_data_for_detection[np.newaxis, :, :]
 
-                # Load buffer frames for temporal median if needed
+                # Prepare data for fitting (may be temporal median subtracted)
+                raw_data_for_fitting = None
                 buffer_data = None
                 if use_temporal_median:
                     half_window = temporal_median_window // 2
@@ -1199,17 +1213,17 @@ class SuperRes_Functions:
                             if buffer_data.ndim == 2:
                                 buffer_data = buffer_data[np.newaxis, :, :]
 
-                    # Apply temporal median subtraction to raw data
-                    print(f"    Applying temporal median subtraction (window={temporal_median_window})")
-                    raw_data = self._compute_temporal_median(
-                        raw_data,
+                    # Apply temporal median subtraction for fitting data only
+                    print(f"    Applying temporal median subtraction for fitting (window={temporal_median_window})")
+                    raw_data_for_fitting = self._compute_temporal_median(
+                        raw_data_for_detection,
                         median_window=temporal_median_window,
                         buffer_frames=buffer_data
                     )
 
-                # Demosaic the raw Bayer image
+                # Demosaic the raw Bayer image for detection (use original data)
                 image_to_analyse = self._demosaic_image(
-                    raw_data,
+                    raw_data_for_detection,
                     use_variance_aware=use_variance_aware_demosaic,
                     gain_map=gain_map,
                     offset_map=offset_map,
@@ -1227,10 +1241,11 @@ class SuperRes_Functions:
                     fraction_true=fraction_true,
                 )
 
-                # Process ROIs for this chunk (keep original frame indices for raw_data access)
+                # Process ROIs for this chunk
+                # Detection uses original data, fitting uses temporal median subtracted if enabled
                 for i in np.arange(len(detected_puncta)):
                     result = self._process_roi(
-                        raw_data,
+                        raw_data_for_detection,
                         detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
                         i,
                         width,
@@ -1245,6 +1260,7 @@ class SuperRes_Functions:
                         frame_offset=total_frames
                         + chunk_start,  # Global frame offset including chunk
                         is_multi_frame=True,
+                        raw_data_for_fitting=raw_data_for_fitting,
                     )
 
                     if result is None:
@@ -1269,8 +1285,10 @@ class SuperRes_Functions:
                     all_planes.append(plane)
 
                 # Clean up chunk data
-                del raw_data, detected_puncta, image_to_analyse
-                if 'buffer_data' in locals() and buffer_data is not None:
+                del raw_data_for_detection, detected_puncta, image_to_analyse
+                if raw_data_for_fitting is not None:
+                    del raw_data_for_fitting
+                if buffer_data is not None:
                     del buffer_data
                 gc.collect()
 

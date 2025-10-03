@@ -41,6 +41,9 @@ try:
     from PlottingFunctions import Plotter
     from HelperFunctions import Helper_Functions
     from sCMOSFunctions import sCMOS_Functions
+    from SR_Functions import SuperRes_Functions
+    from ImageAnalysisFunctions import Image_Analysis_Functions
+    from MaskFunctions import Mask_Functions
     import matplotlib
 
     # Try to use interactive backend, fall back gracefully
@@ -77,6 +80,9 @@ class NileRedThresholdTuner:
         self.pf = Plotter()
         self.hf = Helper_Functions()
         self.scmos = sCMOS_Functions()
+        self.srf = SuperRes_Functions()
+        self.iaf = Image_Analysis_Functions()
+        self.mf = Mask_Functions()
 
         # Default parameters optimized for Nile Red staining
         self.default_pfa = 1e-4
@@ -493,6 +499,109 @@ class NileRedThresholdTuner:
             traceback.print_exc()
             return np.array([]), 0, frame_stack[test_frame_index]
 
+    def fit_detected_spots(
+        self,
+        raw_frame: np.ndarray,
+        detected_spots: np.ndarray,
+        smoothing_function=None,
+        ROI_size: int = 12,
+    ) -> np.ndarray:
+        """Fit detected spots using ROI extraction and fitting.
+
+        Args:
+            raw_frame: Raw frame data (2D)
+            detected_spots: Detected spot coordinates (Nx2 or Nx3 array)
+            smoothing_function: Optional smoothing function
+            ROI_size: Size of ROI to extract around each spot
+
+        Returns:
+            Array of fitted spot coordinates (x, y) or empty array if no fits succeed
+        """
+        if len(detected_spots) == 0:
+            return np.array([])
+
+        try:
+            # Get camera data cropped to ROI if available
+            camera_data_to_use = (
+                self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+                if self.roi_info and self.camera_data
+                else self.camera_data
+            )
+
+            # Create masks for the ROI
+            height, width = raw_frame.shape
+            if self.roi_info:
+                masks = self.mf.get_ROI_mask(
+                    ROI_x_start=self.roi_info["start_x"],
+                    ROI_y_start=self.roi_info["start_y"],
+                    width=self.roi_info["width"],
+                    height=self.roi_info["height"],
+                    mosaic_unit=np.array([["B", "G"], ["G", "R"]])
+                )
+            else:
+                masks = self.mf.get_ROI_mask(
+                    ROI_x_start=0,
+                    ROI_y_start=0,
+                    width=width,
+                    height=height,
+                    mosaic_unit=np.array([["B", "G"], ["G", "R"]])
+                )
+            masks = np.dstack([masks[x] for x in masks.keys()])
+
+            # Get calibration maps
+            gain_map = camera_data_to_use.get("gain", 1.0) if camera_data_to_use else 1.0
+            offset_map = camera_data_to_use.get("offset", 0.0) if camera_data_to_use else 0.0
+            rqe = camera_data_to_use.get("rqe", 1.0) if camera_data_to_use else 1.0
+            read_noise = camera_data_to_use.get("readnoise", 1.6) if camera_data_to_use else 1.6
+
+            # Process each detected spot
+            fitted_coords = []
+            for i in range(len(detected_spots)):
+                result = self.srf._process_roi(
+                    raw_frame,
+                    detected_spots,
+                    i,
+                    width,
+                    height,
+                    ROI_size,
+                    smoothing_function,
+                    read_noise,
+                    masks,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    rqe=rqe,
+                    frame_offset=0,
+                    is_multi_frame=False,
+                )
+
+                if result is not None:
+                    photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, _ = result
+
+                    # Fit this single ROI
+                    from ImageAnalysisFunctions import FittingStrategy
+                    fit_results, _ = self.iaf.fit_puncta_parallel_method(
+                        [photoelectron_roi],
+                        [smoothed_roi],
+                        [weights_roi],
+                        [coords],
+                        [0],
+                        FittingStrategy.STANDARD,
+                        masks=[mask_roi],
+                    )
+
+                    if len(fit_results) > 0:
+                        # Extract x, y coordinates from fit result
+                        xc, yc = fit_results[0][0], fit_results[0][1]  # xc, yc are first two columns
+                        fitted_coords.append([xc, yc])
+
+            return np.array(fitted_coords) if fitted_coords else np.array([])
+
+        except Exception as e:
+            print(f"Error in fitting detected spots: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.array([])
+
     def test_spot_detection(
         self,
         image: np.ndarray,
@@ -771,6 +880,149 @@ class NileRedThresholdTuner:
             print(f"📸 Multi-frame detection preview saved: {filename}")
             return filename
 
+    def plot_detection_and_fitting_results(
+        self,
+        detection_frames: List[np.ndarray],
+        fitting_frames: List[np.ndarray],
+        detection_results: List[Tuple[np.ndarray, int]],
+        fitting_results: List[np.ndarray],
+        pfa: float,
+        sigma: float,
+        fraction_true: float,
+        folder_name: str,
+        use_temporal_median: bool,
+    ):
+        """Plot detection and fitting results in two separate windows.
+
+        Args:
+            detection_frames: Frames used for detection (original/demosaiced)
+            fitting_frames: Frames used for fitting (median-subtracted or original)
+            detection_results: List of (detected_spots, num_spots) tuples
+            fitting_results: List of fitted spot coordinates arrays
+            pfa, sigma, fraction_true: Detection parameters
+            folder_name: Name of folder being processed
+            use_temporal_median: Whether temporal median was used
+
+        Returns:
+            Tuple of (detection_fig, fitting_fig) or filenames if not interactive
+        """
+        global INTERACTIVE_DISPLAY
+
+        # Create figure 1: Detection results
+        fig1, axs1 = self.pf.one_column_plot(npanels=3, ratios=[1, 1, 1], height=15)
+        if not isinstance(axs1, (list, np.ndarray)):
+            axs1 = [axs1]
+
+        frame_labels = ["Frame 1", "Frame 10", "Frame 20"]
+        total_detected = sum(num_spots for _, num_spots in detection_results)
+
+        for i, (frame, (spots, num_spots)) in enumerate(zip(detection_frames, detection_results)):
+            if i >= len(axs1):
+                break
+
+            if len(spots) > 0:
+                self.pf.image_scatter_plot(
+                    axs=axs1[i],
+                    data=frame,
+                    xdata=spots[:, 0],
+                    ydata=spots[:, 1],
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    s=30,
+                    scattercolor="red",
+                    cmap="gist_gray",
+                    cbar="off",
+                    scatteralpha=0.8,
+                )
+            else:
+                self.pf.image_plot(
+                    axs=axs1[i],
+                    data=frame,
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    cmap="gist_gray",
+                    cbar="off",
+                )
+            axs1[i].set_title(f"{frame_labels[i]} - {num_spots} spots detected")
+            axs1[i].axis("off")
+
+        fig1.suptitle(
+            f"{os.path.basename(folder_name)} - DETECTION\n"
+            f"Total detected: {total_detected} spots | PFA: {pfa:.0e}, σ: {sigma}, fraction_true: {fraction_true}",
+            fontsize=14,
+            y=0.98,
+        )
+
+        # Create figure 2: Fitting results
+        fig2, axs2 = self.pf.one_column_plot(npanels=3, ratios=[1, 1, 1], height=15)
+        if not isinstance(axs2, (list, np.ndarray)):
+            axs2 = [axs2]
+
+        total_fitted = sum(len(fitted) for fitted in fitting_results)
+        data_type = "Temporal Median Subtracted" if use_temporal_median else "Original"
+
+        for i, (frame, fitted_spots) in enumerate(zip(fitting_frames, fitting_results)):
+            if i >= len(axs2):
+                break
+
+            if len(fitted_spots) > 0:
+                self.pf.image_scatter_plot(
+                    axs=axs2[i],
+                    data=frame,
+                    xdata=fitted_spots[:, 0],
+                    ydata=fitted_spots[:, 1],
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    s=30,
+                    scattercolor="lime",
+                    cmap="gist_gray",
+                    cbar="off",
+                    scatteralpha=0.8,
+                )
+            else:
+                self.pf.image_plot(
+                    axs=axs2[i],
+                    data=frame,
+                    vmin=float(np.percentile(frame, 1)),
+                    vmax=float(np.percentile(frame, 99)),
+                    cmap="gist_gray",
+                    cbar="off",
+                )
+            axs2[i].set_title(f"{frame_labels[i]} - {len(fitted_spots)} spots fitted")
+            axs2[i].axis("off")
+
+        fig2.suptitle(
+            f"{os.path.basename(folder_name)} - FITTING ({data_type})\n"
+            f"Total fitted: {total_fitted} spots",
+            fontsize=14,
+            y=0.98,
+        )
+
+        if INTERACTIVE_DISPLAY:
+            plt.figure(fig1.number)
+            plt.tight_layout()
+            plt.show(block=False)
+            plt.figure(fig2.number)
+            plt.tight_layout()
+            plt.show(block=False)
+            return (fig1, fig2)
+        else:
+            safe_name = os.path.basename(folder_name).replace(" ", "_").replace("/", "_")
+            filename1 = f"nile_red_detection_{safe_name}.png"
+            filename2 = f"nile_red_fitting_{safe_name}.png"
+
+            fig1.tight_layout()
+            fig1.savefig(filename1, dpi=300, bbox_inches="tight")
+            plt.close(fig1)
+            print(f"📸 Detection preview saved: {filename1}")
+
+            fig2.tight_layout()
+            fig2.savefig(filename2, dpi=300, bbox_inches="tight")
+            plt.close(fig2)
+            print(f"📸 Fitting preview saved: {filename2}")
+
+            return (filename1, filename2)
+
     def interactive_parameter_tuning(
         self, folder_path: str, folder_type: str, default_wavelength: float
     ) -> Union[Dict, None, str]:
@@ -835,34 +1087,45 @@ class NileRedThresholdTuner:
                     return None
 
             # Test current parameters on all frames
+            detection_results = []
+            detection_frames_for_plot = []
+            fitting_frames_for_plot = []
+            original_frames_for_fitting = []
+
             if current_use_temporal_median and frame_stack_data is not None:
-                # Use temporal median-aware detection
-                detection_results = []
-                frames_to_display = []
+                # Use temporal median-aware detection and fitting
+                print("\nPerforming detection and fitting with temporal median...")
 
                 for i, (stack, test_idx, display_frame) in enumerate(zip(
                     frame_stack_data['stacks'],
                     frame_stack_data['test_frame_indices'],
                     frame_stack_data['display_frames']
                 )):
-                    print(f"Processing stack {i+1}/3 with temporal median...")
-                    spots, num_spots, processed_frame = self.test_spot_detection_with_temporal_median(
-                        stack,
-                        test_idx,
+                    print(f"Processing stack {i+1}/3...")
+                    # Detection on original data
+                    spots, num_spots = self.test_spot_detection(
+                        display_frame,
                         current_pfa,
                         current_sigma,
                         current_fraction_true,
                         current_wavelength,
                         current_use_variance_aware,
-                        current_temporal_median_window,
                     )
                     detection_results.append((spots, num_spots))
-                    frames_to_display.append(processed_frame)
+                    detection_frames_for_plot.append(display_frame)
 
-                # Use processed frames for display
-                frames_for_plot = frames_to_display
+                    # For fitting: compute temporal median subtracted data
+                    print(f"  Computing temporal median for fitting...")
+                    temporal_median = np.median(stack, axis=0).astype(np.float64)
+                    median_subtracted = display_frame.astype(np.float64) - temporal_median
+                    median_subtracted = np.maximum(median_subtracted, 0)  # Clip negatives
+
+                    fitting_frames_for_plot.append(median_subtracted)
+                    original_frames_for_fitting.append(display_frame)
+
             else:
                 # Use regular detection without temporal median
+                print("\nPerforming detection and fitting without temporal median...")
                 detection_results = self.test_spot_detection_multi_frame(
                     frames,
                     current_pfa,
@@ -871,23 +1134,56 @@ class NileRedThresholdTuner:
                     current_wavelength,
                     current_use_variance_aware,
                 )
-                frames_for_plot = frames
+                detection_frames_for_plot = frames
+                fitting_frames_for_plot = frames  # Same as detection frames
+                original_frames_for_fitting = frames
 
-            # Calculate total spots across all frames
-            total_spots = sum(num_spots for _, num_spots in detection_results)
-
-            # Close previous plot if interactive mode
-            if INTERACTIVE_DISPLAY and fig_or_file is not None:
-                plt.close(fig_or_file)
-
-            # Plot results using multi-frame display
-            fig_or_file = self.plot_detection_results_multi_frame(
-                frames_for_plot,
+            # Perform fitting on detected spots
+            print("\nFitting detected spots...")
+            fitting_results = []
+            for i, ((spots, num_spots), orig_frame, fit_frame) in enumerate(zip(
                 detection_results,
+                original_frames_for_fitting,
+                fitting_frames_for_plot
+            )):
+                print(f"  Fitting frame {i+1}/3 ({num_spots} spots)...")
+                if num_spots > 0:
+                    # Fit on the appropriate data (median-subtracted if enabled, otherwise original)
+                    fitted_coords = self.fit_detected_spots(
+                        fit_frame if current_use_temporal_median else orig_frame,
+                        spots,
+                        smoothing_function=None,
+                        ROI_size=12,
+                    )
+                    fitting_results.append(fitted_coords)
+                    print(f"    Successfully fitted {len(fitted_coords)}/{num_spots} spots")
+                else:
+                    fitting_results.append(np.array([]))
+
+            # Calculate total spots
+            total_detected = sum(num_spots for _, num_spots in detection_results)
+            total_fitted = sum(len(fitted) for fitted in fitting_results)
+
+            # Close previous plots if interactive mode
+            if INTERACTIVE_DISPLAY and fig_or_file is not None:
+                if isinstance(fig_or_file, tuple):
+                    for fig in fig_or_file:
+                        if fig is not None:
+                            plt.close(fig)
+                else:
+                    plt.close(fig_or_file)
+
+            # Plot results using dual window display
+            fig_or_file = self.plot_detection_and_fitting_results(
+                detection_frames_for_plot,
+                fitting_frames_for_plot,
+                detection_results,
+                fitting_results,
                 current_pfa,
                 current_sigma,
                 current_fraction_true,
                 folder_name,
+                current_use_temporal_median,
             )
 
             variance_aware_status = "enabled" if current_use_variance_aware else "disabled"
@@ -901,7 +1197,9 @@ class NileRedThresholdTuner:
             print(f"  Temporal median: {temporal_median_status}")
             if current_use_temporal_median:
                 print(f"  Temporal median window: {current_temporal_median_window} frames")
-            print(f"  Detected spots: {total_spots} (across 3 frames)")
+            print(f"\nResults:")
+            print(f"  Detected spots: {total_detected} (across 3 frames)")
+            print(f"  Fitted spots: {total_fitted} (across 3 frames)")
 
             print(f"\nOptions:")
             print(f"  1. Adjust PFA (current: {current_pfa:.0e})")
