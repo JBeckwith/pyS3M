@@ -401,11 +401,12 @@ class IO_Functions:
         key = np.sort([x for x in data.keys() if "FrameKey" in x])[0]
         metadatadict = data[key]
         ROI = metadatadict["ROI"].split("-")
-        # ROI format from ImageJ is: top-left-height-width (y-x-height-width)
-        y_coord = int(ROI[0])
-        x_coord = int(ROI[1])
-        height = int(ROI[2])
-        width = int(ROI[3])
+        # ROI format from ImageJ/MicroManager is: y-x-width-height
+        # Example: "728-456-904-812" means y=728, x=456, width=904, height=812
+        y_coord = int(ROI[0])  # top (row start)
+        x_coord = int(ROI[1])  # left (column start)
+        width = int(ROI[2])    # extent in x-direction (columns)
+        height = int(ROI[3])   # extent in y-direction (rows)
         return x_coord, y_coord, width, height
 
     def metadata_nframes_reader_imageJ(self, filename):

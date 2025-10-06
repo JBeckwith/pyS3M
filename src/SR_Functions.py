@@ -1060,8 +1060,8 @@ class SuperRes_Functions:
     ) -> np.ndarray:
         """Compute moving temporal median for background subtraction.
 
-        Computes a moving temporal median over a specified window to remove
-        slowly varying background. Handles edge cases at chunk boundaries.
+        Uses scipy median_filter for efficient rolling median computation along
+        the temporal axis.
 
         Args:
             frames: 3D array of frames (n_frames, height, width)
@@ -1076,40 +1076,29 @@ class SuperRes_Functions:
             >>> cleaned = _compute_temporal_median(chunk_frames, median_window=100,
             ...                                   buffer_frames=next_chunk_frames[:100])
         """
+        from scipy.ndimage import median_filter
+
         n_frames, height, width = frames.shape
-        median_subtracted = np.zeros_like(frames, dtype=np.float32)
 
-        # Calculate half window for centered median
-        half_window = median_window // 2
+        # Concatenate with buffer if provided for proper edge handling
+        if buffer_frames is not None and len(buffer_frames) > 0:
+            extended_frames = np.concatenate([frames, buffer_frames], axis=0)
+        else:
+            extended_frames = frames
 
-        for i in range(n_frames):
-            # Determine window bounds
-            start_idx = max(0, i - half_window)
-            end_idx = min(n_frames, i + half_window + 1)
+        # Apply 1D median filter along temporal axis (axis=0)
+        # This computes the proper rolling median at each timepoint
+        temporal_medians = median_filter(
+            extended_frames,
+            size=(median_window, 1, 1),  # Filter only along time axis
+            mode='nearest'
+        )
 
-            # Check if we need buffer frames for the end
-            if buffer_frames is not None and i + half_window >= n_frames:
-                # Need frames from buffer
-                n_needed = (i + half_window + 1) - n_frames
-                n_available = min(n_needed, len(buffer_frames))
+        # Extract the medians corresponding to our frames (not buffer)
+        temporal_medians = temporal_medians[:n_frames]
 
-                if n_available > 0:
-                    # Concatenate current chunk frames with buffer
-                    window_frames = np.concatenate(
-                        [frames[start_idx:], buffer_frames[:n_available]], axis=0
-                    )
-                else:
-                    # No buffer available, use what we have
-                    window_frames = frames[start_idx:end_idx]
-            else:
-                # Normal case - window entirely within current chunk
-                window_frames = frames[start_idx:end_idx]
-
-            # Compute median along temporal axis
-            temporal_median = np.median(window_frames, axis=0)
-
-            # Subtract median from current frame
-            median_subtracted[i] = frames[i] - temporal_median
+        # Subtract median from original frames
+        median_subtracted = frames - temporal_medians
 
         return median_subtracted
 
@@ -1215,9 +1204,6 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=False
         )
 
-        print(f"DEBUG: ROI from metadata - start_x={start_x}, start_y={start_y}, width={width}, height={height}")
-        print(f"DEBUG: Full calibration map shapes - gain: {gain_map.shape}, offset: {offset_map.shape}, variance: {variance.shape}")
-
         fit_savename = os.path.join(image_folder, "Localisations.h5")
         masks = self.mask.get_stacked_masks(start_x, start_y, width, height, self.mosaic_unit)
         # Crop calibration maps to ROI
@@ -1225,7 +1211,6 @@ class SuperRes_Functions:
             {"gain_map": gain_map, "offset_map": offset_map, "read_noise": read_noise, "rqe": rqe, "variance": variance},
             start_x, start_y, width, height
         )
-        print(f"DEBUG: Cropped map shapes - gain: {cropped_maps['gain_map'].shape}, offset: {cropped_maps['offset_map'].shape}, variance: {cropped_maps['variance'].shape}")
         gain_map = cropped_maps["gain_map"]
         offset_map = cropped_maps["offset_map"]
         read_noise = cropped_maps["read_noise"]
