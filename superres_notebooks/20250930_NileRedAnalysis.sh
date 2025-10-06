@@ -92,10 +92,11 @@ get_threshold_params() {
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
             local use_variance_aware=$(echo "$params_line" | cut -d'|' -f6)
-            local temporal_median_mode=$(echo "$params_line" | cut -d'|' -f7)
+            # FORCE temporal median OFF for Nile Red analysis (too slow)
+            local temporal_median_mode="0"  # Always use NONE, ignore value from file
             local temporal_median_window=$(echo "$params_line" | cut -d'|' -f8)
             echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $temporal_median_mode $temporal_median_window"
-            log_message "Using temporal median mode parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median_mode=$temporal_median_mode, window=$temporal_median_window"
+            log_message "Using temporal median mode parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median_mode=$temporal_median_mode (FORCED OFF), window=$temporal_median_window"
         elif [ "$field_count" -eq 6 ]; then
             # Full format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
