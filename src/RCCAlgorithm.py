@@ -24,20 +24,8 @@ from ImportManager import get_module
 # Optional imports
 scipy_interpolate = get_module("scipy.interpolate")
 
-# Progress utilities with fallback
-try:
-    import ProgressUtils
-except ImportError:
-    class MockProgressUtils:
-        @staticmethod
-        def clean_progress_bar(iterable, desc="Processing"):
-            class MockContext:
-                def __enter__(self):
-                    return iterable
-                def __exit__(self, *args):
-                    pass
-            return MockContext()
-    ProgressUtils = MockProgressUtils()
+# Progress utilities (now with built-in fallback)
+import ProgressUtils
 
 
 class RCCAlgorithm:

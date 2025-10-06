@@ -38,6 +38,7 @@ import IOFunctions
 import sCMOSFunctions
 import PSFFunctions
 import gaussoptfuncs
+import HelperFunctions
 
 
 class FittingStrategy(Enum):
@@ -192,6 +193,54 @@ class FittingResultProcessor:
             return error_list
         except (IndexError, ValueError):
             return [np.nan] * expected_size
+
+    @staticmethod
+    def calculate_reduced_chisquared(
+        residuals: np.ndarray, n_data_points: int, n_parameters: int
+    ) -> float:
+        """Calculate reduced chi-squared from residuals.
+
+        Args:
+            residuals: Array of residuals from chi function
+            n_data_points: Number of data points used in fit
+            n_parameters: Number of fitted parameters
+
+        Returns:
+            Reduced chi-squared value
+
+        Notes:
+            Reduced chi-squared = sum(residuals^2) / (n_data - n_params)
+            This is the standard formula for goodness-of-fit.
+        """
+        return np.sum(np.square(residuals)) / (n_data_points - n_parameters)
+
+    @staticmethod
+    def process_covariance(
+        pcov: np.ndarray,
+        chisqr: float,
+        n_data_points: int,
+        n_parameters: int,
+    ) -> np.ndarray:
+        """Process covariance matrix by scaling with chi-squared.
+
+        Args:
+            pcov: Raw covariance matrix from curve_fit
+            chisqr: Chi-squared value
+            n_data_points: Number of data points used in fit
+            n_parameters: Number of fitted parameters
+
+        Returns:
+            Processed covariance matrix (either scaled by chi-squared or np.inf)
+
+        Notes:
+            The covariance matrix should be scaled by the chi-squared value
+            to account for goodness of fit. If there aren't enough degrees of
+            freedom or pcov is None, returns np.inf to signal invalid fit.
+        """
+        if (n_data_points > n_parameters) and pcov is not None:
+            return pcov * chisqr
+        else:
+            return np.inf
 
     @staticmethod
     def process_fit_results(
@@ -401,20 +450,17 @@ class StandardFittingProcessor(FittingProcessor):
                 return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
             # Calculate chi-squared
-            chisqr = np.sum(
-                np.square(
-                    gaussoptfuncs.WLS_chi_nobounds(
-                        pfit, data, masks, weights, size, ravelsize
-                    )
-                )
-            ) / (len(data.ravel()) - len(initial_guess))
+            residuals = gaussoptfuncs.WLS_chi_nobounds(
+                pfit, data, masks, weights, size, ravelsize
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, len(data.ravel()), len(initial_guess)
+            )
 
             # Process covariance matrix
-            if (len(data.ravel()) > len(initial_guess)) and pcov is not None:
-                s_sq = chisqr
-                pcov = pcov * s_sq
-            else:
-                pcov = np.inf
+            pcov = FittingResultProcessor.process_covariance(
+                pcov, chisqr, len(data.ravel()), len(initial_guess)
+            )
 
             return FittingResultProcessor.process_fit_results(
                 pfit, pcov, size, relative_coords, FittingStrategy.STANDARD, chisqr
@@ -528,20 +574,17 @@ class NoColourFittingProcessor(FittingProcessor):
                 return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
             # Calculate chi-squared
-            chisqr = np.sum(
-                np.square(
-                    gaussoptfuncs.WLS_chi_nocolour_nobounds(
-                        pfit, data, weights, size, ravelsize
-                    )
-                )
-            ) / (len(data.ravel()) - len(initial_guess))
+            residuals = gaussoptfuncs.WLS_chi_nocolour_nobounds(
+                pfit, data, weights, size, ravelsize
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, len(data.ravel()), len(initial_guess)
+            )
 
             # Process covariance matrix
-            if (len(data.ravel()) > len(initial_guess)) and pcov is not None:
-                s_sq = chisqr
-                pcov = pcov * s_sq
-            else:
-                pcov = np.inf
+            pcov = FittingResultProcessor.process_covariance(
+                pcov, chisqr, len(data.ravel()), len(initial_guess)
+            )
 
             return FittingResultProcessor.process_fit_results(
                 pfit,
@@ -640,20 +683,17 @@ class JustColourFittingProcessor(FittingProcessor):
                 return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
             # Calculate chi-squared
-            chisqr = np.sum(
-                np.square(
-                    gaussoptfuncs.WLS_chi_justcolour_nobounds(
-                        pfit, data, weights, size, locparams
-                    )
-                )
-            ) / (len(data.ravel()) - len(initial_guess))
+            residuals = gaussoptfuncs.WLS_chi_justcolour_nobounds(
+                pfit, data, weights, size, locparams
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, len(data.ravel()), len(initial_guess)
+            )
 
             # Process covariance matrix
-            if (len(data.ravel()) > len(initial_guess)) and pcov is not None:
-                s_sq = chisqr
-                pcov = pcov * s_sq
-            else:
-                pcov = np.inf
+            pcov = FittingResultProcessor.process_covariance(
+                pcov, chisqr, len(data.ravel()), len(initial_guess)
+            )
 
             return FittingResultProcessor.process_fit_results(
                 pfit, pcov, size, relative_coords, FittingStrategy.JUSTCOLOUR, chisqr
@@ -735,20 +775,17 @@ class RawColourFittingProcessor(FittingProcessor):
                 return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
             # Calculate chi-squared
-            chisqr = np.sum(
-                np.square(
-                    gaussoptfuncs.WLS_rawcolour_chi_nobounds(
-                        pfit, data, masks, weights, size, ravelsize, locparams
-                    )
-                )
-            ) / (len(data.ravel()) - len(initial_guess))
+            residuals = gaussoptfuncs.WLS_rawcolour_chi_nobounds(
+                pfit, data, masks, weights, size, ravelsize, locparams
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, len(data.ravel()), len(initial_guess)
+            )
 
             # Process covariance matrix
-            if (len(data.ravel()) > len(initial_guess)) and pcov is not None:
-                s_sq = chisqr
-                pcov = pcov * s_sq
-            else:
-                pcov = np.inf
+            pcov = FittingResultProcessor.process_covariance(
+                pcov, chisqr, len(data.ravel()), len(initial_guess)
+            )
 
             return FittingResultProcessor.process_fit_results(
                 pfit, pcov, size, relative_coords, FittingStrategy.RAWCOLOUR, chisqr
@@ -880,28 +917,23 @@ class PosthenColourFittingProcessor(FittingProcessor):
                 return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
             # Calculate chi-squared for colour component
-            chisqr_colour = np.sum(
-                np.square(
-                    gaussoptfuncs.WLS_rawcolour_chi_nobounds(
-                        pfit_colour,
-                        raw_punctum,
-                        masks,
-                        weights,
-                        size,
-                        ravelsize,
-                        locparams,
-                    )
-                )
-            ) / (len(raw_punctum.ravel()) - len(initial_guess_colour))
+            residuals_colour = gaussoptfuncs.WLS_rawcolour_chi_nobounds(
+                pfit_colour,
+                raw_punctum,
+                masks,
+                weights,
+                size,
+                ravelsize,
+                locparams,
+            )
+            chisqr_colour = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals_colour, len(raw_punctum.ravel()), len(initial_guess_colour)
+            )
 
             # Process covariance matrix
-            if (
-                len(raw_punctum.ravel()) > len(initial_guess_colour)
-            ) and pcov_colour is not None:
-                s_sq = chisqr_colour
-                pcov_colour = pcov_colour * s_sq
-            else:
-                pcov_colour = np.inf
+            pcov_colour = FittingResultProcessor.process_covariance(
+                pcov_colour, chisqr_colour, len(raw_punctum.ravel()), len(initial_guess_colour)
+            )
 
             # Calculate errors for colour component
             perr_colour_leastsq = FittingResultProcessor.calculate_errors(pcov_colour)
@@ -952,10 +984,13 @@ class Image_Analysis_Functions:
         ```
     """
 
-    def __init__(self):
+    def __init__(self, helper_functions=None):
         """Initialize the Image_Analysis_Functions class.
 
         Sets up strategy processors and loads required dependencies.
+
+        Args:
+            helper_functions: Helper functions instance (default: creates new instance)
         """
         # Initialize strategy processors
         self.processors = {
@@ -970,6 +1005,11 @@ class Image_Analysis_Functions:
         self.io = IOFunctions.IO_Functions()
         self.scmos = sCMOSFunctions.sCMOS_Functions()
         self.psf_f = PSFFunctions.PSF_Functions()
+        self.helper = (
+            helper_functions
+            if helper_functions is not None
+            else HelperFunctions.Helper_Functions()
+        )
 
     def fit_puncta_method(
         self,
@@ -1141,24 +1181,13 @@ class Image_Analysis_Functions:
             ```
         """
         # Calculate optimal parallelization parameters
-        n_workers = min(
-            FittingConstants.MAX_WORKERS,
-            max(1, int(FittingConstants.WORKER_RATIO * multiprocessing.cpu_count())),
-        )
         n_puncta = len(puncta)
-        n_tasks = FittingConstants.TASKS_PER_WORKER * n_workers
-
-        # Calculate puncta per task with load balancing
-        puncta_per_task = [
-            (
-                int(n_puncta / n_tasks + 1)
-                if _ < n_puncta % n_tasks
-                else int(n_puncta / n_tasks)
-            )
-            for _ in range(n_tasks)
-        ]
-
-        start_indices = np.cumsum([0] + puncta_per_task[:-1])
+        n_workers, n_tasks, puncta_per_task, start_indices = self.helper.calculate_parallel_chunks(
+            n_puncta,
+            max_workers=FittingConstants.MAX_WORKERS,
+            worker_ratio=FittingConstants.WORKER_RATIO,
+            tasks_per_worker=FittingConstants.TASKS_PER_WORKER
+        )
 
         # Submit tasks to process pool
         fs = []

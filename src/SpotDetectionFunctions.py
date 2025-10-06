@@ -26,6 +26,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import PSFFunctions
 import sCMOSFunctions
+import HelperFunctions
 
 
 class ArrayPool:
@@ -81,12 +82,13 @@ class SpotDetection_Functions:
     REFACTORED: Uses dependency injection instead of global object instantiation.
     """
 
-    def __init__(self, psf_functions=None, scmos_functions=None):
+    def __init__(self, psf_functions=None, scmos_functions=None, helper_functions=None):
         """Initialize SpotDetection_Functions class with dependency injection.
 
         Args:
             psf_functions: PSF calculation functions (default: creates new instance)
             scmos_functions: sCMOS camera functions (default: creates new instance)
+            helper_functions: Helper functions instance (default: creates new instance)
         """
         # Dependency injection with sensible defaults
         self.psf = (
@@ -96,6 +98,11 @@ class SpotDetection_Functions:
             scmos_functions
             if scmos_functions is not None
             else sCMOSFunctions.sCMOS_Functions()
+        )
+        self.helper = (
+            helper_functions
+            if helper_functions is not None
+            else HelperFunctions.Helper_Functions()
         )
 
         # Initialize optimisation components
@@ -140,20 +147,10 @@ class SpotDetection_Functions:
         Returns:
             puncta_detected (list): list of puncta detected
         """
-        n_workers = min(
-            60, max(1, int(0.9 * multiprocessing.cpu_count()))
-        )  # Python crashes when using >64 cores
         n_frames = int(image.shape[0])
-        n_tasks = np.min([100 * n_workers, n_frames])
-        frames_per_task = [
-            (
-                int(n_frames / n_tasks + 1)
-                if _ < n_frames % n_tasks
-                else int(n_frames / n_tasks)
-            )
-            for _ in range(n_tasks)
-        ]
-        start_indices = np.cumsum([0] + frames_per_task[:-1])
+        n_workers, n_tasks, frames_per_task, start_indices = self.helper.calculate_parallel_chunks(
+            n_frames, max_workers=60, worker_ratio=0.9, tasks_per_worker=100
+        )
         fs = []
         with futures.ProcessPoolExecutor(n_workers) as executor:
             for i, n_frame_task in zip(start_indices, frames_per_task):

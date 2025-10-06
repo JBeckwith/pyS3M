@@ -18,6 +18,7 @@ sys.path.append(module_dir)
 import IOFunctions
 from Constants import CalibrationConstants
 import MaskFunctions
+import HelperFunctions
 
 
 class Calibration_Functions:
@@ -33,6 +34,7 @@ class Calibration_Functions:
         high_memory=False,
         io_functions=None,
         mask_functions=None,
+        helper_functions=None,
     ):
         """Initialize Calibration_Functions class.
 
@@ -42,6 +44,7 @@ class Calibration_Functions:
             high_memory: Whether to use high-memory processing mode.
             io_functions: IO functions instance (default: creates new instance)
             mask_functions: Mask functions instance (default: creates new instance)
+            helper_functions: Helper functions instance (default: creates new instance)
         """
         self.high_memory = high_memory
         if isinstance(mosaic_unit, type(None)):
@@ -57,6 +60,11 @@ class Calibration_Functions:
             mask_functions
             if mask_functions is not None
             else MaskFunctions.Mask_Functions()
+        )
+        self.helper = (
+            helper_functions
+            if helper_functions is not None
+            else HelperFunctions.Helper_Functions()
         )
 
     def filesearch(self, directory, string1, string2):
@@ -261,6 +269,87 @@ class Calibration_Functions:
         rqe = np.divide(corrected_image, smoothed_image)
         return rqe
 
+    def _process_calibration_files(
+        self,
+        directory,
+        intensity_string,
+        filelist,
+        accumulator,
+        operation_name,
+        process_single_frame_fn,
+        process_multi_frame_fn
+    ):
+        """
+        Generic file processing loop for calibration calculations.
+
+        Args:
+            directory (string): Folder containing tifs
+            intensity_string (string): Intensity string for display
+            filelist (list): List of filenames to process
+            accumulator (np.ndarray): Array to accumulate results into
+            operation_name (string): Name of operation for progress display (e.g., "offset", "variance")
+            process_single_frame_fn (callable): Function to process single frame images
+            process_multi_frame_fn (callable): Function to process multi-frame images
+
+        Returns:
+            tuple: (accumulator, framesCounter) - updated accumulator and total frame count
+        """
+        framesCounter = 0
+        start = time.time()
+
+        for i, file in enumerate(filelist):
+            if self.high_memory == True:
+                image = self.io.read_tiff(os.path.join(directory, file))
+                if len(image.shape) == 2:
+                    n_frames = 1
+                else:
+                    n_frames = image.shape[-1]
+                if n_frames == 1:
+                    accumulator = process_single_frame_fn(accumulator, image)
+                else:
+                    accumulator = process_multi_frame_fn(accumulator, image)
+            else:
+                n_frames = 0
+                finished = 0
+                while finished == 0:
+                    try:
+                        frame = self.io.read_tiff(
+                            os.path.join(directory, file), n_frames
+                        )
+                        n_frames += 1
+                        accumulator = process_single_frame_fn(accumulator, frame)
+                    except (IOError, OSError, IndexError, ValueError) as e:
+                        finished = 1
+
+            framesCounter = framesCounter + n_frames
+            elapsed = time.time() - start
+            elapsed_display, timestring = self.helper.format_elapsed_time(elapsed)
+
+            if directory.split("/")[-1] == intensity_string:
+                print(
+                    f"Analysed {operation_name} of "
+                    + intensity_string
+                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
+                        i + 1, len(filelist), elapsed_display, timestring
+                    ),
+                    end="\r",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"Analysed {operation_name} of "
+                    + directory.split("/")[-1]
+                    + " "
+                    + intensity_string
+                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
+                        i + 1, len(filelist), elapsed_display, timestring
+                    ),
+                    end="\r",
+                    flush=True,
+                )
+
+        return accumulator, framesCounter
+
     def calculate_offset(self, directory, intensity_string, imtype=".tif"):
         """
         Calibrates offset. Given a directory, looks for a particular intensity
@@ -279,8 +368,8 @@ class Calibration_Functions:
         frame0_shape = self.io.read_tiff(os.path.join(directory, filelist[0]), 0).shape
         width = frame0_shape[0]
         height = frame0_shape[1]
-        framesCounter = 0
         offset = np.zeros([width, height])
+
         if directory.split("/")[-1] == intensity_string:
             print(
                 "Starting offset analysis of " + intensity_string,
@@ -296,68 +385,25 @@ class Calibration_Functions:
                 end="\r",
                 flush=True,
             )
-        start = time.time()
-        for i, file in enumerate(filelist):
-            if self.high_memory == True:
-                image = self.io.read_tiff(os.path.join(directory, file))
-                if len(image.shape) == 2:
-                    n_frames = 1
-                else:
-                    n_frames = image.shape[-1]
-                if n_frames == 1:
-                    offset = np.add(offset, image)
-                else:
-                    offset = np.add(offset, np.sum(image, axis=-1))
-            else:
-                n_frames = 0
-                finished = 0
-                while finished == 0:
-                    try:
-                        frame = self.io.read_tiff(
-                            os.path.join(directory, file), n_frames
-                        )
-                        n_frames += 1
-                        offset = np.add(offset, frame)
-                    except (IOError, OSError, IndexError, ValueError) as e:
-                        finished = 1
-            framesCounter = framesCounter + n_frames
-            elapsed = time.time() - start
-            if elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES:
-                elapsed_display = (
-                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES
-                )
-                timestring = "min"
-            elif elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS:
-                elapsed_display = (
-                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS
-                )
-                timestring = "hours"
-            else:
-                elapsed_display = elapsed
-                timestring = "s"
 
-            if directory.split("/")[-1] == intensity_string:
-                print(
-                    "Analysed offset of "
-                    + intensity_string
-                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
-                        i + 1, len(filelist), elapsed_display, timestring
-                    ),
-                    end="\r",
-                    flush=True,
-                )
-            else:
-                print(
-                    "Analysed offset of "
-                    + directory.split("/")[-1]
-                    + " "
-                    + intensity_string
-                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
-                        i + 1, len(filelist), elapsed_display, timestring
-                    ),
-                    end="\r",
-                    flush=True,
-                )
+        # Define processing functions for offset calculation
+        def process_single(acc, frame):
+            return np.add(acc, frame)
+
+        def process_multi(acc, image):
+            return np.add(acc, np.sum(image, axis=-1))
+
+        # Process all files
+        offset, framesCounter = self._process_calibration_files(
+            directory,
+            intensity_string,
+            filelist,
+            offset,
+            "offset",
+            process_single,
+            process_multi
+        )
+
         offset = offset / framesCounter
         return offset
 
@@ -377,70 +423,32 @@ class Calibration_Functions:
         """
         filelist = self.filesearch(directory, imtype, intensity_string)
 
-        framesCounter = 0
         offset_sq = np.square(offset)
         variance = np.zeros_like(offset_sq)
 
-        start = time.time()
-        for i, file in enumerate(filelist):
-            if self.high_memory == True:
-                image = self.io.read_tiff(os.path.join(directory, file))
-                if len(image.shape) == 2:
-                    n_frames = 1
-                else:
-                    n_frames = image.shape[-1]
-                if n_frames == 1:
-                    variance = np.add(
-                        variance, np.subtract(np.square(image), offset_sq)
-                    )
-                else:
-                    variance = np.add(
-                        variance,
-                        np.sum(
-                            np.subtract(np.square(image), offset_sq[np.newaxis, :, :]),
-                            axis=-1,
-                        ),
-                    )
-            else:
-                n_frames = 0
-                finished = 0
-                while finished == 0:
-                    try:
-                        frame = self.io.read_tiff(
-                            os.path.join(directory, file), n_frames
-                        )
-                        n_frames += 1
-                        variance = np.add(
-                            variance, np.subtract(np.square(frame), offset_sq)
-                        )
-                    except (IOError, OSError, IndexError, ValueError) as e:
-                        finished = 1
-            framesCounter = framesCounter + n_frames
+        # Define processing functions for variance calculation
+        def process_single(acc, frame):
+            return np.add(acc, np.subtract(np.square(frame), offset_sq))
 
-            elapsed = time.time() - start
-            if elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES:
-                elapsed_display = (
-                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_MINUTES
-                )
-                timestring = "min"
-            elif elapsed > CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS:
-                elapsed_display = (
-                    elapsed / CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS
-                )
-                timestring = "hours"
-            else:
-                elapsed_display = elapsed
-                timestring = "s"
-            print(
-                "Analysed variance of "
-                + directory.split("/")[-1]
-                + " "
-                + intensity_string
-                + " image {}/{}    Time elapsed: {:.3f} {}".format(
-                    i + 1, len(filelist), elapsed_display, timestring
+        def process_multi(acc, image):
+            return np.add(
+                acc,
+                np.sum(
+                    np.subtract(np.square(image), offset_sq[:, :, np.newaxis]),
+                    axis=-1,
                 ),
-                end="\r",
-                flush=True,
             )
+
+        # Process all files
+        variance, framesCounter = self._process_calibration_files(
+            directory,
+            intensity_string,
+            filelist,
+            variance,
+            "variance",
+            process_single,
+            process_multi
+        )
+
         variance = variance / framesCounter
         return variance

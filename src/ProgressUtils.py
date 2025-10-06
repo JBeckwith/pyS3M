@@ -28,16 +28,49 @@ try:
         notebook_tqdm = None
 
         NOTEBOOK_ENV = False
+
+    # Default to text-based tqdm for better compatibility with carriage return updates
+    base_tqdm = text_tqdm
+    TQDM_AVAILABLE = True
+
 except ImportError:
-    # Fallback if tqdm not available
-    from tqdm import tqdm as text_tqdm
-
+    # Fallback if tqdm not available - use mock implementation
+    text_tqdm = None
     notebook_tqdm = None
-
+    base_tqdm = None
     NOTEBOOK_ENV = False
+    TQDM_AVAILABLE = False
 
-# Default to text-based tqdm for better compatibility with carriage return updates
-base_tqdm = text_tqdm
+
+class MockProgressUtils:
+    """Fallback progress utilities when tqdm is not available."""
+
+    @staticmethod
+    def clean_progress_bar(iterable=None, total=None, desc="Processing", **kwargs):
+        """Mock context manager that returns iterable unchanged."""
+        class MockContext:
+            def __init__(self, iterable, total):
+                self.iterable = iterable if iterable is not None else range(total) if total else []
+
+            def __enter__(self):
+                return self.iterable
+
+            def __exit__(self, *args):
+                pass
+
+            def update(self, n=1):
+                """Mock update method for manual progress updates."""
+                pass
+
+            def write(self, msg):
+                """Mock write method for messages."""
+                print(msg)
+
+            def close(self):
+                """Mock close method."""
+                pass
+
+        return MockContext(iterable, total)
 
 
 class ProgressBarConfig:
@@ -143,6 +176,11 @@ def clean_progress_bar(
                         # Process
                         pass
     """
+    # If tqdm not available, use mock implementation
+    if not TQDM_AVAILABLE:
+        yield MockProgressUtils.clean_progress_bar(iterable=iterable, total=total, desc=desc, **kwargs)
+        return
+
     # Merge default configuration with provided arguments
     pbar_kwargs = ProgressBarConfig.get_default_kwargs()
 

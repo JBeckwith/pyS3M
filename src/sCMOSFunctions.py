@@ -18,6 +18,7 @@ from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
+import HelperFunctions
 
 try:
     import ProgressUtils
@@ -26,13 +27,17 @@ except ImportError:
 
 
 class sCMOS_Functions:
-    def __init__(
-        self,
-    ):
+    def __init__(self, helper_functions=None):
+        """Initialize sCMOS_Functions class.
+
+        Args:
+            helper_functions: Helper functions instance (default: creates new instance)
         """
-        Initialises class.
-        """
-        return
+        self.helper = (
+            helper_functions
+            if helper_functions is not None
+            else HelperFunctions.Helper_Functions()
+        )
 
     def variance_aware_malvar_demosaic(
         self,
@@ -64,6 +69,20 @@ class sCMOS_Functions:
         if variance_map.ndim > 2:
             variance_map = np.squeeze(variance_map)
 
+        # Validate variance_map shape compatibility
+        expected_shape = CFA.shape[-2:] if CFA.ndim == 3 else CFA.shape
+        if variance_map.shape != expected_shape:
+            # Try transpose if dimensions are swapped
+            if variance_map.shape == expected_shape[::-1]:
+                print(f"Warning: variance_map shape {variance_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                print(f"Attempting transpose to fix dimension mismatch.")
+                variance_map = variance_map.T
+            else:
+                raise ValueError(
+                    f"variance_map shape {variance_map.shape} incompatible with CFA spatial dimensions {expected_shape}. "
+                    f"CFA shape: {CFA.shape}"
+                )
+
         # Handle gain matrix (can be scalar or 2D array)
         if isinstance(gain, np.ndarray):
             gain = np.asarray(gain, dtype=np.float32)
@@ -71,12 +90,40 @@ class sCMOS_Functions:
             if gain.ndim > 2:
                 gain = np.squeeze(gain)
 
+            # Validate gain shape compatibility
+            expected_shape = CFA.shape[-2:] if CFA.ndim == 3 else CFA.shape
+            if gain.shape != expected_shape:
+                # Try transpose if dimensions are swapped
+                if gain.shape == expected_shape[::-1]:
+                    print(f"Warning: gain shape {gain.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    print(f"Attempting transpose to fix dimension mismatch.")
+                    gain = gain.T
+                else:
+                    raise ValueError(
+                        f"gain shape {gain.shape} incompatible with CFA spatial dimensions {expected_shape}. "
+                        f"CFA shape: {CFA.shape}"
+                    )
+
         # Apply offset correction if provided
         if offset_map is not None:
             offset_map = np.asarray(offset_map, dtype=np.float32)
             # Ensure offset_map is 2D
             if offset_map.ndim > 2:
                 offset_map = np.squeeze(offset_map)
+
+            # Validate shape compatibility
+            expected_shape = CFA.shape[-2:] if CFA.ndim == 3 else CFA.shape
+            if offset_map.shape != expected_shape:
+                # Try transpose if dimensions are swapped
+                if offset_map.shape == expected_shape[::-1]:
+                    print(f"Warning: offset_map shape {offset_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    print(f"Attempting transpose to fix dimension mismatch.")
+                    offset_map = offset_map.T
+                else:
+                    raise ValueError(
+                        f"offset_map shape {offset_map.shape} incompatible with CFA spatial dimensions {expected_shape}. "
+                        f"CFA shape: {CFA.shape}"
+                    )
 
             # Handle dimensional broadcasting for offset subtraction
             if CFA.ndim == 3:  # (frames, H, W)
@@ -141,19 +188,9 @@ class sCMOS_Functions:
 
         # Multi-frame processing with parallel execution
         n_frames = image.shape[0]
-        n_workers = min(os.cpu_count() or 1, 24)  # Limit to reasonable number
-
-        # Create task distribution similar to spot detection
-        n_tasks = min(100 * n_workers, n_frames)
-        frames_per_task = [
-            (
-                int(n_frames / n_tasks + 1)
-                if _ < n_frames % n_tasks
-                else int(n_frames / n_tasks)
-            )
-            for _ in range(n_tasks)
-        ]
-        start_indices = np.cumsum([0] + frames_per_task[:-1])
+        n_workers, n_tasks, frames_per_task, start_indices = self.helper.calculate_parallel_chunks(
+            n_frames, max_workers=24, worker_ratio=1.0, tasks_per_worker=100
+        )
 
         # Submit parallel tasks
         fs = []

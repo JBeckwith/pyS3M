@@ -68,3 +68,50 @@ class DefaultParameters:
     CAMERA_VARIANCE = DEFAULT_CAMERA_VARIANCE
     N_PHOTONS = DEFAULT_N_PHOTONS
     N_FRAMES = DEFAULT_N_FRAMES
+
+
+class ResultColumns:
+    """Column names for localization fit results.
+
+    Defines standard column names for fitting results and their error estimates
+    to ensure consistency across all fitting workflows.
+    """
+
+    # Standard fit parameter columns
+    STANDARD_FIT_PARAMS = [
+        "xc",        # X center coordinate
+        "yc",        # Y center coordinate
+        "s_x",       # X sigma (width)
+        "s_y",       # Y sigma (width)
+        "bg_B",      # Background (Blue channel)
+        "bg_G",      # Background (Green channel)
+        "bg_R",      # Background (Red channel)
+        "A_B",       # Amplitude (Blue channel)
+        "A_G",       # Amplitude (Green channel)
+        "A_R",       # Amplitude (Red channel)
+        "chi_sqr",   # Chi-squared goodness of fit
+        "frame",     # Frame number
+    ]
+
+    # Standard fit error columns
+    STANDARD_FIT_ERRORS = [
+        "xc_err",
+        "yc_err",
+        "s_x_err",
+        "s_y_err",
+        "bg_B_err",
+        "bg_G_err",
+        "bg_R_err",
+        "A_B_err",
+        "A_G_err",
+        "A_R_err",
+    ]
+
+    @classmethod
+    def get_all_columns(cls):
+        """Get all column names (parameters + errors).
+
+        Returns:
+            list: Combined list of all parameter and error column names
+        """
+        return cls.STANDARD_FIT_PARAMS + cls.STANDARD_FIT_ERRORS

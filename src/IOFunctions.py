@@ -28,6 +28,37 @@ class IO_Functions:
         """Initialize IO_Functions class."""
         pass
 
+    def _normalize_color_channels(
+        self, df, total_col, color_cols, error_cols
+    ):
+        """Normalize color channel values and errors by their total.
+
+        Args:
+            df (pd.DataFrame): Input dataframe
+            total_col (str): Name of column containing total values
+            color_cols (list): List of column names to normalize (e.g., ['A_B', 'A_G', 'A_R'])
+            error_cols (list): List of error column names to normalize
+
+        Returns:
+            pd.DataFrame: Dataframe with normalized columns
+
+        Notes:
+            This method normalizes values by dividing by the total, avoiding
+            division by zero using a mask. Both values and errors are normalized.
+        """
+        # Avoid division by zero
+        mask = df[total_col] > 0
+
+        # Normalize color channel values
+        for col in color_cols:
+            df.loc[mask, col] = df.loc[mask, col] / df.loc[mask, total_col]
+
+        # Normalize error values
+        for col in error_cols:
+            df.loc[mask, col] = df.loc[mask, col] / df.loc[mask, total_col]
+
+        return df
+
     def _write_h5_database(self, df, filepath, append=False, normalise_photons=True):
         if df.shape[0] > 0:
             # first, remove any rows that are all NaN
@@ -90,19 +121,11 @@ class IO_Functions:
             df["photons"] = df["A_B"] + df["A_G"] + df["A_R"]
 
             if normalise:
-                # Avoid division by zero
-                mask = df["photons"] > 0
-                df.loc[mask, "A_B"] = df.loc[mask, "A_B"] / df.loc[mask, "photons"]
-                df.loc[mask, "A_G"] = df.loc[mask, "A_G"] / df.loc[mask, "photons"]
-                df.loc[mask, "A_R"] = df.loc[mask, "A_R"] / df.loc[mask, "photons"]
-                df.loc[mask, "A_B_err"] = (
-                    df.loc[mask, "A_B_err"] / df.loc[mask, "photons"]
-                )
-                df.loc[mask, "A_G_err"] = (
-                    df.loc[mask, "A_G_err"] / df.loc[mask, "photons"]
-                )
-                df.loc[mask, "A_R_err"] = (
-                    df.loc[mask, "A_R_err"] / df.loc[mask, "photons"]
+                df = self._normalize_color_channels(
+                    df,
+                    total_col="photons",
+                    color_cols=["A_B", "A_G", "A_R"],
+                    error_cols=["A_B_err", "A_G_err", "A_R_err"],
                 )
 
         # Add background photons column and normalise bg_B, bg_G, bg_R if they exist
@@ -110,25 +133,11 @@ class IO_Functions:
             df["background_photons"] = df["bg_B"] + df["bg_G"] + df["bg_R"]
 
             if normalise:
-                # Avoid division by zero
-                mask = df["background_photons"] > 0
-                df.loc[mask, "bg_B"] = (
-                    df.loc[mask, "bg_B"] / df.loc[mask, "background_photons"]
-                )
-                df.loc[mask, "bg_G"] = (
-                    df.loc[mask, "bg_G"] / df.loc[mask, "background_photons"]
-                )
-                df.loc[mask, "bg_R"] = (
-                    df.loc[mask, "bg_R"] / df.loc[mask, "background_photons"]
-                )
-                df.loc[mask, "bg_B_err"] = (
-                    df.loc[mask, "bg_B_err"] / df.loc[mask, "background_photons"]
-                )
-                df.loc[mask, "bg_G_err"] = (
-                    df.loc[mask, "bg_G_err"] / df.loc[mask, "background_photons"]
-                )
-                df.loc[mask, "bg_R_err"] = (
-                    df.loc[mask, "bg_R_err"] / df.loc[mask, "background_photons"]
+                df = self._normalize_color_channels(
+                    df,
+                    total_col="background_photons",
+                    color_cols=["bg_B", "bg_G", "bg_R"],
+                    error_cols=["bg_B_err", "bg_G_err", "bg_R_err"],
                 )
 
         return df
@@ -361,7 +370,7 @@ class IO_Functions:
 
     def get_num_pages_in_TIF(self, filename):
         """
-        Loads metadata from a json file.
+        Get the number of frames in a TIFF file without loading the entire file.
 
         Args:
             filename (str): The name of the tif file to load.
@@ -369,11 +378,10 @@ class IO_Functions:
         Returns:
             n_pages (int): number of frames in TIFF file.
         """
-        return len(
-            tifffile.TiffFile(
-                filename, is_ome=False, is_mmstack=False, is_imagej=False
-            ).pages
-        )
+        with tifffile.TiffFile(
+            filename, is_ome=False, is_mmstack=False, is_imagej=False
+        ) as tif:
+            return len(tif.pages)
 
     def metadata_reader_imageJ(self, filename):
         """
@@ -393,10 +401,11 @@ class IO_Functions:
         key = np.sort([x for x in data.keys() if "FrameKey" in x])[0]
         metadatadict = data[key]
         ROI = metadatadict["ROI"].split("-")
-        x_coord = int(ROI[1])
+        # ROI format from ImageJ is: top-left-height-width (y-x-height-width)
         y_coord = int(ROI[0])
-        width = int(ROI[3])
+        x_coord = int(ROI[1])
         height = int(ROI[2])
+        width = int(ROI[3])
         return x_coord, y_coord, width, height
 
     def metadata_nframes_reader_imageJ(self, filename):

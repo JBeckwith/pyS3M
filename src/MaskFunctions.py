@@ -173,12 +173,43 @@ class Mask_Functions:
         Returns:
             masks (dict): A dictionary containing the assigned masks.
         """
-        size_x = ROI_x_start + width
-        size_y = ROI_y_start + height
+        # Note: get_masks uses (size_x, size_y) but internally treats size_x as height (rows)
+        # and size_y as width (columns) due to legacy naming convention
+        size_x = ROI_y_start + height  # size_x is actually rows
+        size_y = ROI_x_start + width   # size_y is actually columns
         masks = self.get_masks(size_x, size_y, mosaic_unit)
         for colour in masks:
-            masks[colour] = masks[colour][ROI_x_start:, ROI_y_start:]
+            # Numpy indexing is [row, col] = [y, x]
+            masks[colour] = masks[colour][ROI_y_start:, ROI_x_start:]
         return masks
+
+    def get_stacked_masks(self, ROI_x_start, ROI_y_start, width, height, mosaic_unit=None):
+        """Get ROI masks and stack into 3D array for fitting.
+
+        Convenience method that combines get_ROI_mask() with np.dstack() to create
+        a 3D mask array suitable for multi-channel fitting operations.
+
+        Args:
+            ROI_x_start (int): Starting x coordinate (column) of ROI
+            ROI_y_start (int): Starting y coordinate (row) of ROI
+            width (int): Width of ROI (pixels)
+            height (int): Height of ROI (pixels)
+            mosaic_unit (np.ndarray, optional): Mosaic pattern. If None, uses default RGGB pattern.
+
+        Returns:
+            np.ndarray: 3D array of shape (height, width, n_channels) containing stacked masks
+        """
+        if mosaic_unit is None:
+            mosaic_unit = np.array([["B", "G"], ["G", "R"]])
+
+        masks = self.get_ROI_mask(
+            ROI_x_start=ROI_x_start,
+            ROI_y_start=ROI_y_start,
+            width=width,
+            height=height,
+            mosaic_unit=mosaic_unit,
+        )
+        return np.dstack([masks[x] for x in masks.keys()])
 
     def get_masks(self, size_x, size_y, mosaic_unit=np.array([["B", "G"], ["G", "R"]])):
         """
