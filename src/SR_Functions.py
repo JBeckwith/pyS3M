@@ -534,25 +534,23 @@ class SuperRes_Functions:
         raw_data_for_fitting = None
 
         if temporal_median_mode != TemporalMedianMode.NONE:
-            # Load surrounding frames for EVER calculation
-            half_window = ever_window // 2
+            # Load surrounding frames for EVER calculation (may cross file boundaries)
+            # Get frame counts for all files for cross-file loading
+            file_frame_counts = [self.io.get_num_pages_in_TIF(f) for f in image_files]
 
-            # Get total frames in file
-            total_frames = self.io.get_num_pages_in_TIF(file)
-
-            # Determine frame range to load (centered on current frame)
-            start_frame = max(0, frame_index - half_window)
-            end_frame = min(total_frames, frame_index + half_window + 1)
-            frame_range = list(range(start_frame, end_frame))
-
-            # Load frames for EVER background subtraction
-            frames_for_ever = self.io.read_tiff(file, dtype="float32", frame=frame_range)
-            if frames_for_ever.ndim == 2:
-                frames_for_ever = frames_for_ever[np.newaxis, :, :]
+            # Load frames across file boundaries
+            print(f"Applying EVER background subtraction (window={ever_window})")
+            frames_for_ever, center_idx = self._load_frames_for_ever_window(
+                image_files,
+                0,  # First file
+                frame_index,
+                ever_window,
+                file_frame_counts
+            )
 
             # Compute EVER background subtraction in photoelectron space
             # Returns both ADU (for variance-aware demosaic) and photoelectrons (for fitting)
-            print(f"Applying EVER background subtraction (window={ever_window}, frames={len(frame_range)})")
+            print(f"  Loaded {frames_for_ever.shape[0]} frames for EVER window")
             ever_subtracted_adu_stack, ever_subtracted_pe_stack = self._compute_ever_background(
                 frames_for_ever,
                 window_size=ever_window,
@@ -562,9 +560,8 @@ class SuperRes_Functions:
             )
 
             # Extract the requested frame from EVER-subtracted stacks
-            frame_offset_in_stack = frame_index - start_frame
-            ever_subtracted_adu = ever_subtracted_adu_stack[frame_offset_in_stack]
-            ever_subtracted_pe = ever_subtracted_pe_stack[frame_offset_in_stack]
+            ever_subtracted_adu = ever_subtracted_adu_stack[center_idx]
+            ever_subtracted_pe = ever_subtracted_pe_stack[center_idx]
 
             # Apply to detection and/or fitting based on mode
             if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
@@ -1066,6 +1063,82 @@ class SuperRes_Functions:
         return
 
 
+    def _load_frames_for_ever_window(
+        self,
+        image_files: list,
+        current_file_idx: int,
+        current_frame_in_file: int,
+        window_size: int,
+        file_frame_counts: list,
+    ) -> tuple:
+        """Load frames for EVER window, crossing file boundaries if needed.
+
+        Args:
+            image_files: List of image file paths
+            current_file_idx: Index of current file being processed
+            current_frame_in_file: Frame index within current file (0-based)
+            window_size: EVER window size (number of frames)
+            file_frame_counts: List of frame counts for each file
+
+        Returns:
+            tuple: (frames_stack, center_frame_index)
+                - frames_stack: 3D array (n_frames, height, width) containing window frames
+                - center_frame_index: Index of the target frame within frames_stack
+        """
+        half_window = window_size // 2
+
+        # Calculate global frame index across all files
+        global_frame_start = sum(file_frame_counts[:current_file_idx]) + current_frame_in_file
+
+        # Determine window boundaries in global frame space
+        window_global_start = max(0, global_frame_start - half_window)
+        window_global_end = global_frame_start + half_window + 1
+        total_global_frames = sum(file_frame_counts)
+        window_global_end = min(window_global_end, total_global_frames)
+
+        # Convert global frame indices back to (file_idx, frame_in_file) pairs
+        frames_to_load = []
+        cumulative_frames = 0
+        for file_idx, file_frame_count in enumerate(file_frame_counts):
+            file_global_start = cumulative_frames
+            file_global_end = cumulative_frames + file_frame_count
+
+            # Does this file overlap with our window?
+            if file_global_end > window_global_start and file_global_start < window_global_end:
+                # Calculate which frames from this file to load
+                load_start = max(0, window_global_start - file_global_start)
+                load_end = min(file_frame_count, window_global_end - file_global_start)
+
+                frames_to_load.append({
+                    'file_idx': file_idx,
+                    'file_path': image_files[file_idx],
+                    'frame_start': load_start,
+                    'frame_end': load_end,
+                    'frame_range': list(range(load_start, load_end))
+                })
+
+            cumulative_frames += file_frame_count
+
+        # Load frames from all relevant files
+        all_frames = []
+        for load_info in frames_to_load:
+            frames = self.io.read_tiff(
+                load_info['file_path'],
+                dtype="float32",
+                frame=load_info['frame_range']
+            )
+            if frames.ndim == 2:
+                frames = frames[np.newaxis, :, :]
+            all_frames.append(frames)
+
+        # Stack all loaded frames
+        frames_stack = np.concatenate(all_frames, axis=0)
+
+        # Calculate where the target frame is in the stack
+        center_frame_index = current_frame_in_file + (sum(file_frame_counts[:current_file_idx]) - window_global_start)
+
+        return frames_stack, center_frame_index
+
     def _compute_ever_background(
         self,
         frames: np.ndarray,
@@ -1264,10 +1337,21 @@ class SuperRes_Functions:
 
         result_params = ResultColumns.get_all_columns()
 
+        # Pre-compute frame counts for all files (needed for cross-file EVER windows)
+        file_frame_counts = []
+        if temporal_median_mode != TemporalMedianMode.NONE:
+            print("Pre-scanning files for EVER cross-file loading...")
+            for file in image_files:
+                file_frame_counts.append(self.io.get_num_pages_in_TIF(file))
+            print(f"  Total files: {len(image_files)}, Total frames: {sum(file_frame_counts)}")
+
         total_frames = 0
         for FOVn, file in enumerate(image_files):
             # Get total frame count without loading entire file
-            file_frames = self.io.get_num_pages_in_TIF(file)
+            if temporal_median_mode != TemporalMedianMode.NONE:
+                file_frames = file_frame_counts[FOVn]
+            else:
+                file_frames = self.io.get_num_pages_in_TIF(file)
 
             chunk_size = 1000
             all_puncta_tofit = []
@@ -1302,14 +1386,40 @@ class SuperRes_Functions:
 
                 if temporal_median_mode != TemporalMedianMode.NONE:
                     # EVER algorithm - fast and accurate background subtraction in photoelectron space
+                    # Load frames across file boundaries for proper temporal minimum calculation
                     print(f"    Applying EVER background subtraction (window={ever_window})")
-                    background_subtracted_adu, background_subtracted_pe = self._compute_ever_background(
-                        raw_data,
+
+                    # Load expanded window for EVER (may span multiple files)
+                    chunk_middle_frame = chunk_start + len(chunk_frames) // 2
+                    ever_frames, center_idx = self._load_frames_for_ever_window(
+                        image_files,
+                        FOVn,
+                        chunk_middle_frame,
+                        ever_window,
+                        file_frame_counts
+                    )
+
+                    # Apply EVER to the expanded window
+                    ever_adu_full, ever_pe_full = self._compute_ever_background(
+                        ever_frames,
                         window_size=ever_window,
                         spatial_filter_size=1,  # No spatial averaging for Bayer patterns
                         gain_map=gain_map,
                         offset_map=offset_map
                     )
+
+                    # Extract just the chunk we're processing from EVER results
+                    # Calculate which frames from the EVER window correspond to our chunk
+                    chunk_offset_in_ever = chunk_start - (chunk_middle_frame - ever_window // 2)
+                    chunk_offset_in_ever = max(0, chunk_offset_in_ever)
+                    chunk_slice = slice(chunk_offset_in_ever, chunk_offset_in_ever + len(chunk_frames))
+
+                    background_subtracted_adu = ever_adu_full[chunk_slice]
+                    background_subtracted_pe = ever_pe_full[chunk_slice]
+
+                    # Cleanup expanded window
+                    del ever_frames, ever_adu_full, ever_pe_full
+                    gc.collect()
 
                     # Apply to detection and/or fitting based on mode
                     if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
