@@ -166,7 +166,15 @@ class NileRedThresholdTuner:
         return None
 
     def _crop_camera_data_to_roi(self, camera_data: Dict, roi_info: Dict) -> Dict:
-        """Crop camera calibration data to match ROI dimensions"""
+        """Crop camera calibration data to match ROI dimensions.
+
+        Note: ROI info provides (x, y, width, height) in image coordinates where:
+        - x = column start, y = row start
+        - width = extent in x (columns), height = extent in y (rows)
+
+        Numpy arrays are indexed as [row, col] = [y, x], so we must crop as:
+        data[start_y:start_y+height, start_x:start_x+width]
+        """
         if not roi_info:
             return camera_data
 
@@ -176,7 +184,8 @@ class NileRedThresholdTuner:
 
         for key, data in camera_data.items():
             if isinstance(data, np.ndarray) and data.ndim >= 2:
-                cropped_data[key] = data[start_x:start_x + width, start_y:start_y + height]
+                # Numpy indexing: [row, col] = [y, x]
+                cropped_data[key] = data[start_y:start_y + height, start_x:start_x + width]
             else:
                 cropped_data[key] = data
 
