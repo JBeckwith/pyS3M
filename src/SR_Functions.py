@@ -1235,7 +1235,9 @@ class SuperRes_Functions:
                 Can load frames across file boundaries. (default: 100)
 
         Returns:
-            None: Writes results to HDF5 file in image_folder/Localisations.h5
+            None: Writes results to HDF5 file:
+                - image_folder/Localisations.h5 (if temporal_median_mode == NONE)
+                - image_folder/Localisations_EVER.h5 (if EVER background subtraction enabled)
         """
 
         image_files = self.helper.file_search(image_folder, image_type, "")
@@ -1243,7 +1245,11 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=False
         )
 
-        fit_savename = os.path.join(image_folder, "Localisations.h5")
+        # Use different filename when EVER background subtraction is enabled
+        if temporal_median_mode != TemporalMedianMode.NONE:
+            fit_savename = os.path.join(image_folder, "Localisations_EVER.h5")
+        else:
+            fit_savename = os.path.join(image_folder, "Localisations.h5")
         masks = self.mask.get_stacked_masks(start_x, start_y, width, height, self.mosaic_unit)
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(

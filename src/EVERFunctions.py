@@ -33,11 +33,16 @@ class EVER_Functions:
     - Fully automatic with no manual parameter tuning required
     """
 
-    def __init__(self):
-        """Initialize EVER with default parameters."""
+    def __init__(self, verbose: bool = False):
+        """Initialize EVER with default parameters.
+
+        Args:
+            verbose: If True, print detailed progress information (default: False)
+        """
         self.default_window_size = 100  # frames
         self.default_spatial_filter_size = 3  # pixels (for spatial mean filter)
         self.lut_cache = {}  # Cache lookup tables for reuse
+        self.verbose = verbose
 
     def compute_ever_background(
         self,
@@ -71,12 +76,16 @@ class EVER_Functions:
             >>> background, emitters = ever.compute_ever_background(raw_frames, window_size=100)
             >>> # Use emitters for spot detection and fitting
         """
+        import sys
         n_frames, height, width = frames.shape
 
-        print(f"  EVER: Processing {n_frames} frames ({height}×{width} pixels)")
-        print(f"  EVER: Window size={window_size}, spatial filter={spatial_filter_size}×{spatial_filter_size}")
+        if self.verbose:
+            print(f"  EVER: Processing {n_frames} frames ({height}×{width} pixels)")
+            print(f"  EVER: Window size={window_size}, spatial filter={spatial_filter_size}×{spatial_filter_size}")
 
         # Step 1: Calculate temporal minimum
+        if self.verbose:
+            print("  EVER: Computing temporal minimum...", end="\r", flush=True)
         temporal_min = self._calculate_temporal_minimum(frames, window_size)
 
         # Step 2: Apply spatial mean filter to reduce noise in minimum map
@@ -85,15 +94,14 @@ class EVER_Functions:
 
         # Step 3: Calculate background decay ratio (automatic parameter)
         decay_ratio = self._calculate_decay_ratio(frames, window_size)
-        print(f"  EVER: Detected background decay ratio R={decay_ratio:.3f}")
 
         # Step 4: Build lookup table for minimum -> background transformation
         cache_key = (window_size, decay_ratio, spatial_filter_size)
         if use_cache and cache_key in self.lut_cache:
             lut = self.lut_cache[cache_key]
-            print(f"  EVER: Using cached lookup table")
         else:
-            print(f"  EVER: Building lookup table (this may take a moment)...")
+            if self.verbose:
+                print("  EVER: Building lookup table...    ", end="\r", flush=True)
             lut = self._build_lookup_table(window_size, decay_ratio, spatial_filter_size, temporal_min)
             if use_cache:
                 self.lut_cache[cache_key] = lut
@@ -105,8 +113,8 @@ class EVER_Functions:
         emitters = frames - background[np.newaxis, :, :]
         emitters = np.maximum(emitters, 0)  # Clip negative values
 
-        print(f"  EVER: Background range: {background.min():.1f} - {background.max():.1f} photons")
-        print(f"  EVER: Emitter signal range: {emitters.min():.1f} - {emitters.max():.1f} photons")
+        if self.verbose:
+            print(f"  EVER: Complete (R={decay_ratio:.3f}, bg={background.mean():.0f}±{background.std():.0f} photons)    ")
 
         return background, emitters
 
