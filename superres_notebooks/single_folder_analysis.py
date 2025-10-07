@@ -127,18 +127,21 @@ def main():
             f"Found {len(tif_files)} .tif files and {len(metadata_files)} metadata files"
         )
 
-        # Clean existing .h5 files from ORIGINAL folder (where we want to write new ones)
-        h5_files = glob.glob(os.path.join(original_folder_path, "*.h5"))
-        if h5_files:
-            print(
-                f"Removing {len(h5_files)} existing .h5 files from original folder..."
-            )
-            for h5_file in h5_files:
-                try:
-                    os.remove(h5_file)
-                    print(f"Removed: {os.path.basename(h5_file)}")
-                except Exception as e:
-                    print(f"Failed to remove {h5_file}: {e}")
+        # Clean only the specific .h5 file that will be replaced
+        # Determine which file will be created based on EVER mode
+        if temporal_median_mode != 0:
+            h5_filename = "Localisations_EVER.h5"
+        else:
+            h5_filename = "Localisations.h5"
+
+        h5_file_to_remove = os.path.join(original_folder_path, h5_filename)
+        if os.path.exists(h5_file_to_remove):
+            print(f"Removing existing {h5_filename} from original folder...")
+            try:
+                os.remove(h5_file_to_remove)
+                print(f"Removed: {h5_filename}")
+            except Exception as e:
+                print(f"Failed to remove {h5_filename}: {e}")
 
         # Import modules (do this late to avoid import overhead for skipped folders)
         print("Importing modules...")

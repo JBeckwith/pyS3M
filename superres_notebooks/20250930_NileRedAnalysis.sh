@@ -54,8 +54,8 @@ check_threshold_params() {
             echo "INFO: Using full format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware)"
             log_message "INFO: Full format detected (6 fields)"
         elif [ "$field_count" -eq 8 ]; then
-            echo "INFO: Using temporal median mode format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware|temporal_median_mode|temporal_median_window)"
-            log_message "INFO: Temporal median mode format detected (8 fields)"
+            echo "INFO: Using EVER mode format (folder|pfa|sigma|fraction_true|wavelength|use_variance_aware|ever_mode|ever_window)"
+            log_message "INFO: EVER mode format detected (8 fields)"
         else
             echo "WARNING: Unexpected format ($field_count fields)"
             log_message "WARNING: Unexpected format with $field_count fields"
@@ -86,17 +86,17 @@ get_threshold_params() {
         local field_count=$(echo "$params_line" | tr '|' '\n' | wc -l)
 
         if [ "$field_count" -eq 8 ]; then
-            # Temporal median mode format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware|temporal_median_mode|temporal_median_window
+            # EVER mode format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware|ever_mode|ever_window
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
             local sigma=$(echo "$params_line" | cut -d'|' -f3)
             local fraction_true=$(echo "$params_line" | cut -d'|' -f4)
             local wavelength=$(echo "$params_line" | cut -d'|' -f5)
             local use_variance_aware=$(echo "$params_line" | cut -d'|' -f6)
-            # FORCE temporal median OFF for Nile Red analysis (too slow)
-            local temporal_median_mode="0"  # Always use NONE, ignore value from file
+            # Use EVER mode from threshold parameters file
+            local temporal_median_mode=$(echo "$params_line" | cut -d'|' -f7)
             local temporal_median_window=$(echo "$params_line" | cut -d'|' -f8)
             echo "$pfa $sigma $fraction_true $wavelength $use_variance_aware $temporal_median_mode $temporal_median_window"
-            log_message "Using temporal median mode parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, temporal_median_mode=$temporal_median_mode (FORCED OFF), window=$temporal_median_window"
+            log_message "Using EVER mode parameters for $folder_path: pfa=$pfa, sigma=$sigma, fraction_true=$fraction_true, wavelength=$wavelength, variance_aware=$use_variance_aware, ever_mode=$temporal_median_mode, ever_window=$temporal_median_window"
         elif [ "$field_count" -eq 6 ]; then
             # Full format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware
             local pfa=$(echo "$params_line" | cut -d'|' -f2)
