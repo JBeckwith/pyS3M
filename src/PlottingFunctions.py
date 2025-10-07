@@ -1025,8 +1025,8 @@ class Plotter(PublicationPlotter):
         )
 
         axs.scatter(
-            ydata,
             xdata,
+            ydata,
             lw=lws,
             edgecolor=scattercolor,
             s=s,
