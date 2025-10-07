@@ -835,8 +835,8 @@ class NileRedThresholdTuner:
             self.pf.image_scatter_plot(
                 ax2,
                 data=image,
-                xdata=spots[:, 0],
-                ydata=spots[:, 1],
+                xdata=spots[:, 1],
+                ydata=spots[:, 0],
                 vmin=float(np.percentile(image, 1)),
                 vmax=float(np.percentile(image, 99)),
                 cmap="gist_gray",
@@ -1001,8 +1001,8 @@ class NileRedThresholdTuner:
                 self.pf.image_scatter_plot(
                     axs=axs1[i],
                     data=frame,
-                    xdata=spots[:, 0],
-                    ydata=spots[:, 1],
+                    xdata=spots[:, 1],
+                    ydata=spots[:, 0],
                     vmin=float(np.percentile(frame, 1)),
                     vmax=float(np.percentile(frame, 99)),
                     s=30,
