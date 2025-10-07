@@ -87,7 +87,7 @@ class NileRedThresholdTuner:
         # Default parameters optimized for Nile Red staining
         self.default_pfa = 1e-3
         self.default_sigma = 1.5
-        self.default_true_fraction = 0.1
+        self.default_true_fraction = 0.25
         self.default_wavelength = 0.650  # 650nm
         self.default_use_variance_aware = True  # Default to variance-aware demosaicing
         self.default_ever_mode = TemporalMedianMode.DETECTION_AND_FITTING  # Default: EVER for both detection and fitting
