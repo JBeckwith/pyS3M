@@ -297,6 +297,10 @@ class EVER_Functions:
         # Minimum ~ λ - sqrt(2*λ*ln(N)) for Poisson(λ) over N samples
         # Use approximation for N > 10 to avoid slow PMF calculation
         if N > 10:
+            # Validate inputs to avoid invalid sqrt/log operations
+            if lambda_bg <= 0 or R <= 0 or N <= 1:
+                return max(0, lambda_bg * R)
+
             # Fast approximation based on extreme value theory
             # For no decay (R=1), use Gumbel approximation
             expected_min = lambda_bg * R - np.sqrt(2 * lambda_bg * R * np.log(N))
@@ -360,6 +364,8 @@ class EVER_Functions:
         Returns:
             pmf: Probability mass function array
         """
+        import warnings
+
         # Vectorized computation for speed
         # Pre-compute time-varying background for all frames
         if N > 1:
@@ -369,26 +375,42 @@ class EVER_Functions:
         else:
             lambda_n_array = np.array([lambda_bg])
 
+        # Ensure lambda values are valid (positive, finite)
+        lambda_n_array = np.clip(lambda_n_array, 1e-10, None)  # Minimum valid lambda
+
+        # Check for invalid values and return uniform distribution if found
+        if not np.all(np.isfinite(lambda_n_array)) or np.any(lambda_n_array <= 0):
+            # Return uniform distribution as fallback
+            pmf = np.ones_like(k_range, dtype=np.float64) / len(k_range)
+            return pmf
+
         pmf = np.zeros_like(k_range, dtype=np.float64)
 
-        for idx, k in enumerate(k_range):
-            # Vectorized CDF computation for all frames
-            if k > 0:
-                cdf_k_minus_1 = poisson.cdf(k-1, lambda_n_array)
-                prod_k_minus_1 = np.prod(1.0 - cdf_k_minus_1)
-            else:
-                prod_k_minus_1 = 1.0
+        # Suppress scipy warnings about invalid values (we've already validated)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-            cdf_k = poisson.cdf(k, lambda_n_array)
-            prod_k = np.prod(1.0 - cdf_k)
+            for idx, k in enumerate(k_range):
+                # Vectorized CDF computation for all frames
+                if k > 0:
+                    cdf_k_minus_1 = poisson.cdf(k-1, lambda_n_array)
+                    prod_k_minus_1 = np.prod(1.0 - cdf_k_minus_1)
+                else:
+                    prod_k_minus_1 = 1.0
 
-            # PMF is difference of products
-            pmf[idx] = prod_k_minus_1 - prod_k
+                cdf_k = poisson.cdf(k, lambda_n_array)
+                prod_k = np.prod(1.0 - cdf_k)
+
+                # PMF is difference of products
+                pmf[idx] = prod_k_minus_1 - prod_k
 
         # Normalize (ensure sums to 1)
         pmf_sum = np.sum(pmf)
         if pmf_sum > 0:
             pmf = pmf / pmf_sum
+        else:
+            # Fallback: uniform distribution
+            pmf = np.ones_like(k_range, dtype=np.float64) / len(k_range)
 
         return pmf
 
