@@ -21,7 +21,7 @@ import os
 import sys
 import duckdb
 import polars as pl
-from scipy.optimize import least_squares, OptimizeResult
+from scipy.optimize import OptimizeResult, differential_evolution
 from scipy.constants import electron_volt, Planck, c
 from scipy.special import erf
 
@@ -41,9 +41,13 @@ class SpectralConstants:
     """Constants for spectral analysis."""
 
     # File paths
-    DEFAULT_CAMERA_QE_FILE = os.path.abspath("../Spectra/Camera_QE/CS505CU_QE.csv")
-    DEFAULT_OBJECTIVE_FILE = os.path.abspath(
-        "../Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
+    DEFAULT_CAMERA_QE_FILE = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "Spectra/Camera_QE/CS505CU_QE.csv"
+    )
+    DEFAULT_OBJECTIVE_FILE = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
     )
 
     # Physical constants
@@ -520,29 +524,26 @@ class Spectral_Funcs:
         # Convert to energy domain
         energy = self.wavelength_to_energy(wavelength)
 
-        # Apply dipole moment weighting: nu^-3 / wavelength^2
-        weighting_factor = energy ** (-3) / wavelength**2
-
-        # Calculate model spectrum
+        # Calculate model spectrum in energy domain
         if model == "gaussian":
-            spectrum_model = self.gaussian_model(params, energy) * weighting_factor
+            spectrum_model_energy = self.gaussian_model(params, energy)
         elif model == "skew-gaussian":
-            spectrum_model = self.skew_gaussian_model(params, energy) * weighting_factor
+            spectrum_model_energy = self.skew_gaussian_model(params, energy)
         else:
             raise ValueError(f"Unsupported model type: {model}")
 
-        # Normalize by area and scale by amplitude
-        spectrum_area = np.trapz(x=wavelength, y=spectrum_model)
-        if spectrum_area > 0:
-            spectrum_normalized = params[0] * spectrum_model / spectrum_area
-        else:
-            spectrum_normalized = np.zeros_like(spectrum_model)
+        # Convert model from energy to wavelength domain
+        # Jacobian factor: dλ/dE = hc/E^2 (in appropriate units) = λ^2/E
+        # Dipole moment weighting: E^(-3)
+        # Combined: I(λ) = I(E) / (E^(-3) * λ^2)
+        weighting_factor = energy ** (-3) * wavelength**2
+        spectrum_model_wavelength = spectrum_model_energy / weighting_factor
 
         if return_fit:
-            return spectrum_normalized
+            return spectrum_model_wavelength
 
-        # Calculate residuals
-        residuals = spectrum - spectrum_normalized
+        # Calculate residuals in wavelength domain (comparing like-to-like)
+        residuals = spectrum - spectrum_model_wavelength
 
         # Apply optional weighting
         if weights is not None:
@@ -554,17 +555,18 @@ class Spectral_Funcs:
         self,
         spectrum: np.ndarray,
         wavelength: np.ndarray,
-        initial_guess: np.ndarray,
         model: str = "gaussian",
         weights: Optional[np.ndarray] = None,
         display: bool = False,
     ) -> Union[OptimizeResult, Tuple[OptimizeResult, np.ndarray]]:
         """Fit spectral data with Gaussian or skewed Gaussian model.
 
+        Uses differential evolution (genetic algorithm) for robust global optimization.
+        No initial guess required - the algorithm automatically finds the optimal parameters.
+
         Args:
             spectrum: Experimental spectrum data.
             wavelength: Wavelength array.
-            initial_guess: Initial parameter guess.
             model: Model type ("gaussian" or "skew-gaussian").
             weights: Optional weighting array for fitting.
             display: If True, return both fit result and fitted spectrum.
@@ -573,35 +575,68 @@ class Spectral_Funcs:
             Optimization result, or tuple of (result, fitted_spectrum) if display=True.
 
         Raises:
-            ValueError: If model type is not supported or initial guess has wrong length.
+            ValueError: If model type is not supported.
         """
-        # Validate inputs
-        if model == "gaussian" and len(initial_guess) < 3:
-            raise ValueError("Gaussian model requires at least 3 parameters")
-        elif model == "skew-gaussian" and len(initial_guess) < 4:
-            raise ValueError("Skewed Gaussian model requires at least 4 parameters")
+        # Normalize spectrum to max=1 for better numerical stability
+        spectrum_max = np.max(spectrum)
+        if spectrum_max > 0:
+            spectrum_norm = spectrum / spectrum_max
+        else:
+            spectrum_norm = spectrum
 
-        # Set parameter bounds
+        # Define objective function for differential evolution (sum of squared residuals)
+        def objective(params):
+            residuals = self.chi2_spectrum(params, wavelength, spectrum_norm, model, weights)
+            return np.nansum(residuals**2)
+
+        # Set parameter bounds based on physical constraints
         if model == "gaussian":
-            bounds = ([0, 0, 0], [np.inf, np.inf, np.inf])
+            # Bounds: [amplitude, center_energy, sigma]
+            # Amplitude: 0 to 2 (normalized spectrum has max=1)
+            # Center: energy range of wavelengths
+            # Sigma: narrow to broad peaks
+            energy = self.wavelength_to_energy(wavelength)
+            bounds = [
+                (0,1e6),                              # amplitude (normalized)
+                (np.min(energy) * 0.9, np.max(energy) * 1.1),  # center (energy)
+                (0.01, 2.0),                           # sigma (energy spread)
+            ]
         elif model == "skew-gaussian":
-            bounds = ([0, 0, 0, -np.inf], [np.inf, np.inf, np.inf, np.inf])
+            # Bounds: [amplitude, center_energy, sigma, alpha]
+            # Alpha: skewness parameter (-10 to 10 is reasonable)
+            energy = self.wavelength_to_energy(wavelength)
+            bounds = [
+                (0, 1e6),                              # amplitude (normalized)
+                (np.min(energy) * 0.9, np.max(energy) * 1.1),  # center (energy)
+                (0.01, 2.0),                           # sigma
+                (-10, 10),                             # alpha (skewness)
+            ]
         else:
             raise ValueError(f"Unsupported model type: {model}")
 
-        # Perform fitting
-        result = least_squares(
-            self.chi2_spectrum,
-            x0=initial_guess,
-            method="trf",
-            bounds=bounds,
-            args=(wavelength, spectrum, model, weights),
+        # Use differential evolution - robust, no initial guess needed
+        # Increase sensitivity with tighter tolerance and more iterations
+        result = differential_evolution(
+            objective,
+            bounds,
+            strategy='best1bin',
+            maxiter=2000,           # More iterations for better convergence
+            popsize=20,             # Larger population for better exploration
+            tol=1e-9,               # Tighter tolerance
+            mutation=(0.5, 1.5),    # Wider mutation range
+            recombination=0.7,
+            atol=1e-10,             # Absolute tolerance
+            polish=True,            # Refine with L-BFGS-B after genetic algorithm
+            workers=1,
         )
+
+        # Scale amplitude back to original spectrum scale
+        result.x[0] *= spectrum_max
 
         if not display:
             return result
 
-        # Generate fitted spectrum for display
+        # Generate fitted spectrum for display (using original spectrum scale)
         fitted_spectrum = self.chi2_spectrum(
             result.x,
             wavelength,
