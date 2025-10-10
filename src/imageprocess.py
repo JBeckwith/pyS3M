@@ -37,6 +37,7 @@ def _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=None):
 
     try:
         from PlottingBase import AnalysisPlotter
+
         plotter = AnalysisPlotter()
 
         fig, axes = plotter.create_subplots(1, 3, figsize=(17, 10))
@@ -51,7 +52,7 @@ def _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=None):
 
         # Cross-correlation with peak marker
         im3 = axes[2].imshow(XCorr, interpolation="none")
-        axes[2].plot(xc, yc, "x", color='red', markersize=10, markeredgewidth=2)
+        axes[2].plot(xc, yc, "x", color="red", markersize=10, markeredgewidth=2)
         plotter.setup_axis(axes[2], title="Cross-correlation")
 
         plotter.save_or_show(fig, save_path=save_path)
@@ -72,7 +73,7 @@ def _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=None):
         plt.title("Image B")
         plt.subplot(1, 3, 3)
         plt.imshow(XCorr, interpolation="none")
-        plt.plot(xc, yc, "x", color='red', markersize=10)
+        plt.plot(xc, yc, "x", color="red", markersize=10)
         plt.title("Cross-correlation")
 
         if save_path:

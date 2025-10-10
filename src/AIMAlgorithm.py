@@ -72,13 +72,13 @@ class AIMAlgorithm:
         if aim_params is None:
             aim_params = {}
 
-        segmentation = aim_params.get('segmentation', 100)
-        intersect_d = aim_params.get('intersect_d', 20 / 69)
-        roi_r = aim_params.get('roi_r', 60 / 69)
-        pixelsize = aim_params.get('pixelsize', 69)
-        width = aim_params.get('width', 256)
-        height = aim_params.get('height', 256)
-        progress_callback = aim_params.get('progress_callback', None)
+        segmentation = aim_params.get("segmentation", 100)
+        intersect_d = aim_params.get("intersect_d", 20 / 69)
+        roi_r = aim_params.get("roi_r", 60 / 69)
+        pixelsize = aim_params.get("pixelsize", 69)
+        width = aim_params.get("width", 256)
+        height = aim_params.get("height", 256)
+        progress_callback = aim_params.get("progress_callback", None)
 
         # Create metadata dictionary
         meta = {
@@ -100,8 +100,15 @@ class AIMAlgorithm:
 
         # Run 2D AIM algorithm
         x_pdc, y_pdc, drift_x, drift_y = self._run_aim_2d(
-            locs, ref_x, ref_y, locs.frame, seg_bounds, meta,
-            intersect_d, roi_r, progress_callback
+            locs,
+            ref_x,
+            ref_y,
+            locs.frame,
+            seg_bounds,
+            meta,
+            intersect_d,
+            roi_r,
+            progress_callback,
         )
 
         # Create metadata
@@ -134,11 +141,15 @@ class AIMAlgorithm:
             Tuple of (drift_x, drift_y, drift_z, aim_metadata)
         """
         # First run 2D AIM
-        drift_x, drift_y, metadata_2d = self.run_aim_2d(locs, aim_params, enable_multithreading)
+        drift_x, drift_y, metadata_2d = self.run_aim_2d(
+            locs, aim_params, enable_multithreading
+        )
 
         # Check if we have Z coordinates
-        if not hasattr(locs, 'zc'):
-            warnings.warn("No Z coordinates found in localisation data. Returning zeros for Z drift.")
+        if not hasattr(locs, "zc"):
+            warnings.warn(
+                "No Z coordinates found in localisation data. Returning zeros for Z drift."
+            )
             drift_z = np.zeros_like(drift_x)
             metadata_2d["algorithm"] = "AIM_3D_NO_Z"
             return drift_x, drift_y, drift_z, metadata_2d
@@ -147,13 +158,13 @@ class AIMAlgorithm:
         if aim_params is None:
             aim_params = {}
 
-        segmentation = aim_params.get('segmentation', 100)
-        intersect_d = aim_params.get('intersect_d', 20 / 69)
-        roi_r = aim_params.get('roi_r', 60 / 69)
-        pixelsize = aim_params.get('pixelsize', 69)
-        width = aim_params.get('width', 256)
-        height = aim_params.get('height', 256)
-        progress_callback = aim_params.get('progress_callback', None)
+        segmentation = aim_params.get("segmentation", 100)
+        intersect_d = aim_params.get("intersect_d", 20 / 69)
+        roi_r = aim_params.get("roi_r", 60 / 69)
+        pixelsize = aim_params.get("pixelsize", 69)
+        width = aim_params.get("width", 256)
+        height = aim_params.get("height", 256)
+        progress_callback = aim_params.get("progress_callback", None)
 
         meta = {
             "pixelsize": pixelsize,
@@ -180,8 +191,15 @@ class AIMAlgorithm:
 
         # Run 3D AIM for Z coordinate
         z_pdc, drift_z = self._run_aim_3d(
-            x_pdc, y_pdc, locs.zc, locs.frame, seg_bounds, meta,
-            intersect_d, roi_r, progress_callback
+            x_pdc,
+            y_pdc,
+            locs.zc,
+            locs.frame,
+            seg_bounds,
+            meta,
+            intersect_d,
+            roi_r,
+            progress_callback,
         )
 
         # Update metadata
@@ -518,7 +536,9 @@ class AIMAlgorithm:
 
         # Basic implementation - more sophisticated 3D implementation would be needed
         # for production use
-        warnings.warn("3D AIM implementation is basic. For production use, implement full 3D algorithm.")
+        warnings.warn(
+            "3D AIM implementation is basic. For production use, implement full 3D algorithm."
+        )
 
         # Simple Z-drift correction using interpolation
         n_segments = len(seg_bounds) - 1
@@ -583,27 +603,40 @@ class AIMAlgorithm:
         if scipy_interpolate:
             try:
                 spline_x = scipy_interpolate.interp1d(
-                    time_extended, drift_x_extended, kind="cubic",
-                    bounds_error=False, fill_value=0.0  # Use numeric fill_value
+                    time_extended,
+                    drift_x_extended,
+                    kind="cubic",
+                    bounds_error=False,
+                    fill_value=0.0,  # Use numeric fill_value
                 )
                 spline_y = scipy_interpolate.interp1d(
-                    time_extended, drift_y_extended, kind="cubic",
-                    bounds_error=False, fill_value=0.0  # Use numeric fill_value
+                    time_extended,
+                    drift_y_extended,
+                    kind="cubic",
+                    bounds_error=False,
+                    fill_value=0.0,  # Use numeric fill_value
                 )
             except Exception:
                 # Fallback to linear interpolation
                 spline_x = scipy_interpolate.interp1d(
-                    time_extended, drift_x_extended, kind="linear",
-                    bounds_error=False, fill_value=0.0
+                    time_extended,
+                    drift_x_extended,
+                    kind="linear",
+                    bounds_error=False,
+                    fill_value=0.0,
                 )
                 spline_y = scipy_interpolate.interp1d(
-                    time_extended, drift_y_extended, kind="linear",
-                    bounds_error=False, fill_value=0.0
+                    time_extended,
+                    drift_y_extended,
+                    kind="linear",
+                    bounds_error=False,
+                    fill_value=0.0,
                 )
         else:
             # Simple numpy interpolation fallback
             def spline_x(frames):
                 return np.interp(frames, time_extended, drift_x_extended)
+
             def spline_y(frames):
                 return np.interp(frames, time_extended, drift_y_extended)
 
@@ -651,10 +684,7 @@ class AIMAlgorithm:
 
                 # Calculate intersection count
                 roi_cc[i] = np.sum(
-                    np.minimum(
-                        l0_counts[l0_indices],
-                        l1_counts[l1_shifted_indices]
-                    )
+                    np.minimum(l0_counts[l0_indices], l1_counts[l1_shifted_indices])
                 )
 
         return roi_cc.reshape(box, box)
@@ -678,15 +708,18 @@ class AIMAlgorithm:
 
             start_x = (pad_size - roi_cc.shape[1]) // 2
             start_y = (pad_size - roi_cc.shape[0]) // 2
-            roi_padded[start_y:start_y + roi_cc.shape[0],
-                      start_x:start_x + roi_cc.shape[1]] = roi_cc
+            roi_padded[
+                start_y : start_y + roi_cc.shape[0], start_x : start_x + roi_cc.shape[1]
+            ] = roi_cc
 
             # Apply FFT
             fft_result = numpy_fft.fft2(roi_padded)
             fft_shifted = numpy_fft.fftshift(fft_result)
 
             # Find peak in FFT domain
-            peak_idx = np.unravel_index(np.argmax(np.abs(fft_shifted)), fft_shifted.shape)
+            peak_idx = np.unravel_index(
+                np.argmax(np.abs(fft_shifted)), fft_shifted.shape
+            )
 
             # Convert back to spatial coordinates
             center = np.array(fft_shifted.shape) // 2
@@ -718,7 +751,7 @@ class AIMAlgorithm:
             pad_size = len(roi_cc) * 4
             roi_padded = np.zeros(pad_size)
             start = (pad_size - len(roi_cc)) // 2
-            roi_padded[start:start + len(roi_cc)] = roi_cc
+            roi_padded[start : start + len(roi_cc)] = roi_cc
 
             fft_result = numpy_fft.fft(roi_padded)
             fft_shifted = numpy_fft.fftshift(fft_result)

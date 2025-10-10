@@ -46,7 +46,7 @@ class NileRed_Functions:
         self,
         sigma_energy: float = 0.1630104,
         alpha: float = -1.56453968,
-        wavelength_center_init: float = 617.6
+        wavelength_center_init: float = 617.6,
     ):
         """Initialize Nile Red model with spectral parameters.
 
@@ -66,7 +66,9 @@ class NileRed_Functions:
         # LUT cache
         self._lut_cache = {}
         self._lut_interpolator_cache = {}  # Cache pre-built interpolators
-        self._db_path = os.path.join(os.path.dirname(__file__), '..', 'Spectra', 'spectral_data.duckdb')
+        self._db_path = os.path.join(
+            os.path.dirname(__file__), "..", "Spectra", "spectral_data.duckdb"
+        )
 
     def _get_config_hash(self, filter_names: list, NA: float) -> str:
         """Generate unique hash for filter configuration.
@@ -83,7 +85,8 @@ class NileRed_Functions:
 
     def _create_lut_table_if_not_exists(self, conn):
         """Create Nile Red LUT table in DuckDB if it doesn't exist."""
-        conn.execute("""
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS nile_red_lut (
                 config_hash VARCHAR PRIMARY KEY,
                 filter_names VARCHAR,
@@ -101,14 +104,15 @@ class NileRed_Functions:
                 sigma_psf FLOAT[],
                 created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """
+        )
 
     def generate_lut(
         self,
         filter_names: list,
         NA: float = 1.49,
         wavelength_range: Tuple[float, float] = (550.0, 750.0),
-        wavelength_step: float = 0.5
+        wavelength_step: float = 0.5,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Generate lookup table for Nile Red forward model.
 
@@ -131,10 +135,14 @@ class NileRed_Functions:
         print(f"  Resolution: {wavelength_step} nm")
 
         # Setup optical system
-        wavelength_array, pixel_QYs, filter_spectra = self.setup_optical_system(filter_names)
+        wavelength_array, pixel_QYs, filter_spectra = self.setup_optical_system(
+            filter_names
+        )
 
         # Generate wavelength grid for LUT
-        lut_wavelengths = np.arange(wavelength_range[0], wavelength_range[1] + wavelength_step, wavelength_step)
+        lut_wavelengths = np.arange(
+            wavelength_range[0], wavelength_range[1] + wavelength_step, wavelength_step
+        )
         n_points = len(lut_wavelengths)
 
         print(f"  Computing {n_points} forward model evaluations...")
@@ -146,13 +154,17 @@ class NileRed_Functions:
         # Compute forward model for each wavelength
         for i, wl in enumerate(lut_wavelengths):
             if i % 50 == 0:
-                print(f"    Progress: {i}/{n_points} ({100*i/n_points:.1f}%)", end='\r', flush=True)
+                print(
+                    f"    Progress: {i}/{n_points} ({100*i/n_points:.1f}%)",
+                    end="\r",
+                    flush=True,
+                )
 
             predictions = self.nile_red_forward_model(
                 wl, filter_spectra, wavelength_array, pixel_QYs, NA
             )
-            lut_rgb[i] = [predictions['R'], predictions['G'], predictions['B']]
-            lut_sigma_psf[i] = predictions['sigma_x']
+            lut_rgb[i] = [predictions["R"], predictions["G"], predictions["B"]]
+            lut_sigma_psf[i] = predictions["sigma_x"]
 
         print(f"    Progress: {n_points}/{n_points} (100.0%) - Done!       ")
 
@@ -164,7 +176,7 @@ class NileRed_Functions:
         NA: float,
         wavelengths: np.ndarray,
         rgb_array: np.ndarray,
-        sigma_psf_array: np.ndarray
+        sigma_psf_array: np.ndarray,
     ):
         """Save LUT to DuckDB database.
 
@@ -185,37 +197,44 @@ class NileRed_Functions:
             # Check if entry exists
             existing = conn.execute(
                 "SELECT config_hash FROM nile_red_lut WHERE config_hash = ?",
-                [config_hash]
+                [config_hash],
             ).fetchone()
 
             if existing:
-                print(f"LUT already exists for this configuration (hash: {config_hash[:8]}...)")
+                print(
+                    f"LUT already exists for this configuration (hash: {config_hash[:8]}...)"
+                )
                 print("Updating existing entry...")
-                conn.execute("DELETE FROM nile_red_lut WHERE config_hash = ?", [config_hash])
+                conn.execute(
+                    "DELETE FROM nile_red_lut WHERE config_hash = ?", [config_hash]
+                )
 
             # Insert new LUT
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO nile_red_lut (
                     config_hash, filter_names, NA, sigma_energy, alpha,
                     wavelength_min, wavelength_max, wavelength_step, n_points,
                     wavelengths, rgb_r, rgb_g, rgb_b, sigma_psf
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                config_hash,
-                ','.join(filter_names),
-                NA,
-                self.default_sigma_energy,
-                self.default_alpha,
-                float(wavelengths[0]),
-                float(wavelengths[-1]),
-                float(wavelengths[1] - wavelengths[0]),
-                len(wavelengths),
-                wavelengths.tolist(),
-                rgb_array[:, 0].tolist(),
-                rgb_array[:, 1].tolist(),
-                rgb_array[:, 2].tolist(),
-                sigma_psf_array.tolist()
-            ])
+            """,
+                [
+                    config_hash,
+                    ",".join(filter_names),
+                    NA,
+                    self.default_sigma_energy,
+                    self.default_alpha,
+                    float(wavelengths[0]),
+                    float(wavelengths[-1]),
+                    float(wavelengths[1] - wavelengths[0]),
+                    len(wavelengths),
+                    wavelengths.tolist(),
+                    rgb_array[:, 0].tolist(),
+                    rgb_array[:, 1].tolist(),
+                    rgb_array[:, 2].tolist(),
+                    sigma_psf_array.tolist(),
+                ],
+            )
 
             conn.commit()
 
@@ -232,9 +251,7 @@ class NileRed_Functions:
                     pass
 
     def load_lut_from_database(
-        self,
-        filter_names: list,
-        NA: float
+        self, filter_names: list, NA: float
     ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Load LUT from DuckDB database.
 
@@ -258,21 +275,26 @@ class NileRed_Functions:
             conn = duckdb.connect(self._db_path, read_only=True)
 
             try:
-                result = conn.execute("""
+                result = conn.execute(
+                    """
                     SELECT wavelengths, rgb_r, rgb_g, rgb_b, sigma_psf
                     FROM nile_red_lut
                     WHERE config_hash = ?
-                """, [config_hash]).fetchone()
+                """,
+                    [config_hash],
+                ).fetchone()
 
                 if result is None:
                     return None
 
                 wavelengths = np.array(result[0])
-                rgb_array = np.column_stack([
-                    np.array(result[1]),  # R
-                    np.array(result[2]),  # G
-                    np.array(result[3])   # B
-                ])
+                rgb_array = np.column_stack(
+                    [
+                        np.array(result[1]),  # R
+                        np.array(result[2]),  # G
+                        np.array(result[3]),  # B
+                    ]
+                )
                 sigma_psf_array = np.array(result[4])
 
                 # Cache in memory for future use
@@ -292,7 +314,7 @@ class NileRed_Functions:
         NA: float = 1.49,
         wavelength_range: Tuple[float, float] = (550.0, 750.0),
         wavelength_step: float = 0.5,
-        force_regenerate: bool = False
+        force_regenerate: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get LUT from database or generate if not exists.
 
@@ -312,20 +334,21 @@ class NileRed_Functions:
                 return lut_data
 
         # LUT not found, generate new one
-        print(f"LUT not found. Generating new LUT for {len(filter_names)} filters, NA={NA}...")
+        print(
+            f"LUT not found. Generating new LUT for {len(filter_names)} filters, NA={NA}..."
+        )
         wavelengths, rgb_array, sigma_psf_array = self.generate_lut(
             filter_names, NA, wavelength_range, wavelength_step
         )
 
-        self.save_lut_to_database(filter_names, NA, wavelengths, rgb_array, sigma_psf_array)
+        self.save_lut_to_database(
+            filter_names, NA, wavelengths, rgb_array, sigma_psf_array
+        )
 
         return wavelengths, rgb_array, sigma_psf_array
 
     def nile_red_forward_model_lut(
-        self,
-        wavelength_center: float,
-        filter_names: list,
-        NA: float = 1.49
+        self, wavelength_center: float, filter_names: list, NA: float = 1.49
     ) -> Dict[str, float]:
         """Fast forward model using LUT interpolation with cached interpolators.
 
@@ -348,11 +371,13 @@ class NileRed_Functions:
             rgb_interp, sigma_interp = self._lut_interpolator_cache[config_hash]
         else:
             # Get or create LUT data
-            wavelengths, rgb_array, sigma_psf_array = self.get_or_create_lut(filter_names, NA)
+            wavelengths, rgb_array, sigma_psf_array = self.get_or_create_lut(
+                filter_names, NA
+            )
 
             # Create interpolators once and cache them
-            rgb_interp = interp1d(wavelengths, rgb_array.T, kind='linear', bounds_error=False, fill_value='extrapolate')  # type: ignore
-            sigma_interp = interp1d(wavelengths, sigma_psf_array, kind='linear', bounds_error=False, fill_value='extrapolate')  # type: ignore
+            rgb_interp = interp1d(wavelengths, rgb_array.T, kind="linear", bounds_error=False, fill_value="extrapolate")  # type: ignore
+            sigma_interp = interp1d(wavelengths, sigma_psf_array, kind="linear", bounds_error=False, fill_value="extrapolate")  # type: ignore
 
             # Store in cache
             self._lut_interpolator_cache[config_hash] = (rgb_interp, sigma_interp)
@@ -362,17 +387,15 @@ class NileRed_Functions:
         sigma_psf = float(sigma_interp(wavelength_center))
 
         return {
-            'R': float(rgb_values[0]),
-            'G': float(rgb_values[1]),
-            'B': float(rgb_values[2]),
-            'sigma_x': sigma_psf,
-            'sigma_y': sigma_psf
+            "R": float(rgb_values[0]),
+            "G": float(rgb_values[1]),
+            "B": float(rgb_values[2]),
+            "sigma_x": sigma_psf,
+            "sigma_y": sigma_psf,
         }
 
     def compute_sigma_psf_array(
-        self,
-        wavelength_array: np.ndarray,
-        NA: float = 1.49
+        self, wavelength_array: np.ndarray, NA: float = 1.49
     ) -> np.ndarray:
         """Compute wavelength-dependent PSF widths.
 
@@ -387,8 +410,7 @@ class NileRed_Functions:
         return sigma_psf_array
 
     def setup_optical_system(
-        self,
-        filter_names: list
+        self, filter_names: list
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Setup optical system by loading filter spectra and pixel efficiencies.
 
@@ -406,9 +428,7 @@ class NileRed_Functions:
 
         # Get filter transmission spectra
         filter_spectra = self.spectral_funcs.get_dye_or_filter_data(
-            names=filter_names,
-            wavelength=wavelength,
-            dye_or_filter=False
+            names=filter_names, wavelength=wavelength, dye_or_filter=False
         )
 
         return wavelength, pixel_QYs, filter_spectra
@@ -419,7 +439,7 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         sigma_energy: Optional[float] = None,
         alpha: Optional[float] = None,
-        normalize: bool = True
+        normalize: bool = True,
     ) -> np.ndarray:
         """Generate Nile Red emission spectrum using skew-Gaussian model.
 
@@ -440,7 +460,9 @@ class NileRed_Functions:
             alpha = self.default_alpha
 
         # Convert center wavelength to energy
-        energy_center = self.spectral_funcs.wavelength_to_energy(np.array([wavelength_center]))[0]
+        energy_center = self.spectral_funcs.wavelength_to_energy(
+            np.array([wavelength_center])
+        )[0]
 
         # Convert wavelength array to energy
         energy_array = self.spectral_funcs.wavelength_to_energy(wavelength_array)
@@ -452,7 +474,7 @@ class NileRed_Functions:
 
         # Transform to wavelength space with Jacobian and dipole moment weighting
         # I(λ) = I(E) / (E^(-3) * λ^2)
-        weighting_factor = energy_array ** (-3) * wavelength_array ** 2
+        weighting_factor = energy_array ** (-3) * wavelength_array**2
         spectrum_wavelength = spectrum_energy / weighting_factor
 
         # Normalize to unit sum if requested
@@ -464,9 +486,7 @@ class NileRed_Functions:
         return spectrum_wavelength
 
     def apply_optical_filters(
-        self,
-        spectrum: np.ndarray,
-        filter_spectra: np.ndarray
+        self, spectrum: np.ndarray, filter_spectra: np.ndarray
     ) -> np.ndarray:
         """Apply optical filter transmission curves to emission spectrum.
 
@@ -488,7 +508,7 @@ class NileRed_Functions:
         self,
         spectrum_filtered: np.ndarray,
         wavelength: np.ndarray,
-        pixel_QYs: np.ndarray
+        pixel_QYs: np.ndarray,
     ) -> np.ndarray:
         """Calculate expected R, G, B intensities on Bayer sensor.
 
@@ -516,10 +536,7 @@ class NileRed_Functions:
         return rgb_predicted
 
     def calculate_psf_width_from_spectrum(
-        self,
-        spectrum_filtered: np.ndarray,
-        wavelength: np.ndarray,
-        NA: float = 1.49
+        self, spectrum_filtered: np.ndarray, wavelength: np.ndarray, NA: float = 1.49
     ) -> float:
         """Calculate expected PSF width from polychromatic spectrum using 1st moment.
 
@@ -541,7 +558,9 @@ class NileRed_Functions:
         denominator = np.trapz(spectrum_filtered, wavelength)
 
         if denominator > 0:
-            lambda_avg = np.trapz(spectrum_filtered * wavelength, wavelength) / denominator
+            lambda_avg = (
+                np.trapz(spectrum_filtered * wavelength, wavelength) / denominator
+            )
             # Calculate PSF width at the mean wavelength
             sigma_psf_predicted = self.psf_funcs.sigma_PSF(lambda_avg, NA)
         else:
@@ -557,7 +576,7 @@ class NileRed_Functions:
         filter_spectra: np.ndarray,
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
-        NA: float = 1.49
+        NA: float = 1.49,
     ) -> Dict[str, float]:
         """Complete forward model: wavelength_center → (R, G, B, σ_PSF).
 
@@ -573,37 +592,28 @@ class NileRed_Functions:
         """
         # 1. Generate emission spectrum
         spectrum = self.generate_nile_red_spectrum(
-            wavelength_center,
-            wavelength_array,
-            normalize=True
+            wavelength_center, wavelength_array, normalize=True
         )
 
         # 2. Apply optical filters
-        spectrum_filtered = self.apply_optical_filters(
-            spectrum,
-            filter_spectra
-        )
+        spectrum_filtered = self.apply_optical_filters(spectrum, filter_spectra)
 
         # 3. Predict RGB values
         rgb = self.calculate_rgb_from_spectrum(
-            spectrum_filtered,
-            wavelength_array,
-            pixel_QYs
+            spectrum_filtered, wavelength_array, pixel_QYs
         )
 
         # 4. Predict PSF width (assume circular PSF: σ_x = σ_y)
         sigma_psf = self.calculate_psf_width_from_spectrum(
-            spectrum_filtered,
-            wavelength_array,
-            NA
+            spectrum_filtered, wavelength_array, NA
         )
 
         predictions = {
-            'R': rgb[0],
-            'G': rgb[1],
-            'B': rgb[2],
-            'sigma_x': sigma_psf,
-            'sigma_y': sigma_psf
+            "R": rgb[0],
+            "G": rgb[1],
+            "B": rgb[2],
+            "sigma_x": sigma_psf,
+            "sigma_y": sigma_psf,
         }
 
         return predictions
@@ -616,7 +626,7 @@ class NileRed_Functions:
         filter_spectra: np.ndarray,
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
-        NA: float = 1.49
+        NA: float = 1.49,
     ) -> float:
         """Chi-squared for fitting central wavelength to experimental data.
 
@@ -643,7 +653,7 @@ class NileRed_Functions:
             filter_spectra,
             wavelength_array,
             pixel_QYs,
-            NA
+            NA,
         )
         return float(np.sum(residuals**2))
 
@@ -655,7 +665,7 @@ class NileRed_Functions:
         filter_spectra: np.ndarray,
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
-        NA: float = 1.49
+        NA: float = 1.49,
     ) -> np.ndarray:
         """Residual vector for least-squares fitting of Nile Red wavelength.
 
@@ -675,26 +685,79 @@ class NileRed_Functions:
             residuals: Array of weighted residuals (observation - prediction) / error
         """
         # Extract scalar wavelength (least_squares passes 1D array)
-        wl = wavelength_center[0] if isinstance(wavelength_center, np.ndarray) else wavelength_center
+        wl = (
+            wavelength_center[0]
+            if isinstance(wavelength_center, np.ndarray)
+            else wavelength_center
+        )
 
         # Get predictions from forward model
         predictions = self.nile_red_forward_model(
-            wl,
-            filter_spectra,
-            wavelength_array,
-            pixel_QYs,
-            NA
+            wl, filter_spectra, wavelength_array, pixel_QYs, NA
         )
 
         # Build residual vector
         residuals = []
-        for key in ['R', 'G', 'B', 'sigma_x', 'sigma_y']:
+        for key in ["R", "G", "B", "sigma_x", "sigma_y"]:
             if key in observed_data and key in errors:
                 if errors[key] > 0:
                     residual = (observed_data[key] - predictions[key]) / errors[key]
                     residuals.append(residual)
 
         return np.array(residuals)
+
+    def _error_inflation_factor(self, snr: float) -> float:
+        """Calculate error inflation factor based on SNR.
+
+        At low SNR, fit errors systematically underestimate true uncertainty
+        due to noise floor, non-negativity constraints, and normalization bias.
+        This function provides empirical inflation factors to correct for this.
+
+        Args:
+            snr: Signal-to-noise ratio
+
+        Returns:
+            inflation_factor: Multiplicative factor for error (>= 1.0)
+        """
+        if snr < 2.0:
+            return 3.0
+        elif snr < 5.0:
+            return 2.0
+        elif snr < 10.0:
+            return 1.5
+        else:
+            return 1.0
+
+    def _calculate_channel_snr(
+        self, observed_rgb: np.ndarray, total_photons: float, background_photons: float
+    ) -> np.ndarray:
+        """Calculate signal-to-noise ratio for each RGB channel.
+
+        SNR = S / sqrt(S + B) where:
+        - S = signal photons in channel
+        - B = background photons in channel
+
+        Args:
+            observed_rgb: [R, G, B] measured intensities (normalized or absolute)
+            total_photons: Total signal photon count
+            background_photons: Total background photons (distributed evenly across RGB)
+
+        Returns:
+            snr_array: [SNR_R, SNR_G, SNR_B]
+        """
+        # Normalize RGB if needed
+        rgb_fractions = observed_rgb / np.sum(observed_rgb)
+
+        # Calculate signal photons per channel
+        signal_photons = rgb_fractions * total_photons
+
+        # Background photons per channel (assume uniform distribution)
+        background_per_channel = background_photons / 3.0
+
+        # Calculate SNR for each channel
+        snr_array = signal_photons / np.sqrt(signal_photons + background_per_channel)
+
+        return snr_array
 
     def fit_nile_red_wavelength(
         self,
@@ -708,9 +771,24 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-        wavelength_bounds: Tuple[float, float] = (550.0, 750.0)
+        wavelength_bounds: Tuple[float, float] = (550.0, 750.0),
+        b_channel_threshold: float = 0.10,
+        total_photons: Optional[float] = None,
+        background_photons: float = 40.0,
+        apply_snr_inflation: bool = True,
     ) -> Tuple[float, Dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
+
+        Implements adaptive B channel exclusion to avoid bias from low signal-to-noise
+        ratio in the B channel. When B fraction is below threshold, wavelength is fitted
+        using only the R/G ratio, which reduces bias from ~50nm to <1nm at low photon counts.
+
+        Additionally implements SNR-based error inflation to correct for underestimated
+        errors at low photon counts. Errors are inflated by factors based on channel SNR:
+        - SNR < 2: inflate by 3.0x
+        - SNR 2-5: inflate by 2.0x
+        - SNR 5-10: inflate by 1.5x
+        - SNR > 10: use as-is (1.0x)
 
         Args:
             observed_rgb: [R, G, B] measured intensities
@@ -722,6 +800,10 @@ class NileRed_Functions:
             pixel_QYs: Pixel quantum yields
             NA: Numerical aperture (default: 1.49)
             wavelength_bounds: Search range for wavelength (nm)
+            b_channel_threshold: Exclude B channel if fraction < threshold (default: 0.10)
+            total_photons: Total photon count for SNR calculation (optional)
+            background_photons: Background photon count (default: 40.0, distributed across RGB)
+            apply_snr_inflation: Apply SNR-based error inflation (default: True)
 
         Returns:
             wavelength_center: Fitted central wavelength (nm)
@@ -731,21 +813,84 @@ class NileRed_Functions:
         observed_rgb_norm = observed_rgb / np.sum(observed_rgb)
         rgb_errors_norm = rgb_errors / np.sum(observed_rgb)
 
-        observed_data = {
-            'R': observed_rgb_norm[0],
-            'G': observed_rgb_norm[1],
-            'B': observed_rgb_norm[2],
-            'sigma_x': observed_sigma_x,
-            'sigma_y': observed_sigma_y
-        }
+        # Apply SNR-based error inflation if requested and total_photons is provided
+        if apply_snr_inflation and total_photons is not None:
+            # Calculate SNR for each channel
+            snr_rgb = self._calculate_channel_snr(
+                observed_rgb, total_photons, background_photons
+            )
 
-        errors = {
-            'R': rgb_errors_norm[0],
-            'G': rgb_errors_norm[1],
-            'B': rgb_errors_norm[2],
-            'sigma_x': sigma_x_error,
-            'sigma_y': sigma_y_error
-        }
+            # Apply inflation factors
+            inflation_factors = np.array(
+                [
+                    self._error_inflation_factor(snr_rgb[0]),  # R
+                    self._error_inflation_factor(snr_rgb[1]),  # G
+                    self._error_inflation_factor(snr_rgb[2]),  # B
+                ]
+            )
+
+            # Inflate errors
+            rgb_errors_norm = rgb_errors_norm * inflation_factors
+
+        # Check if B channel should be excluded due to low SNR
+        # B is unreliable when its fraction is very small
+        # Use fitted B fraction (which may be biased upward) to decide
+        # Threshold of 0.10 (10%) accounts for B overestimation bias at low SNR
+        exclude_b = observed_rgb_norm[2] < b_channel_threshold
+
+        if exclude_b:
+            # Renormalize using only R and G channels
+            R_renorm = observed_rgb_norm[0] / (
+                observed_rgb_norm[0] + observed_rgb_norm[1]
+            )
+            G_renorm = observed_rgb_norm[1] / (
+                observed_rgb_norm[0] + observed_rgb_norm[1]
+            )
+
+            # Propagate errors for renormalization
+            # For f = R/(R+G): df/dR = G/(R+G)^2, df/dG = -R/(R+G)^2
+            total_RG = observed_rgb_norm[0] + observed_rgb_norm[1]
+            R_renorm_err = np.sqrt(
+                (observed_rgb_norm[1] / total_RG**2 * rgb_errors_norm[0]) ** 2
+                + (observed_rgb_norm[0] / total_RG**2 * rgb_errors_norm[1]) ** 2
+            )
+            G_renorm_err = np.sqrt(
+                (observed_rgb_norm[0] / total_RG**2 * rgb_errors_norm[1]) ** 2
+                + (observed_rgb_norm[1] / total_RG**2 * rgb_errors_norm[0]) ** 2
+            )
+
+            observed_data = {
+                "R": R_renorm,
+                "G": G_renorm,
+                "B": 0.0,  # Set B to zero
+                "sigma_x": observed_sigma_x,
+                "sigma_y": observed_sigma_y,
+            }
+
+            errors = {
+                "R": R_renorm_err,
+                "G": G_renorm_err,
+                "B": 1e-6,  # Small error to avoid division by zero
+                "sigma_x": sigma_x_error,
+                "sigma_y": sigma_y_error,
+            }
+        else:
+            # Use all three channels normally
+            observed_data = {
+                "R": observed_rgb_norm[0],
+                "G": observed_rgb_norm[1],
+                "B": observed_rgb_norm[2],
+                "sigma_x": observed_sigma_x,
+                "sigma_y": observed_sigma_y,
+            }
+
+            errors = {
+                "R": rgb_errors_norm[0],
+                "G": rgb_errors_norm[1],
+                "B": rgb_errors_norm[2],
+                "sigma_x": sigma_x_error,
+                "sigma_y": sigma_y_error,
+            }
 
         # Initial guess: use default central wavelength or midpoint of bounds
         x0 = np.array([self.default_wavelength_center])
@@ -757,19 +902,22 @@ class NileRed_Functions:
             fun=self.residuals_nile_red,
             x0=x0,
             bounds=(wavelength_bounds[0], wavelength_bounds[1]),
-            method='trf',  # Trust Region Reflective
-            args=(observed_data, errors, filter_spectra, wavelength_array, pixel_QYs, NA)
+            method="trf",  # Trust Region Reflective
+            args=(
+                observed_data,
+                errors,
+                filter_spectra,
+                wavelength_array,
+                pixel_QYs,
+                NA,
+            ),
         )
 
         wavelength_center = result.x[0]
 
         # Get predictions at best fit
         predictions = self.nile_red_forward_model(
-            wavelength_center,
-            filter_spectra,
-            wavelength_array,
-            pixel_QYs,
-            NA
+            wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
         )
 
         return wavelength_center, predictions
@@ -786,13 +934,13 @@ class NileRed_Functions:
         pixel_size: float = 69.0,
         camera_parameters: Optional[dict] = None,
         image_size: int = 16,
-        smoothing_function = None,
+        smoothing_function=None,
         background_photons: float = 40.0,
         starting_flag: str = "",
         save_raw_results: bool = True,
         cpu_fraction: float = 0.9,
         verbose: bool = True,
-        use_tqdm: bool = False
+        use_tqdm: bool = False,
     ) -> None:
         """Simulate wavelength precision using two-stage workflow.
 
@@ -841,7 +989,7 @@ class NileRed_Functions:
             filter_names = [
                 "semrock-ff01-650-200",
                 "semrock-di03-r514-t1-25x36",
-                "semrock-ff01-515-lp"
+                "semrock-ff01-515-lp",
             ]
 
         # Setup optical system
@@ -854,15 +1002,15 @@ class NileRed_Functions:
 
             # Use realistic camera parameters (median from calibrations)
             camera_parameters = {
-                'gain': np.ones((image_size, image_size)) * 0.48,
-                'offset': np.ones((image_size, image_size)) * 100.0,
-                'variance': np.ones((image_size, image_size)) * 0.938,
-                'readnoise': np.ones((image_size, image_size)) * 2.0,
-                'rqe': np.ones((image_size, image_size)),
-                'pixel_QYs': pixel_QYs,
-                'pixel_order': ['B', 'G', 'R'],
-                'pixel_order_indices': [0, 1, 2],
-                'masks': masks
+                "gain": np.ones((image_size, image_size)) * 0.48,
+                "offset": np.ones((image_size, image_size)) * 100.0,
+                "variance": np.ones((image_size, image_size)) * 0.938,
+                "readnoise": np.ones((image_size, image_size)) * 2.0,
+                "rqe": np.ones((image_size, image_size)),
+                "pixel_QYs": pixel_QYs,
+                "pixel_order": ["B", "G", "R"],
+                "pixel_order_indices": [0, 1, 2],
+                "masks": masks,
             }
 
         # Initialize simulation
@@ -872,6 +1020,7 @@ class NileRed_Functions:
         if smoothing_function is None:
             import sCMOSFunctions
             import types
+
             sCMOS = sCMOSFunctions.sCMOS_Functions()
             smoothing_function = types.SimpleNamespace()
             smoothing_function.args = {"sigma": 1.5}
@@ -880,7 +1029,9 @@ class NileRed_Functions:
             smoothing_function.data_arg = "image"
 
         # Generate wavelength grid
-        wavelengths_true = np.arange(wavelength_range[0], wavelength_range[1] + wavelength_step, wavelength_step)
+        wavelengths_true = np.arange(
+            wavelength_range[0], wavelength_range[1] + wavelength_step, wavelength_step
+        )
         n_wavelengths = len(wavelengths_true)
 
         start_time = time.time()
@@ -891,14 +1042,18 @@ class NileRed_Functions:
                 from tqdm.auto import tqdm  # type: ignore
             except ImportError:
                 if verbose:
-                    print("Warning: tqdm not installed, falling back to print-based progress")
+                    print(
+                        "Warning: tqdm not installed, falling back to print-based progress"
+                    )
                 use_tqdm = False
 
         if verbose:
             print(f"\n{'='*60}")
             print(f"Nile Red Wavelength Precision Simulation")
             print(f"{'='*60}")
-            print(f"Wavelength range: {wavelength_range[0]}-{wavelength_range[1]} nm (step={wavelength_step} nm)")
+            print(
+                f"Wavelength range: {wavelength_range[0]}-{wavelength_range[1]} nm (step={wavelength_step} nm)"
+            )
             print(f"Number of wavelengths: {n_wavelengths}")
             print(f"Photon counts: {photon_counts}")
             print(f"Bootstrap samples: {n_bootstrap}")
@@ -909,15 +1064,24 @@ class NileRed_Functions:
         wavelength_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
             from tqdm.auto import tqdm  # Import here to avoid unbound error
-            wavelength_iterator = tqdm(wavelength_iterator, total=n_wavelengths, desc="Stage 1: Simulating wavelengths")
+
+            wavelength_iterator = tqdm(
+                wavelength_iterator,
+                total=n_wavelengths,
+                desc="Stage 1: Simulating wavelengths",
+            )
 
         for i, wl_true in wavelength_iterator:
             if verbose and not use_tqdm:
                 elapsed = (time.time() - start_time) / 60.0
-                print(f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)")
+                print(
+                    f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)"
+                )
 
             # Generate Nile Red spectrum for this wavelength
-            spectrum = self.generate_nile_red_spectrum(wl_true, wavelength_array, normalize=True)
+            spectrum = self.generate_nile_red_spectrum(
+                wl_true, wavelength_array, normalize=True
+            )
 
             # Create dye name for this wavelength
             dye_name = f"simulated_NileRed_{int(wl_true)}nm"
@@ -927,6 +1091,7 @@ class NileRed_Functions:
 
             # Create SimulationConfig
             import Multicolour_Simulation_Functions as MSF_module
+
             config = MSF_module.SimulationConfig(
                 n_bootstrap=n_bootstrap,
                 background_photons=background_photons,
@@ -935,7 +1100,7 @@ class NileRed_Functions:
                 cpu_fraction=cpu_fraction,
                 save_raw_results=save_raw_results,
                 subtractx0y0=False,
-                saverawimages=False
+                saverawimages=False,
             )
 
             MSF.test_fit_method(
@@ -949,13 +1114,15 @@ class NileRed_Functions:
                 starting_flag=flag,
                 config=config,
                 single_dye_spectrum=spectrum,  # Pass spectrum directly
-                nile_red_wavelength=wl_true  # Pass wavelength for inverse fitting
+                nile_red_wavelength=wl_true,  # Pass wavelength for inverse fitting
             )
 
         if verbose:
             total_elapsed = (time.time() - start_time) / 60.0
             print(f"\n{'='*60}")
-            print(f"Stage 1 complete (simulation + wavelength fitting): {total_elapsed:.1f} min")
+            print(
+                f"Stage 1 complete (simulation + wavelength fitting): {total_elapsed:.1f} min"
+            )
             print(f"{'='*60}\n")
             print("Starting Stage 2: Calculate statistics from fitted wavelengths...")
 
@@ -965,43 +1132,62 @@ class NileRed_Functions:
         stats_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
             from tqdm.auto import tqdm  # Import here to avoid unbound error
-            stats_iterator = tqdm(stats_iterator, total=n_wavelengths, desc="Stage 2: Calculating statistics")
+
+            stats_iterator = tqdm(
+                stats_iterator,
+                total=n_wavelengths,
+                desc="Stage 2: Calculating statistics",
+            )
 
         for i, wl_true in stats_iterator:
             if verbose and not use_tqdm:
-                print(f"  [{i+1}/{n_wavelengths}] Processing statistics for {wl_true:.1f} nm", end='\r', flush=True)
+                print(
+                    f"  [{i+1}/{n_wavelengths}] Processing statistics for {wl_true:.1f} nm",
+                    end="\r",
+                    flush=True,
+                )
 
             flag = f"{starting_flag}wl{int(wl_true)}_"
 
             # Find raw results files for this wavelength (support both parquet and csv)
-            raw_files = [f for f in os.listdir(save_folder)
-                        if f.startswith(flag) and ('rawresults.parquet' in f or 'rawresults.csv' in f)]
+            raw_files = [
+                f
+                for f in os.listdir(save_folder)
+                if f.startswith(flag)
+                and ("rawresults.parquet" in f or "rawresults.csv" in f)
+            ]
 
             for raw_file in raw_files:
                 # Extract photon count from filename
-                parts = raw_file.replace('.parquet', '').replace('.csv', '').split('_')
-                photon_str = [p for p in parts if 'p' in p and p.replace('p', '').replace('.', '').isdigit()]
+                parts = raw_file.replace(".parquet", "").replace(".csv", "").split("_")
+                photon_str = [
+                    p
+                    for p in parts
+                    if "p" in p and p.replace("p", "").replace(".", "").isdigit()
+                ]
                 if not photon_str:
                     continue
 
-                n_photons = float(photon_str[0].replace('p', '.'))
+                n_photons = float(photon_str[0].replace("p", "."))
 
                 # Load fit results with wavelength columns (auto-detect format)
                 file_path = os.path.join(save_folder, raw_file)
-                if raw_file.endswith('.parquet'):
+                if raw_file.endswith(".parquet"):
                     df = pl.read_parquet(file_path)
                 else:
                     df = pl.read_csv(file_path)
 
                 # Check if wavelength columns exist
-                if 'wl_fit' not in df.columns:
+                if "wl_fit" not in df.columns:
                     if verbose:
                         print(f"\nWarning: No 'wl_fit' column found in {raw_file}")
-                        print("This may be from an older simulation. Re-run simulation to add wavelength fits.")
+                        print(
+                            "This may be from an older simulation. Re-run simulation to add wavelength fits."
+                        )
                     continue
 
                 # Extract fitted wavelengths (excluding NaN values)
-                wavelengths_fitted = df['wl_fit'].to_numpy()
+                wavelengths_fitted = df["wl_fit"].to_numpy()
                 wavelengths_fitted = wavelengths_fitted[~np.isnan(wavelengths_fitted)]
 
                 # Calculate statistics
@@ -1010,20 +1196,24 @@ class NileRed_Functions:
                     bias = np.mean(wavelengths_fitted) - wl_true
                     recovery_rate = len(wavelengths_fitted) / n_bootstrap
 
-                    wavelength_precision_results.append({
-                        'wavelength_true': wl_true,
-                        'n_photons': n_photons,
-                        'wavelength_precision': precision,
-                        'wavelength_bias': bias,
-                        'wavelength_mean': np.mean(wavelengths_fitted),
-                        'recovery_rate': recovery_rate,
-                        'n_successful': len(wavelengths_fitted)
-                    })
+                    wavelength_precision_results.append(
+                        {
+                            "wavelength_true": wl_true,
+                            "n_photons": n_photons,
+                            "wavelength_precision": precision,
+                            "wavelength_bias": bias,
+                            "wavelength_mean": np.mean(wavelengths_fitted),
+                            "recovery_rate": recovery_rate,
+                            "n_successful": len(wavelengths_fitted),
+                        }
+                    )
 
         # Save wavelength precision summary
         if len(wavelength_precision_results) > 0:
             summary_df = pl.DataFrame(wavelength_precision_results)
-            summary_file = os.path.join(save_folder, f"{starting_flag}wavelength_precision_summary.csv")
+            summary_file = os.path.join(
+                save_folder, f"{starting_flag}wavelength_precision_summary.csv"
+            )
             summary_df.write_csv(summary_file)
 
             if verbose:

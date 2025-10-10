@@ -758,7 +758,9 @@ class MultiC_Sim_Funcs_Refactored:
             by=["frame"]
         )
         fit_errors_df = pd.DataFrame(fit_errors, columns=error_columns)
-        fit_results = pd.concat([fit_results.reset_index(drop=True), fit_errors_df], axis=1)
+        fit_results = pd.concat(
+            [fit_results.reset_index(drop=True), fit_errors_df], axis=1
+        )
 
         # Normalize amplitudes
         fit_results["photons"] = (
@@ -811,23 +813,21 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Get filter spectra using spectral functions
             filter_spectra = spectral_funcs.get_dye_or_filter_data(
-                names=filters,
-                wavelength=wavelength_array,
-                dye_or_filter=False
+                names=filters, wavelength=wavelength_array, dye_or_filter=False
             )
 
             # Extract data from DataFrame
-            R = fit_results['A_R'].to_numpy()
-            G = fit_results['A_G'].to_numpy()
-            B = fit_results['A_B'].to_numpy()
-            sigma_x = fit_results['s_x'].to_numpy() * config.pixel_size  # Convert to nm
-            sigma_y = fit_results['s_y'].to_numpy() * config.pixel_size
+            R = fit_results["A_R"].to_numpy()
+            G = fit_results["A_G"].to_numpy()
+            B = fit_results["A_B"].to_numpy()
+            sigma_x = fit_results["s_x"].to_numpy() * config.pixel_size  # Convert to nm
+            sigma_y = fit_results["s_y"].to_numpy() * config.pixel_size
 
-            R_err = fit_results['A_R_err'].to_numpy()
-            G_err = fit_results['A_G_err'].to_numpy()
-            B_err = fit_results['A_B_err'].to_numpy()
-            sigma_x_err = fit_results['s_x_err'].to_numpy() * config.pixel_size
-            sigma_y_err = fit_results['s_y_err'].to_numpy() * config.pixel_size
+            R_err = fit_results["A_R_err"].to_numpy()
+            G_err = fit_results["A_G_err"].to_numpy()
+            B_err = fit_results["A_B_err"].to_numpy()
+            sigma_x_err = fit_results["s_x_err"].to_numpy() * config.pixel_size
+            sigma_y_err = fit_results["s_y_err"].to_numpy() * config.pixel_size
 
             # Normalize RGB (fit_results already has normalized RGB from _fit_standard)
             # But we need to propagate errors properly
@@ -845,23 +845,40 @@ class MultiC_Sim_Funcs_Refactored:
                 B_norm = B[j] / rgb_total[j]
 
                 # Propagate errors
-                total_err = np.sqrt(R_err[j]**2 + G_err[j]**2 + B_err[j]**2)
-                R_norm_err = R_norm * np.sqrt((R_err[j]/R[j])**2 + (total_err/rgb_total[j])**2) if R[j] > 0 else 1e-3
-                G_norm_err = G_norm * np.sqrt((G_err[j]/G[j])**2 + (total_err/rgb_total[j])**2) if G[j] > 0 else 1e-3
-                B_norm_err = B_norm * np.sqrt((B_err[j]/B[j])**2 + (total_err/rgb_total[j])**2) if B[j] > 0 else 1e-3
+                total_err = np.sqrt(R_err[j] ** 2 + G_err[j] ** 2 + B_err[j] ** 2)
+                R_norm_err = (
+                    R_norm
+                    * np.sqrt((R_err[j] / R[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
+                    if R[j] > 0
+                    else 1e-3
+                )
+                G_norm_err = (
+                    G_norm
+                    * np.sqrt((G_err[j] / G[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
+                    if G[j] > 0
+                    else 1e-3
+                )
+                B_norm_err = (
+                    B_norm
+                    * np.sqrt((B_err[j] / B[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
+                    if B[j] > 0
+                    else 1e-3
+                )
 
-                fit_args.append((
-                    np.array([R_norm, G_norm, B_norm]),
-                    sigma_x[j],
-                    sigma_y[j],
-                    np.array([R_norm_err, G_norm_err, B_norm_err]),
-                    sigma_x_err[j],
-                    sigma_y_err[j],
-                    filter_spectra,
-                    wavelength_array,
-                    pixel_QYs,
-                    config.NA,
-                ))
+                fit_args.append(
+                    (
+                        np.array([R_norm, G_norm, B_norm]),
+                        sigma_x[j],
+                        sigma_y[j],
+                        np.array([R_norm_err, G_norm_err, B_norm_err]),
+                        sigma_x_err[j],
+                        sigma_y_err[j],
+                        filter_spectra,
+                        wavelength_array,
+                        pixel_QYs,
+                        config.NA,
+                    )
+                )
                 valid_indices.append(j)
 
             # Parallel wavelength fitting using ProcessPoolExecutor
@@ -879,23 +896,29 @@ class MultiC_Sim_Funcs_Refactored:
 
                 with futures.ProcessPoolExecutor(n_workers) as executor:
                     # Submit all fitting tasks
-                    future_list = [executor.submit(_fit_nile_red_wavelength_standalone, *args)
-                                   for args in fit_args]
+                    future_list = [
+                        executor.submit(_fit_nile_red_wavelength_standalone, *args)
+                        for args in fit_args
+                    ]
 
                     # Collect results as they complete
                     for idx, future in enumerate(future_list):
                         try:
-                            wl, wl_err = future.result(timeout=30)  # 30 second timeout per fit
+                            wl, wl_err = future.result(
+                                timeout=30
+                            )  # 30 second timeout per fit
                             wl_fits[valid_indices[idx]] = wl
                             wl_fit_errs[valid_indices[idx]] = wl_err
                         except Exception as e:
-                            logger.warning(f"Wavelength fit failed for index {valid_indices[idx]}: {e}")
+                            logger.warning(
+                                f"Wavelength fit failed for index {valid_indices[idx]}: {e}"
+                            )
                             wl_fits[valid_indices[idx]] = np.nan
                             wl_fit_errs[valid_indices[idx]] = np.nan
 
             # Add columns to DataFrame
-            fit_results['wl_fit'] = wl_fits
-            fit_results['wl_fit_err'] = wl_fit_errs
+            fit_results["wl_fit"] = wl_fits
+            fit_results["wl_fit_err"] = wl_fit_errs
 
             return fit_results
 
@@ -1658,12 +1681,19 @@ class MultiC_Sim_Funcs_Refactored:
                 # Add Nile Red wavelength fitting if wavelength is provided
                 if nile_red_wavelength is not None:
                     fit_results = self._add_nile_red_wavelength_fits(
-                        fit_results, nile_red_wavelength, camera_params,
-                        camera_parameters, wavelength, filters, config
+                        fit_results,
+                        nile_red_wavelength,
+                        camera_params,
+                        camera_parameters,
+                        wavelength,
+                        filters,
+                        config,
                     )
 
                 filename = f"{starting_flag}LM_method_{dyestr}_{str(np.around(n_photon, 2)).replace('.', 'p').zfill(10)}_fittesting_rawresults.parquet"
-                fit_results.to_parquet(os.path.join(save_folder, filename), compression='snappy')
+                fit_results.to_parquet(
+                    os.path.join(save_folder, filename), compression="snappy"
+                )
 
             # Compute statistics for this photon count
             fit_RMSE_mean[:, i], fit_std[:, i] = self._compute_fit_statistics(
@@ -1775,7 +1805,7 @@ def _fit_nile_red_wavelength_standalone(
     wavelength_array: np.ndarray,
     pixel_QYs: np.ndarray,
     NA: float,
-    wavelength_bounds: Tuple[float, float] = (580.0, 700.0)
+    wavelength_bounds: Tuple[float, float] = (580.0, 700.0),
 ) -> Tuple[float, float]:
     """
     Standalone function for fitting Nile Red wavelength from a single localization.
@@ -1796,6 +1826,7 @@ def _fit_nile_red_wavelength_standalone(
     """
     try:
         import NileRedFunctions
+
         nrf = NileRedFunctions.NileRed_Functions()
 
         wl, _ = nrf.fit_nile_red_wavelength(
@@ -1809,7 +1840,7 @@ def _fit_nile_red_wavelength_standalone(
             wavelength_array=wavelength_array,
             pixel_QYs=pixel_QYs,
             NA=NA,
-            wavelength_bounds=wavelength_bounds
+            wavelength_bounds=wavelength_bounds,
         )
         # TODO: Implement proper error estimation on wavelength
         return (wl, np.nan)

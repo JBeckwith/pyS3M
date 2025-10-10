@@ -176,14 +176,16 @@ class Mask_Functions:
         # Note: get_masks uses (size_x, size_y) but internally treats size_x as height (rows)
         # and size_y as width (columns) due to legacy naming convention
         size_x = ROI_y_start + height  # size_x is actually rows
-        size_y = ROI_x_start + width   # size_y is actually columns
+        size_y = ROI_x_start + width  # size_y is actually columns
         masks = self.get_masks(size_x, size_y, mosaic_unit)
         for colour in masks:
             # Numpy indexing is [row, col] = [y, x]
             masks[colour] = masks[colour][ROI_y_start:, ROI_x_start:]
         return masks
 
-    def get_stacked_masks(self, ROI_x_start, ROI_y_start, width, height, mosaic_unit=None):
+    def get_stacked_masks(
+        self, ROI_x_start, ROI_y_start, width, height, mosaic_unit=None
+    ):
         """Get ROI masks and stack into 3D array for fitting.
 
         Convenience method that combines get_ROI_mask() with np.dstack() to create

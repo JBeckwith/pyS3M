@@ -539,6 +539,7 @@ def render_gaussian_colour(
         def cmap(x):
             # Create a simple grayscale colormap
             return np.stack([x, x, x, np.ones_like(x)], axis=-1)
+
     normalised_density = np.clip(
         (image_total - min_density) / (max_density - min_density), 0, 1
     )

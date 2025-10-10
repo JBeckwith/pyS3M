@@ -42,12 +42,11 @@ class SpectralConstants:
 
     # File paths
     DEFAULT_CAMERA_QE_FILE = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "Spectra/Camera_QE/CS505CU_QE.csv"
+        os.path.dirname(os.path.dirname(__file__)), "Spectra/Camera_QE/CS505CU_QE.csv"
     )
     DEFAULT_OBJECTIVE_FILE = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
-        "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
+        "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv",
     )
 
     # Physical constants
@@ -586,7 +585,9 @@ class Spectral_Funcs:
 
         # Define objective function for differential evolution (sum of squared residuals)
         def objective(params):
-            residuals = self.chi2_spectrum(params, wavelength, spectrum_norm, model, weights)
+            residuals = self.chi2_spectrum(
+                params, wavelength, spectrum_norm, model, weights
+            )
             return np.nansum(residuals**2)
 
         # Set parameter bounds based on physical constraints
@@ -597,19 +598,19 @@ class Spectral_Funcs:
             # Sigma: narrow to broad peaks
             energy = self.wavelength_to_energy(wavelength)
             bounds = [
-                (0,1e6),                              # amplitude (normalized)
+                (0, 1e6),  # amplitude (normalized)
                 (np.min(energy) * 0.9, np.max(energy) * 1.1),  # center (energy)
-                (0.01, 2.0),                           # sigma (energy spread)
+                (0.01, 2.0),  # sigma (energy spread)
             ]
         elif model == "skew-gaussian":
             # Bounds: [amplitude, center_energy, sigma, alpha]
             # Alpha: skewness parameter (-10 to 10 is reasonable)
             energy = self.wavelength_to_energy(wavelength)
             bounds = [
-                (0, 1e6),                              # amplitude (normalized)
+                (0, 1e6),  # amplitude (normalized)
                 (np.min(energy) * 0.9, np.max(energy) * 1.1),  # center (energy)
-                (0.01, 2.0),                           # sigma
-                (-10, 10),                             # alpha (skewness)
+                (0.01, 2.0),  # sigma
+                (-10, 10),  # alpha (skewness)
             ]
         else:
             raise ValueError(f"Unsupported model type: {model}")
@@ -619,14 +620,14 @@ class Spectral_Funcs:
         result = differential_evolution(
             objective,
             bounds,
-            strategy='best1bin',
-            maxiter=2000,           # More iterations for better convergence
-            popsize=20,             # Larger population for better exploration
-            tol=1e-9,               # Tighter tolerance
-            mutation=(0.5, 1.5),    # Wider mutation range
+            strategy="best1bin",
+            maxiter=2000,  # More iterations for better convergence
+            popsize=20,  # Larger population for better exploration
+            tol=1e-9,  # Tighter tolerance
+            mutation=(0.5, 1.5),  # Wider mutation range
             recombination=0.7,
-            atol=1e-10,             # Absolute tolerance
-            polish=True,            # Refine with L-BFGS-B after genetic algorithm
+            atol=1e-10,  # Absolute tolerance
+            polish=True,  # Refine with L-BFGS-B after genetic algorithm
             workers=1,
         )
 

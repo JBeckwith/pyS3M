@@ -49,7 +49,7 @@ class EVER_Functions:
         frames: np.ndarray,
         window_size: int = 100,
         spatial_filter_size: int = 3,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> tuple:
         """
         Compute EVER background estimation and recover emitters.
@@ -77,11 +77,14 @@ class EVER_Functions:
             >>> # Use emitters for spot detection and fitting
         """
         import sys
+
         n_frames, height, width = frames.shape
 
         if self.verbose:
             print(f"  EVER: Processing {n_frames} frames ({height}×{width} pixels)")
-            print(f"  EVER: Window size={window_size}, spatial filter={spatial_filter_size}×{spatial_filter_size}")
+            print(
+                f"  EVER: Window size={window_size}, spatial filter={spatial_filter_size}×{spatial_filter_size}"
+            )
 
         # Step 1: Calculate temporal minimum
         if self.verbose:
@@ -90,7 +93,9 @@ class EVER_Functions:
 
         # Step 2: Apply spatial mean filter to reduce noise in minimum map
         if spatial_filter_size > 1:
-            temporal_min = self._apply_spatial_mean_filter(temporal_min, spatial_filter_size)
+            temporal_min = self._apply_spatial_mean_filter(
+                temporal_min, spatial_filter_size
+            )
 
         # Step 3: Calculate background decay ratio (automatic parameter)
         decay_ratio = self._calculate_decay_ratio(frames, window_size)
@@ -102,7 +107,9 @@ class EVER_Functions:
         else:
             if self.verbose:
                 print("  EVER: Building lookup table...    ", end="\r", flush=True)
-            lut = self._build_lookup_table(window_size, decay_ratio, spatial_filter_size, temporal_min)
+            lut = self._build_lookup_table(
+                window_size, decay_ratio, spatial_filter_size, temporal_min
+            )
             if use_cache:
                 self.lut_cache[cache_key] = lut
 
@@ -114,11 +121,15 @@ class EVER_Functions:
         emitters = np.maximum(emitters, 0)  # Clip negative values
 
         if self.verbose:
-            print(f"  EVER: Complete (R={decay_ratio:.3f}, bg={background.mean():.0f}±{background.std():.0f} photons)    ")
+            print(
+                f"  EVER: Complete (R={decay_ratio:.3f}, bg={background.mean():.0f}±{background.std():.0f} photons)    "
+            )
 
         return background, emitters
 
-    def _calculate_temporal_minimum(self, frames: np.ndarray, window_size: int) -> np.ndarray:
+    def _calculate_temporal_minimum(
+        self, frames: np.ndarray, window_size: int
+    ) -> np.ndarray:
         """
         Calculate pixel-wise temporal minimum over sliding windows.
 
@@ -142,7 +153,9 @@ class EVER_Functions:
 
         return temporal_min
 
-    def _apply_spatial_mean_filter(self, image: np.ndarray, filter_size: int) -> np.ndarray:
+    def _apply_spatial_mean_filter(
+        self, image: np.ndarray, filter_size: int
+    ) -> np.ndarray:
         """
         Apply spatial mean filter to reduce noise in temporal minimum map.
 
@@ -157,7 +170,7 @@ class EVER_Functions:
             filtered: Spatially filtered image
         """
         # Use uniform_filter (fast box filter)
-        filtered = uniform_filter(image, size=filter_size, mode='nearest')
+        filtered = uniform_filter(image, size=filter_size, mode="nearest")
         return filtered.astype(np.float32)
 
     def _calculate_decay_ratio(self, frames: np.ndarray, window_size: int) -> float:
@@ -183,7 +196,7 @@ class EVER_Functions:
         std_vals = np.std(frames, axis=0)
 
         # Avoid division by zero
-        with np.errstate(invalid='ignore'):
+        with np.errstate(invalid="ignore"):
             bg_mask = std_vals < (2 * mean_vals)
 
         # If no clear background pixels, use all pixels
@@ -216,7 +229,7 @@ class EVER_Functions:
         window_size: int,
         decay_ratio: float,
         spatial_filter_size: int,
-        temporal_min: np.ndarray
+        temporal_min: np.ndarray,
     ) -> dict:
         """
         Build lookup table to transform temporal minimum to background.
@@ -253,10 +266,7 @@ class EVER_Functions:
 
             # Calculate expected temporal minimum for this background level
             expected_min = self._calculate_expected_minimum(
-                lambda_bg,
-                window_size,
-                decay_ratio,
-                spatial_filter_size
+                lambda_bg, window_size, decay_ratio, spatial_filter_size
             )
 
             # Map minimum -> background
@@ -266,11 +276,7 @@ class EVER_Functions:
         return lut
 
     def _calculate_expected_minimum(
-        self,
-        lambda_bg: float,
-        N: int,
-        R: float,
-        m: int
+        self, lambda_bg: float, N: int, R: float, m: int
     ) -> float:
         """
         Calculate expected temporal minimum value using extreme value statistics.
@@ -330,7 +336,9 @@ class EVER_Functions:
             # Approximate by narrowing distribution
             variance_reduction = np.sqrt(m)
             pmf_min_filtered = pmf_min / variance_reduction
-            pmf_min_filtered = pmf_min_filtered / np.sum(pmf_min_filtered)  # Renormalize
+            pmf_min_filtered = pmf_min_filtered / np.sum(
+                pmf_min_filtered
+            )  # Renormalize
         else:
             pmf_min_filtered = pmf_min
 
@@ -340,11 +348,7 @@ class EVER_Functions:
         return expected_min
 
     def _calculate_pmf_minimum_with_decay(
-        self,
-        k_range: np.ndarray,
-        lambda_bg: float,
-        N: int,
-        R: float
+        self, k_range: np.ndarray, lambda_bg: float, N: int, R: float
     ) -> np.ndarray:
         """
         Calculate probability mass function of temporal minimum with background decay.
@@ -388,12 +392,12 @@ class EVER_Functions:
 
         # Suppress scipy warnings about invalid values (we've already validated)
         with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=RuntimeWarning)
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
 
             for idx, k in enumerate(k_range):
                 # Vectorized CDF computation for all frames
                 if k > 0:
-                    cdf_k_minus_1 = poisson.cdf(k-1, lambda_n_array)
+                    cdf_k_minus_1 = poisson.cdf(k - 1, lambda_n_array)
                     prod_k_minus_1 = np.prod(1.0 - cdf_k_minus_1)
                 else:
                     prod_k_minus_1 = 1.0
@@ -414,7 +418,9 @@ class EVER_Functions:
 
         return pmf
 
-    def _transform_minimum_to_background(self, temporal_min: np.ndarray, lut: dict) -> np.ndarray:
+    def _transform_minimum_to_background(
+        self, temporal_min: np.ndarray, lut: dict
+    ) -> np.ndarray:
         """
         Transform temporal minimum map to background map using lookup table.
 

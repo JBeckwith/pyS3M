@@ -29,7 +29,9 @@ try:
     from scipy import ndimage
     from scipy.optimize import curve_fit
 except ImportError:
-    warnings.warn("scipy not available - some fiducial detection features may not work.")
+    warnings.warn(
+        "scipy not available - some fiducial detection features may not work."
+    )
     ndimage = None
     curve_fit = None
 
@@ -340,7 +342,9 @@ class FiducialDetector:
         if memory_optimise:
             del picked_locs_arrays
             gc.collect()
-            print("Memory optimisation: Freed intermediate arrays after region processing")
+            print(
+                "Memory optimisation: Freed intermediate arrays after region processing"
+            )
 
         # Create visualization if requested
         if create_plot:

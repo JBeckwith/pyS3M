@@ -74,7 +74,9 @@ class sCMOS_Functions:
         if variance_map.shape != expected_shape:
             # Try transpose if dimensions are swapped
             if variance_map.shape == expected_shape[::-1]:
-                print(f"Warning: variance_map shape {variance_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                print(
+                    f"Warning: variance_map shape {variance_map.shape} doesn't match CFA spatial dimensions {expected_shape}."
+                )
                 print(f"Attempting transpose to fix dimension mismatch.")
                 variance_map = variance_map.T
             else:
@@ -95,7 +97,9 @@ class sCMOS_Functions:
             if gain.shape != expected_shape:
                 # Try transpose if dimensions are swapped
                 if gain.shape == expected_shape[::-1]:
-                    print(f"Warning: gain shape {gain.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    print(
+                        f"Warning: gain shape {gain.shape} doesn't match CFA spatial dimensions {expected_shape}."
+                    )
                     print(f"Attempting transpose to fix dimension mismatch.")
                     gain = gain.T
                 else:
@@ -116,7 +120,9 @@ class sCMOS_Functions:
             if offset_map.shape != expected_shape:
                 # Try transpose if dimensions are swapped
                 if offset_map.shape == expected_shape[::-1]:
-                    print(f"Warning: offset_map shape {offset_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    print(
+                        f"Warning: offset_map shape {offset_map.shape} doesn't match CFA spatial dimensions {expected_shape}."
+                    )
                     print(f"Attempting transpose to fix dimension mismatch.")
                     offset_map = offset_map.T
                 else:
@@ -188,8 +194,10 @@ class sCMOS_Functions:
 
         # Multi-frame processing with parallel execution
         n_frames = image.shape[0]
-        n_workers, n_tasks, frames_per_task, start_indices = self.helper.calculate_parallel_chunks(
-            n_frames, max_workers=24, worker_ratio=1.0, tasks_per_worker=100
+        n_workers, n_tasks, frames_per_task, start_indices = (
+            self.helper.calculate_parallel_chunks(
+                n_frames, max_workers=24, worker_ratio=1.0, tasks_per_worker=100
+            )
         )
 
         # Submit parallel tasks

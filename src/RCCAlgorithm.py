@@ -73,12 +73,12 @@ class RCCAlgorithm:
         if rcc_params is None:
             rcc_params = {}
 
-        segmentation = segmentation_params.get('segmentation', 100)
-        max_shift = rcc_params.get('max_shift', 32)
-        blur_method = rcc_params.get('blur_method', 'gaussian')
-        min_blur_width = rcc_params.get('min_blur_width', 1)
-        pixelsize = rcc_params.get('pixelsize', 69)
-        progress_callback = rcc_params.get('progress_callback', None)
+        segmentation = segmentation_params.get("segmentation", 100)
+        max_shift = rcc_params.get("max_shift", 32)
+        blur_method = rcc_params.get("blur_method", "gaussian")
+        min_blur_width = rcc_params.get("min_blur_width", 1)
+        pixelsize = rcc_params.get("pixelsize", 69)
+        progress_callback = rcc_params.get("progress_callback", None)
 
         # Create info metadata structure
         info = [{"Frames": int(locs.frame.max()) + 1, "pixelsize": pixelsize}]
@@ -93,10 +93,14 @@ class RCCAlgorithm:
             # Try to use imageprocess.rcc if available
             imageprocess = get_module("imageprocess")
             if imageprocess:
-                shift_y, shift_x = imageprocess.rcc(segments, max_shift, progress_callback)
+                shift_y, shift_x = imageprocess.rcc(
+                    segments, max_shift, progress_callback
+                )
             else:
                 # Fallback implementation
-                shift_y, shift_x = self._rcc_fallback(segments, max_shift, progress_callback)
+                shift_y, shift_x = self._rcc_fallback(
+                    segments, max_shift, progress_callback
+                )
         except Exception as e:
             warnings.warn(f"RCC calculation failed: {e}. Using basic drift estimation.")
             # Basic fallback - assume no drift
@@ -141,7 +145,9 @@ class RCCAlgorithm:
         Returns:
             Tuple of (drift_x, drift_y, drift_z, rcc_metadata)
         """
-        warnings.warn("3D RCC not fully implemented. Running 2D RCC and returning zero Z drift.")
+        warnings.warn(
+            "3D RCC not fully implemented. Running 2D RCC and returning zero Z drift."
+        )
 
         # Run 2D RCC
         drift_x, drift_y, metadata_2d = self.run_rcc_2d(
@@ -179,8 +185,10 @@ class RCCAlgorithm:
             postprocess = get_module("postprocess")
             if postprocess:
                 bounds, segments = postprocess.segment(
-                    locs, info, segmentation,
-                    {"blur_method": blur_method, "min_blur_width": min_blur_width}
+                    locs,
+                    info,
+                    segmentation,
+                    {"blur_method": blur_method, "min_blur_width": min_blur_width},
                 )
                 return bounds, segments
         except Exception:
@@ -226,8 +234,12 @@ class RCCAlgorithm:
         if scipy_interpolate:
             try:
                 # Use scipy for cubic spline interpolation
-                drift_x_pol = scipy_interpolate.InterpolatedUnivariateSpline(t, shift_x, k=3)
-                drift_y_pol = scipy_interpolate.InterpolatedUnivariateSpline(t, shift_y, k=3)
+                drift_x_pol = scipy_interpolate.InterpolatedUnivariateSpline(
+                    t, shift_x, k=3
+                )
+                drift_y_pol = scipy_interpolate.InterpolatedUnivariateSpline(
+                    t, shift_y, k=3
+                )
 
                 t_inter = np.arange(n_frames)
                 drift_x = drift_x_pol(t_inter)
@@ -267,14 +279,14 @@ class RCCAlgorithm:
         # Basic implementation - calculate center of mass shifts
         if n_segments > 1:
             # Use first segment as reference
-            if hasattr(segments[0], 'xc'):
+            if hasattr(segments[0], "xc"):
                 ref_x = np.mean(segments[0].xc) if len(segments[0]) > 0 else 0
                 ref_y = np.mean(segments[0].yc) if len(segments[0]) > 0 else 0
             else:
                 ref_x = ref_y = 0
 
             for i in range(1, n_segments):
-                if hasattr(segments[i], 'xc') and len(segments[i]) > 0:
+                if hasattr(segments[i], "xc") and len(segments[i]) > 0:
                     curr_x = np.mean(segments[i].xc)
                     curr_y = np.mean(segments[i].yc)
                     shift_x[i] = curr_x - ref_x
@@ -317,7 +329,7 @@ class RCCAlgorithm:
         metadata = {
             "method": "center_of_mass",
             "ref_locs": len(reference_locs),
-            "seg_locs": len(locs_segment)
+            "seg_locs": len(locs_segment),
         }
 
         return drift_x, drift_y, metadata
@@ -346,8 +358,12 @@ class RCCAlgorithm:
 
         # Basic Z drift estimation
         drift_z = 0.0
-        if (len(locs_segment) > 0 and len(reference_locs) > 0 and
-            hasattr(locs_segment, 'zc') and hasattr(reference_locs, 'zc')):
+        if (
+            len(locs_segment) > 0
+            and len(reference_locs) > 0
+            and hasattr(locs_segment, "zc")
+            and hasattr(reference_locs, "zc")
+        ):
             ref_z = np.mean(reference_locs.zc)
             seg_z = np.mean(locs_segment.zc)
             drift_z = seg_z - ref_z
@@ -408,8 +424,12 @@ class RCCAlgorithm:
 
         # Basic Z drift
         drift_z = 0.0
-        if (len(locs1) > 0 and len(locs2) > 0 and
-            hasattr(locs1, 'zc') and hasattr(locs2, 'zc')):
+        if (
+            len(locs1) > 0
+            and len(locs2) > 0
+            and hasattr(locs1, "zc")
+            and hasattr(locs2, "zc")
+        ):
             z1_mean = np.mean(locs1.zc)
             z2_mean = np.mean(locs2.zc)
             drift_z = z2_mean - z1_mean

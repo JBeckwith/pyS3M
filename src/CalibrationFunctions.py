@@ -277,7 +277,7 @@ class Calibration_Functions:
         accumulator,
         operation_name,
         process_single_frame_fn,
-        process_multi_frame_fn
+        process_multi_frame_fn,
     ):
         """
         Generic file processing loop for calibration calculations.
@@ -401,7 +401,7 @@ class Calibration_Functions:
             offset,
             "offset",
             process_single,
-            process_multi
+            process_multi,
         )
 
         offset = offset / framesCounter
@@ -447,7 +447,7 @@ class Calibration_Functions:
             variance,
             "variance",
             process_single,
-            process_multi
+            process_multi,
         )
 
         variance = variance / framesCounter

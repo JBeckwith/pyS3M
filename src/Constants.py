@@ -79,18 +79,18 @@ class ResultColumns:
 
     # Standard fit parameter columns
     STANDARD_FIT_PARAMS = [
-        "xc",        # X center coordinate
-        "yc",        # Y center coordinate
-        "s_x",       # X sigma (width)
-        "s_y",       # Y sigma (width)
-        "bg_B",      # Background (Blue channel)
-        "bg_G",      # Background (Green channel)
-        "bg_R",      # Background (Red channel)
-        "A_B",       # Amplitude (Blue channel)
-        "A_G",       # Amplitude (Green channel)
-        "A_R",       # Amplitude (Red channel)
-        "chi_sqr",   # Chi-squared goodness of fit
-        "frame",     # Frame number
+        "xc",  # X center coordinate
+        "yc",  # Y center coordinate
+        "s_x",  # X sigma (width)
+        "s_y",  # Y sigma (width)
+        "bg_B",  # Background (Blue channel)
+        "bg_G",  # Background (Green channel)
+        "bg_R",  # Background (Red channel)
+        "A_B",  # Amplitude (Blue channel)
+        "A_G",  # Amplitude (Green channel)
+        "A_R",  # Amplitude (Red channel)
+        "chi_sqr",  # Chi-squared goodness of fit
+        "frame",  # Frame number
     ]
 
     # Standard fit error columns

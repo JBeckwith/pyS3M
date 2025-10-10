@@ -14,8 +14,13 @@ import numpy as np
 
 # Use centralised import management
 from ImportManager import (
-    get_module, is_available, safe_import,
-    get_plotting_functions, get_postprocess, get_render, get_imageprocess
+    get_module,
+    is_available,
+    safe_import,
+    get_plotting_functions,
+    get_postprocess,
+    get_render,
+    get_imageprocess,
 )
 from PlottingBase import AnalysisPlotter, PlottingConfig
 
@@ -23,7 +28,7 @@ from PlottingBase import AnalysisPlotter, PlottingConfig
 plt = get_module("matplotlib.pyplot")
 patches = safe_import(
     "matplotlib.patches",
-    error_message="matplotlib.patches not available - some plotting features may not work"
+    error_message="matplotlib.patches not available - some plotting features may not work",
 )
 
 # Get local modules through import manager
@@ -35,6 +40,7 @@ postprocess = get_postprocess()
 # We'll need to handle FiducialDetectionResult via parameter typing
 # to avoid circular imports
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from DriftCorrectionFunctions import FiducialDetectionResult
 
@@ -57,7 +63,7 @@ class DriftPlotter(AnalysisPlotter):
         threshold: float,
         all_picks: list,
         valid_picks: list,
-        result: 'FiducialDetectionResult',
+        result: "FiducialDetectionResult",
         info: List[dict],
         save_path: Optional[str] = None,
     ) -> None:
@@ -122,10 +128,19 @@ class DriftPlotter(AnalysisPlotter):
                     edgecolor="black",
                 )
                 ax2.axvline(
-                    threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.1f}"
+                    threshold,
+                    color="red",
+                    linestyle="--",
+                    linewidth=2,
+                    label=f"Threshold: {threshold:.1f}",
                 )
-                self.setup_axis(ax2, xlabel="Intensity", ylabel="Frequency",
-                               title="Intensity Histogram Analysis", grid=True)
+                self.setup_axis(
+                    ax2,
+                    xlabel="Intensity",
+                    ylabel="Frequency",
+                    title="Intensity Histogram Analysis",
+                    grid=True,
+                )
                 ax2.legend()
 
             # Plot 3: Valid fiducials after filtering
@@ -177,14 +192,25 @@ class DriftPlotter(AnalysisPlotter):
                             label=f"Fid {group_id} ({len(group_locs)})",
                         )
 
-                    self.setup_axis(ax4, xlabel="X (pixels)", ylabel="Y (pixels)",
-                                   title=f"Grouped Localisations ({result.n_fiducials} fiducials)",
-                                   grid=True, equal_aspect=True)
+                    self.setup_axis(
+                        ax4,
+                        xlabel="X (pixels)",
+                        ylabel="Y (pixels)",
+                        title=f"Grouped Localisations ({result.n_fiducials} fiducials)",
+                        grid=True,
+                        equal_aspect=True,
+                    )
                     ax4.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
 
                 except Exception as e:
-                    ax4.text(0.5, 0.5, f"Error plotting groups: {e}",
-                            transform=ax4.transAxes, ha='centre', va='centre')
+                    ax4.text(
+                        0.5,
+                        0.5,
+                        f"Error plotting groups: {e}",
+                        transform=ax4.transAxes,
+                        ha="centre",
+                        va="centre",
+                    )
 
             # Plot 5: Summary statistics
             ax5 = axes[2, :]  # Span both columns
@@ -217,11 +243,12 @@ class DriftPlotter(AnalysisPlotter):
         except Exception as e:
             print(f"⚠️ Failed to create fiducial detection steps plot: {e}")
             import traceback
+
             traceback.print_exc()
 
     def plot_fiducial_detection_results(
         self,
-        result: 'FiducialDetectionResult',
+        result: "FiducialDetectionResult",
         info: List[dict],
         save_path: Optional[str] = None,
     ) -> None:
@@ -310,9 +337,14 @@ class DriftPlotter(AnalysisPlotter):
                         rasterized=True,
                     )
 
-            self.setup_axis(ax2, xlabel="X (nm)", ylabel="Y (nm)",
-                           title="Fiducial Localisations by Group",
-                           grid=True, equal_aspect=True)
+            self.setup_axis(
+                ax2,
+                xlabel="X (nm)",
+                ylabel="Y (nm)",
+                title="Fiducial Localisations by Group",
+                grid=True,
+                equal_aspect=True,
+            )
             ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
             # Add summary text
@@ -357,24 +389,29 @@ class DriftPlotter(AnalysisPlotter):
             # Single dataset - use the optimised large scatter method
             data = data_list[0]
             self.plot_large_scatter(
-                ax, data['xc'], data['yc'],
+                ax,
+                data["xc"],
+                data["yc"],
                 threshold=10000,  # Higher threshold for single dataset
-                cmap=color_list[0] if color_list else 'blue',
-                s=2, alpha=0.7, rasterized=True
+                cmap=color_list[0] if color_list else "blue",
+                s=2,
+                alpha=0.7,
+                rasterized=True,
             )
         else:
             # Multiple datasets - use new multi-dataset plotting
-            datasets = [{'x': data['xc'], 'y': data['yc']} for data in data_list]
+            datasets = [{"x": data["xc"], "y": data["yc"]} for data in data_list]
             labels = [f"Group {i+1}" for i in range(len(data_list))]
 
             self.plot_multi_dataset_scatter(
-                ax, datasets,
+                ax,
+                datasets,
                 labels=labels,
                 colors=color_list if color_list else None,
                 threshold=10000,  # Threshold for total points
                 alpha=0.6,
                 sizes=2.0,
-                rasterized=True
+                rasterized=True,
             )
 
         # Use standardised axis setup
@@ -384,7 +421,7 @@ class DriftPlotter(AnalysisPlotter):
             ylabel="Y (pixels)",
             title=title,
             grid=True,
-            equal_aspect=True
+            equal_aspect=True,
         )
 
     def plot_clustering_overlay(self, ax, all_x, all_y, types, title):
@@ -393,8 +430,8 @@ class DriftPlotter(AnalysisPlotter):
         Uses consolidated plotting base with automatic optimisation for large datasets.
         """
         # Separate data by type
-        original_mask = np.array(types) == 'original'
-        validated_mask = np.array(types) == 'validated'
+        original_mask = np.array(types) == "original"
+        validated_mask = np.array(types) == "validated"
 
         # Prepare datasets for multi-dataset plotting
         datasets = []
@@ -403,21 +440,15 @@ class DriftPlotter(AnalysisPlotter):
         sizes = []
 
         if np.any(original_mask):
-            datasets.append({
-                'x': all_x[original_mask],
-                'y': all_y[original_mask]
-            })
-            labels.append('Original')
-            colors.append('lightgray')
+            datasets.append({"x": all_x[original_mask], "y": all_y[original_mask]})
+            labels.append("Original")
+            colors.append("lightgray")
             sizes.append(1.0)
 
         if np.any(validated_mask):
-            datasets.append({
-                'x': all_x[validated_mask],
-                'y': all_y[validated_mask]
-            })
-            labels.append('Validated')
-            colors.append('red')
+            datasets.append({"x": all_x[validated_mask], "y": all_y[validated_mask]})
+            labels.append("Validated")
+            colors.append("red")
             sizes.append(3.0)
 
         # Use new multi-dataset plotting with appropriate threshold
@@ -425,21 +456,30 @@ class DriftPlotter(AnalysisPlotter):
         if total_points > 10000:
             # Use optimized plotting for large datasets
             scatters = self.plot_multi_dataset_scatter(
-                ax, datasets,
+                ax,
+                datasets,
                 labels=labels,
                 colors=colors,
                 sizes=sizes,
                 threshold=10000,
                 alpha=0.6,
-                rasterized=True
+                rasterized=True,
             )
         else:
             # Standard matplotlib for smaller datasets
-            for i, (dataset, label, color, size) in enumerate(zip(datasets, labels, colors, sizes)):
-                alpha = 0.3 if label == 'Original' else 0.9
-                ax.scatter(dataset['x'], dataset['y'],
-                          c=color, s=size, alpha=alpha,
-                          label=label, rasterized=True)
+            for i, (dataset, label, color, size) in enumerate(
+                zip(datasets, labels, colors, sizes)
+            ):
+                alpha = 0.3 if label == "Original" else 0.9
+                ax.scatter(
+                    dataset["x"],
+                    dataset["y"],
+                    c=color,
+                    s=size,
+                    alpha=alpha,
+                    label=label,
+                    rasterized=True,
+                )
             ax.legend()
 
         # Use standardised axis setup
@@ -449,7 +489,7 @@ class DriftPlotter(AnalysisPlotter):
             ylabel="Y (pixels)",
             title=title,
             grid=True,
-            equal_aspect=True
+            equal_aspect=True,
         )
 
     def plot_puncta_selection_results(
@@ -481,25 +521,48 @@ class DriftPlotter(AnalysisPlotter):
             if n_locs > use_datashader_threshold:
                 # Use preview plot for very large datasets
                 self.create_preview_plot(
-                    ax, all_locs.xc, all_locs.yc,
+                    ax,
+                    all_locs.xc,
+                    all_locs.yc,
                     preview_points=use_datashader_threshold,
-                    method='density',  # Density-aware sampling
-                    s=1, alpha=0.5, c='blue', rasterized=True
+                    method="density",  # Density-aware sampling
+                    s=1,
+                    alpha=0.5,
+                    c="blue",
+                    rasterized=True,
                 )
             else:
-                ax.scatter(all_locs.xc, all_locs.yc, s=1, alpha=0.5,
-                          c='blue', label='All localisations', rasterized=True)
+                ax.scatter(
+                    all_locs.xc,
+                    all_locs.yc,
+                    s=1,
+                    alpha=0.5,
+                    c="blue",
+                    label="All localisations",
+                    rasterized=True,
+                )
 
             # Plot region centres
             if region_centres:
                 centres = np.array(region_centres)
-                ax.scatter(centres[:, 0], centres[:, 1], s=100, c='red',
-                          marker='x', linewidth=2,
-                          label=f'Region centres ({len(region_centres)})')
+                ax.scatter(
+                    centres[:, 0],
+                    centres[:, 1],
+                    s=100,
+                    c="red",
+                    marker="x",
+                    linewidth=2,
+                    label=f"Region centres ({len(region_centres)})",
+                )
 
-            self.setup_axis(ax, xlabel="X (pixels)", ylabel="Y (pixels)",
-                           title=f"All Localisations ({n_locs:,} points)",
-                           grid=True, equal_aspect=True)
+            self.setup_axis(
+                ax,
+                xlabel="X (pixels)",
+                ylabel="Y (pixels)",
+                title=f"All Localisations ({n_locs:,} points)",
+                grid=True,
+                equal_aspect=True,
+            )
             ax.legend()
 
             # Plot 2: Selected puncta by region
@@ -509,32 +572,44 @@ class DriftPlotter(AnalysisPlotter):
                 labels = []
                 for i, puncta in enumerate(selected_puncta):
                     if len(puncta) > 0:
-                        datasets.append({'x': puncta.xc, 'y': puncta.yc})
-                        labels.append(f'Region {i} ({len(puncta)})')
+                        datasets.append({"x": puncta.xc, "y": puncta.yc})
+                        labels.append(f"Region {i} ({len(puncta)})")
 
                 if datasets:
                     self.plot_multi_dataset_scatter(
-                        ax, datasets,
+                        ax,
+                        datasets,
                         labels=labels if len(datasets) <= 10 else None,
                         threshold=use_datashader_threshold,
                         alpha=0.6,
                         sizes=2.0,
-                        rasterized=True
+                        rasterized=True,
                     )
 
-            self.setup_axis(ax, xlabel="X (pixels)", ylabel="Y (pixels)",
-                           title=f"Selected Puncta ({len(selected_puncta)} regions)",
-                           grid=True, equal_aspect=True)
+            self.setup_axis(
+                ax,
+                xlabel="X (pixels)",
+                ylabel="Y (pixels)",
+                title=f"Selected Puncta ({len(selected_puncta)} regions)",
+                grid=True,
+                equal_aspect=True,
+            )
 
             # Plot 3: Binary mask
             ax = axes[2]
-            ax.imshow(binary_mask, cmap='gray', origin='lower')
+            ax.imshow(binary_mask, cmap="gray", origin="lower")
             if region_centres:
                 centres = np.array(region_centres)
-                ax.scatter(centres[:, 0], centres[:, 1], s=50, c='red',
-                          marker='o', alpha=0.7)
-            self.setup_axis(ax, xlabel="X (pixels)", ylabel="Y (pixels)",
-                           title="Density Mask", grid=False)
+                ax.scatter(
+                    centres[:, 0], centres[:, 1], s=50, c="red", marker="o", alpha=0.7
+                )
+            self.setup_axis(
+                ax,
+                xlabel="X (pixels)",
+                ylabel="Y (pixels)",
+                title="Density Mask",
+                grid=False,
+            )
 
             # Plot 4: Statistics summary
             ax = axes[3]
@@ -551,21 +626,29 @@ class DriftPlotter(AnalysisPlotter):
 
                 # Add per-region stats if available
                 if region_stats and len(region_stats) > 0:
-                    stats_text.extend([
-                        f"",
-                        f"Average locs per region: {np.mean([len(p) for p in selected_puncta]):.1f}",
-                        f"Min/Max locs: {min(len(p) for p in selected_puncta)}/{max(len(p) for p in selected_puncta)}",
-                    ])
+                    stats_text.extend(
+                        [
+                            f"",
+                            f"Average locs per region: {np.mean([len(p) for p in selected_puncta]):.1f}",
+                            f"Min/Max locs: {min(len(p) for p in selected_puncta)}/{max(len(p) for p in selected_puncta)}",
+                        ]
+                    )
 
-                ax.text(0.05, 0.95, '\n'.join(stats_text),
-                       transform=ax.transAxes, fontsize=11,
-                       verticalalignment='top', fontfamily='monospace',
-                       bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+                ax.text(
+                    0.05,
+                    0.95,
+                    "\n".join(stats_text),
+                    transform=ax.transAxes,
+                    fontsize=11,
+                    verticalalignment="top",
+                    fontfamily="monospace",
+                    bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.8),
+                )
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
-            ax.axis('off')
+            ax.axis("off")
 
-            plt.suptitle(title, fontsize=14, fontweight='bold')
+            plt.suptitle(title, fontsize=14, fontweight="bold")
             plt.tight_layout()
 
             # Use consolidated save/show functionality
@@ -574,6 +657,7 @@ class DriftPlotter(AnalysisPlotter):
         except Exception as e:
             print(f"⚠️ Failed to create puncta selection plot: {e}")
             import traceback
+
             traceback.print_exc()
 
     def plot_individual_clustering_details(
@@ -605,36 +689,54 @@ class DriftPlotter(AnalysisPlotter):
             else:
                 axes = axes.flatten()
 
-            for i, (selected, validated, metadata) in enumerate(zip(selected_puncta[:n_validated],
-                                                                   validated_fiducials[:n_validated],
-                                                                   clustering_metadata[:n_validated])):
+            for i, (selected, validated, metadata) in enumerate(
+                zip(
+                    selected_puncta[:n_validated],
+                    validated_fiducials[:n_validated],
+                    clustering_metadata[:n_validated],
+                )
+            ):
                 ax = axes[i]
 
                 # Plot selected puncta
                 if len(selected) > 0:
-                    ax.scatter(selected.xc, selected.yc, c='lightblue', s=20, alpha=0.6, label='Selected')
+                    ax.scatter(
+                        selected.xc,
+                        selected.yc,
+                        c="lightblue",
+                        s=20,
+                        alpha=0.6,
+                        label="Selected",
+                    )
 
                 # Plot validated fiducials
                 if len(validated) > 0:
-                    ax.scatter(validated.xc, validated.yc, c='red', s=30, alpha=0.8, label='Validated')
+                    ax.scatter(
+                        validated.xc,
+                        validated.yc,
+                        c="red",
+                        s=30,
+                        alpha=0.8,
+                        label="Validated",
+                    )
 
-                ax.set_title(f'Region {i}: {len(validated)} validated')
-                ax.set_xlabel('X (nm)')
-                ax.set_ylabel('Y (nm)')
+                ax.set_title(f"Region {i}: {len(validated)} validated")
+                ax.set_xlabel("X (nm)")
+                ax.set_ylabel("Y (nm)")
                 ax.legend()
                 ax.grid(True, alpha=0.3)
-                ax.set_aspect('equal', adjustable='box')
+                ax.set_aspect("equal", adjustable="box")
 
             # Hide unused subplots
             for i in range(n_validated, len(axes)):
                 axes[i].set_visible(False)
 
-            plt.suptitle(f'{title} - Individual Clustering Details', fontsize=14)
+            plt.suptitle(f"{title} - Individual Clustering Details", fontsize=14)
             plt.tight_layout()
 
             # Save plot
             filename = f"{base_path}_details.png"
-            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            plt.savefig(filename, dpi=300, bbox_inches="tight")
             print(f"✅ Individual clustering details saved to: {filename}")
             plt.show()
 
@@ -669,10 +771,17 @@ class DriftPlotter(AnalysisPlotter):
             for i, puncta in enumerate(selected_puncta):
                 if len(puncta) > 0:
                     color = plt.cm.tab10(i % 10)
-                    ax.scatter(puncta.xc, puncta.yc, c=[color], s=20, alpha=0.6, label=f'Region {i}')
-            ax.set_title(f'Original Puncta ({n_regions} regions)')
-            ax.set_xlabel('X (nm)')
-            ax.set_ylabel('Y (nm)')
+                    ax.scatter(
+                        puncta.xc,
+                        puncta.yc,
+                        c=[color],
+                        s=20,
+                        alpha=0.6,
+                        label=f"Region {i}",
+                    )
+            ax.set_title(f"Original Puncta ({n_regions} regions)")
+            ax.set_xlabel("X (nm)")
+            ax.set_ylabel("Y (nm)")
             ax.grid(True, alpha=0.3)
             if n_regions <= 10:
                 ax.legend()
@@ -682,10 +791,17 @@ class DriftPlotter(AnalysisPlotter):
             for i, validated in enumerate(validated_fiducials):
                 if len(validated) > 0:
                     color = plt.cm.tab10(i % 10)
-                    ax.scatter(validated.xc, validated.yc, c=[color], s=30, alpha=0.8, label=f'Validated {i}')
-            ax.set_title(f'Validated Fiducials ({n_validated} regions)')
-            ax.set_xlabel('X (nm)')
-            ax.set_ylabel('Y (nm)')
+                    ax.scatter(
+                        validated.xc,
+                        validated.yc,
+                        c=[color],
+                        s=30,
+                        alpha=0.8,
+                        label=f"Validated {i}",
+                    )
+            ax.set_title(f"Validated Fiducials ({n_validated} regions)")
+            ax.set_xlabel("X (nm)")
+            ax.set_ylabel("Y (nm)")
             ax.grid(True, alpha=0.3)
             if n_validated <= 10:
                 ax.legend()
@@ -694,7 +810,9 @@ class DriftPlotter(AnalysisPlotter):
             ax = axes[2]
             retention_rates = []
             region_sizes = []
-            for i, (selected, validated) in enumerate(zip(selected_puncta, validated_fiducials)):
+            for i, (selected, validated) in enumerate(
+                zip(selected_puncta, validated_fiducials)
+            ):
                 if len(selected) > 0:
                     retention = len(validated) / len(selected) * 100
                     retention_rates.append(retention)
@@ -705,45 +823,68 @@ class DriftPlotter(AnalysisPlotter):
 
             if retention_rates:
                 bars = ax.bar(range(len(retention_rates)), retention_rates, alpha=0.7)
-                ax.set_xlabel('Region ID')
-                ax.set_ylabel('Retention Rate (%)')
-                ax.set_title('Clustering Retention Rates')
+                ax.set_xlabel("Region ID")
+                ax.set_ylabel("Retention Rate (%)")
+                ax.set_title("Clustering Retention Rates")
                 ax.grid(True, alpha=0.3)
 
                 # Add value labels on bars
                 for i, (bar, rate) in enumerate(zip(bars, retention_rates)):
                     if rate > 0:
-                        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-                               f'{rate:.1f}%', ha='centre', va='bottom', fontsize=8)
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            bar.get_height() + 1,
+                            f"{rate:.1f}%",
+                            ha="centre",
+                            va="bottom",
+                            fontsize=8,
+                        )
 
             # Plot 4: Summary statistics
             ax = axes[3]
             total_selected = sum(len(p) for p in selected_puncta)
             total_validated = sum(len(v) for v in validated_fiducials)
-            overall_retention = (total_validated / total_selected * 100) if total_selected > 0 else 0
+            overall_retention = (
+                (total_validated / total_selected * 100) if total_selected > 0 else 0
+            )
 
             stats_text = [
-                f'Regions analyzed: {n_regions}',
-                f'Total puncta: {total_selected}',
-                f'Validated fiducials: {total_validated}',
-                f'Overall retention: {overall_retention:.1f}%',
-                f'Avg per region: {total_validated/n_regions:.1f}' if n_regions > 0 else 'Avg per region: 0'
+                f"Regions analyzed: {n_regions}",
+                f"Total puncta: {total_selected}",
+                f"Validated fiducials: {total_validated}",
+                f"Overall retention: {overall_retention:.1f}%",
+                (
+                    f"Avg per region: {total_validated/n_regions:.1f}"
+                    if n_regions > 0
+                    else "Avg per region: 0"
+                ),
             ]
 
-            ax.text(0.1, 0.9, '\n'.join(stats_text), transform=ax.transAxes, fontsize=12,
-                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+            ax.text(
+                0.1,
+                0.9,
+                "\n".join(stats_text),
+                transform=ax.transAxes,
+                fontsize=12,
+                verticalalignment="top",
+                bbox=dict(boxstyle="round", facecolor="lightgray", alpha=0.8),
+            )
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
-            ax.axis('off')
-            ax.set_title('Summary Statistics')
+            ax.axis("off")
+            ax.set_title("Summary Statistics")
 
-            plt.suptitle(f'{title} - Clustering Results', fontsize=14)
+            plt.suptitle(f"{title} - Clustering Results", fontsize=14)
             plt.tight_layout()
 
             if output_figure_path:
-                base_path = output_figure_path.rsplit(".", 1)[0] if "." in output_figure_path else output_figure_path
+                base_path = (
+                    output_figure_path.rsplit(".", 1)[0]
+                    if "." in output_figure_path
+                    else output_figure_path
+                )
                 filename = f"{base_path}_clustering_results.png"
-                plt.savefig(filename, dpi=300, bbox_inches='tight')
+                plt.savefig(filename, dpi=300, bbox_inches="tight")
                 print(f"✅ Clustering results saved to: {filename}")
             else:
                 plt.show()
@@ -779,83 +920,129 @@ class DriftPlotter(AnalysisPlotter):
             # Plot 1: Validation statistics distribution
             ax = axes[0]
             n_locs = [len(selected) for selected in selected_puncta]
-            n_validated_per_region = [len(validated) for validated in validated_fiducials]
-            retention_rates = [(len(v)/len(s)*100) if len(s) > 0 else 0
-                             for s, v in zip(selected_puncta, validated_fiducials)]
+            n_validated_per_region = [
+                len(validated) for validated in validated_fiducials
+            ]
+            retention_rates = [
+                (len(v) / len(s) * 100) if len(s) > 0 else 0
+                for s, v in zip(selected_puncta, validated_fiducials)
+            ]
 
             x_pos = range(len(retention_rates))
-            bars = ax.bar(x_pos, retention_rates, alpha=0.7, color='skyblue')
-            ax.set_xlabel('Region ID')
-            ax.set_ylabel('Retention Rate (%)')
-            ax.set_title('Validation Retention by Region')
+            bars = ax.bar(x_pos, retention_rates, alpha=0.7, color="skyblue")
+            ax.set_xlabel("Region ID")
+            ax.set_ylabel("Retention Rate (%)")
+            ax.set_title("Validation Retention by Region")
             ax.grid(True, alpha=0.3)
 
             # Add mean line
             if retention_rates:
                 mean_retention = np.mean(retention_rates)
-                ax.axhline(mean_retention, color='red', linestyle='--',
-                          label=f'Mean: {mean_retention:.1f}%')
+                ax.axhline(
+                    mean_retention,
+                    color="red",
+                    linestyle="--",
+                    label=f"Mean: {mean_retention:.1f}%",
+                )
                 ax.legend()
 
             # Plot 2: Quality distribution histogram
             ax = axes[1]
             if retention_rates:
-                ax.hist(retention_rates, bins=10, alpha=0.7, color='lightgreen', edgecolor='black')
-                ax.set_xlabel('Retention Rate (%)')
-                ax.set_ylabel('Number of Regions')
-                ax.set_title('Quality Distribution')
+                ax.hist(
+                    retention_rates,
+                    bins=10,
+                    alpha=0.7,
+                    color="lightgreen",
+                    edgecolor="black",
+                )
+                ax.set_xlabel("Retention Rate (%)")
+                ax.set_ylabel("Number of Regions")
+                ax.set_title("Quality Distribution")
                 ax.grid(True, alpha=0.3)
 
             # Plot 3: Size vs retention scatter
             ax = axes[2]
             if n_locs and retention_rates:
-                colors = ['red' if r < 50 else 'orange' if r < 75 else 'green' for r in retention_rates]
+                colors = [
+                    "red" if r < 50 else "orange" if r < 75 else "green"
+                    for r in retention_rates
+                ]
                 scatter = ax.scatter(n_locs, retention_rates, c=colors, alpha=0.7, s=50)
-                ax.set_xlabel('Initial Puncta Count')
-                ax.set_ylabel('Retention Rate (%)')
-                ax.set_title('Size vs Quality')
+                ax.set_xlabel("Initial Puncta Count")
+                ax.set_ylabel("Retention Rate (%)")
+                ax.set_title("Size vs Quality")
                 ax.grid(True, alpha=0.3)
 
                 # Add trend line if enough data
                 if len(n_locs) > 3:
                     z = np.polyfit(n_locs, retention_rates, 1)
                     p = np.poly1d(z)
-                    ax.plot(sorted(n_locs), p(sorted(n_locs)), "r--", alpha=0.8, linewidth=1)
+                    ax.plot(
+                        sorted(n_locs), p(sorted(n_locs)), "r--", alpha=0.8, linewidth=1
+                    )
 
             # Plot 4: Summary statistics text
             ax = axes[3]
             total_input = sum(n_locs)
             total_output = sum(n_validated_per_region)
-            overall_retention = (total_output / total_input * 100) if total_input > 0 else 0
+            overall_retention = (
+                (total_output / total_input * 100) if total_input > 0 else 0
+            )
 
             stats_text = [
-                f'CLUSTERING SUMMARY',
-                f'',
-                f'Regions processed: {n_regions}',
-                f'Total input puncta: {total_input}',
-                f'Total validated fiducials: {total_output}',
-                f'Overall retention rate: {overall_retention:.1f}%',
-                f'',
-                f'Mean retention: {np.mean(retention_rates):.1f}% ± {np.std(retention_rates):.1f}%' if retention_rates else 'Mean retention: 0%',
-                f'Best region: {max(retention_rates):.1f}%' if retention_rates else 'Best region: 0%',
-                f'Worst region: {min(retention_rates):.1f}%' if retention_rates else 'Worst region: 0%',
-                f'Regions >50% retention: {sum(1 for r in retention_rates if r > 50)}/{n_regions}'
+                f"CLUSTERING SUMMARY",
+                f"",
+                f"Regions processed: {n_regions}",
+                f"Total input puncta: {total_input}",
+                f"Total validated fiducials: {total_output}",
+                f"Overall retention rate: {overall_retention:.1f}%",
+                f"",
+                (
+                    f"Mean retention: {np.mean(retention_rates):.1f}% ± {np.std(retention_rates):.1f}%"
+                    if retention_rates
+                    else "Mean retention: 0%"
+                ),
+                (
+                    f"Best region: {max(retention_rates):.1f}%"
+                    if retention_rates
+                    else "Best region: 0%"
+                ),
+                (
+                    f"Worst region: {min(retention_rates):.1f}%"
+                    if retention_rates
+                    else "Worst region: 0%"
+                ),
+                f"Regions >50% retention: {sum(1 for r in retention_rates if r > 50)}/{n_regions}",
             ]
 
-            ax.text(0.05, 0.95, '\n'.join(stats_text), transform=ax.transAxes, fontsize=11,
-                   verticalalignment='top', fontfamily='monospace',
-                   bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+            ax.text(
+                0.05,
+                0.95,
+                "\n".join(stats_text),
+                transform=ax.transAxes,
+                fontsize=11,
+                verticalalignment="top",
+                fontfamily="monospace",
+                bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.8),
+            )
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
-            ax.axis('off')
+            ax.axis("off")
 
-            plt.suptitle(f'{title} - Clustering Summary', fontsize=14, fontweight='bold')
+            plt.suptitle(
+                f"{title} - Clustering Summary", fontsize=14, fontweight="bold"
+            )
             plt.tight_layout()
 
             if output_figure_path:
-                base_path = output_figure_path.rsplit(".", 1)[0] if "." in output_figure_path else output_figure_path
+                base_path = (
+                    output_figure_path.rsplit(".", 1)[0]
+                    if "." in output_figure_path
+                    else output_figure_path
+                )
                 filename = f"{base_path}_clustering_summary.png"
-                plt.savefig(filename, dpi=300, bbox_inches='tight')
+                plt.savefig(filename, dpi=300, bbox_inches="tight")
                 print(f"✅ Clustering summary saved to: {filename}")
             else:
                 plt.show()
@@ -889,42 +1076,55 @@ class DriftPlotter(AnalysisPlotter):
             fig, axes = plotter.two_by_two_plot()
 
             # Plot 1: Smoothed image
-            im1 = axes[0].imshow(smoothed_image, cmap='hot', origin='lower')
-            axes[0].set_title('Smoothed Image')
-            axes[0].set_xlabel('X (pixels)')
-            axes[0].set_ylabel('Y (pixels)')
+            im1 = axes[0].imshow(smoothed_image, cmap="hot", origin="lower")
+            axes[0].set_title("Smoothed Image")
+            axes[0].set_xlabel("X (pixels)")
+            axes[0].set_ylabel("Y (pixels)")
 
             # Plot 2: Binary mask
-            axes[1].imshow(binary_mask, cmap='gray', origin='lower')
-            axes[1].set_title('Binary Mask')
-            axes[1].set_xlabel('X (pixels)')
-            axes[1].set_ylabel('Y (pixels)')
+            axes[1].imshow(binary_mask, cmap="gray", origin="lower")
+            axes[1].set_title("Binary Mask")
+            axes[1].set_xlabel("X (pixels)")
+            axes[1].set_ylabel("Y (pixels)")
 
             # Plot 3: Histogram
             if len(hist) > 0 and len(bin_edges) > 0:
                 bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
                 axes[2].plot(bin_centres, hist)
-                axes[2].axvline(threshold, color='red', linestyle='--', label=f'Threshold: {threshold:.2f}')
-                axes[2].set_xlabel('Intensity')
-                axes[2].set_ylabel('Count')
-                axes[2].set_title('Intensity Histogram')
+                axes[2].axvline(
+                    threshold,
+                    color="red",
+                    linestyle="--",
+                    label=f"Threshold: {threshold:.2f}",
+                )
+                axes[2].set_xlabel("Intensity")
+                axes[2].set_ylabel("Count")
+                axes[2].set_title("Intensity Histogram")
                 axes[2].legend()
 
             # Plot 4: Detected regions overlay
-            axes[3].imshow(smoothed_image, cmap='hot', origin='lower', alpha=0.7)
+            axes[3].imshow(smoothed_image, cmap="hot", origin="lower", alpha=0.7)
             for i, (cy, cx) in enumerate(region_centres):
-                axes[3].plot(cx, cy, 'wo', markersize=8, markeredgecolor='red', markeredgewidth=2)
-                axes[3].text(cx, cy, str(i), color='white', ha='centre', va='centre', fontsize=8)
-            axes[3].set_title(f'{title} - {len(region_centres)} Regions')
-            axes[3].set_xlabel('X (pixels)')
-            axes[3].set_ylabel('Y (pixels)')
+                axes[3].plot(
+                    cx, cy, "wo", markersize=8, markeredgecolor="red", markeredgewidth=2
+                )
+                axes[3].text(
+                    cx, cy, str(i), color="white", ha="centre", va="centre", fontsize=8
+                )
+            axes[3].set_title(f"{title} - {len(region_centres)} Regions")
+            axes[3].set_xlabel("X (pixels)")
+            axes[3].set_ylabel("Y (pixels)")
 
             plt.tight_layout()
 
             if output_figure_path:
-                base_path = output_figure_path.rsplit(".", 1)[0] if "." in output_figure_path else output_figure_path
+                base_path = (
+                    output_figure_path.rsplit(".", 1)[0]
+                    if "." in output_figure_path
+                    else output_figure_path
+                )
                 filename = f"{base_path}_density_detection.png"
-                plt.savefig(filename, dpi=300, bbox_inches='tight')
+                plt.savefig(filename, dpi=300, bbox_inches="tight")
                 print(f"✅ Density detection plots saved to: {filename}")
             else:
                 plt.show()
@@ -934,28 +1134,29 @@ class DriftPlotter(AnalysisPlotter):
             # Fallback to basic matplotlib if PlottingFunctions fails
             try:
                 import matplotlib.pyplot as plt
+
                 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
                 axes = axes.flatten()
 
                 # Simple fallback visualization
-                axes[0].imshow(smoothed_image, cmap='hot')
-                axes[0].set_title('Smoothed Image')
+                axes[0].imshow(smoothed_image, cmap="hot")
+                axes[0].set_title("Smoothed Image")
 
-                axes[1].imshow(binary_mask, cmap='gray')
-                axes[1].set_title('Binary Mask')
+                axes[1].imshow(binary_mask, cmap="gray")
+                axes[1].set_title("Binary Mask")
 
                 if len(hist) > 0:
                     axes[2].plot(hist)
-                    axes[2].set_title('Histogram')
+                    axes[2].set_title("Histogram")
 
-                axes[3].imshow(smoothed_image, cmap='hot', alpha=0.7)
+                axes[3].imshow(smoothed_image, cmap="hot", alpha=0.7)
                 for cx, cy in region_centres:
-                    axes[3].plot(cy, cx, 'wo', markersize=6)
-                axes[3].set_title(f'{len(region_centres)} Regions Detected')
+                    axes[3].plot(cy, cx, "wo", markersize=6)
+                axes[3].set_title(f"{len(region_centres)} Regions Detected")
 
                 plt.tight_layout()
                 if output_figure_path:
-                    plt.savefig(output_figure_path, dpi=300, bbox_inches='tight')
+                    plt.savefig(output_figure_path, dpi=300, bbox_inches="tight")
                 plt.show()
             except Exception as fallback_error:
                 print(f"⚠️ Fallback plotting also failed: {fallback_error}")

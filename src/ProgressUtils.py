@@ -48,9 +48,12 @@ class MockProgressUtils:
     @staticmethod
     def clean_progress_bar(iterable=None, total=None, desc="Processing", **kwargs):
         """Mock context manager that returns iterable unchanged."""
+
         class MockContext:
             def __init__(self, iterable, total):
-                self.iterable = iterable if iterable is not None else range(total) if total else []
+                self.iterable = (
+                    iterable if iterable is not None else range(total) if total else []
+                )
 
             def __enter__(self):
                 return self.iterable
@@ -178,7 +181,9 @@ def clean_progress_bar(
     """
     # If tqdm not available, use mock implementation
     if not TQDM_AVAILABLE:
-        yield MockProgressUtils.clean_progress_bar(iterable=iterable, total=total, desc=desc, **kwargs)
+        yield MockProgressUtils.clean_progress_bar(
+            iterable=iterable, total=total, desc=desc, **kwargs
+        )
         return
 
     # Merge default configuration with provided arguments

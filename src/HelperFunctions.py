@@ -89,7 +89,9 @@ class Helper_Functions:
             for key, arr in maps_dict.items()
         }
 
-    def calculate_roi_bounds(self, xcentre, ycentre, roi_size, width, height, min_roi_size=4):
+    def calculate_roi_bounds(
+        self, xcentre, ycentre, roi_size, width, height, min_roi_size=4
+    ):
         """Calculate square ROI boundaries within image bounds.
 
         Computes xmin, xmax, ymin, ymax for a square ROI centered at (xcentre, ycentre),
@@ -124,7 +126,9 @@ class Helper_Functions:
 
         return xmin, xmax, ymin, ymax
 
-    def calculate_parallel_chunks(self, total_items, max_workers=60, worker_ratio=0.9, tasks_per_worker=100):
+    def calculate_parallel_chunks(
+        self, total_items, max_workers=60, worker_ratio=0.9, tasks_per_worker=100
+    ):
         """Calculate optimal chunk distribution for parallel processing.
 
         Distributes items across parallel workers with load balancing to ensure
@@ -151,7 +155,9 @@ class Helper_Functions:
         import multiprocessing
 
         # Calculate number of workers (limit to avoid system overload)
-        n_workers = min(max_workers, max(1, int(worker_ratio * multiprocessing.cpu_count())))
+        n_workers = min(
+            max_workers, max(1, int(worker_ratio * multiprocessing.cpu_count()))
+        )
 
         # Calculate number of tasks (more tasks than workers for load balancing)
         n_tasks = min(tasks_per_worker * n_workers, total_items)
@@ -159,8 +165,11 @@ class Helper_Functions:
         # Distribute items across tasks with load balancing
         # Tasks that get extra items: first (total_items % n_tasks) tasks
         items_per_task = [
-            int(total_items / n_tasks + 1) if i < total_items % n_tasks
-            else int(total_items / n_tasks)
+            (
+                int(total_items / n_tasks + 1)
+                if i < total_items % n_tasks
+                else int(total_items / n_tasks)
+            )
             for i in range(n_tasks)
         ]
 
@@ -169,9 +178,7 @@ class Helper_Functions:
 
         return n_workers, n_tasks, items_per_task, start_indices
 
-    def load_metadata_roi(
-        self, image_folder, io_functions, use_fallback=True
-    ):
+    def load_metadata_roi(self, image_folder, io_functions, use_fallback=True):
         """
         Load ROI information from metadata files.
 
@@ -202,9 +209,7 @@ class Helper_Functions:
             return 0, 0, None, None
         else:
             # No metadata and no fallback allowed
-            raise FileNotFoundError(
-                f"No metadata files found in {image_folder}"
-            )
+            raise FileNotFoundError(f"No metadata files found in {image_folder}")
 
     def format_elapsed_time(self, elapsed_seconds):
         """

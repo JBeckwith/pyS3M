@@ -37,6 +37,7 @@ class TemporalMedianMode(Enum):
     Note: EVER uses extreme value statistics for accurate background estimation
           with ~96% accuracy and ~2600 frames/sec processing speed.
     """
+
     NONE = 0
     FITTING_ONLY = 1  # Uses EVER
     DETECTION_AND_FITTING = 2  # Uses EVER
@@ -158,13 +159,21 @@ class SuperRes_Functions:
         """
         # Combine all filters into a single boolean mask for efficient filtering
         mask = (
-            fit_results.notna().all(axis=1) &
-            (fit_results["xc"] > 0) & (fit_results["xc"] < width) &
-            (fit_results["yc"] > 0) & (fit_results["yc"] < height) &
-            (fit_results["s_x"] > 0) & (fit_results["s_x"] < 3) &
-            (fit_results["s_y"] > 0) & (fit_results["s_y"] < 3) &
-            (fit_results["A_B"] > 0) & (fit_results["A_G"] > 0) & (fit_results["A_R"] > 0) &
-            (fit_results["bg_B"] > 0) & (fit_results["bg_G"] > 0) & (fit_results["bg_R"] > 0)
+            fit_results.notna().all(axis=1)
+            & (fit_results["xc"] > 0)
+            & (fit_results["xc"] < width)
+            & (fit_results["yc"] > 0)
+            & (fit_results["yc"] < height)
+            & (fit_results["s_x"] > 0)
+            & (fit_results["s_x"] < 3)
+            & (fit_results["s_y"] > 0)
+            & (fit_results["s_y"] < 3)
+            & (fit_results["A_B"] > 0)
+            & (fit_results["A_G"] > 0)
+            & (fit_results["A_R"] > 0)
+            & (fit_results["bg_B"] > 0)
+            & (fit_results["bg_G"] > 0)
+            & (fit_results["bg_R"] > 0)
         )
 
         return fit_results[mask].reset_index(drop=True)
@@ -222,13 +231,17 @@ class SuperRes_Functions:
         frame = int(detected_puncta[i, 2]) if is_multi_frame else 0
 
         # Calculate ROI boundaries using helper function
-        bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
+        bounds = self.helper.calculate_roi_bounds(
+            xcentre, ycentre, ROI_size, width, height
+        )
         if bounds is None:
             return None
         xmin, xmax, ymin, ymax = bounds
 
         # Determine which data to use for fitting
-        data_for_fitting = raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
+        data_for_fitting = (
+            raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
+        )
 
         # Extract raw ROI for fitting (note: arrays are [row, col] = [y, x])
         if is_multi_frame:
@@ -243,9 +256,14 @@ class SuperRes_Functions:
         # Verify ROI is actually square (sanity check)
         if raw_roi.shape[0] != raw_roi.shape[1]:
             import logging
+
             expected_size = xmax - xmin
-            logging.warning(f"Non-square ROI extracted: {raw_roi.shape}, expected {expected_size}x{expected_size}")
-            logging.warning(f"  Boundaries: xmin={xmin}, xmax={xmax}, ymin={ymin}, ymax={ymax}")
+            logging.warning(
+                f"Non-square ROI extracted: {raw_roi.shape}, expected {expected_size}x{expected_size}"
+            )
+            logging.warning(
+                f"  Boundaries: xmin={xmin}, xmax={xmax}, ymin={ymin}, ymax={ymax}"
+            )
             logging.warning(f"  Image dims: width={width}, height={height}")
             logging.warning(f"  Center: ({xcentre}, {ycentre}), ROI_size={ROI_size}")
             return None
@@ -394,7 +412,9 @@ class SuperRes_Functions:
             if result is None:
                 continue
 
-            photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane = result
+            photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane = (
+                result
+            )
 
             puncta_tofit.append(photoelectron_roi)
             smoothed_puncta_tofit.append(smoothed_roi)
@@ -511,17 +531,30 @@ class SuperRes_Functions:
         if rqe is None:
             rqe = np.ones((full_height, full_width), dtype=np.float32)
         if read_noise is None:
-            read_noise = np.ones((full_height, full_width), dtype=np.float32) * 1.6  # Typical value
+            read_noise = (
+                np.ones((full_height, full_width), dtype=np.float32) * 1.6
+            )  # Typical value
         if variance is None:
-            variance = read_noise ** 2
+            variance = read_noise**2
 
         # Create masks for ROI
-        masks = self.mask.get_stacked_masks(start_x, start_y, width, height, self.mosaic_unit)
+        masks = self.mask.get_stacked_masks(
+            start_x, start_y, width, height, self.mosaic_unit
+        )
 
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
-            {"gain_map": gain_map, "offset_map": offset_map, "read_noise": read_noise, "rqe": rqe, "variance": variance},
-            start_x, start_y, width, height
+            {
+                "gain_map": gain_map,
+                "offset_map": offset_map,
+                "read_noise": read_noise,
+                "rqe": rqe,
+                "variance": variance,
+            },
+            start_x,
+            start_y,
+            width,
+            height,
         )
         gain_map = cropped_maps["gain_map"]
         offset_map = cropped_maps["offset_map"]
@@ -545,18 +578,20 @@ class SuperRes_Functions:
                 0,  # First file
                 frame_index,
                 ever_window,
-                file_frame_counts
+                file_frame_counts,
             )
 
             # Compute EVER background subtraction in photoelectron space
             # Returns both ADU (for variance-aware demosaic) and photoelectrons (for fitting)
             print(f"  Loaded {frames_for_ever.shape[0]} frames for EVER window")
-            ever_subtracted_adu_stack, ever_subtracted_pe_stack = self._compute_ever_background(
-                frames_for_ever,
-                window_size=ever_window,
-                spatial_filter_size=1,  # No spatial averaging for Bayer patterns
-                gain_map=gain_map,
-                offset_map=offset_map
+            ever_subtracted_adu_stack, ever_subtracted_pe_stack = (
+                self._compute_ever_background(
+                    frames_for_ever,
+                    window_size=ever_window,
+                    spatial_filter_size=1,  # No spatial averaging for Bayer patterns
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                )
             )
 
             # Extract the requested frame from EVER-subtracted stacks
@@ -656,7 +691,10 @@ class SuperRes_Functions:
         # Create figure using PlottingBase for cleaner code
         try:
             from PlottingBase import AnalysisPlotter
-            plotter = AnalysisPlotter(datashader_threshold=None)  # Use matplotlib for single frame
+
+            plotter = AnalysisPlotter(
+                datashader_threshold=None
+            )  # Use matplotlib for single frame
         except ImportError:
             # Fallback to old plotter
             plotter = None
@@ -682,11 +720,19 @@ class SuperRes_Functions:
             y_valid = y_fit[valid_mask]
 
             if len(x_valid) > 0:
-                density_hist, x_edges, y_edges = np.histogram2d(x_valid, y_valid, bins=50)
-                max_density_idx = np.unravel_index(np.argmax(density_hist), density_hist.shape)
+                density_hist, x_edges, y_edges = np.histogram2d(
+                    x_valid, y_valid, bins=50
+                )
+                max_density_idx = np.unravel_index(
+                    np.argmax(density_hist), density_hist.shape
+                )
                 # Center of zoom region
-                center_x = (x_edges[max_density_idx[0]] + x_edges[max_density_idx[0] + 1]) / 2
-                center_y = (y_edges[max_density_idx[1]] + y_edges[max_density_idx[1] + 1]) / 2
+                center_x = (
+                    x_edges[max_density_idx[0]] + x_edges[max_density_idx[0] + 1]
+                ) / 2
+                center_y = (
+                    y_edges[max_density_idx[1]] + y_edges[max_density_idx[1] + 1]
+                ) / 2
                 # Zoom window (100x100 pixels)
                 zoom_size = 50
                 min_x, max_x = center_x - zoom_size, center_x + zoom_size
@@ -698,59 +744,125 @@ class SuperRes_Functions:
 
             # Top row: Full field views
             # [0,0] Detected spots on processed image
-            im = plotter.create_image_plot(axs[0, 0], image_to_analyse,
-                                          vmin=vmin_processed, vmax=vmax_processed,
-                                          cmap='gray')
+            im = plotter.create_image_plot(
+                axs[0, 0],
+                image_to_analyse,
+                vmin=vmin_processed,
+                vmax=vmax_processed,
+                cmap="gray",
+            )
             # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
-            axs[0, 0].scatter(detected_puncta[:, 1], detected_puncta[:, 0],
-                            s=s, c='red', marker='o', alpha=0.5)
-            plotter.setup_axis(axs[0, 0], title="Detected Spots (Full Field)",
-                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
+            axs[0, 0].scatter(
+                detected_puncta[:, 1],
+                detected_puncta[:, 0],
+                s=s,
+                c="red",
+                marker="o",
+                alpha=0.5,
+            )
+            plotter.setup_axis(
+                axs[0, 0],
+                title="Detected Spots (Full Field)",
+                xlabel="X (px)",
+                ylabel="Y (px)",
+                grid=False,
+                equal_aspect=True,
+            )
 
             # Add zoom rectangle
-            rect = patches.Rectangle((min_x, min_y), max_x - min_x, max_y - min_y,
-                                    linewidth=1, edgecolor='cyan', facecolor='none')
+            rect = patches.Rectangle(
+                (min_x, min_y),
+                max_x - min_x,
+                max_y - min_y,
+                linewidth=1,
+                edgecolor="cyan",
+                facecolor="none",
+            )
             axs[0, 0].add_patch(rect)
 
             # [0,1] Fitted spots on raw image
-            im = plotter.create_image_plot(axs[0, 1], raw_data,
-                                          vmin=vmin_raw, vmax=vmax_raw,
-                                          cmap='gray')
-            axs[0, 1].scatter(x_fit, y_fit, s=s, c='lime', marker='o', alpha=0.5)
-            plotter.setup_axis(axs[0, 1], title="Fitted Spots (Full Field)",
-                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
+            im = plotter.create_image_plot(
+                axs[0, 1], raw_data, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+            )
+            axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.5)
+            plotter.setup_axis(
+                axs[0, 1],
+                title="Fitted Spots (Full Field)",
+                xlabel="X (px)",
+                ylabel="Y (px)",
+                grid=False,
+                equal_aspect=True,
+            )
 
             # Add zoom rectangle
-            rect = patches.Rectangle((min_x, min_y), max_x - min_x, max_y - min_y,
-                                    linewidth=1, edgecolor='cyan', facecolor='none')
+            rect = patches.Rectangle(
+                (min_x, min_y),
+                max_x - min_x,
+                max_y - min_y,
+                linewidth=1,
+                edgecolor="cyan",
+                facecolor="none",
+            )
             axs[0, 1].add_patch(rect)
 
             # Bottom row: Zoomed views
             # [1,0] Detected spots zoomed
-            im = plotter.create_image_plot(axs[1, 0], image_to_analyse,
-                                          vmin=vmin_processed, vmax=vmax_processed,
-                                          cmap='gray')
+            im = plotter.create_image_plot(
+                axs[1, 0],
+                image_to_analyse,
+                vmin=vmin_processed,
+                vmax=vmax_processed,
+                cmap="gray",
+            )
             # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
-            axs[1, 0].scatter(detected_puncta[:, 1], detected_puncta[:, 0],
-                            s=s * 5, c='red', marker='o', alpha=0.7)
+            axs[1, 0].scatter(
+                detected_puncta[:, 1],
+                detected_puncta[:, 0],
+                s=s * 5,
+                c="red",
+                marker="o",
+                alpha=0.7,
+            )
             axs[1, 0].set_xlim(min_x, max_x)
             axs[1, 0].set_ylim(min_y, max_y)
-            plotter.setup_axis(axs[1, 0], title="Detected Spots (Zoom)",
-                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
-            plotter.add_scalebar(axs[1, 0], pixelsize=pixel_size * 1000, length_nm=1000,
-                               label="1 μm", color='white')
+            plotter.setup_axis(
+                axs[1, 0],
+                title="Detected Spots (Zoom)",
+                xlabel="X (px)",
+                ylabel="Y (px)",
+                grid=False,
+                equal_aspect=True,
+            )
+            plotter.add_scalebar(
+                axs[1, 0],
+                pixelsize=pixel_size * 1000,
+                length_nm=1000,
+                label="1 μm",
+                color="white",
+            )
 
             # [1,1] Fitted spots zoomed
-            im = plotter.create_image_plot(axs[1, 1], raw_data,
-                                          vmin=vmin_raw, vmax=vmax_raw,
-                                          cmap='gray')
-            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c='lime', marker='o', alpha=0.7)
+            im = plotter.create_image_plot(
+                axs[1, 1], raw_data, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+            )
+            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.7)
             axs[1, 1].set_xlim(min_x, max_x)
             axs[1, 1].set_ylim(min_y, max_y)
-            plotter.setup_axis(axs[1, 1], title="Fitted Spots (Zoom)",
-                             xlabel="X (px)", ylabel="Y (px)", grid=False, equal_aspect=True)
-            plotter.add_scalebar(axs[1, 1], pixelsize=pixel_size * 1000, length_nm=1000,
-                               label="1 μm", color='white')
+            plotter.setup_axis(
+                axs[1, 1],
+                title="Fitted Spots (Zoom)",
+                xlabel="X (px)",
+                ylabel="Y (px)",
+                grid=False,
+                equal_aspect=True,
+            )
+            plotter.add_scalebar(
+                axs[1, 1],
+                pixelsize=pixel_size * 1000,
+                length_nm=1000,
+                label="1 μm",
+                color="white",
+            )
 
             plt.tight_layout()
 
@@ -818,7 +930,9 @@ class SuperRes_Functions:
                 xcentre = detected_puncta[i, 0]
                 ycentre = detected_puncta[i, 1]
                 # Calculate ROI boundaries using helper function
-                bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
+                bounds = self.helper.calculate_roi_bounds(
+                    xcentre, ycentre, ROI_size, width, height
+                )
                 if bounds is None:
                     continue
                 xmin, xmax, ymin, ymax = bounds
@@ -916,11 +1030,22 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=False
         )
 
-        masks = self.mask.get_stacked_masks(start_x, start_y, width, height, self.mosaic_unit)
+        masks = self.mask.get_stacked_masks(
+            start_x, start_y, width, height, self.mosaic_unit
+        )
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
-            {"gain_map": gain_map, "offset_map": offset_map, "read_noise": read_noise, "rqe": rqe, "variance": variance},
-            start_x, start_y, width, height
+            {
+                "gain_map": gain_map,
+                "offset_map": offset_map,
+                "read_noise": read_noise,
+                "rqe": rqe,
+                "variance": variance,
+            },
+            start_x,
+            start_y,
+            width,
+            height,
         )
         gain_map = cropped_maps["gain_map"]
         offset_map = cropped_maps["offset_map"]
@@ -1016,7 +1141,7 @@ class SuperRes_Functions:
 
                 # Clean up chunk data
                 del raw_data, detected_puncta, image_to_analyse
-                if 'buffer_data' in locals() and buffer_data is not None:
+                if "buffer_data" in locals() and buffer_data is not None:
                     del buffer_data
                 gc.collect()
 
@@ -1032,19 +1157,26 @@ class SuperRes_Functions:
 
             # ROI processing already done in chunks above
 
-            fit_results_array, fit_errors_array = self.image_analysis.fit_puncta_parallel_method(
-                puncta_tofit,
-                smoothed_puncta_tofit,
-                weights_tofit,
-                relative_coords,
-                planes,
-                FittingStrategy.STANDARD,
-                masks=masks_tofit,
+            fit_results_array, fit_errors_array = (
+                self.image_analysis.fit_puncta_parallel_method(
+                    puncta_tofit,
+                    smoothed_puncta_tofit,
+                    weights_tofit,
+                    relative_coords,
+                    planes,
+                    FittingStrategy.STANDARD,
+                    masks=masks_tofit,
+                )
             )
 
             # Post-process results: stack, create DataFrame, fix frames, sort, filter
             fit_results = self._postprocess_fit_results(
-                fit_results_array, fit_errors_array, result_params, planes, width, height
+                fit_results_array,
+                fit_errors_array,
+                result_params,
+                planes,
+                width,
+                height,
             )
 
             self.io._write_h5_database(fit_results, fit_savename, append=False)
@@ -1061,7 +1193,6 @@ class SuperRes_Functions:
             )
             gc.collect()
         return
-
 
     def _load_frames_for_ever_window(
         self,
@@ -1088,7 +1219,9 @@ class SuperRes_Functions:
         half_window = window_size // 2
 
         # Calculate global frame index across all files
-        global_frame_start = sum(file_frame_counts[:current_file_idx]) + current_frame_in_file
+        global_frame_start = (
+            sum(file_frame_counts[:current_file_idx]) + current_frame_in_file
+        )
 
         # Determine window boundaries in global frame space
         window_global_start = max(0, global_frame_start - half_window)
@@ -1104,18 +1237,23 @@ class SuperRes_Functions:
             file_global_end = cumulative_frames + file_frame_count
 
             # Does this file overlap with our window?
-            if file_global_end > window_global_start and file_global_start < window_global_end:
+            if (
+                file_global_end > window_global_start
+                and file_global_start < window_global_end
+            ):
                 # Calculate which frames from this file to load
                 load_start = max(0, window_global_start - file_global_start)
                 load_end = min(file_frame_count, window_global_end - file_global_start)
 
-                frames_to_load.append({
-                    'file_idx': file_idx,
-                    'file_path': image_files[file_idx],
-                    'frame_start': load_start,
-                    'frame_end': load_end,
-                    'frame_range': list(range(load_start, load_end))
-                })
+                frames_to_load.append(
+                    {
+                        "file_idx": file_idx,
+                        "file_path": image_files[file_idx],
+                        "frame_start": load_start,
+                        "frame_end": load_end,
+                        "frame_range": list(range(load_start, load_end)),
+                    }
+                )
 
             cumulative_frames += file_frame_count
 
@@ -1123,9 +1261,7 @@ class SuperRes_Functions:
         all_frames = []
         for load_info in frames_to_load:
             frames = self.io.read_tiff(
-                load_info['file_path'],
-                dtype="float32",
-                frame=load_info['frame_range']
+                load_info["file_path"], dtype="float32", frame=load_info["frame_range"]
             )
             if frames.ndim == 2:
                 frames = frames[np.newaxis, :, :]
@@ -1135,7 +1271,9 @@ class SuperRes_Functions:
         frames_stack = np.concatenate(all_frames, axis=0)
 
         # Calculate where the target frame is in the stack
-        center_frame_index = current_frame_in_file + (sum(file_frame_counts[:current_file_idx]) - window_global_start)
+        center_frame_index = current_frame_in_file + (
+            sum(file_frame_counts[:current_file_idx]) - window_global_start
+        )
 
         return frames_stack, center_frame_index
 
@@ -1201,7 +1339,7 @@ class SuperRes_Functions:
             frames_pe,
             window_size=window_size,
             spatial_filter_size=spatial_filter_size,
-            use_cache=True
+            use_cache=True,
         )
 
         # Convert background-subtracted data back to ADU for variance-aware demosaic
@@ -1323,11 +1461,22 @@ class SuperRes_Functions:
             fit_savename = os.path.join(image_folder, "Localisations_EVER.h5")
         else:
             fit_savename = os.path.join(image_folder, "Localisations.h5")
-        masks = self.mask.get_stacked_masks(start_x, start_y, width, height, self.mosaic_unit)
+        masks = self.mask.get_stacked_masks(
+            start_x, start_y, width, height, self.mosaic_unit
+        )
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
-            {"gain_map": gain_map, "offset_map": offset_map, "read_noise": read_noise, "rqe": rqe, "variance": variance},
-            start_x, start_y, width, height
+            {
+                "gain_map": gain_map,
+                "offset_map": offset_map,
+                "read_noise": read_noise,
+                "rqe": rqe,
+                "variance": variance,
+            },
+            start_x,
+            start_y,
+            width,
+            height,
         )
         gain_map = cropped_maps["gain_map"]
         offset_map = cropped_maps["offset_map"]
@@ -1343,7 +1492,9 @@ class SuperRes_Functions:
             print("Pre-scanning files for EVER cross-file loading...")
             for file in image_files:
                 file_frame_counts.append(self.io.get_num_pages_in_TIF(file))
-            print(f"  Total files: {len(image_files)}, Total frames: {sum(file_frame_counts)}")
+            print(
+                f"  Total files: {len(image_files)}, Total frames: {sum(file_frame_counts)}"
+            )
 
         total_frames = 0
         for FOVn, file in enumerate(image_files):
@@ -1387,7 +1538,9 @@ class SuperRes_Functions:
                 if temporal_median_mode != TemporalMedianMode.NONE:
                     # EVER algorithm - fast and accurate background subtraction in photoelectron space
                     # Load frames across file boundaries for proper temporal minimum calculation
-                    print(f"    Applying EVER background subtraction (window={ever_window})")
+                    print(
+                        f"    Applying EVER background subtraction (window={ever_window})"
+                    )
 
                     # Load expanded window for EVER (may span multiple files)
                     chunk_middle_frame = chunk_start + len(chunk_frames) // 2
@@ -1396,7 +1549,7 @@ class SuperRes_Functions:
                         FOVn,
                         chunk_middle_frame,
                         ever_window,
-                        file_frame_counts
+                        file_frame_counts,
                     )
 
                     # Apply EVER to the expanded window
@@ -1405,14 +1558,18 @@ class SuperRes_Functions:
                         window_size=ever_window,
                         spatial_filter_size=1,  # No spatial averaging for Bayer patterns
                         gain_map=gain_map,
-                        offset_map=offset_map
+                        offset_map=offset_map,
                     )
 
                     # Extract just the chunk we're processing from EVER results
                     # Calculate which frames from the EVER window correspond to our chunk
-                    chunk_offset_in_ever = chunk_start - (chunk_middle_frame - ever_window // 2)
+                    chunk_offset_in_ever = chunk_start - (
+                        chunk_middle_frame - ever_window // 2
+                    )
                     chunk_offset_in_ever = max(0, chunk_offset_in_ever)
-                    chunk_slice = slice(chunk_offset_in_ever, chunk_offset_in_ever + len(chunk_frames))
+                    chunk_slice = slice(
+                        chunk_offset_in_ever, chunk_offset_in_ever + len(chunk_frames)
+                    )
 
                     background_subtracted_adu = ever_adu_full[chunk_slice]
                     background_subtracted_pe = ever_pe_full[chunk_slice]
@@ -1509,19 +1666,26 @@ class SuperRes_Functions:
             # ROI processing already done in chunks above
             total_frames += file_frames
 
-            fit_results_array, fit_errors_array = self.image_analysis.fit_puncta_parallel_method(
-                puncta_tofit,
-                smoothed_puncta_tofit,
-                weights_tofit,
-                relative_coords,
-                planes,
-                FittingStrategy.STANDARD,
-                masks=masks_tofit,
+            fit_results_array, fit_errors_array = (
+                self.image_analysis.fit_puncta_parallel_method(
+                    puncta_tofit,
+                    smoothed_puncta_tofit,
+                    weights_tofit,
+                    relative_coords,
+                    planes,
+                    FittingStrategy.STANDARD,
+                    masks=masks_tofit,
+                )
             )
 
             # Post-process results: stack, create DataFrame, fix frames, sort, filter
             fit_results = self._postprocess_fit_results(
-                fit_results_array, fit_errors_array, result_params, planes, width, height
+                fit_results_array,
+                fit_errors_array,
+                result_params,
+                planes,
+                width,
+                height,
             )
 
             if FOVn == 0:

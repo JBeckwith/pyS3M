@@ -28,9 +28,7 @@ class IO_Functions:
         """Initialize IO_Functions class."""
         pass
 
-    def _normalize_color_channels(
-        self, df, total_col, color_cols, error_cols
-    ):
+    def _normalize_color_channels(self, df, total_col, color_cols, error_cols):
         """Normalize color channel values and errors by their total.
 
         Args:
@@ -405,8 +403,8 @@ class IO_Functions:
         # Example: "728-456-904-812" means y=728, x=456, width=904, height=812
         y_coord = int(ROI[0])  # top (row start)
         x_coord = int(ROI[1])  # left (column start)
-        width = int(ROI[2])    # extent in x-direction (columns)
-        height = int(ROI[3])   # extent in y-direction (rows)
+        width = int(ROI[2])  # extent in x-direction (columns)
+        height = int(ROI[3])  # extent in y-direction (rows)
         return x_coord, y_coord, width, height
 
     def metadata_nframes_reader_imageJ(self, filename):

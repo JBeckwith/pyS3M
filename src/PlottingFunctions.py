@@ -863,7 +863,7 @@ class Plotter(PublicationPlotter):
             length_nm=scalebarsize,
             location=location,
             color=labelcolor,
-            label=scalebarlabel
+            label=scalebarlabel,
         )
 
     def image_plot(

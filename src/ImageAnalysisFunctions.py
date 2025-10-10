@@ -468,11 +468,18 @@ class StandardFittingProcessor(FittingProcessor):
 
         except Exception as e:
             import traceback
+
             logging.warning(f"Fitting failed: {e}")
-            logging.warning(f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
-            logging.warning(f"Data shapes - data: {data.shape}, weights: {weights.shape}, masks: {masks.shape}")
+            logging.warning(
+                f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}"
+            )
+            logging.warning(
+                f"Data shapes - data: {data.shape}, weights: {weights.shape}, masks: {masks.shape}"
+            )
             logging.warning(f"Initial guess: {initial_guess}")
-            logging.warning(f"Data dtype: {data.dtype}, min: {data.min():.2f}, max: {data.max():.2f}")
+            logging.warning(
+                f"Data dtype: {data.dtype}, min: {data.min():.2f}, max: {data.max():.2f}"
+            )
             dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
             return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
@@ -932,7 +939,10 @@ class PosthenColourFittingProcessor(FittingProcessor):
 
             # Process covariance matrix
             pcov_colour = FittingResultProcessor.process_covariance(
-                pcov_colour, chisqr_colour, len(raw_punctum.ravel()), len(initial_guess_colour)
+                pcov_colour,
+                chisqr_colour,
+                len(raw_punctum.ravel()),
+                len(initial_guess_colour),
             )
 
             # Calculate errors for colour component
@@ -1182,11 +1192,13 @@ class Image_Analysis_Functions:
         """
         # Calculate optimal parallelization parameters
         n_puncta = len(puncta)
-        n_workers, n_tasks, puncta_per_task, start_indices = self.helper.calculate_parallel_chunks(
-            n_puncta,
-            max_workers=FittingConstants.MAX_WORKERS,
-            worker_ratio=FittingConstants.WORKER_RATIO,
-            tasks_per_worker=FittingConstants.TASKS_PER_WORKER
+        n_workers, n_tasks, puncta_per_task, start_indices = (
+            self.helper.calculate_parallel_chunks(
+                n_puncta,
+                max_workers=FittingConstants.MAX_WORKERS,
+                worker_ratio=FittingConstants.WORKER_RATIO,
+                tasks_per_worker=FittingConstants.TASKS_PER_WORKER,
+            )
         )
 
         # Submit tasks to process pool

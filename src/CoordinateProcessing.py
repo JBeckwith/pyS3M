@@ -24,6 +24,7 @@ import warnings
 
 class DriftCorrectionError(Exception):
     """Custom exception for drift correction errors."""
+
     pass
 
 
@@ -76,7 +77,7 @@ class SegmentationHandler:
         Returns:
             List of localisation segments
         """
-        if not hasattr(locs, 'frame'):
+        if not hasattr(locs, "frame"):
             raise DriftCorrectionError("Localisation data must have 'frame' field")
 
         min_frame = locs.frame.min()
@@ -290,9 +291,7 @@ class CoordinateProcessor:
             2D histogram of localisation counts
         """
         hist, _, _ = np.histogram2d(
-            locs.xc, locs.yc,
-            bins=[x_edges, y_edges],
-            weights=weights
+            locs.xc, locs.yc, bins=[x_edges, y_edges], weights=weights
         )
         return hist
 
@@ -321,7 +320,7 @@ class CoordinateProcessor:
         centre_y = np.sum(locs.yc * weights) / total_weight
 
         centre_z = None
-        if hasattr(locs, 'zc'):
+        if hasattr(locs, "zc"):
             centre_z = np.sum(locs.zc * weights) / total_weight
 
         return centre_x, centre_y, centre_z
@@ -352,7 +351,9 @@ class CoordinateProcessor:
         elif method == "cubic":
             # Use scipy cubic spline
             if len(source_frames) < 4:
-                warnings.warn("Cubic interpolation requires at least 4 points, falling back to linear")
+                warnings.warn(
+                    "Cubic interpolation requires at least 4 points, falling back to linear"
+                )
                 interpolated = np.interp(target_frames, source_frames, source_coords)
             else:
                 spline = InterpolatedUnivariateSpline(source_frames, source_coords, k=3)
@@ -376,8 +377,7 @@ class CoordinateProcessor:
 
     @staticmethod
     def interpolate_missing_frames(
-        drift_values: np.ndarray,
-        method: str = "linear"
+        drift_values: np.ndarray, method: str = "linear"
     ) -> np.ndarray:
         """Interpolate drift for frames without localisations (NaN values).
 
@@ -408,7 +408,7 @@ class CoordinateProcessor:
                     drift_values[valid_indices],
                     invalid_indices,
                     method=method,
-                    extrapolate=False
+                    extrapolate=False,
                 )
                 drift_values[invalid_indices] = interpolated
 
@@ -420,7 +420,7 @@ class CoordinateProcessor:
         shift_x: np.ndarray,
         shift_y: np.ndarray,
         n_frames: int,
-        method: str = "cubic"
+        method: str = "cubic",
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Interpolate drift to all frames using splines.
 
@@ -456,10 +456,7 @@ class CoordinateProcessor:
 
     @staticmethod
     def cubic_spline_interpolation(
-        x: np.ndarray,
-        y: np.ndarray,
-        x_new: np.ndarray,
-        k: int = 3
+        x: np.ndarray, y: np.ndarray, x_new: np.ndarray, k: int = 3
     ) -> np.ndarray:
         """Perform cubic spline interpolation.
 

@@ -148,8 +148,10 @@ class SpotDetection_Functions:
             puncta_detected (list): list of puncta detected
         """
         n_frames = int(image.shape[0])
-        n_workers, n_tasks, frames_per_task, start_indices = self.helper.calculate_parallel_chunks(
-            n_frames, max_workers=60, worker_ratio=0.9, tasks_per_worker=100
+        n_workers, n_tasks, frames_per_task, start_indices = (
+            self.helper.calculate_parallel_chunks(
+                n_frames, max_workers=60, worker_ratio=0.9, tasks_per_worker=100
+            )
         )
         fs = []
         with futures.ProcessPoolExecutor(n_workers) as executor:

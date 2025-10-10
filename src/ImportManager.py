@@ -18,6 +18,7 @@ from enum import Enum
 
 class ImportStatus(Enum):
     """Status of module import attempts."""
+
     AVAILABLE = "available"
     MISSING = "missing"
     ERROR = "error"
@@ -26,6 +27,7 @@ class ImportStatus(Enum):
 @dataclass
 class ModuleInfo:
     """Information about a module and its import status."""
+
     name: str
     module: Optional[Any]
     status: ImportStatus
@@ -105,7 +107,7 @@ class ImportManager:
         alias: Optional[str] = None,
         required: bool = False,
         fallback: Optional[Any] = None,
-        custom_import: Optional[Callable] = None
+        custom_import: Optional[Callable] = None,
     ) -> ModuleInfo:
         """Register a module for managed importing.
 
@@ -125,17 +127,17 @@ class ImportManager:
             else:
                 if alias:
                     # Import with alias (e.g., import numpy as np)
-                    module = __import__(module_name, fromlist=[''])
+                    module = __import__(module_name, fromlist=[""])
                     globals()[alias] = module
                 else:
-                    module = __import__(module_name, fromlist=[''])
+                    module = __import__(module_name, fromlist=[""])
 
             module_info = ModuleInfo(
                 name=module_name,
                 module=module,
                 status=ImportStatus.AVAILABLE,
                 required=required,
-                fallback=fallback
+                fallback=fallback,
             )
 
         except ImportError as e:
@@ -156,7 +158,7 @@ class ImportManager:
                 status=ImportStatus.MISSING,
                 error_message=error_msg,
                 required=required,
-                fallback=fallback
+                fallback=fallback,
             )
 
         except Exception as e:
@@ -169,7 +171,7 @@ class ImportManager:
                 status=ImportStatus.ERROR,
                 error_message=error_msg,
                 required=required,
-                fallback=fallback
+                fallback=fallback,
             )
 
         self.modules[module_name] = module_info
@@ -191,12 +193,12 @@ class ImportManager:
         if module_name not in self.modules:
             # Try to import on-demand (lazy loading)
             try:
-                module = __import__(module_name, fromlist=[''])
+                module = __import__(module_name, fromlist=[""])
                 module_info = ModuleInfo(
                     name=module_name,
                     module=module,
                     status=ImportStatus.AVAILABLE,
-                    required=False
+                    required=False,
                 )
                 self.modules[module_name] = module_info
                 return module
@@ -239,7 +241,7 @@ class ImportManager:
             status_symbol = {
                 ImportStatus.AVAILABLE: "✅",
                 ImportStatus.MISSING: "❌",
-                ImportStatus.ERROR: "⚠️"
+                ImportStatus.ERROR: "⚠️",
             }[info.status]
 
             line = f"{status_symbol} {name}"
@@ -277,7 +279,9 @@ class ImportManager:
         """
         if not self.is_available(module_name):
             feature_desc = f" for {feature_name}" if feature_name else ""
-            raise RuntimeError(f"Module '{module_name}' is required{feature_desc} but not available")
+            raise RuntimeError(
+                f"Module '{module_name}' is required{feature_desc} but not available"
+            )
 
         return self.get_module(module_name)
 
@@ -285,7 +289,7 @@ class ImportManager:
         self,
         module_name: str,
         fallback_action: Optional[Callable] = None,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
     ) -> Optional[Any]:
         """Safely import a module with optional fallback action.
 
@@ -325,7 +329,7 @@ class ImportManager:
             ("seaborn", "sns"),
             ("plotly", "plotly"),
             ("datashader", "ds"),
-            ("colorcet", "cc")
+            ("colorcet", "cc"),
         ]
 
         for module_name, key in optional_plotting:
@@ -348,7 +352,7 @@ class ImportManager:
         return {
             "ds": self.get_module("datashader"),
             "pd": self.get_module("pandas"),
-            "cc": self.get_module("colorcet")
+            "cc": self.get_module("colorcet"),
         }
 
 
@@ -380,7 +384,7 @@ def get_status_report() -> str:
 def safe_import(
     module_name: str,
     fallback_action: Optional[Callable] = None,
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
 ) -> Optional[Any]:
     """Safely import a module with fallback."""
     return _import_manager.safe_import_with_fallback(

@@ -45,6 +45,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
 
     try:
         from PlottingBase import AnalysisPlotter
+
         plotter = AnalysisPlotter()
 
         fig, axes = plotter.create_subplots(1, 2, figsize=(17, 6))
@@ -59,8 +60,9 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
         ax1.plot(drift.y, label="y interpolated")
         ax1.plot(t, shift_x, "o", label="x")
         ax1.plot(t, shift_y, "o", label="y")
-        plotter.setup_axis(ax1, xlabel="Frame", ylabel="Drift (pixel)",
-                          title="", legend=True)
+        plotter.setup_axis(
+            ax1, xlabel="Frame", ylabel="Drift (pixel)", title="", legend=True
+        )
 
         # Right panel: Trajectory
         ax2 = axes[1]
@@ -1493,8 +1495,12 @@ def _parallel_picked_locs_rectangle(
                     except Exception as e:
                         # Handle individual pick failures gracefully
                         original_idx = future_to_index[future]
-                        print(f"Warning: Processing pick {original_idx} failed with error: {e}")
-                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(np.recarray)
+                        print(
+                            f"Warning: Processing pick {original_idx} failed with error: {e}"
+                        )
+                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(
+                            np.recarray
+                        )
 
                         if callback == "console" and progress:
                             progress.update(1)
@@ -1521,9 +1527,7 @@ def _parallel_picked_locs_rectangle(
         )
 
 
-def _process_single_rectangle_pick(
-    locs, original_idx, pick, pick_size, add_group
-):
+def _process_single_rectangle_pick(locs, original_idx, pick, pick_size, add_group):
     """
     Process a single rectangle pick (efficient thread-based processing).
 
@@ -1751,8 +1755,12 @@ def _parallel_picked_locs_circle(
                     except Exception as e:
                         # Handle individual pick failures gracefully
                         original_idx = future_to_index[future]
-                        print(f"Warning: Processing circle pick {original_idx} failed with error: {e}")
-                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(np.recarray)
+                        print(
+                            f"Warning: Processing circle pick {original_idx} failed with error: {e}"
+                        )
+                        picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(
+                            np.recarray
+                        )
 
                         if callback == "console" and progress:
                             progress.update(1)
