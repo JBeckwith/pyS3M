@@ -125,6 +125,7 @@ class SimulationConfig:
         save_raw_results (bool): Whether to save raw fitting results (default: False)
         subtractx0y0 (bool): Whether to subtract ground truth positions from results (default: False)
         saverawimages (bool): Whether to save raw Bayer images (default: False)
+        use_lut (bool): Use LUT for fast Nile Red wavelength fitting (default: True)
     """
 
     n_bootstrap: int = 100000
@@ -136,6 +137,7 @@ class SimulationConfig:
     save_raw_results: bool = False
     subtractx0y0: bool = False
     saverawimages: bool = False
+    use_lut: bool = True
 
     def __post_init__(self):
         """
@@ -816,6 +818,18 @@ class MultiC_Sim_Funcs_Refactored:
                 names=filters, wavelength=wavelength_array, dye_or_filter=False
             )
 
+            # Pre-generate LUT to ensure it's cached before parallel fitting
+            # This is crucial for performance - avoids each worker trying to generate it
+            logger.info(f"Pre-generating LUT for Nile Red wavelength fitting...")
+            nrf.get_or_create_lut(
+                filter_names=filters,
+                NA=config.NA,
+                wavelength_range=(580.0, 700.0),
+                wavelength_step=0.5,
+                force_regenerate=False,
+            )
+            logger.info(f"LUT ready - proceeding with wavelength fitting")
+
             # Extract data from DataFrame
             R = fit_results["A_R"].to_numpy()
             G = fit_results["A_G"].to_numpy()
@@ -828,6 +842,19 @@ class MultiC_Sim_Funcs_Refactored:
             B_err = fit_results["A_B_err"].to_numpy()
             sigma_x_err = fit_results["s_x_err"].to_numpy() * config.pixel_size
             sigma_y_err = fit_results["s_y_err"].to_numpy() * config.pixel_size
+
+            # Extract fitted photons and background for SNR calculation
+            fitted_photons = fit_results["photons"].to_numpy()
+            fitted_bg_R = fit_results["bg_R"].to_numpy()
+            fitted_bg_G = fit_results["bg_G"].to_numpy()
+            fitted_bg_B = fit_results["bg_B"].to_numpy()
+
+            # Calculate total background photons from fitted background values
+            # Note: In _fit_standard (line 765-770), only amplitudes A_R/G/B are normalized
+            # Background values bg_R/G/B are kept as absolute photon counts (not normalized)
+            # So we simply sum them to get total background
+            # This mirrors real experimental analysis where we use fitted (not ground truth) values
+            fitted_background_photons = fitted_bg_R + fitted_bg_G + fitted_bg_B
 
             # Normalize RGB (fit_results already has normalized RGB from _fit_standard)
             # But we need to propagate errors properly
@@ -877,6 +904,11 @@ class MultiC_Sim_Funcs_Refactored:
                         wavelength_array,
                         pixel_QYs,
                         config.NA,
+                        fitted_photons[j],  # Pass fitted photon count
+                        fitted_background_photons[j],  # Pass fitted background photons
+                        (580.0, 700.0),  # wavelength_bounds - default range
+                        config.use_lut,  # use_lut - from config (default: True)
+                        filters,  # filter_names - needed for LUT lookup
                     )
                 )
                 valid_indices.append(j)
@@ -1805,7 +1837,11 @@ def _fit_nile_red_wavelength_standalone(
     wavelength_array: np.ndarray,
     pixel_QYs: np.ndarray,
     NA: float,
+    total_photons: Optional[float] = None,
+    background_photons: Optional[float] = None,
     wavelength_bounds: Tuple[float, float] = (580.0, 700.0),
+    use_lut: bool = False,
+    filter_names: Optional[list] = None,
 ) -> Tuple[float, float]:
     """
     Standalone function for fitting Nile Red wavelength from a single localization.
@@ -1818,7 +1854,11 @@ def _fit_nile_red_wavelength_standalone(
         rgb_err, sigma_x_err, sigma_y_err: Errors on measurements
         filter_spectra, wavelength_array, pixel_QYs: Optical system parameters
         NA: Numerical aperture
+        total_photons: Fitted total photon count (for SNR-based error inflation)
+        background_photons: Fitted background photon count (for SNR-based error inflation)
         wavelength_bounds: Search range for wavelength (nm)
+        use_lut: Use fast LUT interpolation during fitting (default: False)
+        filter_names: Filter names for LUT lookup (required if use_lut=True)
 
     Returns:
         Tuple of (fitted_wavelength, wavelength_error)
@@ -1841,6 +1881,11 @@ def _fit_nile_red_wavelength_standalone(
             pixel_QYs=pixel_QYs,
             NA=NA,
             wavelength_bounds=wavelength_bounds,
+            total_photons=total_photons,
+            background_photons=background_photons,
+            apply_snr_inflation=True if total_photons is not None else False,
+            use_lut=use_lut,
+            filter_names=filter_names,
         )
         # TODO: Implement proper error estimation on wavelength
         return (wl, np.nan)

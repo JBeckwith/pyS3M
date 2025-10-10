@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-This class contains functions pertaining to IO of files for POLCAM.
+This class contains functions pertaining to IO of files for pyBayerSMLM.
+@author: jbeckwith
 jsb92, 2024/01/02
 """
 import json

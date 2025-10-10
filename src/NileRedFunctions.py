@@ -666,6 +666,8 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
+        use_lut: bool = False,
+        filter_names: Optional[list] = None,
     ) -> np.ndarray:
         """Residual vector for least-squares fitting of Nile Red wavelength.
 
@@ -680,6 +682,8 @@ class NileRed_Functions:
             wavelength_array: Wavelength grid (nm)
             pixel_QYs: Pixel quantum yields
             NA: Numerical aperture (default: 1.49)
+            use_lut: If True, use fast LUT interpolation (default: False)
+            filter_names: Filter names (required if use_lut=True)
 
         Returns:
             residuals: Array of weighted residuals (observation - prediction) / error
@@ -691,10 +695,13 @@ class NileRed_Functions:
             else wavelength_center
         )
 
-        # Get predictions from forward model
-        predictions = self.nile_red_forward_model(
-            wl, filter_spectra, wavelength_array, pixel_QYs, NA
-        )
+        # Get predictions from forward model (use LUT if requested)
+        if use_lut and filter_names is not None:
+            predictions = self.nile_red_forward_model_lut(wl, filter_names, NA)
+        else:
+            predictions = self.nile_red_forward_model(
+                wl, filter_spectra, wavelength_array, pixel_QYs, NA
+            )
 
         # Build residual vector
         residuals = []
@@ -776,6 +783,8 @@ class NileRed_Functions:
         total_photons: Optional[float] = None,
         background_photons: float = 40.0,
         apply_snr_inflation: bool = True,
+        use_lut: bool = False,
+        filter_names: Optional[list] = None,
     ) -> Tuple[float, Dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
 
@@ -804,6 +813,8 @@ class NileRed_Functions:
             total_photons: Total photon count for SNR calculation (optional)
             background_photons: Background photon count (default: 40.0, distributed across RGB)
             apply_snr_inflation: Apply SNR-based error inflation (default: True)
+            use_lut: Use fast LUT interpolation during optimization (default: False)
+            filter_names: Filter names for LUT lookup (required if use_lut=True)
 
         Returns:
             wavelength_center: Fitted central wavelength (nm)
@@ -910,15 +921,22 @@ class NileRed_Functions:
                 wavelength_array,
                 pixel_QYs,
                 NA,
+                use_lut,
+                filter_names,
             ),
         )
 
         wavelength_center = result.x[0]
 
-        # Get predictions at best fit
-        predictions = self.nile_red_forward_model(
-            wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
-        )
+        # Get predictions at best fit (use LUT if requested)
+        if use_lut and filter_names is not None:
+            predictions = self.nile_red_forward_model_lut(
+                wavelength_center, filter_names, NA
+            )
+        else:
+            predictions = self.nile_red_forward_model(
+                wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
+            )
 
         return wavelength_center, predictions
 
@@ -941,6 +959,7 @@ class NileRed_Functions:
         cpu_fraction: float = 0.9,
         verbose: bool = True,
         use_tqdm: bool = False,
+        use_lut: bool = True,
     ) -> None:
         """Simulate wavelength precision using two-stage workflow.
 
@@ -969,6 +988,7 @@ class NileRed_Functions:
             cpu_fraction: Fraction of CPUs to use for parallel processing
             verbose: Print progress messages (default: True)
             use_tqdm: Use tqdm for Jupyter-compatible progress bars (default: False)
+            use_lut: Use LUT for fast wavelength fitting (default: True, recommended)
 
         Saves per wavelength:
             - Standard simulation outputs from test_fit_method (RMSE_mean, RMSE_std, etc.)
@@ -1101,6 +1121,7 @@ class NileRed_Functions:
                 save_raw_results=save_raw_results,
                 subtractx0y0=False,
                 saverawimages=False,
+                use_lut=use_lut,
             )
 
             MSF.test_fit_method(
