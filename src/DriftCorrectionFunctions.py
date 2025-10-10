@@ -1768,7 +1768,7 @@ class Drift_Correction_Functions:
 
         try:
             from CoordinateProcessing import CoordinateProcessor
-            self.coordinate_processor = CoordinateProcessor(drift_correction_instance=self)
+            self.coordinate_processor = CoordinateProcessor()
         except ImportError:
             self.coordinate_processor = None
 

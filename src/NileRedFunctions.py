@@ -888,7 +888,7 @@ class NileRed_Functions:
         # Setup progress display
         if use_tqdm:
             try:
-                from tqdm.auto import tqdm
+                from tqdm.auto import tqdm  # type: ignore
             except ImportError:
                 if verbose:
                     print("Warning: tqdm not installed, falling back to print-based progress")
@@ -908,6 +908,7 @@ class NileRed_Functions:
         # STAGE 1: Simulate and fit images for each wavelength
         wavelength_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
+            from tqdm.auto import tqdm  # Import here to avoid unbound error
             wavelength_iterator = tqdm(wavelength_iterator, total=n_wavelengths, desc="Stage 1: Simulating wavelengths")
 
         for i, wl_true in wavelength_iterator:
@@ -963,6 +964,7 @@ class NileRed_Functions:
 
         stats_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
+            from tqdm.auto import tqdm  # Import here to avoid unbound error
             stats_iterator = tqdm(stats_iterator, total=n_wavelengths, desc="Stage 2: Calculating statistics")
 
         for i, wl_true in stats_iterator:
