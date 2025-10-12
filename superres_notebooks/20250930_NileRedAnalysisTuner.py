@@ -91,7 +91,7 @@ class NileRedThresholdTuner:
         self.default_wavelength = 0.650  # 650nm
         self.default_use_variance_aware = True  # Default to variance-aware demosaicing
         self.default_ever_mode = TemporalMedianMode.DETECTION_AND_FITTING  # Default: EVER for both detection and fitting
-        self.default_ever_window = 100  # Default EVER window size in frames (typical: 50-200)
+        self.default_ever_window = 500  # Default EVER window size in frames (typical: 50-500)
 
         # Results storage
         self.threshold_results = {}
