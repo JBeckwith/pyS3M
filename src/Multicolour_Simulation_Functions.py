@@ -764,12 +764,48 @@ class MultiC_Sim_Funcs_Refactored:
             [fit_results.reset_index(drop=True), fit_errors_df], axis=1
         )
 
-        # Normalize amplitudes
+        # CRITICAL FIX: Sqrt transformation error correction
+        # The fitter works with sqrt(A) and sqrt(bg), but returns A and bg after squaring (line 316 ImageAnalysisFunctions)
+        # The errors are for sqrt(A), but we need errors for A
+        # Error propagation: if p = sqrt(A), then δA = |dA/dp| × δp = 2*sqrt(A) × δp
+        #
+        # Since fit_results already contains squared values (A, not sqrt(A)), we need:
+        # δA_corrected = 2 × sqrt(A) × δ(sqrt(A))
+
+        # Before squaring was applied, the fitted parameter was sqrt(A)
+        # So we need to multiply errors by 2 × sqrt(A) where A is the current (squared) value
+        for param, param_err in [("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
+                                  ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err")]:
+            # Multiply error by 2*sqrt(A) to account for sqrt transformation
+            # Only apply where A > 0 to avoid sqrt of negative/zero
+            mask = fit_results[param] > 0
+            fit_results.loc[mask, param_err] = (
+                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
+            )
+
+        # Now normalize amplitudes AND their errors
         fit_results["photons"] = (
             fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
         )
+        fit_results["background_photons"] = (
+            fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
+        )
+
+        # Normalize amplitude values by total photons
         for cparam in ["A_R", "A_G", "A_B"]:
             fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
+
+        # Normalize amplitude errors by total photons (same denominator)
+        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
+            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["photons"]
+
+        # Normalize background values by total background photons
+        for cparam in ["bg_R", "bg_G", "bg_B"]:
+            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
+
+        # Normalize background errors by total background photons (same denominator)
+        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
+            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
 
         return fit_results
 
@@ -818,17 +854,8 @@ class MultiC_Sim_Funcs_Refactored:
                 names=filters, wavelength=wavelength_array, dye_or_filter=False
             )
 
-            # Pre-generate LUT to ensure it's cached before parallel fitting
-            # This is crucial for performance - avoids each worker trying to generate it
-            logger.info(f"Pre-generating LUT for Nile Red wavelength fitting...")
-            nrf.get_or_create_lut(
-                filter_names=filters,
-                NA=config.NA,
-                wavelength_range=(580.0, 700.0),
-                wavelength_step=0.5,
-                force_regenerate=False,
-            )
-            logger.info(f"LUT ready - proceeding with wavelength fitting")
+            # NOTE: LUT caching removed - wavelength fitting now uses direct forward model
+            # This is slower but more flexible and avoids the need to pre-generate LUTs
 
             # Extract data from DataFrame
             R = fit_results["A_R"].to_numpy()
@@ -907,8 +934,6 @@ class MultiC_Sim_Funcs_Refactored:
                         fitted_photons[j],  # Pass fitted photon count
                         fitted_background_photons[j],  # Pass fitted background photons
                         (580.0, 700.0),  # wavelength_bounds - default range
-                        config.use_lut,  # use_lut - from config (default: True)
-                        filters,  # filter_names - needed for LUT lookup
                     )
                 )
                 valid_indices.append(j)
@@ -1086,6 +1111,10 @@ class MultiC_Sim_Funcs_Refactored:
             fit_results_colour[param] = (
                 fit_results_colour[param] / fit_results_colour["background_photons"]
             )
+
+        # CRITICAL FIX: Normalize errors too! (_fit_demosaic_ig doesn't have error columns, so skip)
+        # Note: This method doesn't return error columns in fit_results_colour,
+        # so no error normalization needed here
 
         return pd.concat([fit_results, fit_results_colour], axis=1)
 
@@ -1567,9 +1596,19 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Get dye properties
         if "simulated_" in dye:
+            # For simulated spectra, apply filters before calculating average wavelength
+            # This ensures the PSF width matches what actually reaches the camera
+            filter_spectra = S_F.get_dye_or_filter_data(
+                names=filters, wavelength=wavelength, dye_or_filter=False
+            )
+            # Apply filters to the spectrum
+            total_filter_transmission = np.prod(filter_spectra, axis=0)
+            filtered_spectrum = single_dye_spectrum * total_filter_transmission
+
+            # Now calculate average wavelength from the FILTERED spectrum
             average_emission_wavelength, dye_pixel_efficiency = (
                 self.spectral.get_pixel_fractions_rawspectra(
-                    single_dye_spectrum, wavelength, camera_params.pixel_QYs
+                    filtered_spectrum, wavelength, camera_params.pixel_QYs
                 )
             )
         else:
@@ -1652,6 +1691,24 @@ class MultiC_Sim_Funcs_Refactored:
         fit_RMSE_mean = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])
         fit_std = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])
 
+        # Save photon levels CSV once if saving raw results
+        if config.save_raw_results:
+            photon_levels_df = pl.DataFrame({
+                "photon_level_index": np.arange(len(n_photon_space)),
+                "n_photons": n_photon_space,
+            })
+            photon_levels_df.write_csv(
+                os.path.join(
+                    save_folder,
+                    f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
+                )
+            )
+            # Define HDF5 database path for raw results
+            raw_results_h5_path = os.path.join(
+                save_folder,
+                f"{starting_flag}LM_method_{dyestr}_rawresults.h5",
+            )
+
         start = time.time()
 
         # Process each photon count
@@ -1722,9 +1779,18 @@ class MultiC_Sim_Funcs_Refactored:
                         config,
                     )
 
-                filename = f"{starting_flag}LM_method_{dyestr}_{str(np.around(n_photon, 2)).replace('.', 'p').zfill(10)}_fittesting_rawresults.parquet"
-                fit_results.to_parquet(
-                    os.path.join(save_folder, filename), compression="snappy"
+                # Add photon_level column to track which photon count this data belongs to
+                fit_results["photon_level"] = i
+
+                # Save to HDF5 database using IOFunctions
+                # Note: _fit_standard already creates photons and background_photons columns
+                # and normalizes A_R/G/B and bg_R/G/B, so we pass normalise_photons=False
+                # to avoid double normalization
+                self.io._write_h5_database(
+                    fit_results,
+                    raw_results_h5_path,
+                    append=(i > 0),  # Append for all iterations after the first
+                    normalise_photons=False,  # Already normalized in _fit_standard
                 )
 
             # Compute statistics for this photon count
@@ -1840,8 +1906,6 @@ def _fit_nile_red_wavelength_standalone(
     total_photons: Optional[float] = None,
     background_photons: Optional[float] = None,
     wavelength_bounds: Tuple[float, float] = (580.0, 700.0),
-    use_lut: bool = False,
-    filter_names: Optional[list] = None,
 ) -> Tuple[float, float]:
     """
     Standalone function for fitting Nile Red wavelength from a single localization.
@@ -1857,8 +1921,6 @@ def _fit_nile_red_wavelength_standalone(
         total_photons: Fitted total photon count (for SNR-based error inflation)
         background_photons: Fitted background photon count (for SNR-based error inflation)
         wavelength_bounds: Search range for wavelength (nm)
-        use_lut: Use fast LUT interpolation during fitting (default: False)
-        filter_names: Filter names for LUT lookup (required if use_lut=True)
 
     Returns:
         Tuple of (fitted_wavelength, wavelength_error)
@@ -1884,8 +1946,6 @@ def _fit_nile_red_wavelength_standalone(
             total_photons=total_photons,
             background_photons=background_photons,
             apply_snr_inflation=True if total_photons is not None else False,
-            use_lut=use_lut,
-            filter_names=filter_names,
         )
         # TODO: Implement proper error estimation on wavelength
         return (wl, np.nan)

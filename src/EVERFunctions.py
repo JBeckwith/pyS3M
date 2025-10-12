@@ -33,16 +33,28 @@ class EVER_Functions:
     - Fully automatic with no manual parameter tuning required
     """
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, io_functions=None):
         """Initialize EVER with default parameters.
 
         Args:
             verbose: If True, print detailed progress information (default: False)
+            io_functions: IOFunctions instance for photoelectron conversion (default: creates new instance)
         """
         self.default_window_size = 100  # frames
         self.default_spatial_filter_size = 3  # pixels (for spatial mean filter)
         self.lut_cache = {}  # Cache lookup tables for reuse
         self.verbose = verbose
+
+        # Import and initialize IOFunctions for photoelectron conversion
+        if io_functions is None:
+            import sys
+            import os
+            module_dir = os.path.abspath(os.path.dirname(__file__))
+            sys.path.append(module_dir)
+            import IOFunctions
+            self.io = IOFunctions.IO_Functions()
+        else:
+            self.io = io_functions
 
     def compute_ever_background(
         self,
@@ -50,13 +62,18 @@ class EVER_Functions:
         window_size: int = 100,
         spatial_filter_size: int = 3,
         use_cache: bool = True,
+        n_jobs: int = -1,
     ) -> tuple:
         """
-        Compute EVER background estimation and recover emitters.
+        Compute EVER background estimation and recover emitters using per-frame sliding windows.
 
-        This is the main entry point for EVER processing. It calculates the
-        temporal minimum, transforms it to background using extreme value
-        statistics, and subtracts the background to recover clean emitter signals.
+        This is the main entry point for EVER processing. For each frame, it calculates the
+        temporal minimum over a sliding window, transforms it to background using extreme value
+        statistics, and subtracts the frame-specific background to recover clean emitter signals.
+
+        IMPORTANT: This uses a per-frame sliding window approach as described in Ma et al. (2021).
+        For frame N with window_size=100, it uses frames [N-50, N+50] to compute the background
+        for frame N specifically.
 
         Args:
             frames: 3D array (n_frames, height, width) in photoelectrons
@@ -65,67 +82,140 @@ class EVER_Functions:
             spatial_filter_size: Size of spatial mean filter for noise reduction (default: 3)
                 Set to 1 to disable spatial filtering
             use_cache: Whether to cache and reuse lookup tables (default: True)
+            n_jobs: Number of parallel jobs for processing frames (default: -1 = all CPUs)
 
         Returns:
-            tuple: (background, emitters)
-                - background: 2D array (height, width) - estimated background map
+            tuple: (backgrounds, emitters)
+                - backgrounds: 3D array (n_frames, height, width) - per-frame background maps
                 - emitters: 3D array (n_frames, height, width) - background-subtracted frames
 
         Example:
             >>> ever = EVER_Functions()
-            >>> background, emitters = ever.compute_ever_background(raw_frames, window_size=100)
-            >>> # Use emitters for spot detection and fitting
+            >>> backgrounds, emitters = ever.compute_ever_background(raw_frames, window_size=100)
+            >>> # Each frame has its own background based on its local temporal context
         """
-        import sys
-
         n_frames, height, width = frames.shape
+        half_window = window_size // 2
 
         if self.verbose:
             print(f"  EVER: Processing {n_frames} frames ({height}×{width} pixels)")
             print(
                 f"  EVER: Window size={window_size}, spatial filter={spatial_filter_size}×{spatial_filter_size}"
             )
+            print(f"  EVER: Using per-frame sliding windows (parallel jobs={n_jobs})")
 
-        # Step 1: Calculate temporal minimum
+        # Step 1: Calculate background decay ratio (once for entire stack)
         if self.verbose:
-            print("  EVER: Computing temporal minimum...", end="\r", flush=True)
-        temporal_min = self._calculate_temporal_minimum(frames, window_size)
-
-        # Step 2: Apply spatial mean filter to reduce noise in minimum map
-        if spatial_filter_size > 1:
-            temporal_min = self._apply_spatial_mean_filter(
-                temporal_min, spatial_filter_size
-            )
-
-        # Step 3: Calculate background decay ratio (automatic parameter)
+            print("  EVER: Calculating decay ratio...", end="\r", flush=True)
         decay_ratio = self._calculate_decay_ratio(frames, window_size)
 
-        # Step 4: Build lookup table for minimum -> background transformation
+        # Step 2: Build lookup table (once, shared across all frames)
         cache_key = (window_size, decay_ratio, spatial_filter_size)
         if use_cache and cache_key in self.lut_cache:
             lut = self.lut_cache[cache_key]
+            if self.verbose:
+                print("  EVER: Using cached lookup table    ", end="\r", flush=True)
         else:
             if self.verbose:
                 print("  EVER: Building lookup table...    ", end="\r", flush=True)
+            # Use global min and max for LUT range estimation
+            # Use max instead of min to ensure we cover the full range
+            global_max = np.max(frames)
             lut = self._build_lookup_table(
-                window_size, decay_ratio, spatial_filter_size, temporal_min
+                window_size, decay_ratio, spatial_filter_size, global_max
             )
             if use_cache:
                 self.lut_cache[cache_key] = lut
 
-        # Step 5: Transform temporal minimum to actual background
-        background = self._transform_minimum_to_background(temporal_min, lut)
+        # Step 3: Process each frame with its own sliding window (parallelized)
+        if self.verbose:
+            print(f"  EVER: Computing per-frame backgrounds...", end="\r", flush=True)
 
-        # Step 6: Subtract background from frames (recover emitters)
-        emitters = frames - background[np.newaxis, :, :]
-        emitters = np.maximum(emitters, 0)  # Clip negative values
+        backgrounds, emitters = self._process_frames_parallel(
+            frames, window_size, spatial_filter_size, decay_ratio, lut, n_jobs
+        )
 
         if self.verbose:
+            mean_bg = backgrounds.mean()
+            std_bg = backgrounds.std()
             print(
-                f"  EVER: Complete (R={decay_ratio:.3f}, bg={background.mean():.0f}±{background.std():.0f} photons)    "
+                f"  EVER: Complete (R={decay_ratio:.3f}, bg={mean_bg:.0f}±{std_bg:.0f} photons)    "
             )
 
-        return background, emitters
+        return backgrounds, emitters
+
+    def _process_frames_parallel(
+        self,
+        frames: np.ndarray,
+        window_size: int,
+        spatial_filter_size: int,
+        decay_ratio: float,
+        lut: dict,
+        n_jobs: int,
+    ) -> tuple:
+        """
+        Process all frames in parallel using sliding windows.
+
+        For each frame i, computes background using frames [i-half_window, i+half_window].
+
+        Args:
+            frames: 3D array (n_frames, height, width)
+            window_size: Size of sliding window
+            spatial_filter_size: Spatial filter size
+            decay_ratio: Background decay ratio
+            lut: Lookup table for minimum -> background transformation
+            n_jobs: Number of parallel jobs
+
+        Returns:
+            tuple: (backgrounds, emitters) - both 3D arrays
+        """
+        from joblib import Parallel, delayed
+
+        n_frames, height, width = frames.shape
+        half_window = window_size // 2
+
+        # Pre-allocate output arrays
+        backgrounds = np.zeros_like(frames, dtype=np.float32)
+        emitters = np.zeros_like(frames, dtype=np.float32)
+
+        def process_single_frame(frame_idx):
+            """Process a single frame with its sliding window."""
+            # Determine window boundaries
+            window_start = max(0, frame_idx - half_window)
+            window_end = min(n_frames, frame_idx + half_window + 1)
+
+            # Extract window of frames
+            window_frames = frames[window_start:window_end]
+
+            # Compute temporal minimum for this window
+            temporal_min = np.min(window_frames, axis=0).astype(np.float32)
+
+            # Apply spatial filter
+            if spatial_filter_size > 1:
+                temporal_min = self._apply_spatial_mean_filter(
+                    temporal_min, spatial_filter_size
+                )
+
+            # Transform to background using LUT
+            background = self._transform_minimum_to_background(temporal_min, lut)
+
+            # Compute emitter (background-subtracted frame)
+            emitter = frames[frame_idx] - background
+            emitter = np.maximum(emitter, 0)  # Clip negative values
+
+            return frame_idx, background, emitter
+
+        # Process frames in parallel
+        results = Parallel(n_jobs=n_jobs, backend='threading')(
+            delayed(process_single_frame)(i) for i in range(n_frames)
+        )
+
+        # Assemble results
+        for frame_idx, background, emitter in results:
+            backgrounds[frame_idx] = background
+            emitters[frame_idx] = emitter
+
+        return backgrounds, emitters
 
     def _calculate_temporal_minimum(
         self, frames: np.ndarray, window_size: int
@@ -229,7 +319,7 @@ class EVER_Functions:
         window_size: int,
         decay_ratio: float,
         spatial_filter_size: int,
-        temporal_min: np.ndarray,
+        temporal_max_range: float,
     ) -> dict:
         """
         Build lookup table to transform temporal minimum to background.
@@ -242,17 +332,22 @@ class EVER_Functions:
             window_size: Temporal window size N
             decay_ratio: Background decay ratio R
             spatial_filter_size: Size of spatial filter m (affects convolution)
-            temporal_min: The actual temporal minimum map (used to determine range)
+            temporal_max_range: Maximum value from frames to determine LUT range
 
         Returns:
             lut: Dictionary mapping {temporal_min_value: background_value}
         """
         # Determine range of photon values to compute
-        # Use actual data range plus margin
-        min_val = int(np.min(temporal_min))
-        max_val = int(np.max(temporal_min) * 2)  # 2x margin
-        min_val = max(0, min_val - 100)  # Add lower margin
-        max_val = min(max_val + 100, 10000)  # Cap at reasonable value
+        # Use max value to set upper bound, always start from 0
+        if isinstance(temporal_max_range, np.ndarray):
+            max_val = int(np.max(temporal_max_range) * 2)  # 2x margin for headroom
+        else:
+            # Scalar value
+            max_val = int(temporal_max_range * 2)  # 2x margin for headroom
+
+        min_val = 0  # Always start from 0 to handle low photon counts
+        max_val = max(min_val + 100, max_val + 100)  # Ensure at least 100 values, add headroom
+        max_val = min(max_val, 10000)  # Cap at reasonable value
 
         # Build LUT by computing expected minimum for each background level
         lut = {}

@@ -14,13 +14,9 @@ Date: October 7, 2025
 
 import numpy as np
 from scipy.optimize import least_squares
-from scipy.interpolate import interp1d
 from typing import Dict, Tuple, Optional
 import SpectralFunctions
 import PSFFunctions
-import duckdb
-import hashlib
-import os
 
 
 class NileRed_Functions:
@@ -62,337 +58,6 @@ class NileRed_Functions:
         # Initialize SpectralFunctions and PSFFunctions for shared functionality
         self.spectral_funcs = SpectralFunctions.Spectral_Funcs()
         self.psf_funcs = PSFFunctions.PSF_Functions()
-
-        # LUT cache
-        self._lut_cache = {}
-        self._lut_interpolator_cache = {}  # Cache pre-built interpolators
-        self._db_path = os.path.join(
-            os.path.dirname(__file__), "..", "Spectra", "spectral_data.duckdb"
-        )
-
-    def _get_config_hash(self, filter_names: list, NA: float) -> str:
-        """Generate unique hash for filter configuration.
-
-        Args:
-            filter_names: List of filter names
-            NA: Numerical aperture
-
-        Returns:
-            MD5 hash string identifying this configuration
-        """
-        config_str = f"{sorted(filter_names)}_{NA}_{self.default_sigma_energy}_{self.default_alpha}"
-        return hashlib.md5(config_str.encode()).hexdigest()
-
-    def _create_lut_table_if_not_exists(self, conn):
-        """Create Nile Red LUT table in DuckDB if it doesn't exist."""
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS nile_red_lut (
-                config_hash VARCHAR PRIMARY KEY,
-                filter_names VARCHAR,
-                NA FLOAT,
-                sigma_energy FLOAT,
-                alpha FLOAT,
-                wavelength_min FLOAT,
-                wavelength_max FLOAT,
-                wavelength_step FLOAT,
-                n_points INTEGER,
-                wavelengths FLOAT[],
-                rgb_r FLOAT[],
-                rgb_g FLOAT[],
-                rgb_b FLOAT[],
-                sigma_psf FLOAT[],
-                created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-
-    def generate_lut(
-        self,
-        filter_names: list,
-        NA: float = 1.49,
-        wavelength_range: Tuple[float, float] = (550.0, 750.0),
-        wavelength_step: float = 0.5,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Generate lookup table for Nile Red forward model.
-
-        Pre-computes RGB and σ_PSF values across wavelength range for fast interpolation.
-
-        Args:
-            filter_names: List of filter names for optical system
-            NA: Numerical aperture
-            wavelength_range: (min, max) wavelength range in nm
-            wavelength_step: Wavelength resolution in nm (default: 0.5 nm)
-
-        Returns:
-            Tuple of (wavelengths, rgb_array, sigma_psf_array)
-            - wavelengths: 1D array of wavelengths (nm)
-            - rgb_array: (N, 3) array of [R, G, B] values
-            - sigma_psf_array: 1D array of PSF widths (nm)
-        """
-        print(f"Generating Nile Red LUT for {len(filter_names)} filters, NA={NA}")
-        print(f"  Wavelength range: {wavelength_range[0]}-{wavelength_range[1]} nm")
-        print(f"  Resolution: {wavelength_step} nm")
-
-        # Setup optical system
-        wavelength_array, pixel_QYs, filter_spectra = self.setup_optical_system(
-            filter_names
-        )
-
-        # Generate wavelength grid for LUT
-        lut_wavelengths = np.arange(
-            wavelength_range[0], wavelength_range[1] + wavelength_step, wavelength_step
-        )
-        n_points = len(lut_wavelengths)
-
-        print(f"  Computing {n_points} forward model evaluations...")
-
-        # Pre-allocate arrays
-        lut_rgb = np.zeros((n_points, 3))
-        lut_sigma_psf = np.zeros(n_points)
-
-        # Compute forward model for each wavelength
-        for i, wl in enumerate(lut_wavelengths):
-            if i % 50 == 0:
-                print(
-                    f"    Progress: {i}/{n_points} ({100*i/n_points:.1f}%)",
-                    end="\r",
-                    flush=True,
-                )
-
-            predictions = self.nile_red_forward_model(
-                wl, filter_spectra, wavelength_array, pixel_QYs, NA
-            )
-            lut_rgb[i] = [predictions["R"], predictions["G"], predictions["B"]]
-            lut_sigma_psf[i] = predictions["sigma_x"]
-
-        print(f"    Progress: {n_points}/{n_points} (100.0%) - Done!       ")
-
-        return lut_wavelengths, lut_rgb, lut_sigma_psf
-
-    def save_lut_to_database(
-        self,
-        filter_names: list,
-        NA: float,
-        wavelengths: np.ndarray,
-        rgb_array: np.ndarray,
-        sigma_psf_array: np.ndarray,
-    ):
-        """Save LUT to DuckDB database.
-
-        Args:
-            filter_names: List of filter names
-            NA: Numerical aperture
-            wavelengths: 1D array of wavelengths
-            rgb_array: (N, 3) array of RGB values
-            sigma_psf_array: 1D array of PSF widths
-        """
-        config_hash = self._get_config_hash(filter_names, NA)
-        conn = None
-
-        try:
-            conn = duckdb.connect(self._db_path)
-            self._create_lut_table_if_not_exists(conn)
-
-            # Check if entry exists
-            existing = conn.execute(
-                "SELECT config_hash FROM nile_red_lut WHERE config_hash = ?",
-                [config_hash],
-            ).fetchone()
-
-            if existing:
-                print(
-                    f"LUT already exists for this configuration (hash: {config_hash[:8]}...)"
-                )
-                print("Updating existing entry...")
-                conn.execute(
-                    "DELETE FROM nile_red_lut WHERE config_hash = ?", [config_hash]
-                )
-
-            # Insert new LUT
-            conn.execute(
-                """
-                INSERT INTO nile_red_lut (
-                    config_hash, filter_names, NA, sigma_energy, alpha,
-                    wavelength_min, wavelength_max, wavelength_step, n_points,
-                    wavelengths, rgb_r, rgb_g, rgb_b, sigma_psf
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                [
-                    config_hash,
-                    ",".join(filter_names),
-                    NA,
-                    self.default_sigma_energy,
-                    self.default_alpha,
-                    float(wavelengths[0]),
-                    float(wavelengths[-1]),
-                    float(wavelengths[1] - wavelengths[0]),
-                    len(wavelengths),
-                    wavelengths.tolist(),
-                    rgb_array[:, 0].tolist(),
-                    rgb_array[:, 1].tolist(),
-                    rgb_array[:, 2].tolist(),
-                    sigma_psf_array.tolist(),
-                ],
-            )
-
-            conn.commit()
-
-            print(f"LUT saved to database (hash: {config_hash[:8]}...)")
-            print(f"  Database: {self._db_path}")
-        except Exception as e:
-            print(f"Warning: Could not save LUT to database: {e}")
-            print("LUT will remain in memory cache only")
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except:
-                    pass
-
-    def load_lut_from_database(
-        self, filter_names: list, NA: float
-    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Load LUT from DuckDB database.
-
-        Args:
-            filter_names: List of filter names
-            NA: Numerical aperture
-
-        Returns:
-            Tuple of (wavelengths, rgb_array, sigma_psf_array) or None if not found
-        """
-        config_hash = self._get_config_hash(filter_names, NA)
-
-        # Check memory cache first
-        if config_hash in self._lut_cache:
-            return self._lut_cache[config_hash]
-
-        if not os.path.exists(self._db_path):
-            return None
-
-        try:
-            conn = duckdb.connect(self._db_path, read_only=True)
-
-            try:
-                result = conn.execute(
-                    """
-                    SELECT wavelengths, rgb_r, rgb_g, rgb_b, sigma_psf
-                    FROM nile_red_lut
-                    WHERE config_hash = ?
-                """,
-                    [config_hash],
-                ).fetchone()
-
-                if result is None:
-                    return None
-
-                wavelengths = np.array(result[0])
-                rgb_array = np.column_stack(
-                    [
-                        np.array(result[1]),  # R
-                        np.array(result[2]),  # G
-                        np.array(result[3]),  # B
-                    ]
-                )
-                sigma_psf_array = np.array(result[4])
-
-                # Cache in memory for future use
-                self._lut_cache[config_hash] = (wavelengths, rgb_array, sigma_psf_array)
-
-                return wavelengths, rgb_array, sigma_psf_array
-
-            finally:
-                conn.close()
-        except Exception:
-            # Database doesn't exist, table doesn't exist, or is locked
-            return None
-
-    def get_or_create_lut(
-        self,
-        filter_names: list,
-        NA: float = 1.49,
-        wavelength_range: Tuple[float, float] = (550.0, 750.0),
-        wavelength_step: float = 0.5,
-        force_regenerate: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Get LUT from database or generate if not exists.
-
-        Args:
-            filter_names: List of filter names
-            NA: Numerical aperture
-            wavelength_range: Wavelength range for LUT generation
-            wavelength_step: Wavelength step for LUT generation
-            force_regenerate: If True, regenerate even if exists
-
-        Returns:
-            Tuple of (wavelengths, rgb_array, sigma_psf_array)
-        """
-        if not force_regenerate:
-            lut_data = self.load_lut_from_database(filter_names, NA)
-            if lut_data is not None:
-                return lut_data
-
-        # LUT not found, generate new one
-        print(
-            f"LUT not found. Generating new LUT for {len(filter_names)} filters, NA={NA}..."
-        )
-        wavelengths, rgb_array, sigma_psf_array = self.generate_lut(
-            filter_names, NA, wavelength_range, wavelength_step
-        )
-
-        self.save_lut_to_database(
-            filter_names, NA, wavelengths, rgb_array, sigma_psf_array
-        )
-
-        return wavelengths, rgb_array, sigma_psf_array
-
-    def nile_red_forward_model_lut(
-        self, wavelength_center: float, filter_names: list, NA: float = 1.49
-    ) -> Dict[str, float]:
-        """Fast forward model using LUT interpolation with cached interpolators.
-
-        This is ~100x faster than the full forward model calculation.
-        Interpolation functions are cached to avoid recreation overhead.
-
-        Args:
-            wavelength_center: Central emission wavelength (nm)
-            filter_names: List of filter names
-            NA: Numerical aperture
-
-        Returns:
-            predictions: dict with keys 'R', 'G', 'B', 'sigma_x', 'sigma_y'
-        """
-        # Get configuration hash for cache lookup
-        config_hash = self._get_config_hash(filter_names, NA)
-
-        # Check if interpolators are already cached
-        if config_hash in self._lut_interpolator_cache:
-            rgb_interp, sigma_interp = self._lut_interpolator_cache[config_hash]
-        else:
-            # Get or create LUT data
-            wavelengths, rgb_array, sigma_psf_array = self.get_or_create_lut(
-                filter_names, NA
-            )
-
-            # Create interpolators once and cache them
-            rgb_interp = interp1d(wavelengths, rgb_array.T, kind="linear", bounds_error=False, fill_value="extrapolate")  # type: ignore
-            sigma_interp = interp1d(wavelengths, sigma_psf_array, kind="linear", bounds_error=False, fill_value="extrapolate")  # type: ignore
-
-            # Store in cache
-            self._lut_interpolator_cache[config_hash] = (rgb_interp, sigma_interp)
-
-        # Use cached interpolators
-        rgb_values = rgb_interp(wavelength_center)
-        sigma_psf = float(sigma_interp(wavelength_center))
-
-        return {
-            "R": float(rgb_values[0]),
-            "G": float(rgb_values[1]),
-            "B": float(rgb_values[2]),
-            "sigma_x": sigma_psf,
-            "sigma_y": sigma_psf,
-        }
 
     def compute_sigma_psf_array(
         self, wavelength_array: np.ndarray, NA: float = 1.49
@@ -666,8 +331,6 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-        use_lut: bool = False,
-        filter_names: Optional[list] = None,
     ) -> np.ndarray:
         """Residual vector for least-squares fitting of Nile Red wavelength.
 
@@ -682,8 +345,6 @@ class NileRed_Functions:
             wavelength_array: Wavelength grid (nm)
             pixel_QYs: Pixel quantum yields
             NA: Numerical aperture (default: 1.49)
-            use_lut: If True, use fast LUT interpolation (default: False)
-            filter_names: Filter names (required if use_lut=True)
 
         Returns:
             residuals: Array of weighted residuals (observation - prediction) / error
@@ -695,13 +356,10 @@ class NileRed_Functions:
             else wavelength_center
         )
 
-        # Get predictions from forward model (use LUT if requested)
-        if use_lut and filter_names is not None:
-            predictions = self.nile_red_forward_model_lut(wl, filter_names, NA)
-        else:
-            predictions = self.nile_red_forward_model(
-                wl, filter_spectra, wavelength_array, pixel_QYs, NA
-            )
+        # Get predictions from forward model
+        predictions = self.nile_red_forward_model(
+            wl, filter_spectra, wavelength_array, pixel_QYs, NA
+        )
 
         # Build residual vector
         residuals = []
@@ -783,8 +441,6 @@ class NileRed_Functions:
         total_photons: Optional[float] = None,
         background_photons: float = 40.0,
         apply_snr_inflation: bool = True,
-        use_lut: bool = False,
-        filter_names: Optional[list] = None,
     ) -> Tuple[float, Dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
 
@@ -813,8 +469,6 @@ class NileRed_Functions:
             total_photons: Total photon count for SNR calculation (optional)
             background_photons: Background photon count (default: 40.0, distributed across RGB)
             apply_snr_inflation: Apply SNR-based error inflation (default: True)
-            use_lut: Use fast LUT interpolation during optimization (default: False)
-            filter_names: Filter names for LUT lookup (required if use_lut=True)
 
         Returns:
             wavelength_center: Fitted central wavelength (nm)
@@ -921,22 +575,15 @@ class NileRed_Functions:
                 wavelength_array,
                 pixel_QYs,
                 NA,
-                use_lut,
-                filter_names,
             ),
         )
 
         wavelength_center = result.x[0]
 
-        # Get predictions at best fit (use LUT if requested)
-        if use_lut and filter_names is not None:
-            predictions = self.nile_red_forward_model_lut(
-                wavelength_center, filter_names, NA
-            )
-        else:
-            predictions = self.nile_red_forward_model(
-                wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
-            )
+        # Get predictions at best fit
+        predictions = self.nile_red_forward_model(
+            wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
+        )
 
         return wavelength_center, predictions
 
@@ -959,7 +606,6 @@ class NileRed_Functions:
         cpu_fraction: float = 0.9,
         verbose: bool = True,
         use_tqdm: bool = False,
-        use_lut: bool = True,
     ) -> None:
         """Simulate wavelength precision using two-stage workflow.
 
@@ -988,7 +634,6 @@ class NileRed_Functions:
             cpu_fraction: Fraction of CPUs to use for parallel processing
             verbose: Print progress messages (default: True)
             use_tqdm: Use tqdm for Jupyter-compatible progress bars (default: False)
-            use_lut: Use LUT for fast wavelength fitting (default: True, recommended)
 
         Saves per wavelength:
             - Standard simulation outputs from test_fit_method (RMSE_mean, RMSE_std, etc.)
@@ -1121,7 +766,6 @@ class NileRed_Functions:
                 save_raw_results=save_raw_results,
                 subtractx0y0=False,
                 saverawimages=False,
-                use_lut=use_lut,
             )
 
             MSF.test_fit_method(

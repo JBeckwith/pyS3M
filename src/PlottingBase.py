@@ -214,7 +214,7 @@ class BasePlotter(ABC):
         vmax: Optional[float] = None,
         cmap: str = None,
         origin: str = "lower",
-        interpolation: str = "nearest",
+        interpolation = None,
     ) -> matplotlib.image.AxesImage:
         """Create standardised image plot.
 
@@ -225,7 +225,8 @@ class BasePlotter(ABC):
             vmax: Maximum value for colormap (auto-calculated if None)
             cmap: Colormap name (uses default if None)
             origin: Image origin ('lower' or 'upper')
-            interpolation: Interpolation method
+            interpolation: Interpolation method (None uses matplotlib's default behavior,
+                which avoids rendering artifacts. Can be set to 'none', 'nearest', etc. if needed.)
 
         Returns:
             AxesImage object for further customisation

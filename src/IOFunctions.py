@@ -649,34 +649,45 @@ class IO_Functions:
         Returns:
             np.ndarray: Photoelectron data
         """
-        if not isinstance(gain_map, (int, float)):
-            if raw_data.shape[-2:] != gain_map.shape:
-                print(
-                    "Gain and offset map not compatible with image dimensions. "
-                    "Defaulting to gain of 1 and offset of 0."
-                )
-                gain_map = 1.0
-                offset_map = 0.0
+        # Check if calibration maps are arrays
+        gain_is_array = not isinstance(gain_map, (int, float))
+        offset_is_array = not isinstance(offset_map, (int, float))
+        rqe_is_array = not isinstance(rqe, (int, float))
 
-        if not isinstance(gain_map, (int, float)):
-            if len(raw_data.shape) > 2:
-                photoelectron_data = np.divide(
-                    np.divide(
-                        np.subtract(raw_data, offset_map[np.newaxis, :, :]),
-                        gain_map[np.newaxis, :, :],
-                    ),
-                    rqe[np.newaxis, :, :],
-                )
-            else:
-                photoelectron_data = np.divide(
-                    np.divide(np.subtract(raw_data, offset_map), gain_map), rqe
-                )
-        else:
-            photoelectron_data = np.divide(
-                np.divide(np.subtract(raw_data, offset_map), gain_map), rqe
+        # Validate array shapes if any are arrays
+        if gain_is_array and raw_data.shape[-2:] != gain_map.shape:
+            print(
+                "Gain and offset map not compatible with image dimensions. "
+                "Defaulting to gain of 1 and offset of 0."
             )
+            gain_map = 1.0
+            offset_map = 0.0
+            gain_is_array = False
+            offset_is_array = False
 
-        return photoelectron_data
+        # Determine if we need 3D broadcasting (for stacks)
+        is_3d = len(raw_data.shape) > 2
+
+        # Build the computation step by step with proper broadcasting
+        # Step 1: Subtract offset
+        if offset_is_array and is_3d:
+            result = np.subtract(raw_data, offset_map[np.newaxis, :, :])
+        else:
+            result = np.subtract(raw_data, offset_map)
+
+        # Step 2: Divide by gain
+        if gain_is_array and is_3d:
+            result = np.divide(result, gain_map[np.newaxis, :, :])
+        else:
+            result = np.divide(result, gain_map)
+
+        # Step 3: Divide by RQE
+        if rqe_is_array and is_3d:
+            result = np.divide(result, rqe[np.newaxis, :, :])
+        else:
+            result = np.divide(result, rqe)
+
+        return result
 
     def apply_smoothing(self, data, smoothing_function, dtype="double"):
         """

@@ -591,6 +591,7 @@ class SuperRes_Functions:
                     spatial_filter_size=1,  # No spatial averaging for Bayer patterns
                     gain_map=gain_map,
                     offset_map=offset_map,
+                    rqe=rqe,
                 )
             )
 
@@ -663,6 +664,19 @@ class SuperRes_Functions:
         )
         gc.collect()
 
+        # Set raw_image_for_fitting for plotting
+        # IMPORTANT: We always plot the photoelectron image that was actually fitted
+        # - If EVER enabled: raw_data_for_fitting contains EVER-subtracted photoelectrons
+        # - If EVER disabled: convert raw_data to photoelectrons (matching what fitting uses)
+        if temporal_median_mode == TemporalMedianMode.NONE:
+            # No EVER: convert raw ADU data to photoelectrons for plotting
+            raw_image_for_fitting = self.io.convert_to_photoelectrons(
+                raw_data, gain_map=gain_map, offset_map=offset_map, rqe=rqe
+            )
+        else:
+            # EVER enabled: raw_data_for_fitting already contains photoelectrons
+            raw_image_for_fitting = raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
+
         fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
             smoothed_puncta_tofit,
@@ -687,7 +701,6 @@ class SuperRes_Functions:
             "frame",
         ]
         fit_results = pd.DataFrame(fit_results, columns=columns)
-
         # Create figure using PlottingBase for cleaner code
         try:
             from PlottingBase import AnalysisPlotter
@@ -709,8 +722,11 @@ class SuperRes_Functions:
             # Calculate percentiles for consistent display
             vmin_processed = np.percentile(image_to_analyse, 1)
             vmax_processed = np.percentile(image_to_analyse, 99)
-            vmin_raw = np.percentile(raw_data, 1)
-            vmax_raw = np.percentile(raw_data, 99)
+
+            # Plot the photoelectron image that was actually fitted
+            # raw_image_for_fitting is always in photoelectrons (with or without EVER)
+            vmin_raw = np.percentile(raw_image_for_fitting, 1)
+            vmax_raw = np.percentile(raw_image_for_fitting, 99)
 
             # Find highest density region for zoom
             x_fit = fit_results["xc"].to_numpy()
@@ -782,7 +798,7 @@ class SuperRes_Functions:
 
             # [0,1] Fitted spots on raw image
             im = plotter.create_image_plot(
-                axs[0, 1], raw_data, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+                axs[0, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
             )
             axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.5)
             plotter.setup_axis(
@@ -843,7 +859,7 @@ class SuperRes_Functions:
 
             # [1,1] Fitted spots zoomed
             im = plotter.create_image_plot(
-                axs[1, 1], raw_data, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+                axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
             )
             axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.7)
             axs[1, 1].set_xlim(min_x, max_x)
@@ -1284,6 +1300,7 @@ class SuperRes_Functions:
         spatial_filter_size: int = 1,
         gain_map: np.ndarray = None,
         offset_map: np.ndarray = None,
+        rqe: np.ndarray = None,
     ) -> tuple:
         """Compute EVER (Extreme Value-based Emitter Recovery) background subtraction.
 
@@ -1310,6 +1327,7 @@ class SuperRes_Functions:
                 Set to 1 for Bayer patterns to avoid mixing color channels
             gain_map: Gain calibration map for ADU→photoelectron conversion
             offset_map: Offset calibration map for ADU→photoelectron conversion
+            rqe: Relative quantum efficiency map for ADU→photoelectron conversion
 
         Returns:
             tuple: (emitters_adu, emitters_photoelectrons)
@@ -1319,33 +1337,46 @@ class SuperRes_Functions:
         Example:
             >>> # Process chunk with EVER
             >>> cleaned_adu, cleaned_pe = _compute_ever_background(
-            ...     chunk_frames, window_size=100, gain_map=gain, offset_map=offset
+            ...     chunk_frames, window_size=100, gain_map=gain, offset_map=offset, rqe=rqe
             ... )
         """
         from EVERFunctions import EVER_Functions
 
-        # Convert ADU to photoelectrons for EVER
-        # PE = (ADU - offset) * gain
+        # Convert ADU to photoelectrons using IOFunctions method
+        # This ensures consistent conversion across the codebase
         if gain_map is not None and offset_map is not None:
-            frames_pe = (frames - offset_map) * gain_map
+            # Use rqe if provided, otherwise default to 1.0
+            rqe_value = rqe if rqe is not None else 1.0
+            frames_pe = self.io.convert_to_photoelectrons(
+                frames, gain_map=gain_map, offset_map=offset_map, rqe=rqe_value
+            )
         else:
             # If no calibration maps, assume already in photoelectrons
             frames_pe = frames
 
-        ever = EVER_Functions()
+        ever = EVER_Functions(io_functions=self.io)
 
         # Compute EVER background estimation in photoelectron space
-        background_pe, emitters_pe = ever.compute_ever_background(
+        # Returns 3D backgrounds (one per frame) and emitters
+        backgrounds_pe, emitters_pe = ever.compute_ever_background(
             frames_pe,
             window_size=window_size,
             spatial_filter_size=spatial_filter_size,
             use_cache=True,
+            n_jobs=-1,  # Use all available CPUs for parallel processing
         )
 
-        # Convert background-subtracted data back to ADU for variance-aware demosaic
-        # ADU = PE / gain + offset
+        # Convert emitters back to ADU for variance-aware demosaic
+        # Reverse the photoelectron conversion: ADU = (PE * rqe * gain) + offset
         if gain_map is not None and offset_map is not None:
-            emitters_adu = (emitters_pe / gain_map) + offset_map
+            # Use rqe if provided, otherwise default to 1.0
+            rqe_value = rqe if rqe is not None else 1.0
+            # Note: gain_map, offset_map, and rqe are 2D, will broadcast across frames
+            # Proper broadcasting for 2D maps across 3D frame data
+            if not isinstance(rqe_value, (int, float)):
+                emitters_adu = (emitters_pe * rqe_value[np.newaxis, :, :] * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
+            else:
+                emitters_adu = (emitters_pe * rqe_value * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
         else:
             # If no calibration maps, return photoelectrons for both
             emitters_adu = emitters_pe
@@ -1559,6 +1590,7 @@ class SuperRes_Functions:
                         spatial_filter_size=1,  # No spatial averaging for Bayer patterns
                         gain_map=gain_map,
                         offset_map=offset_map,
+                        rqe=rqe,
                     )
 
                     # Extract just the chunk we're processing from EVER results

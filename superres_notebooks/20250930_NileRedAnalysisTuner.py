@@ -467,10 +467,10 @@ class NileRedThresholdTuner:
         use_variance_aware: bool = True,
         ever_window: int = 100,
     ) -> Tuple[np.ndarray, int, np.ndarray]:
-        """Test spot detection with EVER subtraction.
+        """Test spot detection with EVER subtraction using SR_Functions._compute_ever_background().
 
         Args:
-            frame_stack: 3D array of frames (n_frames, height, width)
+            frame_stack: 3D array of frames (n_frames, height, width) in photoelectrons
             test_frame_index: Index of the frame to test within the stack
             pfa: False alarm probability
             sigma: Sigma parameter
@@ -483,50 +483,74 @@ class NileRedThresholdTuner:
             (detected_spots, num_spots, processed_frame): spots array, count, and the processed frame after EVER
         """
         try:
-            # Calculate EVER
-            print(f"  Computing EVER from {len(frame_stack)} frames...")
-            temporal_median = np.median(frame_stack, axis=0).astype(np.float64)
+            # Use the REAL EVER algorithm from SR_Functions
+            print(f"  Computing EVER from {len(frame_stack)} frames using SR_Functions...")
 
-            # Subtract EVER from test frame
-            test_frame = frame_stack[test_frame_index].astype(np.float64)
-            frame_after_median = test_frame - temporal_median
+            # Get camera data for this ROI
+            camera_data_to_use = (
+                self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
+                if self.roi_info and self.camera_data
+                else self.camera_data
+            )
 
-            # Clip negative values to zero (can't have negative photon counts)
-            frame_after_median = np.maximum(frame_after_median, 0)
+            # Frame stack is in photoelectrons, but _compute_ever_background expects ADU
+            # Convert back to ADU for EVER processing
+            if camera_data_to_use:
+                gain_map = camera_data_to_use["gain"]
+                offset_map = camera_data_to_use["offset"]
+                rqe_map = camera_data_to_use.get("rqe", 1.0)
+                # Convert PE back to ADU: ADU = (PE * rqe * gain) + offset
+                if not isinstance(rqe_map, (int, float)):
+                    frame_stack_adu = (frame_stack * rqe_map[np.newaxis, :, :] * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
+                else:
+                    frame_stack_adu = (frame_stack * rqe_map * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
+            else:
+                # No calibration, assume already correct units
+                frame_stack_adu = frame_stack
+                gain_map = None
+                offset_map = None
+                rqe_map = None
 
-            print(f"  Frame before EVER: {test_frame.min():.0f} - {test_frame.max():.0f}")
-            print(f"  EVER: {temporal_median.min():.0f} - {temporal_median.max():.0f}")
-            print(f"  Frame after subtraction: {frame_after_median.min():.0f} - {frame_after_median.max():.0f}")
+            # Call the REAL EVER algorithm from SR_Functions
+            ever_subtracted_adu, ever_subtracted_pe = self.srf._compute_ever_background(
+                frame_stack_adu,
+                window_size=ever_window,
+                spatial_filter_size=1,  # No spatial averaging for Bayer patterns
+                gain_map=gain_map,
+                offset_map=offset_map,
+                rqe=rqe_map,
+            )
 
-            # Apply demosaicing based on setting
+            # Extract the test frame
+            frame_after_ever_adu = ever_subtracted_adu[test_frame_index]
+            frame_after_ever_pe = ever_subtracted_pe[test_frame_index]
+
+            print(f"  Frame before EVER: {frame_stack_adu[test_frame_index].min():.0f} - {frame_stack_adu[test_frame_index].max():.0f}")
+            print(f"  Frame after EVER (ADU): {frame_after_ever_adu.min():.0f} - {frame_after_ever_adu.max():.0f}")
+            print(f"  Frame after EVER (PE): {frame_after_ever_pe.min():.1f} - {frame_after_ever_pe.max():.1f}")
+
+            # Apply demosaicing based on setting using EVER-subtracted ADU data
             if use_variance_aware and self.camera_data:
-                # Get camera data cropped to ROI if available
-                camera_data_to_use = (
-                    self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
-                    if self.roi_info
-                    else self.camera_data
-                )
-
                 # Check if calibration data needs to be resized to match image
-                image_shape = frame_after_median.shape
+                image_shape = frame_after_ever_adu.shape
                 variance_shape = camera_data_to_use["variance"].shape
 
                 if image_shape != variance_shape:
                     print(f"Warning: Image shape {image_shape} != calibration data shape {variance_shape}")
                     print("Falling back to standard demosaicing")
-                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_median)
+                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_ever_adu)
                 else:
-                    # Use variance-aware demosaicing
+                    # Use variance-aware demosaicing on EVER-subtracted ADU data
                     demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
-                        frame_after_median,
+                        frame_after_ever_adu,
                         variance_map=camera_data_to_use["variance"],
                         offset_map=camera_data_to_use["offset"],
                         gain=camera_data_to_use["gain"],
                         grayscale=True
                     )
             else:
-                # Use standard grayscale demosaicing
-                demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_median)
+                # Use standard grayscale demosaicing on EVER-subtracted ADU data
+                demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_ever_adu)
 
             detected_spots = self.sdf.detect_puncta_in_image(
                 image=demosaiced_image,
@@ -539,7 +563,8 @@ class NileRedThresholdTuner:
                 mf_factor=3.0,  # Standard match filter factor
                 local_factor=3.0,  # Standard local factor
             )
-            return detected_spots, len(detected_spots), frame_after_median
+            # Return EVER-subtracted photoelectron frame for fitting (matching what analysis does)
+            return detected_spots, len(detected_spots), frame_after_ever_pe
 
         except Exception as e:
             print(f"Error in spot detection with EVER: {e}")
@@ -1176,67 +1201,44 @@ class NileRedThresholdTuner:
                 )):
                     print(f"Processing stack {i+1}/3...")
 
-                    # Compute EVER background subtraction using SR_Functions
-                    # Get camera data for this ROI
-                    camera_data_to_use = (
-                        self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
-                        if self.roi_info and self.camera_data
-                        else self.camera_data
+                    # Call the REAL EVER algorithm for this stack
+                    spots, num_spots, fitting_frame_pe = self.test_spot_detection_with_temporal_median(
+                        frame_stack=stack,
+                        test_frame_index=test_idx,
+                        pfa=current_pfa,
+                        sigma=current_sigma,
+                        fraction_true=current_fraction_true,
+                        wavelength=current_wavelength,
+                        use_variance_aware=current_use_variance_aware,
+                        ever_window=current_ever_window,
                     )
 
-                    # Call EVER from SR_Functions
-                    # Stack is already in photoelectrons from loading, but EVER expects ADU input
-                    # Since we loaded as photoelectrons, we need to convert back to ADU for EVER
-                    if camera_data_to_use:
-                        gain_map = camera_data_to_use["gain"]
-                        offset_map = camera_data_to_use["offset"]
-                        # Convert photoelectrons back to ADU: ADU = PE/gain + offset
-                        stack_adu = (stack / gain_map) + offset_map
-                    else:
-                        # No calibration data, assume already in correct units
-                        stack_adu = stack
-                        gain_map = None
-                        offset_map = None
-
-                    # Run EVER on the stack
-                    print(f"  Computing EVER background from {len(stack)} frames...")
-                    ever_subtracted_adu, ever_subtracted_pe = self.srf._compute_ever_background(
-                        stack_adu,
-                        window_size=current_ever_window,
-                        spatial_filter_size=1,  # No spatial averaging for Bayer patterns
-                        gain_map=gain_map,
-                        offset_map=offset_map
-                    )
-
-                    # Extract the frame we want (the display frame corresponds to test_idx)
-                    detection_frame_adu = ever_subtracted_adu[test_idx]
-                    fitting_frame_pe = ever_subtracted_pe[test_idx]
-
-                    # Also keep original for FITTING_ONLY mode detection
-                    original_frame = display_frame
-
-                    # Determine which data to use for detection and fitting based on mode
+                    # Determine which frames to use based on mode
                     if current_ever_mode == TemporalMedianMode.DETECTION_AND_FITTING:
-                        detection_frame = detection_frame_adu  # ADU for variance-aware demosaic
-                        fitting_frame = fitting_frame_pe  # Photoelectrons for fitting
+                        # BOTH detection and fitting use EVER
+                        # Detection already done by test_spot_detection_with_temporal_median
+                        detection_frame = fitting_frame_pe  # Show EVER PE frame
+                        fitting_frame = fitting_frame_pe  # Use EVER PE frame for fitting
                         print(f"  Mode: BOTH detection and fitting use EVER")
                     elif current_ever_mode == TemporalMedianMode.FITTING_ONLY:
-                        detection_frame = original_frame  # Original ADU for detection
-                        fitting_frame = fitting_frame_pe  # EVER photoelectrons for fitting
+                        # Detection uses original, fitting uses EVER
+                        # Need to re-do detection on original frame
+                        spots, num_spots = self.test_spot_detection(
+                            display_frame,  # Original ADU
+                            current_pfa,
+                            current_sigma,
+                            current_fraction_true,
+                            current_wavelength,
+                            current_use_variance_aware,
+                        )
+                        detection_frame = display_frame  # Show original ADU frame
+                        fitting_frame = fitting_frame_pe  # Use EVER PE frame for fitting
                         print(f"  Mode: Detection uses original, fitting uses EVER")
                     else:  # NONE (shouldn't reach here, but handle anyway)
                         detection_frame = display_frame
                         fitting_frame = display_frame
 
-                    # Perform detection
-                    spots, num_spots = self.test_spot_detection(
-                        detection_frame,
-                        current_pfa,
-                        current_sigma,
-                        current_fraction_true,
-                        current_wavelength,
-                        current_use_variance_aware,
-                    )
+                    # Store results
                     detection_results.append((spots, num_spots))
                     detection_frames_for_plot.append(detection_frame)
                     fitting_frames_for_plot.append(fitting_frame)
