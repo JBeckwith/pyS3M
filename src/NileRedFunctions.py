@@ -436,20 +436,15 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-        wavelength_bounds: Tuple[float, float] = (550.0, 750.0),
-        b_channel_threshold: float = 0.10,
+        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
         total_photons: Optional[float] = None,
         background_photons: float = 40.0,
         apply_snr_inflation: bool = True,
     ) -> Tuple[float, Dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
 
-        Implements adaptive B channel exclusion to avoid bias from low signal-to-noise
-        ratio in the B channel. When B fraction is below threshold, wavelength is fitted
-        using only the R/G ratio, which reduces bias from ~50nm to <1nm at low photon counts.
-
-        Additionally implements SNR-based error inflation to correct for underestimated
-        errors at low photon counts. Errors are inflated by factors based on channel SNR:
+        Uses all three RGB channels for wavelength fitting. Implements SNR-based error
+        inflation to correct for underestimated errors at low photon counts:
         - SNR < 2: inflate by 3.0x
         - SNR 2-5: inflate by 2.0x
         - SNR 5-10: inflate by 1.5x
@@ -465,7 +460,6 @@ class NileRed_Functions:
             pixel_QYs: Pixel quantum yields
             NA: Numerical aperture (default: 1.49)
             wavelength_bounds: Search range for wavelength (nm)
-            b_channel_threshold: Exclude B channel if fraction < threshold (default: 0.10)
             total_photons: Total photon count for SNR calculation (optional)
             background_photons: Background photon count (default: 40.0, distributed across RGB)
             apply_snr_inflation: Apply SNR-based error inflation (default: True)
@@ -497,65 +491,22 @@ class NileRed_Functions:
             # Inflate errors
             rgb_errors_norm = rgb_errors_norm * inflation_factors
 
-        # Check if B channel should be excluded due to low SNR
-        # B is unreliable when its fraction is very small
-        # Use fitted B fraction (which may be biased upward) to decide
-        # Threshold of 0.10 (10%) accounts for B overestimation bias at low SNR
-        exclude_b = observed_rgb_norm[2] < b_channel_threshold
+        # Use all three RGB channels for wavelength fitting
+        observed_data = {
+            "R": observed_rgb_norm[0],
+            "G": observed_rgb_norm[1],
+            "B": observed_rgb_norm[2],
+            "sigma_x": observed_sigma_x,
+            "sigma_y": observed_sigma_y,
+        }
 
-        if exclude_b:
-            # Renormalize using only R and G channels
-            R_renorm = observed_rgb_norm[0] / (
-                observed_rgb_norm[0] + observed_rgb_norm[1]
-            )
-            G_renorm = observed_rgb_norm[1] / (
-                observed_rgb_norm[0] + observed_rgb_norm[1]
-            )
-
-            # Propagate errors for renormalization
-            # For f = R/(R+G): df/dR = G/(R+G)^2, df/dG = -R/(R+G)^2
-            total_RG = observed_rgb_norm[0] + observed_rgb_norm[1]
-            R_renorm_err = np.sqrt(
-                (observed_rgb_norm[1] / total_RG**2 * rgb_errors_norm[0]) ** 2
-                + (observed_rgb_norm[0] / total_RG**2 * rgb_errors_norm[1]) ** 2
-            )
-            G_renorm_err = np.sqrt(
-                (observed_rgb_norm[0] / total_RG**2 * rgb_errors_norm[1]) ** 2
-                + (observed_rgb_norm[1] / total_RG**2 * rgb_errors_norm[0]) ** 2
-            )
-
-            observed_data = {
-                "R": R_renorm,
-                "G": G_renorm,
-                "B": 0.0,  # Set B to zero
-                "sigma_x": observed_sigma_x,
-                "sigma_y": observed_sigma_y,
-            }
-
-            errors = {
-                "R": R_renorm_err,
-                "G": G_renorm_err,
-                "B": 1e-6,  # Small error to avoid division by zero
-                "sigma_x": sigma_x_error,
-                "sigma_y": sigma_y_error,
-            }
-        else:
-            # Use all three channels normally
-            observed_data = {
-                "R": observed_rgb_norm[0],
-                "G": observed_rgb_norm[1],
-                "B": observed_rgb_norm[2],
-                "sigma_x": observed_sigma_x,
-                "sigma_y": observed_sigma_y,
-            }
-
-            errors = {
-                "R": rgb_errors_norm[0],
-                "G": rgb_errors_norm[1],
-                "B": rgb_errors_norm[2],
-                "sigma_x": sigma_x_error,
-                "sigma_y": sigma_y_error,
-            }
+        errors = {
+            "R": rgb_errors_norm[0],
+            "G": rgb_errors_norm[1],
+            "B": rgb_errors_norm[2],
+            "sigma_x": sigma_x_error,
+            "sigma_y": sigma_y_error,
+        }
 
         # Initial guess: use default central wavelength or midpoint of bounds
         x0 = np.array([self.default_wavelength_center])
@@ -590,7 +541,7 @@ class NileRed_Functions:
     def simulate_wavelength_precision(
         self,
         save_folder: str,
-        wavelength_range: Tuple[float, float] = (580.0, 690.0),
+        wavelength_range: Tuple[float, float] = (560.0, 620.0),
         wavelength_step: float = 5.0,
         photon_counts: np.ndarray = np.array([1000, 2000, 5000, 10000]),
         n_bootstrap: int = 1000,
@@ -618,7 +569,7 @@ class NileRed_Functions:
 
         Args:
             save_folder: Directory to save results (created if doesn't exist)
-            wavelength_range: (min, max) wavelength range in nm (default: 580-690)
+            wavelength_range: (min, max) wavelength range in nm (default: 560-620)
             wavelength_step: Wavelength step size in nm (default: 5)
             photon_counts: Array of photon counts to simulate (default: [1k, 2k, 5k, 10k])
             n_bootstrap: Number of Monte Carlo realizations per condition (default: 1000)
@@ -814,33 +765,20 @@ class NileRed_Functions:
 
             flag = f"{starting_flag}wl{int(wl_true)}_"
 
-            # Find raw results files for this wavelength (support both parquet and csv)
+            # Find raw results h5 files for this wavelength
             raw_files = [
                 f
                 for f in os.listdir(save_folder)
-                if f.startswith(flag)
-                and ("rawresults.parquet" in f or "rawresults.csv" in f)
+                if f.startswith(flag) and f.endswith("rawresults.h5")
             ]
 
             for raw_file in raw_files:
-                # Extract photon count from filename
-                parts = raw_file.replace(".parquet", "").replace(".csv", "").split("_")
-                photon_str = [
-                    p
-                    for p in parts
-                    if "p" in p and p.replace("p", "").replace(".", "").isdigit()
-                ]
-                if not photon_str:
-                    continue
+                # Load h5 file using pandas then convert to polars
+                import pandas as pd
 
-                n_photons = float(photon_str[0].replace("p", "."))
-
-                # Load fit results with wavelength columns (auto-detect format)
                 file_path = os.path.join(save_folder, raw_file)
-                if raw_file.endswith(".parquet"):
-                    df = pl.read_parquet(file_path)
-                else:
-                    df = pl.read_csv(file_path)
+                df_pandas = pd.read_hdf(file_path, "data")
+                df = pl.from_pandas(df_pandas)
 
                 # Check if wavelength columns exist
                 if "wl_fit" not in df.columns:
@@ -851,27 +789,39 @@ class NileRed_Functions:
                         )
                     continue
 
-                # Extract fitted wavelengths (excluding NaN values)
-                wavelengths_fitted = df["wl_fit"].to_numpy()
-                wavelengths_fitted = wavelengths_fitted[~np.isnan(wavelengths_fitted)]
+                # Process each photon level separately
+                if "photon_level" not in df.columns:
+                    if verbose:
+                        print(f"\nWarning: No 'photon_level' column found in {raw_file}")
+                    continue
 
-                # Calculate statistics
-                if len(wavelengths_fitted) > 0:
-                    precision = np.std(wavelengths_fitted)
-                    bias = np.mean(wavelengths_fitted) - wl_true
-                    recovery_rate = len(wavelengths_fitted) / n_bootstrap
+                for level in df["photon_level"].unique():
+                    df_level = df.filter(pl.col("photon_level") == level)
 
-                    wavelength_precision_results.append(
-                        {
-                            "wavelength_true": wl_true,
-                            "n_photons": n_photons,
-                            "wavelength_precision": precision,
-                            "wavelength_bias": bias,
-                            "wavelength_mean": np.mean(wavelengths_fitted),
-                            "recovery_rate": recovery_rate,
-                            "n_successful": len(wavelengths_fitted),
-                        }
-                    )
+                    # Get mean photon count for this level
+                    n_photons = df_level["photons"].mean()
+
+                    # Extract fitted wavelengths (excluding NaN values)
+                    wavelengths_fitted = df_level["wl_fit"].to_numpy()
+                    wavelengths_fitted = wavelengths_fitted[~np.isnan(wavelengths_fitted)]
+
+                    # Calculate statistics
+                    if len(wavelengths_fitted) > 0:
+                        precision = np.std(wavelengths_fitted)
+                        bias = np.mean(wavelengths_fitted) - wl_true
+                        recovery_rate = len(wavelengths_fitted) / n_bootstrap
+
+                        wavelength_precision_results.append(
+                            {
+                                "wavelength_true": wl_true,
+                                "n_photons": n_photons,
+                                "wavelength_precision": precision,
+                                "wavelength_bias": bias,
+                                "wavelength_mean": np.mean(wavelengths_fitted),
+                                "recovery_rate": recovery_rate,
+                                "n_successful": len(wavelengths_fitted),
+                            }
+                        )
 
         # Save wavelength precision summary
         if len(wavelength_precision_results) > 0:

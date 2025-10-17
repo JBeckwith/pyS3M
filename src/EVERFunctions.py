@@ -63,6 +63,7 @@ class EVER_Functions:
         spatial_filter_size: int = 3,
         use_cache: bool = True,
         n_jobs: int = -1,
+        bayer_masks: dict = None,
     ) -> tuple:
         """
         Compute EVER background estimation and recover emitters using per-frame sliding windows.
@@ -80,9 +81,12 @@ class EVER_Functions:
             window_size: Temporal window size for minimum calculation (default: 100)
                 Typical range: 50-200 frames depending on background variation
             spatial_filter_size: Size of spatial mean filter for noise reduction (default: 3)
-                Set to 1 to disable spatial filtering
+                Set to 1 to disable spatial filtering. When > 1, uses Bayer-aware filtering
+                to avoid cross-channel contamination
             use_cache: Whether to cache and reuse lookup tables (default: True)
             n_jobs: Number of parallel jobs for processing frames (default: -1 = all CPUs)
+            bayer_masks: Optional dictionary of Bayer masks {'B': mask, 'G': mask, 'R': mask}
+                If None and spatial_filter_size > 1, standard BGGR pattern is assumed
 
         Returns:
             tuple: (backgrounds, emitters)
@@ -91,8 +95,16 @@ class EVER_Functions:
 
         Example:
             >>> ever = EVER_Functions()
-            >>> backgrounds, emitters = ever.compute_ever_background(raw_frames, window_size=100)
-            >>> # Each frame has its own background based on its local temporal context
+            >>> # No spatial filtering (default for most cases)
+            >>> backgrounds, emitters = ever.compute_ever_background(
+            ...     raw_frames, window_size=100, spatial_filter_size=1
+            ... )
+
+            >>> # With Bayer-aware spatial filtering (for uniform backgrounds)
+            >>> backgrounds, emitters = ever.compute_ever_background(
+            ...     raw_frames, window_size=100, spatial_filter_size=2,
+            ...     bayer_masks=camera_masks
+            ... )
         """
         n_frames, height, width = frames.shape
         half_window = window_size // 2
@@ -132,7 +144,8 @@ class EVER_Functions:
             print(f"  EVER: Computing per-frame backgrounds...", end="\r", flush=True)
 
         backgrounds, emitters = self._process_frames_parallel(
-            frames, window_size, spatial_filter_size, decay_ratio, lut, n_jobs
+            frames, window_size, spatial_filter_size, decay_ratio, lut, n_jobs,
+            bayer_masks
         )
 
         if self.verbose:
@@ -152,6 +165,7 @@ class EVER_Functions:
         decay_ratio: float,
         lut: dict,
         n_jobs: int,
+        bayer_masks: dict = None,
     ) -> tuple:
         """
         Process all frames in parallel using sliding windows.
@@ -161,10 +175,11 @@ class EVER_Functions:
         Args:
             frames: 3D array (n_frames, height, width)
             window_size: Size of sliding window
-            spatial_filter_size: Spatial filter size
+            spatial_filter_size: Spatial filter size (uses Bayer-aware filtering if > 1)
             decay_ratio: Background decay ratio
             lut: Lookup table for minimum -> background transformation
             n_jobs: Number of parallel jobs
+            bayer_masks: Dictionary of Bayer masks (if spatial_filter_size > 1)
 
         Returns:
             tuple: (backgrounds, emitters) - both 3D arrays
@@ -190,10 +205,10 @@ class EVER_Functions:
             # Compute temporal minimum for this window
             temporal_min = np.min(window_frames, axis=0).astype(np.float32)
 
-            # Apply spatial filter
+            # Apply spatial filter (Bayer-aware only)
             if spatial_filter_size > 1:
-                temporal_min = self._apply_spatial_mean_filter(
-                    temporal_min, spatial_filter_size
+                temporal_min = self._apply_bayer_aware_spatial_filter(
+                    temporal_min, spatial_filter_size, bayer_masks
                 )
 
             # Transform to background using LUT
@@ -243,25 +258,139 @@ class EVER_Functions:
 
         return temporal_min
 
-    def _apply_spatial_mean_filter(
-        self, image: np.ndarray, filter_size: int
+    def _apply_bayer_aware_spatial_filter(
+        self, image: np.ndarray, filter_size: int, masks: dict = None
     ) -> np.ndarray:
         """
-        Apply spatial mean filter to reduce noise in temporal minimum map.
+        Apply Bayer-aware spatial filtering that respects color channel structure.
 
-        Spatial averaging improves the precision of the background estimate by
-        reducing the dispersion of the extreme value distribution.
+        Instead of filtering across all pixels (which mixes RGB channels in Bayer pattern),
+        this method filters each color channel independently on its own spatial grid.
+
+        For a Bayer pattern:
+            B G
+            G R
+
+        Blue and Red pixels form sparse grids (every 4th pixel), while Green pixels
+        form a denser grid (every 2nd pixel). This function:
+        1. Extracts each color channel to its own grid
+        2. Applies spatial filtering within that grid
+        3. Places filtered values back to original positions
+
+        This prevents averaging blue with red or green pixels, which would be
+        physically incorrect for Bayer sensors.
 
         Args:
-            image: 2D array to filter
-            filter_size: Size of mean filter (e.g., 3 for 3×3)
+            image: 2D array to filter (height, width)
+            filter_size: Size of filter in units of color grid spacing
+                For filter_size=1: 3×3 kernel on the color-specific grid
+                For filter_size=2: 5×5 kernel on the color-specific grid
+            masks: Dictionary of color masks {'B': bool_array, 'G': bool_array, 'R': bool_array}
+                If None, assumes standard Bayer BGGR pattern
 
         Returns:
-            filtered: Spatially filtered image
+            filtered: Spatially filtered image with same shape as input
         """
-        # Use uniform_filter (fast box filter)
-        filtered = uniform_filter(image, size=filter_size, mode="nearest")
+        from scipy.ndimage import uniform_filter
+
+        height, width = image.shape
+        filtered = image.copy()
+
+        # If no masks provided, create standard Bayer BGGR masks
+        if masks is None:
+            masks = self._create_bayer_masks(height, width)
+
+        # Process each color channel independently
+        for color, mask in masks.items():
+            if not np.any(mask):
+                continue
+
+            # Extract pixel positions for this color
+            y_indices, x_indices = np.where(mask)
+
+            if len(y_indices) == 0:
+                continue
+
+            # Determine the sparse grid spacing for this color
+            # Blue/Red: 2×2 spacing (every other pixel in both dimensions)
+            # Green: offset 2×2 pattern (still every other pixel)
+            if color in ['B', 'R']:
+                grid_spacing = 2
+            else:  # Green
+                grid_spacing = 2
+
+            # Create a dense representation of just this color channel
+            # by extracting values at the sparse grid positions
+            min_y, max_y = y_indices.min(), y_indices.max()
+            min_x, max_x = x_indices.min(), x_indices.max()
+
+            # Build dense grid from sparse samples
+            grid_height = (max_y - min_y) // grid_spacing + 1
+            grid_width = (max_x - min_x) // grid_spacing + 1
+
+            dense_grid = np.zeros((grid_height, grid_width), dtype=np.float32)
+
+            # Map sparse pixel positions to dense grid coordinates
+            for y, x in zip(y_indices, x_indices):
+                grid_y = (y - min_y) // grid_spacing
+                grid_x = (x - min_x) // grid_spacing
+                if 0 <= grid_y < grid_height and 0 <= grid_x < grid_width:
+                    dense_grid[grid_y, grid_x] = image[y, x]
+
+            # Apply uniform filter on the dense grid
+            # For Bayer patterns, filter_size represents the kernel size in the ORIGINAL image
+            # Since we're on a 2× downsampled grid, divide by 2 (rounding up)
+            grid_filter_size = max(1, (filter_size + 1) // 2)
+            if dense_grid.size > 0 and grid_filter_size > 0:
+                filtered_grid = uniform_filter(
+                    dense_grid, size=grid_filter_size, mode='nearest'
+                )
+
+                # Map filtered values back to original sparse positions
+                for y, x in zip(y_indices, x_indices):
+                    grid_y = (y - min_y) // grid_spacing
+                    grid_x = (x - min_x) // grid_spacing
+                    if 0 <= grid_y < grid_height and 0 <= grid_x < grid_width:
+                        filtered[y, x] = filtered_grid[grid_y, grid_x]
+
         return filtered.astype(np.float32)
+
+    def _create_bayer_masks(self, height: int, width: int) -> dict:
+        """
+        Create standard Bayer BGGR pattern masks.
+
+        Pattern:
+            B G
+            G R
+
+        Args:
+            height: Image height
+            width: Image width
+
+        Returns:
+            masks: Dictionary with keys 'B', 'G', 'R' containing boolean masks
+        """
+        masks = {}
+
+        # Blue: top-left of 2×2 unit (0,0), (0,2), (2,0), (2,2), ...
+        blue_mask = np.zeros((height, width), dtype=bool)
+        blue_mask[0::2, 0::2] = True
+        masks['B'] = blue_mask
+
+        # Green: two positions in 2×2 unit
+        # G1: top-right (0,1), (0,3), (2,1), (2,3), ...
+        # G2: bottom-left (1,0), (1,2), (3,0), (3,2), ...
+        green_mask = np.zeros((height, width), dtype=bool)
+        green_mask[0::2, 1::2] = True  # G1
+        green_mask[1::2, 0::2] = True  # G2
+        masks['G'] = green_mask
+
+        # Red: bottom-right of 2×2 unit (1,1), (1,3), (3,1), (3,3), ...
+        red_mask = np.zeros((height, width), dtype=bool)
+        red_mask[1::2, 1::2] = True
+        masks['R'] = red_mask
+
+        return masks
 
     def _calculate_decay_ratio(self, frames: np.ndarray, window_size: int) -> float:
         """

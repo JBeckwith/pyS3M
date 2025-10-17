@@ -1905,7 +1905,7 @@ def _fit_nile_red_wavelength_standalone(
     NA: float,
     total_photons: Optional[float] = None,
     background_photons: Optional[float] = None,
-    wavelength_bounds: Tuple[float, float] = (580.0, 700.0),
+    wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
 ) -> Tuple[float, float]:
     """
     Standalone function for fitting Nile Red wavelength from a single localization.
