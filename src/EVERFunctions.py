@@ -216,7 +216,8 @@ class EVER_Functions:
 
             # Compute emitter (background-subtracted frame)
             emitter = frames[frame_idx] - background
-            emitter = np.maximum(emitter, 0)  # Clip negative values
+            # Preserve full Poisson statistics - do not clip negative values
+            # Negative values represent noise fluctuations and are essential for chi-squared fitting
 
             return frame_idx, background, emitter
 
