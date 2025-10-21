@@ -13,8 +13,9 @@ Date: October 7, 2025
 """
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import least_squares
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import SpectralFunctions
 import PSFFunctions
 
@@ -838,3 +839,325 @@ class NileRed_Functions:
                 print(f"Results saved to: {save_folder}")
                 print(f"Wavelength precision summary: {summary_file}")
                 print(f"{'='*60}\n")
+
+    def fit_wavelengths_from_h5(
+        self,
+        h5_path: str,
+        filter_names: List[str],
+        camera_parameters: Dict,
+        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+        NA: float = 1.49,
+        pixel_size: float = 69.0,
+        output_path: Optional[str] = None,
+        cpu_fraction: float = 0.9,
+        verbose: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Fit Nile Red wavelengths from localizations stored in HDF5 file.
+
+        Convenience function that loads an HDF5 file containing localization data
+        (RGB intensities, PSF widths, and errors), fits the Nile Red wavelength
+        for each localization using parallel processing, and returns/saves the
+        updated DataFrame with wavelength columns added.
+
+        Args:
+            h5_path: Path to HDF5 file containing localization data
+            filter_names: List of filter/dichroic names used in optical path
+            camera_parameters: Camera parameters dict containing:
+                - 'pixel_QYs': Pixel quantum yields vs wavelength (if 'wavelength' not provided)
+                - 'wavelength': Wavelength array (nm) - optional if pixel_QYs shape implies it
+            wavelength_bounds: Search range for wavelength fitting (nm), default: (500, 750)
+            NA: Numerical aperture, default: 1.49
+            pixel_size: Camera pixel size in nm, default: 69.0
+            output_path: Optional path to save updated HDF5 file (if None, doesn't save)
+            cpu_fraction: Fraction of CPUs to use for parallel fitting, default: 0.9
+            verbose: Print progress messages, default: True
+
+        Returns:
+            pd.DataFrame: Updated DataFrame with 'wl_fit' and 'wl_fit_err' columns added
+
+        Required columns in HDF5 file:
+            - A_R, A_G, A_B: RGB amplitudes (normalized)
+            - s_x, s_y: PSF widths (pixels)
+            - A_R_err, A_G_err, A_B_err: RGB amplitude errors
+            - s_x_err, s_y_err: PSF width errors (pixels)
+            - photons: Total photon count (for SNR calculation)
+            - background_photons: Background photon count (for SNR calculation)
+
+        Example:
+            >>> import NileRedFunctions
+            >>> nrf = NileRedFunctions.NileRed_Functions()
+            >>>
+            >>> # Define optical configuration
+            >>> filters = [
+            ...     "semrock-ff01-650-200",
+            ...     "semrock-di03-r514-t1-25x36",
+            ...     "semrock-ff01-515-lp",
+            ... ]
+            >>>
+            >>> # Setup camera parameters (or load from calibration)
+            >>> import SpectralFunctions
+            >>> sf = SpectralFunctions.Spectral_Funcs()
+            >>> R, G, B, wavelength = sf.getpixelefficiency()
+            >>> pixel_QYs = np.vstack([B, G, R])
+            >>> camera_params = {
+            ...     'pixel_QYs': pixel_QYs,
+            ...     'wavelength': wavelength,
+            ... }
+            >>>
+            >>> # Fit wavelengths from HDF5 file
+            >>> df_with_wavelengths = nrf.fit_wavelengths_from_h5(
+            ...     h5_path='results.h5',
+            ...     filter_names=filters,
+            ...     camera_parameters=camera_params,
+            ...     output_path='results_with_wavelengths.h5',
+            ... )
+        """
+        import pandas as pd
+        import os
+        import multiprocessing
+        from concurrent import futures
+
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Fitting Nile Red Wavelengths from HDF5")
+            print(f"{'='*60}")
+            print(f"Input file: {h5_path}")
+            print(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
+            print(f"{'='*60}\n")
+
+        # Load HDF5 file
+        if not os.path.exists(h5_path):
+            raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
+
+        if verbose:
+            print("Loading HDF5 file...")
+
+        df = pd.read_hdf(h5_path, "data")
+        n_locs = len(df)
+
+        if verbose:
+            print(f"Loaded {n_locs} localizations")
+
+        # Check required columns
+        required_cols = [
+            "A_R",
+            "A_G",
+            "A_B",
+            "s_x",
+            "s_y",
+            "A_R_err",
+            "A_G_err",
+            "A_B_err",
+            "s_x_err",
+            "s_y_err",
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"HDF5 file missing required columns: {missing_cols}\n"
+                f"Available columns: {list(df.columns)}"
+            )
+
+        # Setup optical system
+        # Get wavelength array from camera_parameters or use default
+        if "wavelength" in camera_parameters:
+            wavelength_array = camera_parameters["wavelength"]
+        else:
+            # Extract from pixel_QYs shape - assumes standard wavelength grid
+            if verbose:
+                print(
+                    "Warning: 'wavelength' not in camera_parameters, using default from getpixelefficiency()"
+                )
+            _, _, _, wavelength_array = self.spectral_funcs.getpixelefficiency()
+
+        pixel_QYs = camera_parameters["pixel_QYs"]
+
+        # Get filter spectra
+        filter_spectra = self.spectral_funcs.get_dye_or_filter_data(
+            names=filter_names, wavelength=wavelength_array, dye_or_filter=False
+        )
+
+        if verbose:
+            print(f"Optical system configured with {len(filter_names)} filters")
+            print(f"Wavelength array: {len(wavelength_array)} points")
+
+        # Extract data from DataFrame
+        R = df["A_R"].to_numpy()
+        G = df["A_G"].to_numpy()
+        B = df["A_B"].to_numpy()
+        sigma_x = df["s_x"].to_numpy() * pixel_size  # Convert to nm
+        sigma_y = df["s_y"].to_numpy() * pixel_size
+
+        R_err = df["A_R_err"].to_numpy()
+        G_err = df["A_G_err"].to_numpy()
+        B_err = df["A_B_err"].to_numpy()
+        sigma_x_err = df["s_x_err"].to_numpy() * pixel_size
+        sigma_y_err = df["s_y_err"].to_numpy() * pixel_size
+
+        # Extract photons and background for SNR calculation (if available)
+        if "photons" in df.columns and "background_photons" in df.columns:
+            fitted_photons = df["photons"].to_numpy()
+            fitted_background_photons = df["background_photons"].to_numpy()
+            use_snr = True
+            if verbose:
+                print("Using photon counts for SNR-based error inflation")
+        else:
+            if verbose:
+                print(
+                    "Warning: 'photons' or 'background_photons' columns not found, skipping SNR error inflation"
+                )
+            fitted_photons = None
+            fitted_background_photons = None
+            use_snr = False
+
+        # Prepare arguments for parallel processing
+        if verbose:
+            print(f"\nPreparing {n_locs} fitting tasks...")
+
+        fit_args = []
+        valid_indices = []
+
+        for j in range(n_locs):
+            # Skip if RGB total is zero or negative
+            rgb_total = R[j] + G[j] + B[j]
+            if rgb_total <= 0:
+                continue
+
+            # Note: RGB values should already be normalized in the HDF5 file
+            # but we reconstruct them here to ensure proper normalization
+            R_norm = R[j] / rgb_total
+            G_norm = G[j] / rgb_total
+            B_norm = B[j] / rgb_total
+
+            # Propagate errors (accounting for normalization)
+            total_err = np.sqrt(R_err[j] ** 2 + G_err[j] ** 2 + B_err[j] ** 2)
+            R_norm_err = (
+                R_norm
+                * np.sqrt((R_err[j] / R[j]) ** 2 + (total_err / rgb_total) ** 2)
+                if R[j] > 0
+                else 1e-3
+            )
+            G_norm_err = (
+                G_norm
+                * np.sqrt((G_err[j] / G[j]) ** 2 + (total_err / rgb_total) ** 2)
+                if G[j] > 0
+                else 1e-3
+            )
+            B_norm_err = (
+                B_norm
+                * np.sqrt((B_err[j] / B[j]) ** 2 + (total_err / rgb_total) ** 2)
+                if B[j] > 0
+                else 1e-3
+            )
+
+            # Build argument tuple for standalone function
+            args = (
+                np.array([R_norm, G_norm, B_norm]),
+                sigma_x[j],
+                sigma_y[j],
+                np.array([R_norm_err, G_norm_err, B_norm_err]),
+                sigma_x_err[j],
+                sigma_y_err[j],
+                filter_spectra,
+                wavelength_array,
+                pixel_QYs,
+                NA,
+                fitted_photons[j] if use_snr else None,
+                fitted_background_photons[j] if use_snr else None,
+                wavelength_bounds,
+            )
+
+            fit_args.append(args)
+            valid_indices.append(j)
+
+        if verbose:
+            print(f"Valid fitting tasks: {len(fit_args)}/{n_locs}")
+
+        # Parallel wavelength fitting
+        wl_fits = np.full(n_locs, np.nan)
+        wl_fit_errs = np.full(n_locs, np.nan)
+
+        if len(fit_args) > 0:
+            # Calculate number of workers
+            n_cpus = multiprocessing.cpu_count()
+            n_workers = max(1, int(n_cpus * cpu_fraction))
+
+            if verbose:
+                print(f"\nStarting parallel fitting with {n_workers} workers...")
+                import time
+
+                start_time = time.time()
+
+            # Import standalone function
+            from Multicolour_Simulation_Functions import (
+                _fit_nile_red_wavelength_standalone,
+            )
+
+            with futures.ProcessPoolExecutor(n_workers) as executor:
+                # Submit all fitting tasks
+                future_list = [
+                    executor.submit(_fit_nile_red_wavelength_standalone, *args)
+                    for args in fit_args
+                ]
+
+                # Collect results with progress tracking
+                completed = 0
+                for idx, future in enumerate(future_list):
+                    try:
+                        wl, wl_err = future.result(timeout=30)
+                        wl_fits[valid_indices[idx]] = wl
+                        wl_fit_errs[valid_indices[idx]] = wl_err
+                        completed += 1
+
+                        if verbose and (completed % 100 == 0 or completed == len(fit_args)):
+                            elapsed = time.time() - start_time
+                            rate = completed / elapsed if elapsed > 0 else 0
+                            print(
+                                f"  Progress: {completed}/{len(fit_args)} ({100*completed/len(fit_args):.1f}%) - {rate:.1f} fits/s",
+                                end="\r",
+                                flush=True,
+                            )
+                    except Exception as e:
+                        if verbose:
+                            print(
+                                f"\nWarning: Fit failed for index {valid_indices[idx]}: {e}"
+                            )
+                        wl_fits[valid_indices[idx]] = np.nan
+                        wl_fit_errs[valid_indices[idx]] = np.nan
+
+            if verbose:
+                elapsed = time.time() - start_time
+                print(f"\n\nFitting complete: {elapsed:.1f} s ({len(fit_args)/elapsed:.1f} fits/s)")
+
+        # Add wavelength columns to DataFrame
+        df["wl_fit"] = wl_fits
+        df["wl_fit_err"] = wl_fit_errs
+
+        # Calculate success rate
+        n_successful = np.sum(~np.isnan(wl_fits))
+        success_rate = 100 * n_successful / n_locs
+
+        if verbose:
+            print(f"\nResults:")
+            print(f"  Successful fits: {n_successful}/{n_locs} ({success_rate:.1f}%)")
+            print(
+                f"  Wavelength range: {np.nanmin(wl_fits):.1f} - {np.nanmax(wl_fits):.1f} nm"
+            )
+            print(f"  Mean wavelength: {np.nanmean(wl_fits):.1f} nm")
+            print(f"  Std wavelength: {np.nanstd(wl_fits):.1f} nm")
+
+        # Save to output file if requested
+        if output_path is not None:
+            if verbose:
+                print(f"\nSaving results to: {output_path}")
+
+            df.to_hdf(output_path, key="data", mode="w", format="table")
+
+            if verbose:
+                print("Save complete!")
+
+        if verbose:
+            print(f"\n{'='*60}\n")
+
+        return df

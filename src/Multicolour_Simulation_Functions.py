@@ -933,7 +933,7 @@ class MultiC_Sim_Funcs_Refactored:
                         config.NA,
                         fitted_photons[j],  # Pass fitted photon count
                         fitted_background_photons[j],  # Pass fitted background photons
-                        (580.0, 700.0),  # wavelength_bounds - default range
+                        (500.0, 750.0),  # wavelength_bounds - extended range for Nile Red
                     )
                 )
                 valid_indices.append(j)
