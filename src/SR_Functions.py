@@ -304,9 +304,41 @@ class SuperRes_Functions:
         smoothed_roi = self.io.apply_smoothing(
             photoelectron_roi, smoothing_function, dtype="float32"
         )
-        weights_roi = self.io.generate_weights(
-            smoothed_roi, read_noise=read_noise_roi, dtype="float32"
-        )
+
+        # CRITICAL FIX FOR EVER: Weights must be calculated from ORIGINAL data variance,
+        # not from EVER-subtracted data (which can be negative and gets clipped to 0)
+        if fitting_data_is_photoelectrons and raw_data_for_fitting is not None:
+            # EVER mode: photoelectron_roi contains EVER-subtracted data (can be negative)
+            # For weights, we need the variance from the ORIGINAL photoelectrons
+            # Extract the same ROI from original raw_data and convert to photoelectrons
+            if is_multi_frame:
+                original_raw_roi = (
+                    raw_data[frame, ymin:ymax, xmin:xmax]
+                    if len(raw_data.shape) > 2
+                    else raw_data[ymin:ymax, xmin:xmax]
+                )
+            else:
+                original_raw_roi = raw_data[ymin:ymax, xmin:xmax]
+
+            # Convert original raw data to photoelectrons
+            original_pe_roi = self.io.convert_to_photoelectrons(
+                original_raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
+            )
+
+            # Smooth the ORIGINAL photoelectrons for variance estimation
+            smoothed_for_weights = self.io.apply_smoothing(
+                original_pe_roi, smoothing_function, dtype="float32"
+            )
+
+            # Generate weights from ORIGINAL data (all positive, correct variance)
+            weights_roi = self.io.generate_weights(
+                smoothed_for_weights, read_noise=read_noise_roi, dtype="float32"
+            )
+        else:
+            # Normal mode: use smoothed EVER-subtracted data (same as before)
+            weights_roi = self.io.generate_weights(
+                smoothed_roi, read_noise=read_noise_roi, dtype="float32"
+            )
 
         # Extract mask ROI (note: masks are indexed as [row, col] = [y, x])
         mask_roi = masks[ymin:ymax, xmin:xmax, :]
@@ -333,6 +365,7 @@ class SuperRes_Functions:
         frame_offset=0,
         is_multi_frame=False,
         raw_data_for_fitting=None,
+        fitting_data_is_photoelectrons=False,
     ):
         """Process a batch of detected puncta into fitting-ready ROIs.
 
@@ -407,6 +440,7 @@ class SuperRes_Functions:
                 frame_offset=frame_offset,
                 is_multi_frame=is_multi_frame,
                 raw_data_for_fitting=raw_data_for_fitting,
+                fitting_data_is_photoelectrons=fitting_data_is_photoelectrons,
             )
 
             if result is None:
@@ -661,6 +695,7 @@ class SuperRes_Functions:
             frame_offset=0,
             is_multi_frame=False,
             raw_data_for_fitting=raw_data_for_fitting,
+            fitting_data_is_photoelectrons=(temporal_median_mode != TemporalMedianMode.NONE),
         )
         gc.collect()
 
@@ -1708,6 +1743,7 @@ class SuperRes_Functions:
                     + chunk_start,  # Global frame offset including chunk
                     is_multi_frame=True,
                     raw_data_for_fitting=raw_data_for_fitting,
+                    fitting_data_is_photoelectrons=(temporal_median_mode != TemporalMedianMode.NONE),
                 )
 
                 # Accumulate results from this chunk
