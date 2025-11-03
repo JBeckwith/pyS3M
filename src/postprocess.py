@@ -2,7 +2,7 @@
     gui/postprocess
     ~~~~~~~~~~~~~~~~~~~~
 
-    Data analysis of localization lists
+    Data analysis of localisation lists
 
     :authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
     :copyright: Copyright (c) 2015-2018 Jungmann Lab, MPI Biochemistry
@@ -200,14 +200,14 @@ def picked_locs(
     callback=None,
     parallel=False,
 ):
-    """Finds picked localizations.
+    """Finds picked localisations.
 
     Parameters
     ----------
     locs : np.recarray
         Localization list.
     info : list of dicts
-        Metadata of the localizations list.
+        Metadata of the localisations list.
     picks : list
         List of picks.
     pick_shape : {'Circle', 'Rectangle', 'Polygon'}
@@ -719,7 +719,7 @@ def compute_local_density(locs, info, radius):
 def compute_dark_times(locs, group=None):
 
     if "len" not in locs.dtype.names:
-        raise AttributeError("Length not found. Please link localizations first.")
+        raise AttributeError("Length not found. Please link localisations first.")
     dark = dark_times(locs, group)
     locs = lib.append_to_rec(locs, np.int32(dark), "dark")
     locs = locs[locs.dark != -1]
@@ -824,7 +824,7 @@ def weighted_variance(locs):
     return variance_x, variance_y
 
 
-# Combine localizations: calculate the properties of the group
+# Combine localisations: calculate the properties of the group
 def cluster_combine(locs):
     print("Combining localisations...")
     combined_locs = []
@@ -1159,9 +1159,9 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
     return linked_locs
 
 
-def localization_precision(photons, s, bg, em):
+def localisation_precision(photons, s, bg, em):
     """
-    Calculates the theoretical localization precision according to
+    Calculates the theoretical localisation precision according to
     Mortensen et al., Nat Meth, 2010 for a 2D unweighted Gaussian fit.
     """
     s2 = s**2
@@ -1239,7 +1239,7 @@ def undrift(
     drift : np.recarray
         Calculated drift values
     locs : np.recarray
-        Undrifted localization data
+        Undrifted localisation data
     """
 
     bounds, segments = segment(
@@ -1266,9 +1266,9 @@ def undrift(
 
 
 def undrift_from_picked(picked_locs, n_frames):
-    """Finds drift from picked localizations. Note that unlike other
+    """Finds drift from picked localisations. Note that unlike other
     undrifting functions, this function does not return undrifted
-    localizations but only drift."""
+    localisations but only drift."""
 
     drift_x = _undrift_from_picked_coordinate(picked_locs, n_frames, "xc")
     drift_y = _undrift_from_picked_coordinate(picked_locs, n_frames, "yc")
@@ -1320,7 +1320,7 @@ def _undrift_from_picked_coordinate(picked_locs, n_frames, coordinate):
     drift_mean = np.ma.average(drift, axis=0, weights=1 / msd)
     drift_mean = drift_mean.filled(np.nan)
 
-    # Linear interpolation for frames without localizations
+    # Linear interpolation for frames without localisations
     def nan_helper(y):
         return np.isnan(y), lambda z: z.nonzero()[0]
 
@@ -1424,7 +1424,7 @@ def _parallel_picked_locs_rectangle(
         height: Image height
         picks: List of rectangle picks in format [((xs,ys), (xe,ye)), ...]
         pick_size: Size of the pick region
-        add_group: Whether to add group IDs to localizations
+        add_group: Whether to add group IDs to localisations
         callback: Progress callback function
 
     Returns:
@@ -1539,7 +1539,7 @@ def _process_single_rectangle_pick(locs, original_idx, pick, pick_size, add_grou
         add_group: Whether to add group IDs
 
     Returns:
-        Tuple of (original_index, filtered_localizations)
+        Tuple of (original_index, filtered_localisations)
     """
     try:
         # Import required modules
@@ -1554,7 +1554,7 @@ def _process_single_rectangle_pick(locs, original_idx, pick, pick_size, add_grou
         x_min, x_max = min(X), max(X)
         y_min, y_max = min(Y), max(Y)
 
-        # Filter localizations by bounding box (fast pre-filter)
+        # Filter localisations by bounding box (fast pre-filter)
         group_locs = locs[
             (locs.xc > x_min)
             & (locs.xc < x_max)
@@ -1616,7 +1616,7 @@ def _process_rectangle_pick_chunk(
                 x_min, x_max = min(X), max(X)
                 y_min, y_max = min(Y), max(Y)
 
-                # Filter localizations by bounding box
+                # Filter localisations by bounding box
                 group_locs = locs[
                     (locs.xc > x_min)
                     & (locs.xc < x_max)
@@ -1682,7 +1682,7 @@ def _parallel_picked_locs_circle(
         height: Image height
         picks: List of circle picks in format [(x, y), ...]
         pick_size: Radius of the pick circles
-        add_group: Whether to add group IDs to localizations
+        add_group: Whether to add group IDs to localisations
         callback: Progress callback function
 
     Returns:
@@ -1803,7 +1803,7 @@ def _process_single_circle_pick(
         add_group: Whether to add group IDs
 
     Returns:
-        Tuple of (original_index, filtered_localizations)
+        Tuple of (original_index, filtered_localisations)
     """
     try:
         # Import required modules
@@ -1852,7 +1852,7 @@ def _process_circle_pick_chunk(
         add_group: Whether to add group IDs
 
     Returns:
-        List of (original_index, filtered_localizations) tuples
+        List of (original_index, filtered_localisations) tuples
     """
     try:
         # Import required modules (needed in each worker process)
@@ -1869,7 +1869,7 @@ def _process_circle_pick_chunk(
             try:
                 x, y = pick
 
-                # Get localizations in spatial vicinity
+                # Get localisations in spatial vicinity
                 block_locs = get_block_locs_at(x, y, index_blocks)
 
                 # Apply circular filtering
@@ -1949,7 +1949,7 @@ def _serial_picked_locs_circle(
             try:
                 x, y = pick
 
-                # Get localizations in spatial vicinity
+                # Get localisations in spatial vicinity
                 block_locs = get_block_locs_at(x, y, index_blocks)
 
                 # Apply circular filtering
@@ -2030,7 +2030,7 @@ def _serial_picked_locs_rectangle(
                 x_min, x_max = min(X), max(X)
                 y_min, y_max = min(Y), max(Y)
 
-                # Filter localizations
+                # Filter localisations
                 group_locs = locs[
                     (locs.xc > x_min)
                     & (locs.xc < x_max)
@@ -2078,3 +2078,435 @@ def _serial_picked_locs_rectangle(
             progress_bar_context.__exit__(None, None, None)
 
     return picked_locs
+
+
+def segment_locs_by_rendered_image(
+    locs,
+    width,
+    height,
+    oversampling=8,
+    pixel_size_nm=69.0,
+    min_area_nm2=100.0,
+    min_localisations=100,
+    threshold_method="otsu",
+    blur_method="smooth",
+    callback=None,
+    verbose=False,
+):
+    """
+    Memory-efficient aggregate detection using image-based segmentation.
+
+    This function replaces memory-intensive DBSCAN clustering with a more efficient
+    approach:
+    1. Render localisations to a super-resolved image
+    2. Apply thresholding (Otsu or Li) to detect objects
+    3. Filter objects by area threshold
+    4. Extract localisations within valid regions
+
+    This approach is ~10-100x more memory efficient than DBSCAN for large datasets.
+
+    Parameters
+    ----------
+    locs : pd.DataFrame or np.recarray
+        Localization data with at least 'xc', 'yc' columns
+    width : float
+        Image width in pixels (camera pixels, not super-res)
+    height : float
+        Image height in pixels (camera pixels, not super-res)
+    oversampling : int, optional
+        Super-resolution oversampling factor (default: 8)
+    pixel_size_nm : float, optional
+        Size of one camera pixel in nanometers (default: 69.0 nm)
+        Used to convert areas from pixels to physical units.
+    min_area_nm2 : float, optional
+        Minimum area in square nanometers for valid aggregates (default: 100.0 nm²)
+    min_localisations : int, optional
+        Minimum number of localisations per aggregate (default: 100)
+    threshold_method : str, optional
+        Thresholding method: 'otsu', 'li', or 'percentile' (default: 'otsu')
+    blur_method : str, optional
+        Blur method for rendering: 'smooth', 'gaussian', or None (default: 'smooth')
+    callback : callable or str, optional
+        Progress callback. If 'console', uses tqdm progress bar.
+    verbose : bool, optional
+        If True, display diagnostic plots showing the rendered image,
+        binary mask, and labeled regions (default: False)
+
+    Returns
+    -------
+    aggregate_locs : pd.DataFrame or np.recarray
+        Localizations within valid aggregates with added columns:
+        - 'aggregate_id': Unique ID for each aggregate
+        - 'aggregate_area_nm2': Area of the aggregate in nm²
+    per_aggregate_stats : pd.DataFrame or np.recarray
+        Per-aggregate statistics with one row per aggregate
+
+    Examples
+    --------
+    >>> # Basic usage
+    >>> agg_locs, stats = segment_locs_by_rendered_image(
+    ...     locs, width=2048, height=2048, min_area_nm2=100.0
+    ... )
+    >>>
+    >>> # With custom threshold and progress bar
+    >>> agg_locs, stats = segment_locs_by_rendered_image(
+    ...     locs, width=2048, height=2048,
+    ...     threshold_method='li',
+    ...     min_localisations=50,
+    ...     min_area_nm2=50.0,
+    ...     callback='console'
+    ... )
+    """
+    try:
+        # Import required modules
+        from skimage import filters, measure
+        import pandas as pd
+    except ImportError as e:
+        raise ImportError(
+            f"Required module not found: {e}. "
+            "Please install scikit-image: pip install scikit-image"
+        )
+
+    # Convert to pandas DataFrame if numpy recarray
+    if isinstance(locs, np.recarray):
+        locs_df = pd.DataFrame(locs)
+    else:
+        locs_df = locs.copy()
+
+    # Validate required columns
+    if "xc" not in locs_df.columns or "yc" not in locs_df.columns:
+        raise ValueError("Localizations must have 'xc' and 'yc' columns")
+
+    # Step 1: Render super-resolved image
+    if callback == "console" or callback is not None:
+        print("Step 1/5: Rendering super-resolved image...")
+
+    info = [{
+    "Width": width,         # Image width in pixels
+    "Height": height,        # Image height in pixels
+    "Frames": np.max(locs_df['frame']),      # Total number of frames in the movie
+    "Pixelsize": pixel_size_nm,        # pixel size always in nm
+    }]
+
+    n_locs, rendered_image = render.render(
+        locs=locs_df.to_records(index=False) if isinstance(locs_df, pd.DataFrame) else locs_df,
+        oversampling=oversampling,
+        info=info,
+        blur_method=blur_method,
+    )
+
+    # Step 2: Apply thresholding
+    if callback == "console" or callback is not None:
+        print(f"Step 2/5: Applying {threshold_method} thresholding...")
+
+    if threshold_method == "otsu":
+        threshold = filters.threshold_otsu(rendered_image)
+    elif threshold_method == "li":
+        threshold = filters.threshold_li(rendered_image)
+    elif threshold_method == "percentile":
+        threshold = np.percentile(rendered_image[rendered_image > 0], 95)
+    else:
+        raise ValueError(
+            f"Unknown threshold_method: {threshold_method}. "
+            "Choose from 'otsu', 'li', or 'percentile'"
+        )
+
+    binary_image = rendered_image > threshold
+
+    # Step 3: Label connected components
+    if callback == "console" or callback is not None:
+        print("Step 3/5: Detecting connected regions...")
+
+    label_image = measure.label(binary_image)
+    regions = measure.regionprops(label_image)
+
+    # Step 4: Filter by area and count localisations
+    if callback == "console" or callback is not None:
+        print("Step 4/5: Filtering aggregates by size and localisation count...")
+
+    valid_regions = []
+    # Calculate super-resolved pixel size
+    # If oversampling=8 and camera pixel=69nm, then super-res pixel = 69/8 = 8.625nm
+    superres_pixel_size_nm = pixel_size_nm / oversampling
+
+    # Convert min_area from nm² to super-resolved pixels²
+    min_area_pixels = min_area_nm2 / (superres_pixel_size_nm ** 2)
+
+    for region in regions:
+        # Check area threshold
+        if region.area >= min_area_pixels:
+            # Create mask for this region
+            minr, minc, maxr, maxc = region.bbox
+
+            # Convert to camera pixel coordinates
+            x_min = minc / oversampling
+            x_max = maxc / oversampling
+            y_min = minr / oversampling
+            y_max = maxr / oversampling
+
+            # Find localisations in bounding box
+            in_bbox = (
+                (locs_df["xc"] >= x_min)
+                & (locs_df["xc"] <= x_max)
+                & (locs_df["yc"] >= y_min)
+                & (locs_df["yc"] <= y_max)
+            )
+            bbox_locs = locs_df[in_bbox]
+
+            # Further filter by actual region mask
+            x_sr = ((bbox_locs["xc"] - x_min) * oversampling).astype(int)
+            y_sr = ((bbox_locs["yc"] - y_min) * oversampling).astype(int)
+
+            # Clamp coordinates to mask bounds
+            x_sr = np.clip(x_sr, 0, maxc - minc - 1)
+            y_sr = np.clip(y_sr, 0, maxr - minr - 1)
+
+            # Check which localisations are inside the region
+            region_mask = region.image
+            in_region = region_mask[y_sr, x_sr]
+
+            n_locs_in_region = np.sum(in_region)
+
+            # Check localisation count threshold
+            if n_locs_in_region >= min_localisations:
+                valid_regions.append({
+                    "region": region,
+                    "label": region.label,
+                    "area_nm2": region.area * (superres_pixel_size_nm ** 2),
+                    "n_localisations": n_locs_in_region,
+                })
+
+    # Display diagnostic plots if verbose
+    if verbose:
+        try:
+            import matplotlib.pyplot as plt
+            from PlottingBase import AnalysisPlotter
+
+            plotter = AnalysisPlotter()
+
+            # Create a 3-panel figure
+            fig, axs = plotter.create_subplots(
+                nrows=3, ncols=1, figsize=(8, 12), height_ratios=[1, 1, 1]
+            )
+
+            # Panel 1: Rendered super-resolved image
+            im1 = plotter.create_image_plot(
+                axs[0],
+                rendered_image.T,
+                cmap="inferno",
+                origin="lower",
+            )
+            plotter.add_colorbar(im1, axs[0], label="Localisations")
+            plotter.add_scalebar(axs[0], pixelsize=superres_pixel_size_nm, length_nm=1000, location="lower right")
+            axs[0].set_title(f"Step 1: Rendered Image ({len(locs_df)} locs)", fontsize=10)
+
+            # Panel 2: Binary thresholded image
+            im2 = plotter.create_image_plot(
+                axs[1],
+                binary_image.T.astype(float),  # Convert boolean to float for plotting
+                cmap="gray",
+                vmin=0,
+                vmax=1,
+                origin="lower",
+            )
+            plotter.add_scalebar(axs[1], pixelsize=superres_pixel_size_nm, length_nm=1000, location="lower right")
+            axs[1].set_title(
+                f"Step 2: Binary Mask (threshold={threshold:.2f}, {threshold_method})",
+                fontsize=10
+            )
+
+            # Panel 3: Labeled regions with valid aggregates highlighted
+            # Create a color image showing valid vs invalid regions
+            display_image = np.zeros_like(label_image, dtype=float)
+            valid_labels = [r["label"] for r in valid_regions]
+
+            for region in regions:
+                if region.label in valid_labels:
+                    display_image[label_image == region.label] = 2  # Valid aggregates
+                else:
+                    display_image[label_image == region.label] = 1  # Rejected regions
+
+            im3 = plotter.create_image_plot(
+                axs[2],
+                display_image.T,
+                cmap="Set1",
+                vmin=0,
+                vmax=3,
+                origin="lower",
+            )
+            plotter.add_colorbar(im3, axs[2], label="Region type (1=rejected, 2=valid)")
+            plotter.add_scalebar(axs[2], pixelsize=superres_pixel_size_nm, length_nm=1000, location="lower right")
+            axs[2].set_title(
+                f"Step 3: Labeled Regions ({len(valid_regions)}/{len(regions)} valid)",
+                fontsize=10
+            )
+
+            plt.tight_layout()
+            plotter.save_or_show(fig, show=True)
+
+        except Exception as e:
+            print(f"Warning: Could not display verbose plots: {e}")
+            import traceback
+            traceback.print_exc()
+
+    if len(valid_regions) == 0:
+        # Provide diagnostic information
+        if len(regions) > 0:
+            region_areas_nm2 = [r.area * (superres_pixel_size_nm ** 2) for r in regions]
+            print(
+                f"Warning: No valid aggregates found (tried {len(regions)} regions).\n"
+                f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n"
+                f"  Min area threshold: {min_area_nm2:.1f} nm² ({min_area_pixels:.1f} pixels)\n"
+                f"  Min localisations: {min_localisations}\n"
+                f"  Region areas found: min={min(region_areas_nm2):.1f} nm², "
+                f"max={max(region_areas_nm2):.1f} nm², mean={np.mean(region_areas_nm2):.1f} nm²\n"
+                f"Suggestions:\n"
+                f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n"
+                f"  - Try reducing min_area_nm2 (current: {min_area_nm2:.1f} nm²)\n"
+                f"  - Try reducing min_localisations (current: {min_localisations})\n"
+                f"  - Use verbose=True to visualize the thresholding"
+            )
+        else:
+            print(
+                f"Warning: No regions detected after thresholding.\n"
+                f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n"
+                f"  Image stats: min={rendered_image.min():.4f}, max={rendered_image.max():.4f}, "
+                f"mean={rendered_image.mean():.4f}\n"
+                f"Suggestions:\n"
+                f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n"
+                f"  - Use verbose=True to visualize the image and threshold"
+            )
+        # Return empty results
+        empty_locs = locs_df.iloc[:0].copy()
+        empty_locs["aggregate_id"] = pd.Series(dtype=int)
+        empty_locs["aggregate_area_nm2"] = pd.Series(dtype=float)
+        empty_stats = pd.DataFrame(columns=["aggregate_id", "area_nm2", "n_localisations"])
+        return empty_locs, empty_stats
+
+    if callback == "console" or callback is not None:
+        print(
+            f"Found {len(valid_regions)} valid aggregates "
+            f"(from {len(regions)} total regions)"
+        )
+
+    # Step 5: Extract localisations and compute statistics
+    if callback == "console" or callback is not None:
+        print("Step 5/5: Extracting localisations and computing statistics...")
+
+    aggregate_locs_list = []
+    per_aggregate_stats_list = []
+
+    # Set up progress bar for aggregates
+    progress_bar_context = None
+    progress = None
+    if callback == "console":
+        progress_bar_context = ProgressUtils.analysis_progress_bar(
+            total=len(valid_regions), desc="Processing aggregates"
+        )
+        progress = progress_bar_context.__enter__()
+
+    try:
+        for i, region_info in enumerate(valid_regions):
+            region = region_info["region"]
+            minr, minc, maxr, maxc = region.bbox
+
+            # Convert to camera pixel coordinates
+            x_min = minc / oversampling
+            x_max = maxc / oversampling
+            y_min = minr / oversampling
+            y_max = maxr / oversampling
+
+            # Find localisations in bounding box
+            in_bbox = (
+                (locs_df["xc"] >= x_min)
+                & (locs_df["xc"] <= x_max)
+                & (locs_df["yc"] >= y_min)
+                & (locs_df["yc"] <= y_max)
+            )
+            bbox_locs = locs_df[in_bbox].copy()
+
+            # Further filter by actual region mask
+            x_sr = ((bbox_locs["xc"] - x_min) * oversampling).astype(int)
+            y_sr = ((bbox_locs["yc"] - y_min) * oversampling).astype(int)
+
+            # Clamp coordinates to mask bounds
+            x_sr = np.clip(x_sr, 0, maxc - minc - 1)
+            y_sr = np.clip(y_sr, 0, maxr - minr - 1)
+
+            # Check which localisations are inside the region
+            region_mask = region.image
+            in_region = region_mask[y_sr, x_sr]
+
+            # Get localisations in this aggregate
+            aggregate_locs = bbox_locs[in_region].copy()
+
+            # Add aggregate ID and area
+            aggregate_locs["aggregate_id"] = i
+            aggregate_locs["aggregate_area_nm2"] = region_info["area_nm2"]
+
+            aggregate_locs_list.append(aggregate_locs)
+
+            # Compute per-aggregate statistics
+            stats = {
+                "aggregate_id": i,
+                "area_nm2": region_info["area_nm2"],
+                "n_localisations": len(aggregate_locs),
+            }
+
+            # Add mean values for numerical columns
+            # Use the original column names (without _mean suffix) for compatibility
+            # with downstream analysis functions (e.g., Nile Red functions)
+            for col in aggregate_locs.columns:
+                # Skip columns we don't want to average
+                if col in ["aggregate_id", "aggregate_area_nm2", "frame"]:
+                    continue
+
+                # Skip error columns (they'll be handled separately)
+                if col.endswith("_err"):
+                    continue
+
+                if np.issubdtype(aggregate_locs[col].dtype, np.number):
+                    # Sum photons instead of averaging
+                    if col == "photons":
+                        stats[col] = aggregate_locs[col].sum()
+                    # Use weighted mean if error column exists
+                    elif f"{col}_err" in aggregate_locs.columns:
+                        # Weight by 1/error (not 1/error²) as per NileRedFunctions convention
+                        errors = aggregate_locs[f"{col}_err"]
+                        weights = 1.0 / errors
+                        stats[col] = np.average(aggregate_locs[col], weights=weights)
+
+                        # Propagate error: σ_mean = 1 / sqrt(Σ(1/σ_i²))
+                        stats[f"{col}_err"] = 1.0 / np.sqrt(np.sum(1.0 / errors**2))
+                    else:
+                        # Simple mean for columns without errors
+                        stats[col] = aggregate_locs[col].mean()
+
+            per_aggregate_stats_list.append(stats)
+
+            # Update progress
+            if callback == "console" and progress:
+                progress.update(1)
+            elif callable(callback):
+                callback(i + 1)
+
+    finally:
+        if progress_bar_context:
+            progress_bar_context.__exit__(None, None, None)
+
+    # Combine results
+    aggregate_locs_combined = pd.concat(aggregate_locs_list, ignore_index=True)
+    per_aggregate_stats = pd.DataFrame(per_aggregate_stats_list)
+
+    # Add frame column to per_aggregate_stats for compatibility with IO functions
+    # Since this is aggregate-level data, we use frame=0 as a placeholder
+    if "frame" not in per_aggregate_stats.columns:
+        per_aggregate_stats["frame"] = 0
+
+    if callback == "console" or callback is not None:
+        print(
+            f"✓ Complete! Extracted {len(aggregate_locs_combined)} localisations "
+            f"in {len(valid_regions)} aggregates"
+        )
+
+    return aggregate_locs_combined, per_aggregate_stats

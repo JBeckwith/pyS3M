@@ -138,6 +138,7 @@ class SimulationConfig:
     subtractx0y0: bool = False
     saverawimages: bool = False
     use_lut: bool = True
+    use_stochastic_photons: bool = True
 
     def __post_init__(self):
         """
@@ -411,11 +412,29 @@ class MultiC_Sim_Funcs_Refactored:
             # Only validate dye_pixel_efficiency if it's provided (not None)
             if dye_pixel_efficiency is not None:
                 if len(dye_pixel_efficiency.shape) > 1:
-                    if len(x0y0.keys()) != dye_pixel_efficiency.shape[0]:
-                        raise SimulationValidationError(
-                            "x0y0 dictionary does not contain correct number of localisation arrays."
-                        )
+                    # Check if this is stochastic mode (per-frame colour ratios)
+                    # In stochastic mode, shape is (n_bootstrap, 3) for single dye
+                    # In deterministic mode, shape is (n_dyes, 3) for multi-dye
+                    # We can distinguish by checking if shape[0] matches number of bootstrap samples
+                    # from any x0y0 entry (all have same number of frames)
+                    n_frames_in_x0y0 = list(x0y0.values())[0].shape[0]
+
+                    # If first dimension matches n_frames, this is stochastic single-dye mode
+                    if dye_pixel_efficiency.shape[0] == n_frames_in_x0y0:
+                        # Stochastic mode: should have exactly 1 dye
+                        if len(x0y0.keys()) != 1:
+                            raise SimulationValidationError(
+                                "x0y0 dictionary does not contain correct number of localisation arrays "
+                                "(stochastic mode requires single dye)."
+                            )
+                    else:
+                        # Deterministic multi-dye mode: first dimension is number of dyes
+                        if len(x0y0.keys()) != dye_pixel_efficiency.shape[0]:
+                            raise SimulationValidationError(
+                                "x0y0 dictionary does not contain correct number of localisation arrays."
+                            )
                 else:
+                    # 1D array: deterministic single-dye mode
                     if len(x0y0.keys()) != 1:
                         raise SimulationValidationError(
                             "x0y0 dictionary does not contain correct number of localisation arrays."
@@ -1383,9 +1402,25 @@ class MultiC_Sim_Funcs_Refactored:
         relative_QE = camera_calibration["rqe"]
 
         # Calculate sigma in nm, then convert to pixels for PSF generation
-        sigma_nm = self.psf.sigma_PSF(average_emission_wavelengths, NA)
-        sigma_x = sigma_nm / pixel_size  # Convert to pixels
-        sigma_y = sigma_x
+        # Handle both scalar wavelengths (deterministic) and per-frame wavelengths (stochastic)
+        # Use ndim to distinguish: 0 or scalar = deterministic, 1+ = stochastic (per-frame)
+        if np.ndim(average_emission_wavelengths) == 0 or np.isscalar(average_emission_wavelengths):
+            # Deterministic: single wavelength for all frames
+            sigma_nm = self.psf.sigma_PSF(average_emission_wavelengths, NA)
+            sigma_x = sigma_nm / pixel_size
+            sigma_y = sigma_x
+            sigma_per_frame = None  # Flag that sigma is constant
+        else:
+            # Stochastic: array of wavelengths, one per frame
+            # Pre-compute sigma for each frame
+            sigma_nm_array = np.array([
+                self.psf.sigma_PSF(wl, NA) for wl in average_emission_wavelengths
+            ])
+            sigma_per_frame = sigma_nm_array / pixel_size
+            # Initialize sigma_x, sigma_y (will be updated per frame)
+            sigma_x = sigma_per_frame[0]
+            sigma_y = sigma_x
+
         pixel_colours = camera_calibration["pixel_order"]
 
         if return_normal_image:
@@ -1450,6 +1485,36 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Generate images for each frame
         for frame in range(s):
+            # Update sigma if per-frame wavelengths (stochastic mode)
+            if sigma_per_frame is not None:
+                sigma_x = sigma_per_frame[frame]
+                sigma_y = sigma_x
+
+            # Update abs_QE and background if per-frame colour ratios (stochastic mode)
+            # Check if dye_pixel_efficiency has per-frame dimension: (n_frames, n_colours)
+            if dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s:
+                # Stochastic mode: recalculate abs_QE for this frame
+                abs_QE_frame = np.zeros([w, h, len(dye_names)])
+                background_photons_matrix_frame = np.zeros([w, h, len(dye_names)])
+
+                for j, dye in enumerate(dye_names):
+                    for i, colour in enumerate(pixel_colours):
+                        # Use frame-specific colour ratios
+                        dpe = dye_pixel_efficiency[frame, i]
+
+                        abs_QE_frame[:, :, j] += masks[colour] * dpe
+
+                        if dpe != 0:
+                            background_photons_matrix_frame[:, :, j] += (
+                                masks[colour]
+                                * (background_colour_normalized[i] / dpe)
+                                * background_photons_perdye
+                            )
+            else:
+                # Deterministic mode: use pre-computed values
+                abs_QE_frame = abs_QE
+                background_photons_matrix_frame = background_photons_matrix
+
             n_photons_hitting_detector = np.zeros([w, h, len(dye_names)], dtype=int)
             n_photoelectrons = np.zeros_like(n_photons_hitting_detector)
 
@@ -1502,11 +1567,11 @@ class MultiC_Sim_Funcs_Refactored:
 
                     n_photons_hitting_detector[:, :, j] = (
                         self.psf.gen_photons_hitting_detector(
-                            photon_spatial_pdf, background_photons_matrix[:, :, j]
+                            photon_spatial_pdf, background_photons_matrix_frame[:, :, j]
                         )
                     )
                     n_photoelectrons[:, :, j] = self.psf.gen_photoelectrons(
-                        n_photons_hitting_detector[:, :, j], abs_QE[:, :, j]
+                        n_photons_hitting_detector[:, :, j], abs_QE_frame[:, :, j]
                     )
 
             bayer_image[frame, :, :] = self.psf.photoelectrons_to_image(
@@ -1715,12 +1780,51 @@ class MultiC_Sim_Funcs_Refactored:
         for i, n_photon in enumerate(n_photon_space):
             n_photons = {"dye": np.full(config.n_bootstrap, n_photon)}
 
+            # Stochastic photon sampling for realistic shot noise
+            if config.use_stochastic_photons:
+                # Prepare full spectrum (emission × filters × pixel QE if needed)
+                if single_dye_spectrum is not None:
+                    # Use provided spectrum (already filtered)
+                    full_spectrum = filtered_spectrum
+                else:
+                    # Get spectrum from database
+                    dye_spectrum = S_F.get_dye_or_filter_data(
+                        names=[dye], wavelength=wavelength, dye_or_filter=True
+                    )
+                    filter_spectra = S_F.get_dye_or_filter_data(
+                        names=filters, wavelength=wavelength, dye_or_filter=False
+                    )
+                    total_filter_transmission = np.prod(filter_spectra, axis=0)
+                    full_spectrum = dye_spectrum[0] * total_filter_transmission
+
+                # Generate stochastic colour ratios and wavelengths for bootstrap samples
+                mean_wavelengths_bootstrap, colour_ratios_bootstrap = (
+                    S_F.generate_bootstrap_colour_ratios(
+                        full_spectrum,
+                        wavelength,
+                        camera_params.pixel_QYs,
+                        n_photons_per_image=int(n_photon),
+                        n_bootstrap=config.n_bootstrap,
+                        pixel_order=camera_params.pixel_order,
+                        pixel_order_indices=camera_params.pixel_order_indices,
+                        random_state=np.random.default_rng(),
+                    )
+                )
+
+                # Use stochastic values instead of deterministic
+                average_emission_wavelength_for_this_photon = mean_wavelengths_bootstrap
+                dye_pixel_efficiency_for_this_photon = colour_ratios_bootstrap
+            else:
+                # Use deterministic values (backwards compatibility)
+                average_emission_wavelength_for_this_photon = average_emission_wavelength
+                dye_pixel_efficiency_for_this_photon = dye_pixel_efficiency
+
             # Generate images
             bayer_image, smoothed_image, _ = self.gen_camera_image_stack(
                 camera_parameters,
                 wavelength,
-                average_emission_wavelength,
-                dye_pixel_efficiency,
+                average_emission_wavelength_for_this_photon,
+                dye_pixel_efficiency_for_this_photon,
                 n_photons,
                 x0y0,
                 smoothing_function=smoothing_function,
@@ -1988,4 +2092,907 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         - Support for both real and simulated fluorophore spectra
     """
 
-    pass
+    def _filter_dyes_by_photons(
+        self,
+        potential_dyes: List[str],
+        single_molecule_dyes: np.ndarray,
+        filters: List[str],
+        camera_parameters: Dict[str, Any],
+        wavelength: np.ndarray,
+        min_photons_per_100ms: int = 500,
+        integration_time_ms: float = 100,
+        excitation_power_scaling: float = 1.0,
+    ) -> Dict[str, Any]:
+        """
+        Filter candidate dyes by expected photon yield.
+
+        Args:
+            potential_dyes: List of dye names to consider
+            single_molecule_dyes: Array with columns [name, photons_per_100ms]
+                Column 1 contains photons per 100ms under standard conditions
+            filters: Filter names for transmission calculation
+            camera_parameters: Camera parameters with pixel_QYs
+            wavelength: Wavelength array for spectral calculations
+            min_photons_per_100ms: Minimum expected photons at detector (default: 500)
+            integration_time_ms: Integration time in ms (default: 100)
+            excitation_power_scaling: Scaling factor for photon counts (default: 1.0)
+
+        Returns:
+            dict: {
+                'viable_dyes': list of dye names passing threshold,
+                'expected_photons': dict mapping dye_name -> source photons (before camera QE),
+                'expected_photons_at_detector': dict mapping dye_name -> detector photons (after camera QE),
+                'effective_qe': dict mapping dye_name -> effective camera QE,
+                'photons_per_100ms': dict mapping dye_name -> photons_per_100ms
+            }
+        """
+        # Calculate filter transmission
+        filter_spectrum = np.prod(
+            self.spectral.get_dye_or_filter_data(
+                names=filters, wavelength=wavelength, dye_or_filter=False
+            ),
+            axis=0,
+        )
+
+        # Get dye spectra
+        dye_spectra = self.spectral.get_dye_or_filter_data(
+            potential_dyes, wavelength=wavelength
+        )
+
+        # Normalize dye spectra at detector
+        dye_at_detector_spectra = np.array(
+            np.multiply(dye_spectra, filter_spectrum).T
+            / np.sum(np.multiply(dye_spectra, filter_spectrum), axis=1)
+        ).T
+
+        # Bayer pattern: B, G, G, R (4 pixels)
+        pixel_QYs_bayer = np.vstack(
+            [
+                camera_parameters["pixel_QYs"][0, :],  # B
+                camera_parameters["pixel_QYs"][1, :],  # G
+                camera_parameters["pixel_QYs"][1, :],  # G
+                camera_parameters["pixel_QYs"][2, :],  # R
+            ]
+        )
+
+        viable_dyes = []
+        expected_photons = {}
+        effective_qe = {}
+        photons_per_100ms_dict = {}
+
+        for dye_idx, dye_name in enumerate(potential_dyes):
+            # Find dye in single_molecule_dyes
+            idx = np.where(single_molecule_dyes[:, 0] == dye_name)[0]
+
+            if len(idx) == 0:
+                logger.warning(
+                    f"{dye_name} not found in single_molecule_dyes array, skipping"
+                )
+                continue
+
+            # Get photons per 100ms (column 1 of single_molecule_dyes)
+            photons_per_100ms = float(single_molecule_dyes[idx[0], 1])
+            photons_per_100ms_dict[dye_name] = photons_per_100ms
+
+            # Calculate effective QE (average over Bayer pattern)
+            dye_at_detector = dye_at_detector_spectra[dye_idx, :]
+            pixel_efficiency_bayer = np.dot(dye_at_detector, pixel_QYs_bayer.T)
+            eff_qe = np.mean(pixel_efficiency_bayer)
+            effective_qe[dye_name] = eff_qe
+
+            # Expected photons at detector = photons_per_100ms × effective_QE × power_scaling × (integration_time / 100ms)
+            exp_photons_at_detector = (
+                photons_per_100ms * eff_qe * excitation_power_scaling * (integration_time_ms / 100.0)
+            )
+
+            # Source photons (before camera QE) = photons_per_100ms × power_scaling × (integration_time / 100ms)
+            # This is what we pass to gen_camera_image_stack, which applies camera QE internally
+            source_photons = photons_per_100ms * excitation_power_scaling * (integration_time_ms / 100.0)
+
+            expected_photons[dye_name] = source_photons
+
+            # Check threshold using photons at detector
+            if exp_photons_at_detector >= min_photons_per_100ms:
+                viable_dyes.append(dye_name)
+
+        return {
+            "viable_dyes": viable_dyes,
+            "expected_photons": expected_photons,  # Source photons for simulation
+            "expected_photons_at_detector": {dye: phot * eff_qe * excitation_power_scaling * (integration_time_ms / 100.0)
+                                            for dye, phot in photons_per_100ms_dict.items()},
+            "effective_qe": effective_qe,
+            "photons_per_100ms": photons_per_100ms_dict,
+        }
+
+    def _fit_dye_gaussian(self, color_data: Dict[str, np.ndarray]) -> Dict[str, Any]:
+        """
+        Fit 2D Gaussian to (A_R, A_G) color coordinates.
+
+        Args:
+            color_data: Output from _simulate_dye_color_distributions
+
+        Returns:
+            dict: {
+                'mean': np.ndarray of shape (2,) - [mean_A_R, mean_A_G],
+                'covariance': np.ndarray of shape (2, 2) - covariance matrix,
+                'std_A_R': float,
+                'std_A_G': float,
+                'correlation': float - correlation coefficient,
+                'n_valid': int - number of valid (non-NaN) points used
+            }
+        """
+        A_R = color_data['A_R']
+        A_G = color_data['A_G']
+
+        # Filter out NaN values (failed fits)
+        valid_mask = ~(np.isnan(A_R) | np.isnan(A_G))
+        A_R_valid = A_R[valid_mask]
+        A_G_valid = A_G[valid_mask]
+
+        if len(A_R_valid) == 0:
+            raise ValueError("No valid fits - all simulations failed!")
+
+        # Stack into (N, 2) array
+        X = np.vstack([A_R_valid, A_G_valid]).T
+
+        # Calculate mean and covariance
+        mean = np.mean(X, axis=0)
+        covariance = np.cov(X.T)
+
+        # Add regularization to ensure positive definiteness
+        # This is necessary for very high photon counts where variance becomes extremely small
+        # We add a small diagonal term (ridge regularization)
+        min_variance = 1e-5
+        covariance[0, 0] += min_variance
+        covariance[1, 1] += min_variance
+
+        std_A_R = np.sqrt(covariance[0, 0])
+        std_A_G = np.sqrt(covariance[1, 1])
+        correlation = covariance[0, 1] / (std_A_R * std_A_G) if std_A_R * std_A_G > 0 else 0
+
+        return {
+            'mean': mean,
+            'covariance': covariance,
+            'std_A_R': std_A_R,
+            'std_A_G': std_A_G,
+            'correlation': correlation,
+            'n_valid': len(A_R_valid)
+        }
+
+    def _calculate_dye_separability(
+        self,
+        dye_gaussians: Dict[str, Dict[str, Any]],
+        dye_names: List[str],
+        n_monte_carlo: int = 10000
+    ) -> Dict[str, Any]:
+        """
+        Calculate pairwise and overall misidentification rates for dye combinations.
+
+        Uses the analytical approach from SM_extractionfunctions.calculate_analytical_misidentification.
+
+        Args:
+            dye_gaussians: Dict mapping dye_name -> gaussian_params from _fit_dye_gaussian
+            dye_names: Ordered list of dye names
+            n_monte_carlo: Number of Monte Carlo samples for overlap calculation
+
+        Returns:
+            dict: {
+                'confusion_matrix': np.ndarray of shape (n_dyes, n_dyes),
+                    Entry [i, j] = P(classified as j | true dye i),
+                'accuracy_per_dye': np.ndarray of shape (n_dyes,),
+                'overall_accuracy': float,
+                'pairwise_separability': dict mapping (dye_i, dye_j) -> accuracy
+            }
+        """
+        import SM_extractionfunctions
+
+        n_dyes = len(dye_names)
+
+        # Prepare arrays for GMM
+        means = np.array([dye_gaussians[dye]['mean'] for dye in dye_names])
+        covariances = np.array([dye_gaussians[dye]['covariance'] for dye in dye_names])
+        weights = np.ones(n_dyes) / n_dyes  # Equal prior
+
+        # Use SM_extractionfunctions analytical method
+        SM_E = SM_extractionfunctions.extract_SMs()
+        stats = SM_E.calculate_analytical_misidentification(
+            fixed_means=means,
+            covariances=covariances,
+            weights=weights,
+            n_samples=n_monte_carlo,
+            random_state=42
+        )
+
+        # Calculate per-dye accuracy (diagonal of confusion matrix)
+        accuracy_per_dye = np.diag(stats['confusion_matrix'])
+
+        # Calculate pairwise separability
+        pairwise_separability = {}
+        for i in range(n_dyes):
+            for j in range(i + 1, n_dyes):
+                # For pair (i, j), accuracy = mean of diagonal elements in 2x2 submatrix
+                conf = stats['confusion_matrix'][[i, j], :][:, [i, j]]
+                pairwise_acc = np.mean(np.diag(conf))
+                pairwise_separability[(dye_names[i], dye_names[j])] = pairwise_acc
+
+        stats['accuracy_per_dye'] = accuracy_per_dye
+        stats['pairwise_separability'] = pairwise_separability
+        stats['dye_names'] = dye_names
+
+        return stats
+
+    def _simulate_dye_color_distributions(
+        self,
+        dye_name: str,
+        filters: List[str],
+        camera_parameters: Dict[str, Any],
+        wavelength: np.ndarray,
+        expected_photons: float,
+        n_simulations: int = 1000,
+        background_photons: float = 4,
+        NA: float = 1.49,
+        pixel_size: float = 69,
+        image_dims: int = 12,
+        smoothing_function=None
+    ) -> Dict[str, np.ndarray]:
+        """
+        Simulate camera images for a single dye and extract (A_R, A_G) coordinates.
+
+        This method uses the existing gen_camera_image_stack to simulate realistic
+        camera images with proper Bayer pattern and noise, then extracts color
+        coordinates for separability analysis.
+
+        Args:
+            dye_name: Name of the dye
+            filters: Filter names
+            camera_parameters: Camera parameters
+            wavelength: Wavelength array
+            expected_photons: Expected photon count for this dye
+            n_simulations: Number of simulated molecules (default: 1000)
+            background_photons: Background photon count (default: 4)
+            NA: Numerical aperture (default: 1.49)
+            pixel_size: Pixel size in nm (default: 69)
+            image_dims: Image dimension in pixels (default: 12)
+            smoothing_function: PSF smoothing function (default: None)
+
+        Returns:
+            dict: {
+                'A_R': np.ndarray of shape (n_simulations,),
+                'A_G': np.ndarray of shape (n_simulations,),
+                'A_R_err': np.ndarray of shape (n_simulations,),
+                'A_G_err': np.ndarray of shape (n_simulations,),
+                'photons': np.ndarray of shape (n_simulations,)
+            }
+        """
+        # Get dye spectral properties
+        filter_spectrum = np.prod(
+            self.spectral.get_dye_or_filter_data(
+                names=filters, wavelength=wavelength, dye_or_filter=False
+            ),
+            axis=0,
+        )
+
+        dye_spectrum = self.spectral.get_dye_or_filter_data([dye_name], wavelength=wavelength)[0]
+        dye_at_detector = dye_spectrum * filter_spectrum / np.sum(dye_spectrum * filter_spectrum)
+
+        # Calculate average emission wavelength
+        average_emission_wavelength = np.trapz(
+            y=wavelength * dye_at_detector / np.trapz(x=wavelength, y=dye_at_detector),
+            x=wavelength
+        )
+
+        # Calculate pixel efficiency (effective QE per pixel type)
+        # This gives absolute QE values (probabilities), not relative fractions
+        dye_pixel_efficiency = np.dot(dye_at_detector, camera_parameters["pixel_QYs"].T)
+
+        # Generate random positions in center region
+        max_pos = pixel_size * image_dims
+        center = max_pos / 2
+        position_range = pixel_size  # Keep within central 2x2 pixels
+
+        np.random.seed(42)  # Reproducibility
+        x0 = np.random.uniform(center - position_range, center + position_range, n_simulations)
+        y0 = np.random.uniform(center - position_range, center + position_range, n_simulations)
+
+        # Prepare inputs for gen_camera_image_stack
+        n_photons = {dye_name: np.full(n_simulations, expected_photons)}
+        x0y0 = {dye_name: np.zeros([n_simulations, 2, 1])}
+        x0y0[dye_name][:, 0, 0] = x0
+        x0y0[dye_name][:, 1, 0] = y0
+
+        # Generate images
+        data, _, _ = self.gen_camera_image_stack(
+            camera_parameters,
+            wavelength,
+            average_emission_wavelength,
+            dye_pixel_efficiency,
+            n_photons,
+            x0y0,
+            smoothing_function,
+            background_photons=background_photons,
+            NA=NA,
+            pixel_size=pixel_size,
+            return_normal_image=False,
+        )
+
+        # Extract color coordinates (A_R, A_G, A_B) using actual fitting pipeline
+        # This is critical for realistic separability estimates
+
+        masks_3d_dict = camera_parameters["masks"]
+
+        # Create 3D mask array for fitting (B, G, R channels)
+        masks_3d = np.dstack([masks_3d_dict[x] for x in ["B", "G", "R"]])
+
+        # Smooth all images at once (gaussian_filter_stack handles 3D arrays)
+        smoothed_data = smoothing_function.smoothing_function(
+            **{smoothing_function.data_arg: data, **smoothing_function.args}
+        )
+
+        # Prepare data for fitting
+        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        relative_coords, planes = [], []
+
+        for i in range(n_simulations):
+            puncta_tofit.append(data[i, :, :])
+            smoothed_puncta_tofit.append(smoothed_data[i, :, :])
+            masks_tofit.append(masks_3d)
+            weights_tofit.append(np.ones_like(data[i, :, :]))  # Uniform weights
+            relative_coords.append((0, 0))
+            planes.append(i)
+
+        # Perform parallel fitting
+        fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
+            puncta_tofit,
+            smoothed_puncta_tofit,
+            weights_tofit,
+            relative_coords,
+            planes,
+            IAF_FittingStrategy.STANDARD,
+            masks=masks_tofit,
+        )
+
+        # Extract A_R, A_G, A_B from fit results
+        # fit_results columns: [xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr, frame]
+        # fit_errors columns: [xc_err, yc_err, s_x_err, s_y_err, bg_B_err, bg_G_err, bg_R_err, A_B_err, A_G_err, A_R_err]
+
+        A_R = np.zeros(n_simulations)
+        A_G = np.zeros(n_simulations)
+        A_B = np.zeros(n_simulations)
+        A_R_err = np.zeros(n_simulations)
+        A_G_err = np.zeros(n_simulations)
+        A_B_err = np.zeros(n_simulations)
+        photons = np.zeros(n_simulations)
+
+        for i in range(n_simulations):
+            # Fit results: [..., bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr, frame]
+            # Indices:     [ 0,   1,    2,    3,   4,   5,   6,   7,   8,    9,    10,       11]
+            if not np.isnan(fit_results[i, 9]):  # Check A_R validity
+                amp_B = fit_results[i, 7]
+                amp_G = fit_results[i, 8]
+                amp_R = fit_results[i, 9]
+
+                total_amp = amp_R + amp_G + amp_B
+                if total_amp > 0:
+                    A_R[i] = amp_R / total_amp
+                    A_G[i] = amp_G / total_amp
+                    A_B[i] = amp_B / total_amp
+
+                    # Propagate fitted errors (already corrected for sqrt transform in main code)
+                    A_R_err[i] = fit_errors[i, 9] / total_amp if fit_errors[i, 9] > 0 else 0.01
+                    A_G_err[i] = fit_errors[i, 8] / total_amp if fit_errors[i, 8] > 0 else 0.01
+                    A_B_err[i] = fit_errors[i, 7] / total_amp if fit_errors[i, 7] > 0 else 0.01
+                    photons[i] = total_amp
+                else:
+                    # Fit succeeded but amplitudes are zero - mark as failed
+                    A_R[i] = np.nan
+                    A_G[i] = np.nan
+                    A_B[i] = np.nan
+                    A_R_err[i] = np.nan
+                    A_G_err[i] = np.nan
+                    A_B_err[i] = np.nan
+                    photons[i] = np.nan
+            else:
+                # Fit failed - mark as NaN to exclude from analysis
+                A_R[i] = np.nan
+                A_G[i] = np.nan
+                A_B[i] = np.nan
+                A_R_err[i] = np.nan
+                A_G_err[i] = np.nan
+                A_B_err[i] = np.nan
+                photons[i] = np.nan
+
+        return {
+            'A_R': A_R,
+            'A_G': A_G,
+            'A_B': A_B,
+            'A_R_err': A_R_err,
+            'A_G_err': A_G_err,
+            'A_B_err': A_B_err,
+            'photons': photons
+        }
+
+    def plot_dye_selection_results(
+        self,
+        result: Dict[str, Any],
+        save_path: str = None,
+        show: bool = True,
+        n_std: float = 2.0,
+        figsize: tuple = (12, 10)
+    ):
+        """
+        Plot results from optimal_dye_selector_simulated with confusion matrix.
+
+        Creates a combined visualization showing:
+        1. Color distribution scatter plot with Gaussian fits
+        2. Confusion matrix heatmap
+
+        Args:
+            result: Output dict from optimal_dye_selector_simulated
+            save_path: Path to save figure (default: None, don't save)
+            show: Whether to display the figure (default: True)
+            n_std: Number of standard deviations for ellipse (default: 2.0)
+            figsize: Figure size (width, height) in inches
+
+        Returns:
+            fig, axes: Matplotlib figure and axes objects
+
+        Example:
+            >>> result = MSF.optimal_dye_selector_simulated(...)
+            >>> MSF.plot_dye_selection_results(result, save_path='dye_selection.png')
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Ellipse
+        from PlottingBase import PublicationPlotter
+
+        # Initialize plotter for consistent styling
+        plotter = PublicationPlotter()
+
+        # Create figure with subplots
+        fig = plt.figure(figsize=figsize, dpi=plotter.config.DEFAULT_DPI)
+        gs = fig.add_gridspec(2, 2, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
+        ax_scatter = fig.add_subplot(gs[0, :])
+        ax_conf = fig.add_subplot(gs[1, 0])
+        ax_acc = fig.add_subplot(gs[1, 1])
+
+        # Extract data
+        dye_names = result['selected_dyes']
+        dye_simulations = result['dye_simulations']
+        dye_gaussians = result['dye_gaussians']
+        conf_matrix = result['confusion_matrix']
+
+        n_dyes = len(dye_names)
+        colors = plt.cm.tab10(np.linspace(0, 1, n_dyes))
+
+        # --- PLOT 1: Color distributions with Gaussian fits ---
+        for idx, dye_name in enumerate(dye_names):
+            color = colors[idx]
+
+            # Get simulation data
+            A_R = dye_simulations[dye_name]['A_R']
+            A_G = dye_simulations[dye_name]['A_G']
+
+            # Remove NaNs
+            valid = ~(np.isnan(A_R) | np.isnan(A_G))
+            A_R_valid = A_R[valid]
+            A_G_valid = A_G[valid]
+
+            # Plot scatter points
+            ax_scatter.scatter(A_R_valid, A_G_valid, s=10, alpha=0.3, color=color,
+                              label=f'{dye_name} (n={len(A_R_valid)})')
+
+            # Get Gaussian parameters
+            mean = dye_gaussians[dye_name]['mean']
+            cov = dye_gaussians[dye_name]['covariance']
+
+            # Plot mean
+            ax_scatter.plot(mean[0], mean[1], 'o', color=color, markersize=8,
+                           markeredgecolor='black', markeredgewidth=1.5)
+
+            # Plot confidence ellipse
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+            width, height = 2 * n_std * np.sqrt(eigenvalues)
+
+            ellipse = Ellipse(xy=mean, width=width, height=height, angle=angle,
+                            edgecolor=color, facecolor='none', linewidth=2,
+                            linestyle='--')
+            ax_scatter.add_patch(ellipse)
+
+        ax_scatter.set_xlabel('A_R (Red Amplitude Fraction)', fontsize=12)
+        ax_scatter.set_ylabel('A_G (Green Amplitude Fraction)', fontsize=12)
+        ax_scatter.set_title(f'Dye Color Distributions (Overall Accuracy: {result["overall_accuracy"]:.1%})',
+                            fontsize=14, fontweight='bold')
+        ax_scatter.legend(loc='best', fontsize=9)
+        ax_scatter.grid(True, alpha=0.3)
+        ax_scatter.set_aspect('equal', adjustable='box')
+
+        # --- PLOT 2: Confusion matrix heatmap ---
+        im = ax_conf.imshow(conf_matrix, cmap='Blues', aspect='auto', vmin=0, vmax=1)
+
+        # Add text annotations
+        for i in range(n_dyes):
+            for j in range(n_dyes):
+                text_color = 'white' if conf_matrix[i, j] > 0.5 else 'black'
+                text = ax_conf.text(j, i, f'{conf_matrix[i, j]:.2f}',
+                                   ha="center", va="center", color=text_color, fontsize=9)
+
+        # Axis labels
+        ax_conf.set_xticks(np.arange(n_dyes))
+        ax_conf.set_yticks(np.arange(n_dyes))
+        ax_conf.set_xticklabels([dye[:10] for dye in dye_names], rotation=45, ha='right', fontsize=9)
+        ax_conf.set_yticklabels([dye[:10] for dye in dye_names], fontsize=9)
+        ax_conf.set_xlabel('Predicted Dye', fontsize=10)
+        ax_conf.set_ylabel('True Dye', fontsize=10)
+        ax_conf.set_title('Confusion Matrix', fontsize=12, fontweight='bold')
+
+        # Colorbar
+        cbar = plt.colorbar(im, ax=ax_conf, fraction=0.046, pad=0.04)
+        cbar.set_label('Classification Probability', rotation=270, labelpad=15, fontsize=9)
+
+        # --- PLOT 3: Per-dye accuracy bar chart ---
+        accuracy_per_dye = result['separability_stats']['accuracy_per_dye']
+        bars = ax_acc.barh(range(n_dyes), accuracy_per_dye, color=colors, alpha=0.7, edgecolor='black')
+
+        # Add value labels
+        for i, (bar, acc) in enumerate(zip(bars, accuracy_per_dye)):
+            ax_acc.text(acc + 0.01, i, f'{acc:.1%}', va='center', fontsize=9)
+
+        ax_acc.set_yticks(range(n_dyes))
+        ax_acc.set_yticklabels([dye[:10] for dye in dye_names], fontsize=9)
+        ax_acc.set_xlabel('Classification Accuracy', fontsize=10)
+        ax_acc.set_title('Per-Dye Accuracy', fontsize=12, fontweight='bold')
+        ax_acc.set_xlim(0, 1.1)
+        ax_acc.grid(True, alpha=0.3, axis='x')
+        ax_acc.axvline(x=0.95, color='red', linestyle='--', linewidth=1, alpha=0.5, label='95% threshold')
+        ax_acc.legend(fontsize=8)
+
+        plt.tight_layout()
+
+        # Use PlottingBase save/show methods for consistency (600 DPI for publication)
+        plotter.save_or_show(fig, save_path=save_path, show=show, dpi=600)
+
+        return fig, (ax_scatter, ax_conf, ax_acc)
+
+    def plot_dye_color_distributions(
+        self,
+        dye_simulations: Dict[str, Dict[str, np.ndarray]],
+        dye_gaussians: Dict[str, Dict[str, Any]],
+        dye_names: List[str],
+        save_path: str = None,
+        show: bool = True,
+        n_std: float = 2.0
+    ):
+        """
+        Plot color coordinate distributions with fitted Gaussians overlaid.
+
+        Creates scatter plots of (A_R, A_G) points with fitted Gaussian ellipses
+        to visualize dye separability and validate Gaussian assumption.
+
+        Args:
+            dye_simulations: Dict mapping dye_name -> color_data from _simulate_dye_color_distributions
+            dye_gaussians: Dict mapping dye_name -> gaussian_params from _fit_dye_gaussian
+            dye_names: List of dye names to plot
+            save_path: Path to save figure (default: None, don't save)
+            show: Whether to display the figure (default: True)
+            n_std: Number of standard deviations for ellipse (default: 2.0)
+
+        Returns:
+            fig, ax: Matplotlib figure and axis objects
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Ellipse
+        from PlottingBase import PublicationPlotter
+
+        # Initialize plotter for consistent styling
+        plotter = PublicationPlotter()
+
+        n_dyes = len(dye_names)
+        colors = plt.cm.tab10(np.linspace(0, 1, n_dyes))
+
+        # Use plotter's create_figure for consistent styling
+        fig, ax = plotter.create_figure(figsize=(10, 8))
+
+        for idx, dye_name in enumerate(dye_names):
+            color = colors[idx]
+
+            # Get simulation data
+            A_R = dye_simulations[dye_name]['A_R']
+            A_G = dye_simulations[dye_name]['A_G']
+
+            # Remove NaNs
+            valid = ~(np.isnan(A_R) | np.isnan(A_G))
+            A_R_valid = A_R[valid]
+            A_G_valid = A_G[valid]
+
+            # Plot scatter points
+            ax.scatter(A_R_valid, A_G_valid, s=10, alpha=0.3, color=color,
+                      label=f'{dye_name} (n={len(A_R_valid)})')
+
+            # Get Gaussian parameters
+            mean = dye_gaussians[dye_name]['mean']
+            cov = dye_gaussians[dye_name]['covariance']
+
+            # Plot mean
+            ax.plot(mean[0], mean[1], 'o', color=color, markersize=8,
+                   markeredgecolor='black', markeredgewidth=1.5)
+
+            # Plot confidence ellipse
+            # Calculate eigenvalues and eigenvectors for ellipse
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+            width, height = 2 * n_std * np.sqrt(eigenvalues)
+
+            ellipse = Ellipse(xy=mean, width=width, height=height, angle=angle,
+                            edgecolor=color, facecolor='none', linewidth=2,
+                            linestyle='--', label=f'{dye_name} ({n_std}σ)')
+
+            ax.add_patch(ellipse)
+
+        ax.set_xlabel('A_R (Red Amplitude Fraction)', fontsize=12)
+        ax.set_ylabel('A_G (Green Amplitude Fraction)', fontsize=12)
+        ax.set_title('Dye Color Distributions with Gaussian Fits', fontsize=14, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', adjustable='box')
+
+        plt.tight_layout()
+
+        # Use PlottingBase save/show methods for consistency (600 DPI for publication)
+        plotter.save_or_show(fig, save_path=save_path, show=show, dpi=600)
+
+        return fig, ax
+
+    def optimal_dye_selector_simulated(
+        self,
+        potential_dyes: List[str],
+        single_molecule_dyes: np.ndarray,
+        filters: List[str],
+        camera_parameters: Dict[str, Any],
+        wavelength: np.ndarray,
+        n_dyes_desired: int,
+        min_photons_per_100ms: int = 500,
+        n_simulations: int = 1000,
+        background_photons: float = 4,
+        NA: float = 1.49,
+        pixel_size: float = 69,
+        image_dims: int = 12,
+        smoothing_function=None,
+        integration_time_ms: float = 100,
+        excitation_power_scaling: float = 1.0,
+        exhaustive_search: bool = False,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Select optimal dye combination based on simulated separability.
+
+        This function implements a simulation-based approach to dye selection:
+        1. Filters dyes by minimum photon threshold
+        2. Simulates camera images for each viable dye
+        3. Extracts (A_R, A_G) color distributions
+        4. Fits Gaussian models to each dye's color cloud
+        5. Computes analytical misidentification rates for all combinations
+        6. Returns the most separable combination
+
+        Args:
+            potential_dyes: List of candidate dye names
+            single_molecule_dyes: Array with columns [name, photons_per_100ms]
+                Column 1 contains photons per 100ms under standard conditions
+            filters: Filter names for spectral calculations
+            camera_parameters: Camera calibration parameters
+            wavelength: Wavelength array for spectral calculations
+            n_dyes_desired: Number of dyes to select
+            min_photons_per_100ms: Minimum photon threshold at detector (default: 500)
+            n_simulations: Number of simulated molecules per dye (default: 1000)
+            background_photons: Background photon count (default: 4)
+            NA: Numerical aperture (default: 1.49)
+            pixel_size: Pixel size in nm (default: 69)
+            image_dims: Image dimension in pixels (default: 12)
+            smoothing_function: PSF smoothing function (default: None)
+            integration_time_ms: Integration time in ms (default: 100)
+            excitation_power_scaling: Photon count scaling factor (default: 1.0)
+            exhaustive_search: If True, test all combinations (slow!).
+                              If False, use greedy selection (default: False)
+            verbose: Print progress and results (default: True)
+
+        Returns:
+            dict: {
+                'selected_dyes': list of n_dyes_desired dye names,
+                'overall_accuracy': float - overall classification accuracy,
+                'confusion_matrix': np.ndarray - confusion matrix for selected dyes,
+                'dye_gaussians': dict - Gaussian parameters for each selected dye,
+                'expected_photons': dict - expected photon counts for each selected dye,
+                'all_combinations_tested': list of dicts (if exhaustive_search=True),
+                'separability_stats': dict - full separability statistics
+            }
+        """
+        from itertools import combinations
+
+        if verbose:
+            print("="*60)
+            print("OPTIMAL DYE SELECTION VIA SIMULATION")
+            print("="*60)
+
+        # Step 1: Filter by photon threshold
+        if verbose:
+            print(f"\nStep 1: Filtering dyes (min {min_photons_per_100ms} photons/100ms)...")
+
+        filtered = self._filter_dyes_by_photons(
+            potential_dyes,
+            single_molecule_dyes,
+            filters,
+            camera_parameters,
+            wavelength,
+            min_photons_per_100ms=min_photons_per_100ms,
+            integration_time_ms=integration_time_ms,
+            excitation_power_scaling=excitation_power_scaling
+        )
+
+        viable_dyes = filtered['viable_dyes']
+
+        if verbose:
+            print(f"  {len(potential_dyes)} candidates -> {len(viable_dyes)} viable dyes")
+            rejected = set(potential_dyes) - set(viable_dyes)
+            if rejected:
+                print(f"  Rejected: {rejected}")
+
+        if len(viable_dyes) < n_dyes_desired:
+            raise ValueError(f"Only {len(viable_dyes)} viable dyes, but {n_dyes_desired} requested!")
+
+        # Step 2 & 3: Simulate all viable dyes
+        if verbose:
+            print(f"\nStep 2-3: Simulating {n_simulations} molecules per dye...")
+
+        dye_simulations = {}
+        dye_gaussians = {}
+
+        for dye_name in viable_dyes:
+            if verbose:
+                source = filtered['expected_photons'][dye_name]
+                detector = filtered['expected_photons_at_detector'][dye_name]
+                print(f"  Simulating {dye_name} ({source:.0f} source / {detector:.0f} detector photons)...")
+
+            color_data = self._simulate_dye_color_distributions(
+                dye_name,
+                filters,
+                camera_parameters,
+                wavelength,
+                filtered['expected_photons'][dye_name],
+                n_simulations=n_simulations,
+                background_photons=background_photons,
+                NA=NA,
+                pixel_size=pixel_size,
+                image_dims=image_dims,
+                smoothing_function=smoothing_function
+            )
+
+            dye_simulations[dye_name] = color_data
+
+            # Step 4: Fit Gaussian
+            gaussian_params = self._fit_dye_gaussian(color_data)
+            dye_gaussians[dye_name] = gaussian_params
+
+            if verbose:
+                success_rate = gaussian_params['n_valid'] / n_simulations * 100
+                print(f"    Fit success: {gaussian_params['n_valid']}/{n_simulations} ({success_rate:.1f}%)")
+                print(f"    Mean (A_R, A_G): ({gaussian_params['mean'][0]:.3f}, {gaussian_params['mean'][1]:.3f})")
+                print(f"    Std  (A_R, A_G): ({gaussian_params['std_A_R']:.3f}, {gaussian_params['std_A_G']:.3f})")
+
+        # Step 5-6: Find optimal combination
+        if verbose:
+            print(f"\nStep 4-6: Searching for optimal {n_dyes_desired}-dye combination...")
+
+        if exhaustive_search:
+            # Test all combinations
+            all_combos = list(combinations(viable_dyes, n_dyes_desired))
+
+            if verbose:
+                print(f"  Testing all {len(all_combos)} combinations (exhaustive search)...")
+
+            results = []
+            for combo in all_combos:
+                stats = self._calculate_dye_separability(
+                    dye_gaussians,
+                    list(combo),
+                    n_monte_carlo=10000
+                )
+
+                results.append({
+                    'dyes': list(combo),
+                    'accuracy': stats['overall_accuracy'],
+                    'stats': stats
+                })
+
+            # Sort by accuracy (descending)
+            results.sort(key=lambda x: x['accuracy'], reverse=True)
+            best_result = results[0]
+
+        else:
+            # Greedy selection: iteratively add the dye that maximizes separability
+            if verbose:
+                print(f"  Using greedy selection algorithm...")
+
+            selected = []
+            remaining = viable_dyes.copy()
+
+            # Start with the two most separable dyes
+            best_pair_acc = 0
+            best_pair = None
+
+            for dye1, dye2 in combinations(remaining, 2):
+                stats = self._calculate_dye_separability(
+                    dye_gaussians,
+                    [dye1, dye2],
+                    n_monte_carlo=10000
+                )
+                if stats['overall_accuracy'] > best_pair_acc:
+                    best_pair_acc = stats['overall_accuracy']
+                    best_pair = [dye1, dye2]
+
+            selected = best_pair
+            remaining = [d for d in remaining if d not in selected]
+
+            if verbose:
+                print(f"    Initial pair: {selected} (accuracy: {best_pair_acc:.3f})")
+
+            # Iteratively add dyes
+            while len(selected) < n_dyes_desired:
+                best_acc = 0
+                best_dye = None
+
+                for dye in remaining:
+                    candidate = selected + [dye]
+                    stats = self._calculate_dye_separability(
+                        dye_gaussians,
+                        candidate,
+                        n_monte_carlo=10000
+                    )
+
+                    if stats['overall_accuracy'] > best_acc:
+                        best_acc = stats['overall_accuracy']
+                        best_dye = dye
+
+                selected.append(best_dye)
+                remaining.remove(best_dye)
+
+                if verbose:
+                    print(f"    Added {best_dye} -> {selected} (accuracy: {best_acc:.3f})")
+
+            # Get final statistics
+            final_stats = self._calculate_dye_separability(
+                dye_gaussians,
+                selected,
+                n_monte_carlo=10000
+            )
+
+            best_result = {
+                'dyes': selected,
+                'accuracy': final_stats['overall_accuracy'],
+                'stats': final_stats
+            }
+            results = None
+
+        # Prepare return dict
+        if verbose:
+            print("\n" + "="*60)
+            print("RESULTS")
+            print("="*60)
+            print(f"Selected dyes: {best_result['dyes']}")
+            print(f"Overall accuracy: {best_result['accuracy']:.3f}")
+            print(f"\nConfusion Matrix:")
+            print(best_result['stats']['confusion_matrix'])
+            print(f"\nExpected photons (source/detector):")
+            for dye in best_result['dyes']:
+                source = filtered['expected_photons'][dye]
+                detector = filtered['expected_photons_at_detector'][dye]
+                print(f"  {dye}: {source:.0f} / {detector:.0f}")
+
+        return {
+            'selected_dyes': best_result['dyes'],
+            'overall_accuracy': best_result['accuracy'],
+            'confusion_matrix': best_result['stats']['confusion_matrix'],
+            'dye_gaussians': {dye: dye_gaussians[dye] for dye in best_result['dyes']},
+            'dye_simulations': {dye: dye_simulations[dye] for dye in best_result['dyes']},
+            'expected_photons': {dye: filtered['expected_photons'][dye] for dye in best_result['dyes']},
+            'all_combinations_tested': results if exhaustive_search else None,
+            'separability_stats': best_result['stats']
+        }

@@ -297,7 +297,7 @@ def _fill(image, x, y):
 
 @numba.njit
 def _fill_colour_gaussian(
-    image_total, image_spectral, x, y, sx, sy, colour, n_pixel_x, n_pixel_y
+    image_total, image_spectral, x, y, sx, sy, colour, photons, n_pixel_x, n_pixel_y
 ):
     """
     Fills image with blurred x and y coordinates.
@@ -318,6 +318,8 @@ def _fill_colour_gaussian(
         Localization precision in y for each loc
     colour: np.array
         Colour information for each loc
+    photons : np.array
+        Photon count for each loc (area under Gaussian)
     n_pixel_x : int
         Number of pixels in x
     n_pixel_y : int
@@ -325,7 +327,7 @@ def _fill_colour_gaussian(
     """
 
     # render each localization separately
-    for x_, y_, sx_, sy_, colour_ in zip(x, y, sx, sy, colour):
+    for x_, y_, sx_, sy_, colour_, photons_ in zip(x, y, sx, sy, colour, photons):
 
         # get min and max indeces to draw the given localization
         max_y = _DRAW_MAX_SIGMA * sy_
@@ -343,10 +345,11 @@ def _fill_colour_gaussian(
         if j_max > n_pixel_x:
             j_max = n_pixel_x
 
-        # draw a localization as a 2D guassian PDF
+        # draw a localization as a 2D guassian weighted by photon count
+        # Area under Gaussian = photons_ (not normalized to 1.0)
         for i in range(i_min, i_max):
             for j in range(j_min, j_max):
-                val = np.exp(
+                val = photons_ * np.exp(
                     -(
                         (j - x_ + 0.5) ** 2 / (2 * sx_**2)
                         + (i - y_ + 0.5) ** 2 / (2 * sy_**2)
@@ -357,7 +360,7 @@ def _fill_colour_gaussian(
 
 
 @numba.njit
-def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
+def _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y):
     """
     Fills image with blurred x and y coordinates.
     Localization precisions (sx and sy) are treated as standard
@@ -375,6 +378,8 @@ def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
         Localization precision in x for each loc
     sy : np.array
         Localization precision in y for each loc
+    photons : np.array
+        Photon count for each loc (area under Gaussian)
     n_pixel_x : int
         Number of pixels in x
     n_pixel_y : int
@@ -382,7 +387,7 @@ def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
     """
 
     # render each localization separately
-    for x_, y_, sx_, sy_ in zip(x, y, sx, sy):
+    for x_, y_, sx_, sy_, photons_ in zip(x, y, sx, sy, photons):
 
         # get min and max indeces to draw the given localization
         max_y = _DRAW_MAX_SIGMA * sy_
@@ -400,10 +405,11 @@ def _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y):
         if j_max > n_pixel_x:
             j_max = n_pixel_x
 
-        # draw a localization as a 2D guassian PDF
+        # draw a localization as a 2D guassian weighted by photon count
+        # Area under Gaussian = photons_ (not normalized to 1.0)
         for i in range(i_min, i_max):
             for j in range(j_min, j_max):
-                image[i, j] += np.exp(
+                image[i, j] += photons_ * np.exp(
                     -(
                         (j - x_ + 0.5) ** 2 / (2 * sx_**2)
                         + (i - y_ + 0.5) ** 2 / (2 * sy_**2)
@@ -522,8 +528,14 @@ def render_gaussian_colour(
     sx = blur_width[in_view]
     color = locs[cparam][in_view]
 
+    # Extract photon counts, default to 1.0 if not available
+    if hasattr(locs, 'photons'):
+        photons = locs.photons[in_view]
+    else:
+        photons = np.ones(len(x), dtype=np.float32)
+
     _fill_colour_gaussian(
-        image_total, image_spectral, x, y, sx, sy, color, n_pixel_x, n_pixel_y
+        image_total, image_spectral, x, y, sx, sy, color, photons, n_pixel_x, n_pixel_y
     )
 
     non_zero = image_total > 0
@@ -613,7 +625,13 @@ def render_gaussian(
     sy = blur_height[in_view]
     sx = blur_width[in_view]
 
-    _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y)
+    # Extract photon counts, default to 1.0 if not available
+    if hasattr(locs, 'photons'):
+        photons = locs.photons[in_view]
+    else:
+        photons = np.ones(len(x), dtype=np.float32)
+
+    _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y)
 
     return len(x), image
 
@@ -673,7 +691,13 @@ def render_gaussian_iso(
     sy = (blur_height[in_view] + blur_width[in_view]) / 2
     sx = sy
 
-    _fill_gaussian(image, x, y, sx, sy, n_pixel_x, n_pixel_y)
+    # Extract photon counts, default to 1.0 if not available
+    if hasattr(locs, 'photons'):
+        photons = locs.photons[in_view]
+    else:
+        photons = np.ones(len(x), dtype=np.float32)
+
+    _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y)
 
     return len(x), image
 
