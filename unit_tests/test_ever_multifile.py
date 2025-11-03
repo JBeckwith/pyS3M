@@ -27,7 +27,7 @@ import numpy as np
 import os
 import tempfile
 from pathlib import Path
-from SR_Functions import SuperRes_Functions, TemporalMedianMode
+from SR_Functions import SuperRes_Functions
 from MaskFunctions import Mask_Functions
 import tifffile
 
@@ -107,23 +107,6 @@ for file_idx in range(n_files):
     tifffile.imwrite(filename, stack, photometric='minisblack')
     print(f'    Saved: {filename} ({stack.shape[0]} frames)')
 
-# Create metadata file (ImageJ JSON format)
-import json
-metadata_file = os.path.join(temp_dir, 'metadata_simulated_001.txt')
-metadata = {
-    "FrameKey-0-0-0": {
-        "ROI": f"0-0-{image_size}-{image_size}"  # y-x-width-height format
-    },
-    "Summary": {
-        "IntendedDimensions": {
-            "time": n_total_frames
-        }
-    }
-}
-with open(metadata_file, 'w') as f:
-    json.dump(metadata, f, indent=2)
-print(f'\nCreated metadata file: {metadata_file}')
-
 print('\n✓ Data generation complete')
 
 # Setup camera calibration
@@ -155,42 +138,21 @@ print('\nRunning standard localization...')
 tiff_files = sorted([os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.endswith('.tif')])
 print(f'Found {len(tiff_files)} TIFF files: {[os.path.basename(f) for f in tiff_files]}')
 
-# Create smoothing function
-import sCMOSFunctions
-import types
-scmos = sCMOSFunctions.sCMOS_Functions()
-smoothing_function = types.SimpleNamespace()
-smoothing_function.args = {"sigma": 1.5}
-smoothing_function.extent = 1.5
-smoothing_function.smoothing_function = scmos.gaussian_filter_stack
-smoothing_function.data_arg = "image"
-
 try:
-    # Run fit_imaging_data - saves to HDF5
-    srf.fit_imaging_data(
-        temp_dir,
-        smoothing_function,
-        gain_map=camera_calibration['gain'],
-        offset_map=camera_calibration['offset'],
-        rqe=camera_calibration['rqe'],
-        read_noise=camera_calibration['readnoise'],
-        variance=camera_calibration['variance'],
-        pfa=1e-3,
-        ROI_size=20,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size=0.1,  # microns
-        sigma=1.5,
-        fraction_true=0.2,
-        image_type=".tif",
-        use_variance_aware_demosaic=True,
-        temporal_median_mode=TemporalMedianMode.NONE,
-        ever_window=100,
+    results_standard = srf.testlocalisations(
+        tiff_files,
+        camera_calibration,
+        roi=None,
+        pixel_size=100.0,  # nm
+        frames_to_process=None,
+        save_file=os.path.join(temp_dir, 'standard_localisations.csv'),
+        ROI_file=None,
+        ever_window=None,  # No EVER
+        bg_rejection=0,
+        Lcutoff=1e6,
+        fit_routine='LM',
+        verbose=False,
     )
-
-    # Load results from HDF5
-    import pandas as pd
-    results_standard = pd.read_hdf(os.path.join(temp_dir, 'Localisations.h5'), 'data')
 
     n_locs_standard = len(results_standard)
     print(f'\n✓ Standard analysis complete')
@@ -228,32 +190,20 @@ print('='*80)
 print('\nRunning EVER localization...')
 
 try:
-    # Run fit_imaging_data with EVER enabled
-    print(f'\n  DEBUG: Running fit_imaging_data with EVER...')
-    srf.fit_imaging_data(
-        temp_dir,
-        smoothing_function,
-        gain_map=camera_calibration['gain'],
-        offset_map=camera_calibration['offset'],
-        rqe=camera_calibration['rqe'],
-        read_noise=camera_calibration['readnoise'],
-        variance=camera_calibration['variance'],
-        pfa=1e-3,
-        ROI_size=20,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size=0.1,  # microns
-        sigma=1.5,
-        fraction_true=0.2,
-        image_type=".tif",
-        use_variance_aware_demosaic=True,
-        temporal_median_mode=TemporalMedianMode.DETECTION_AND_FITTING,
-        ever_window=ever_window,
+    results_ever = srf.testlocalisations(
+        tiff_files,
+        camera_calibration,
+        roi=None,
+        pixel_size=100.0,  # nm
+        frames_to_process=None,
+        save_file=os.path.join(temp_dir, 'ever_localisations.csv'),
+        ROI_file=None,
+        ever_window=ever_window,  # EVER enabled
+        bg_rejection=0,
+        Lcutoff=1e6,
+        fit_routine='LM',
+        verbose=False,
     )
-
-    # Load results from HDF5
-    import pandas as pd
-    results_ever = pd.read_hdf(os.path.join(temp_dir, 'Localisations_EVER.h5'), 'data')
 
     n_locs_ever = len(results_ever)
     print(f'\n✓ EVER analysis complete')

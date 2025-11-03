@@ -4,8 +4,7 @@ PlottingBase.py
 Base plotting utilities and common patterns for pyBayerSMLM.
 Consolidates common functionality from PlottingFunctions.py and DriftPlotting.py.
 
-:authors: Claude Code
-:copyright: Copyright (c) 2025 pyBayerSMLM
+:authors: jsb92
 """
 
 from abc import ABC, abstractmethod
@@ -17,6 +16,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.ticker import MultipleLocator
+from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 
@@ -434,6 +434,63 @@ class BasePlotter(ABC):
 class ImagePlotMixin:
     """Mixin providing enhanced image plotting capabilities."""
 
+    @staticmethod
+    def _create_dark_to_color_cmap(color_name: str) -> LinearSegmentedColormap:
+        """Create colormap from black to specified color for dark background overlays.
+
+        Args:
+            color_name: Color name or any matplotlib-compatible color string.
+                Recommended bright colors for dark backgrounds:
+                - 'cyan' - Excellent visibility
+                - 'yellow' - Excellent visibility
+                - 'orange' - Good red alternative
+                - 'pink' - Bright red/magenta alternative
+                - 'coral', 'salmon', 'tomato' - Various red/orange shades
+                - 'lime' - Brighter green
+                - 'hotpink' - Very bright pink
+                Less visible on dark: 'red', 'blue', 'magenta' (use brighter alternatives)
+
+        Returns:
+            LinearSegmentedColormap: Colormap ranging from black (0,0,0) to target color.
+
+        Example:
+            >>> cmap = ImagePlotMixin._create_dark_to_color_cmap('cyan')
+            >>> plt.imshow(data, cmap=cmap)
+        """
+        # Define common color mappings for microscopy
+        # Brighter colors work better on dark backgrounds
+        color_dict = {
+            'cyan': (0, 1, 1),           # Bright - works great on dark
+            'yellow': (1, 1, 0),         # Bright - works great on dark
+            'magenta': (1, 0, 1),        # Medium brightness
+            'green': (0, 1, 0),          # Bright
+            'red': (1, 0, 0),            # Darker - can get lost
+            'blue': (0, 0, 1),           # Darker - can get lost
+            'orange': (1, 0.65, 0),      # Medium-bright - good alternative to red
+            'lime': (0.75, 1, 0),        # Brighter than green
+            'pink': (1, 0.4, 0.7),       # Brighter than magenta - good alternative to red
+            'hotpink': (1, 0.41, 0.71),  # Similar to pink but standard name
+            'deeppink': (1, 0.08, 0.58), # Darker pink
+            'coral': (1, 0.5, 0.31),     # Lighter red/orange - good alternative
+            'salmon': (1, 0.55, 0.41),   # Light orange/pink
+            'tomato': (1, 0.39, 0.28),   # Bright red-orange
+        }
+
+        if color_name in color_dict:
+            rgb = color_dict[color_name]
+        else:
+            # Try to parse as matplotlib color
+            rgb = matplotlib.colors.to_rgb(color_name)
+
+        # Create colormap: black (0,0,0) -> target color
+        colors = [(0, 0, 0), rgb]
+        n_bins = 256
+        cmap = LinearSegmentedColormap.from_list(
+            f'black_to_{color_name}', colors, N=n_bins
+        )
+
+        return cmap
+
     def create_image_with_overlay(
         self,
         ax: matplotlib.axes.Axes,
@@ -473,6 +530,211 @@ class ImagePlotMixin:
                 ax.add_patch(region)
 
         return im
+
+    def multichannel_overlay_plot(
+        self,
+        axs,
+        images: List[np.ndarray],
+        cmaps: Optional[List[str]] = None,
+        alphas: Optional[List[float]] = None,
+        vmins: Optional[List[float]] = None,
+        vmaxs: Optional[List[float]] = None,
+        brightness_boost: Optional[List[float]] = None,
+        pixelsize: float = 5.0,
+        sbar: str = "on",
+        scalebarsize: float = 1000,
+        scalebarlabel: str = "1 μm",
+        cbar: str = "off",
+        cbarlabels: Optional[List[str]] = None,
+        background_color: str = "black",
+    ):
+        """Create multichannel overlay plot of rendered super-resolution images.
+
+        Overlays multiple grayscale images with different colormaps and transparency
+        to visualize multi-color SMLM data. Uses additive blending on a dark background for
+        publication-quality multi-channel visualization.
+
+        Args:
+            axs: Axes object to plot on.
+            images: List of 2D numpy arrays (rendered images, one per channel).
+            cmaps: List of colormap names for each channel. Defaults to ['cyan', 'yellow']
+                for 2 channels. Recommended bright colors for dark backgrounds:
+                'cyan', 'yellow', 'orange', 'pink', 'coral', 'salmon', 'lime', 'hotpink'.
+                Avoid: 'red', 'blue', 'magenta' (too dark, use brighter alternatives).
+            alphas: List of transparency values (0-1) for each channel. Defaults to 0.7
+                for all channels.
+            vmins: List of minimum intensity values for each channel. If None, uses
+                1st percentile for each image.
+            vmaxs: List of maximum intensity values for each channel. If None, uses
+                99th percentile for each image.
+            brightness_boost: List of multiplicative brightness factors for each channel.
+                Values > 1.0 increase brightness (useful for dim filamentous structures),
+                values < 1.0 decrease brightness, 1.0 = no change. Default is None (all 1.0).
+                Example: [1.0, 2.5] boosts channel 2 by 2.5x to match brighter channel 1.
+            pixelsize: Pixel size in nanometers for scale bar calculation.
+            sbar: Whether to show scale bar ('on' or 'off').
+            scalebarsize: Scale bar size in nanometers.
+            scalebarlabel: Scale bar label text.
+            cbar: Whether to show colorbars ('on' or 'off'). Default is 'off'.
+            cbarlabels: List of colorbar labels for each channel (only used if cbar='on').
+            background_color: Background color ('black' or 'white'). Default is 'black'.
+
+        Returns:
+            Modified axes object.
+
+        Example:
+            >>> # Render two channels
+            >>> _, img1 = render(locs_ch1, info, oversampling=20, blur_method='gaussian')
+            >>> _, img2 = render(locs_ch2, info, oversampling=20, blur_method='gaussian')
+            >>>
+            >>> # Create overlay plot
+            >>> plotter = PublicationPlotter()
+            >>> fig, ax = plotter.create_figure(figsize=(10, 10))
+            >>> plotter.multichannel_overlay_plot(
+            ...     ax, [img1, img2],
+            ...     cmaps=['cyan', 'yellow'],
+            ...     pixelsize=5.0,
+            ...     scalebarsize=1000,
+            ...     scalebarlabel='1 μm'
+            ... )
+            >>>
+            >>> # Boost brightness of dim filamentous channel
+            >>> plotter.multichannel_overlay_plot(
+            ...     ax, [img_globular, img_filaments],
+            ...     cmaps=['cyan', 'red'],
+            ...     brightness_boost=[1.0, 2.5],  # Boost filaments 2.5x
+            ...     pixelsize=5.0
+            ... )
+
+        Performance Notes:
+            - Images should be pre-rendered using render.py functions
+            - All images must have identical dimensions
+            - Uses percentile-based intensity scaling by default
+        """
+        n_channels = len(images)
+
+        # Validate inputs
+        if n_channels < 2:
+            raise ValueError("Need at least 2 images for multichannel overlay")
+
+        # Check all images have same shape
+        ref_shape = images[0].shape
+        for i, img in enumerate(images[1:], 1):
+            if img.shape != ref_shape:
+                raise ValueError(
+                    f"Image {i} shape {img.shape} doesn't match image 0 shape {ref_shape}"
+                )
+
+        # Set default colormaps (bright colors that work well on dark backgrounds)
+        if cmaps is None:
+            default_cmaps = ['cyan', 'yellow', 'pink', 'lime', 'orange', 'hotpink']
+            cmaps = default_cmaps[:n_channels]
+        elif len(cmaps) != n_channels:
+            raise ValueError(f"Expected {n_channels} colormaps, got {len(cmaps)}")
+
+        # Set default alphas
+        if alphas is None:
+            alphas = [0.7] * n_channels
+        elif len(alphas) != n_channels:
+            raise ValueError(f"Expected {n_channels} alpha values, got {len(alphas)}")
+
+        # Validate alpha values
+        for alpha in alphas:
+            if not 0 <= alpha <= 1:
+                raise ValueError(f"Alpha values must be in [0, 1], got {alpha}")
+
+        # Set default brightness boost
+        if brightness_boost is None:
+            brightness_boost = [1.0] * n_channels
+        elif len(brightness_boost) != n_channels:
+            raise ValueError(f"Expected {n_channels} brightness_boost values, got {len(brightness_boost)}")
+
+        # Validate brightness boost values
+        for boost in brightness_boost:
+            if boost <= 0:
+                raise ValueError(f"Brightness boost must be > 0, got {boost}")
+
+        # Set default vmin/vmax using percentiles
+        if vmins is None:
+            vmins = [np.percentile(img.ravel(), 1.0) for img in images]
+        elif len(vmins) != n_channels:
+            raise ValueError(f"Expected {n_channels} vmin values, got {len(vmins)}")
+
+        if vmaxs is None:
+            vmaxs = [np.percentile(img.ravel(), 99.0) for img in images]
+        elif len(vmaxs) != n_channels:
+            raise ValueError(f"Expected {n_channels} vmax values, got {len(vmaxs)}")
+
+        # Set up axes with dark background
+        axs.set_facecolor(background_color)
+        axs.set_xticks([])
+        axs.set_yticks([])
+        axs.set_aspect('equal')
+
+        # Create colormaps and overlay images
+        image_artists = []
+        for i, (image, cmap_name, alpha, vmin, vmax, boost) in enumerate(
+            zip(images, cmaps, alphas, vmins, vmaxs, brightness_boost)
+        ):
+            # Create dark-to-color colormap
+            cmap = self._create_dark_to_color_cmap(cmap_name)
+
+            # Normalize image to [0, 1]
+            img_norm = (image - vmin) / (vmax - vmin)
+            img_norm = np.clip(img_norm, 0, 1)
+
+            # Apply brightness boost
+            if boost != 1.0:
+                img_norm = img_norm * boost
+                img_norm = np.clip(img_norm, 0, 1)
+
+            # Plot channel
+            im = axs.imshow(
+                img_norm,
+                cmap=cmap,
+                alpha=alpha,
+                origin='lower',
+                interpolation=None,
+            )
+            image_artists.append(im)
+
+        # Add colorbars if requested
+        if cbar == "on":
+            divider = make_axes_locatable(axs)
+
+            # Position colorbars side by side on the right
+            for i, im in enumerate(image_artists):
+                # Calculate padding (first colorbar at 0.05, subsequent ones offset)
+                pad = 0.05 + i * 0.10
+
+                cax = divider.append_axes("right", size="2%", pad=pad)
+                colorbar = plt.colorbar(im, cax=cax)
+
+                # Set label if provided
+                if cbarlabels and i < len(cbarlabels):
+                    label_color = 'white' if background_color == 'black' else 'black'
+                    colorbar.set_label(cbarlabels[i], color=label_color)
+
+                # Style ticks for dark background
+                if background_color == 'black':
+                    colorbar.ax.yaxis.set_tick_params(color='white')
+                    plt.setp(plt.getp(colorbar.ax.axes, 'yticklabels'), color='white')
+
+        # Add scale bar if requested
+        if sbar == "on":
+            scalebar_color = 'white' if background_color == 'black' else 'black'
+
+            # Use add_scalebar method from BasePlotter
+            self.add_scalebar(
+                axs,
+                pixelsize=pixelsize,
+                length_nm=scalebarsize,
+                location='lower right',
+                color=scalebar_color,
+                label=scalebarlabel,
+            )
+
+        return axs
 
 
 class DatashaderMixin:

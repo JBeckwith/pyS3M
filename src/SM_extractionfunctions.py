@@ -1054,6 +1054,147 @@ class extract_SMs:
 
         return gmm.means_, gmm.covariances_, gmm.weights_, gmm.converged_
 
+    def _fit_gmm_pygmmis(
+        self,
+        X,
+        X_err,
+        initial_means,
+        n_components,
+        max_iter=100,
+        verbose=False,
+    ):
+        """
+        Fit Gaussian Mixture Model using pygmmis Extreme Deconvolution.
+
+        This method properly handles per-point measurement uncertainties by deconvolving
+        measurement noise from the intrinsic distribution. This is the theoretically correct
+        approach for SMLM data where each localization has its own fitting uncertainty.
+
+        Unlike point replication methods, Extreme Deconvolution:
+        - Treats measurement covariances as part of the model
+        - Deconvolves noise to recover the true error-free distribution
+        - Scales to millions of points without replication overhead
+        - Provides proper uncertainty quantification
+
+        Args:
+            X (np.ndarray): Data points, shape (n_samples, n_features)
+            X_err (np.ndarray): Per-point uncertainties, shape (n_samples, n_features)
+                These should be the standard errors (sigma), not variances.
+            initial_means (np.ndarray): Initial mean positions, shape (n_components, n_features)
+            n_components (int): Number of mixture components
+            max_iter (int): Maximum iterations for extreme deconvolution (default: 100)
+            verbose (bool): Print progress
+
+        Returns:
+            tuple: (means, covariances, weights, converged)
+                - means (np.ndarray): Fitted means, shape (n_components, n_features)
+                - covariances (np.ndarray): Fitted covariances, shape (n_components, n_features, n_features)
+                - weights (np.ndarray): Component weights, shape (n_components,)
+                - converged (bool): Whether fitting converged
+
+        References:
+            Bovy, Hogg & Roweis (2011) "Extreme deconvolution: Inferring complete
+            distribution functions from noisy, heterogeneous and incomplete observations"
+            https://github.com/pmelchior/pygmmis
+        """
+        try:
+            import pygmmis
+        except ImportError:
+            raise ImportError(
+                "pygmmis is required for extreme deconvolution fitting. "
+                "Install with: pip install pygmmis"
+            )
+
+        n_samples, n_features = X.shape
+
+        if verbose:
+            print(f"  Extreme Deconvolution fitting with pygmmis...")
+            print(f"    Data: {n_samples} points, {n_features} features")
+            print(f"    Components: {n_components}")
+            print(f"    Mean errors: {X_err.mean(axis=0)}")
+
+        # Prepare per-point covariance matrices (diagonal, since A_R and A_G errors are independent)
+        covar = np.zeros((n_samples, n_features, n_features))
+        for i in range(n_samples):
+            # Convert standard errors to variances (sigma^2)
+            covar[i] = np.diag(X_err[i]**2)
+
+        # Initialize GMM with k-means or provided means
+        gmm = pygmmis.GMM(K=n_components, D=n_features)
+
+        # Set initial means
+        gmm.mean = initial_means.copy()
+
+        # Initialize covariances using simple empirical estimate
+        # Assign each point to nearest mean and estimate covariance
+        from scipy.spatial.distance import cdist
+        distances = cdist(X, initial_means)
+        labels = np.argmin(distances, axis=1)
+
+        initial_covariances = np.zeros((n_components, n_features, n_features))
+        initial_weights = np.zeros(n_components)
+
+        for k in range(n_components):
+            mask = labels == k
+            n_k = mask.sum()
+
+            if n_k > n_features:  # Need enough points to estimate covariance
+                X_k = X[mask]
+                # Empirical covariance
+                diff = X_k - initial_means[k]
+                cov_k = (diff.T @ diff) / n_k
+                # Add regularization to ensure positive definite
+                cov_k += np.eye(n_features) * 1e-4
+                initial_covariances[k] = cov_k
+                initial_weights[k] = n_k / n_samples
+            else:
+                # Not enough points, use identity
+                initial_covariances[k] = np.eye(n_features) * 0.01
+                initial_weights[k] = 1.0 / n_components
+
+        # Ensure weights sum to 1
+        initial_weights /= initial_weights.sum()
+
+        gmm.covar = initial_covariances
+        gmm.amp = initial_weights
+
+        if verbose:
+            print(f"    Initial weights: {gmm.amp}")
+            print(f"    Running extreme deconvolution (max_iter={max_iter})...")
+
+        # Run extreme deconvolution
+        # pygmmis returns log-likelihood and component assignments
+        try:
+            logL, U = pygmmis.fit(
+                gmm,
+                data=X,
+                covar=covar,
+                init_method='none',   # Use our provided initialization
+                w=1e-6,              # Covariance regularization (small value)
+                cutoff=5.0,          # Mahalanobis distance cutoff for outliers
+                maxiter=max_iter,
+                tol=1e-3,            # Convergence tolerance
+            )
+
+            converged = True  # pygmmis doesn't explicitly report convergence
+
+            if verbose:
+                print(f"    Final log-likelihood: {logL:.2f}")
+                print(f"    Final weights: {gmm.amp}")
+
+        except Exception as e:
+            if verbose:
+                print(f"    Warning: Extreme deconvolution failed: {e}")
+                print(f"    Returning initial parameters")
+            converged = False
+
+        # Extract results
+        means = gmm.mean.copy()
+        covariances = gmm.covar.copy()
+        weights = gmm.amp.copy()
+
+        return means, covariances, weights, converged
+
     def extract_reference_means(
         self,
         data_db,
@@ -2331,3 +2472,974 @@ class extract_SMs:
                 print("=" * 60)
 
         return summary_db
+
+    def _find_histogram_peaks_1d(self, data, n_peaks, bins=50):
+        """
+        Find peaks in 1D histogram for initial channel guess.
+
+        Uses the same approach as extract_reference_means() for consistency.
+
+        Args:
+            data (np.ndarray): 1D array of values
+            n_peaks (int): Number of peaks to find
+            bins (int): Number of histogram bins (default: 50, matches extract_reference_means)
+
+        Returns:
+            np.ndarray: Peak positions, shape (n_peaks,)
+        """
+        from scipy.signal import find_peaks
+
+        # Create histogram with density normalization
+        hist, bin_edges = np.histogram(data, bins=bins, density=True)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+        # Find peaks in histogram (distance=5 prevents very close peaks)
+        peaks, properties = find_peaks(hist, height=0, distance=5)
+
+        if len(peaks) >= n_peaks:
+            # Sort by height and take top n_peaks
+            peak_heights = hist[peaks]
+            top_peak_indices = np.argsort(peak_heights)[-n_peaks:]
+            peak_positions = bin_centers[peaks[top_peak_indices]]
+            return np.sort(peak_positions)
+        else:
+            # Fallback: use quantiles
+            return np.quantile(data, np.linspace(0.2, 0.8, n_peaks))
+
+    def _find_initial_means_2d(self, X, n_channels, method="histogram_peaks"):
+        """
+        Find initial channel means in 2D feature space.
+
+        Uses the same approach as extract_reference_means() for consistency.
+        For 2-channel case, assumes anticorrelated colors (high A_R → low A_G).
+
+        Args:
+            X (np.ndarray): Data matrix, shape (n_samples, 2)
+            n_channels (int): Number of channels
+            method (str): Method for finding means
+
+        Returns:
+            np.ndarray: Initial means, shape (n_channels, 2)
+        """
+        if method == "histogram_peaks":
+            # Find peaks in each dimension separately
+            peaks_dim0 = self._find_histogram_peaks_1d(X[:, 0], n_channels)
+            peaks_dim1 = self._find_histogram_peaks_1d(X[:, 1], n_channels)
+
+            # Combine to form initial 2D means
+            # Match peaks: if dim0 high, dim1 should be low (and vice versa)
+            # This assumes anticorrelated channels (typical for multicolor SMLM)
+            initial_means = np.zeros((n_channels, 2))
+
+            if n_channels == 2:
+                # Sort dim0 ascending, dim1 descending to pair anticorrelated peaks
+                dim0_sorted = np.sort(peaks_dim0)
+                dim1_sorted = np.sort(peaks_dim1)[::-1]
+                initial_means[:, 0] = dim0_sorted
+                initial_means[:, 1] = dim1_sorted
+            else:
+                # For n_channels != 2, use simpler approach (no assumed correlation)
+                initial_means[:, 0] = peaks_dim0
+                initial_means[:, 1] = peaks_dim1
+
+            return initial_means
+
+        elif method == "kmeans":
+            from sklearn.cluster import KMeans
+
+            kmeans = KMeans(n_clusters=n_channels, n_init=10, random_state=42)
+            kmeans.fit(X)
+            return kmeans.cluster_centers_
+
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+    def _estimate_initial_covariances_2d(self, X, initial_means, n_channels,
+                                          X_err=None, use_core_region=True,
+                                          percentile=50, scale=0.7):
+        """
+        Estimate initial covariances conservatively from core regions around means.
+
+        Strategy:
+        1. Hard assign points to nearest mean
+        2. Take only the CORE points (e.g., 50th percentile by distance) for each component
+        3. Calculate robust covariance from core region
+        4. Optionally incorporate fitting errors
+        5. Scale down by factor (default 0.7) to prevent EM from over-expanding
+
+        This prevents the initial guess from being too broad by focusing on the
+        well-separated core of each distribution.
+
+        Args:
+            X (np.ndarray): Data matrix, shape (n_samples, 2)
+            initial_means (np.ndarray): Initial means, shape (n_channels, 2)
+            n_channels (int): Number of channels
+            X_err (np.ndarray, optional): Error matrix, shape (n_samples, 2)
+            use_core_region (bool): If True, use only core percentile of each component
+            percentile (float): Percentile threshold for core region (default: 50)
+            scale (float): Scaling factor for covariances (default: 0.7)
+
+        Returns:
+            np.ndarray: Initial covariances, shape (n_channels, 2, 2)
+        """
+        from scipy.spatial.distance import cdist
+
+        # Hard assignment: assign each point to nearest mean
+        distances = cdist(X, initial_means, metric='euclidean')
+        assignments = np.argmin(distances, axis=1)
+
+        # Calculate sample covariance for each component
+        initial_covariances = np.zeros((n_channels, 2, 2))
+
+        for k in range(n_channels):
+            mask = assignments == k
+            n_assigned = mask.sum()
+
+            if n_assigned > 20:  # Need reasonable number of points
+                X_k = X[mask]
+
+                # Use only core region for more conservative estimate
+                if use_core_region and n_assigned > 50:
+                    # Calculate distances from mean
+                    dists_k = np.linalg.norm(X_k - initial_means[k], axis=1)
+                    # Take only the closest percentile of points
+                    threshold = np.percentile(dists_k, percentile)
+                    core_mask = dists_k <= threshold
+                    X_k_core = X_k[core_mask]
+                else:
+                    X_k_core = X_k
+
+                if len(X_k_core) > 5:
+                    # Calculate robust sample covariance from core
+                    centered = X_k_core - initial_means[k]
+                    cov_k = (centered.T @ centered) / len(X_k_core)
+
+                    # If we have error information, incorporate it
+                    if X_err is not None:
+                        # Average measurement error for this component
+                        X_err_k = X_err[mask]
+                        if use_core_region and n_assigned > 50:
+                            X_err_k = X_err_k[core_mask]
+
+                        # Mean squared error (diagonal covariance contribution)
+                        mean_err_sq = np.mean(X_err_k**2, axis=0)
+                        err_cov = np.diag(mean_err_sq)
+
+                        # Add measurement error to intrinsic spread
+                        # But cap it so errors don't dominate
+                        err_cov_capped = np.minimum(err_cov, cov_k * 0.5)
+                        cov_k = cov_k + err_cov_capped
+
+                    # Scale down covariance to be conservative (prevents overly broad initial guess)
+                    cov_k = cov_k * scale
+
+                    # Add small regularization to ensure positive definite
+                    cov_k += np.eye(2) * 1e-5
+
+                    initial_covariances[k] = cov_k
+                else:
+                    # Not enough core points, use small isotropic
+                    initial_covariances[k] = np.eye(2) * 0.005
+            else:
+                # Very few points assigned, use small isotropic covariance
+                initial_covariances[k] = np.eye(2) * 0.005
+
+        return initial_covariances
+
+    def unmix_channels(
+        self,
+        loc_data,
+        n_channels,
+        channels_to_use=["A_R", "A_G"],
+        confidence_threshold=0.95,
+        false_positive_rate=None,
+        initial_guess_method="histogram_peaks",
+        gmm_fit_method="EM",
+        covariance_type="full",
+        max_iter=500,
+        outlier_rejection="mahalanobis",
+        mestimator_type="tukey",
+        initial_guess_percentile=50,
+        initial_guess_scale=0.7,
+        verbose=True,
+        plot_results=False,
+    ):
+        """
+        Separate SMLM localizations into N channels based on RGB amplitude ratios.
+
+        This function uses Gaussian Mixture Model (GMM) fitting to separate multi-color
+        SMLM data into distinct channels based on spectral signatures (A_R, A_G, A_B).
+        Assignments are confidence-based with optional outlier rejection.
+
+        Args:
+            loc_data (pd.DataFrame): Localization data with columns:
+                - A_R, A_G, A_B: Normalized RGB amplitudes
+                - A_R_err, A_G_err, A_B_err: Fitting uncertainties (optional)
+                - xc, yc: Localization coordinates
+                - frame: Frame number
+
+            n_channels (int): Number of distinct color channels (2-5 typical)
+
+            channels_to_use (list): Which amplitude channels to use for separation
+                - ['A_R', 'A_G']: 2D separation (typical for 2-3 color)
+                - ['A_R', 'A_G', 'A_B']: 3D separation (for >3 colors)
+                - ['A_R']: 1D separation (single ratio)
+                Note: Corresponding error columns (e.g., A_R_err, A_G_err) are ALWAYS
+                used for weighting if available. Higher errors = lower trust.
+
+            confidence_threshold (float): Minimum posterior probability for assignment (0-1)
+                Higher = more conservative (fewer assignments, higher purity)
+
+            false_positive_rate (float, optional): Maximum acceptable FPR for assignment
+                If specified, calculates confidence threshold from analytical overlap
+
+            initial_guess_method (str): Method for initial channel centers
+                - 'histogram_peaks': Find peaks in 1D histograms (default)
+                - 'kmeans': K-means clustering
+
+            gmm_fit_method (str): GMM fitting algorithm
+                - 'EM': Expectation-Maximization (auto-selects best method):
+                    * If error columns present → pygmmis Extreme Deconvolution (recommended)
+                    * If no error columns → sklearn EM
+                - 'EM_weighted': EM with photon-based weighting (legacy)
+                - 'fixed': Use initial guess without EM refinement (most conservative)
+
+            covariance_type (str): GMM covariance structure
+                - 'full': Full covariance (allows correlation, default)
+                - 'tied': Same covariance for all components
+                - 'diag': Diagonal (no correlation)
+                - 'spherical': Single variance per component
+
+            max_iter (int): Maximum GMM fitting iterations
+
+            outlier_rejection (str): Outlier handling method
+                - 'none': No outlier rejection (default)
+                - 'mahalanobis': Hard threshold on Mahalanobis distance
+
+            mestimator_type (str): If outlier_rejection='mestimator'
+                - 'huber': Moderate robustness
+                - 'tukey': Aggressive robustness
+
+            initial_guess_percentile (float): Percentile for core region selection (0-100)
+                Lower = tighter initial guess. Default: 50 (median)
+                Try 25-30 for very conservative separation
+
+            initial_guess_scale (float): Scaling factor for initial covariances
+                Lower = tighter ellipses. Default: 0.7
+                Try 0.4-0.5 to prevent EM from over-expanding
+
+            verbose (bool): Print progress and diagnostics
+
+            plot_results (bool): Create diagnostic plots
+
+        Returns:
+            assigned_locs (pd.DataFrame): Input data with added columns:
+                - 'channel': Assigned channel (0 to n_channels-1, or -1 for unassigned)
+                - 'channel_confidence': Posterior probability for assigned channel
+                - 'channel_probability_0', ...: Posterior for each channel
+                - 'mahalanobis_distance': Distance to assigned channel mean
+                - 'is_outlier': Boolean flag for outliers
+
+            metadata (dict): Diagnostic information:
+                - 'means': Fitted channel means
+                - 'covariances': Fitted covariances
+                - 'weights': Fitted channel weights
+                - 'converged': Whether GMM converged
+                - 'n_assigned': Number per channel
+                - 'n_unassigned': Number rejected
+                - 'confusion_matrix': Expected confusion matrix (if FPR specified)
+
+        Example:
+            >>> # 2-color separation (ATTO655 + Cy3B)
+            >>> assigned, metadata = SM_E.unmix_channels(
+            ...     loc_data,
+            ...     n_channels=2,
+            ...     channels_to_use=['A_R', 'A_G'],
+            ...     confidence_threshold=0.95,
+            ...     verbose=True,
+            ...     plot_results=True
+            ... )
+            >>> print(f"Channel 0: {metadata['n_assigned'][0]} locs")
+            >>> print(f"Channel 1: {metadata['n_assigned'][1]} locs")
+        """
+        if verbose:
+            print("=" * 70)
+            print("Channel Unmixing")
+            print("=" * 70)
+            print(f"Input: {len(loc_data)} localizations")
+            print(f"Channels: {n_channels}")
+            print(f"Features: {channels_to_use}")
+            print()
+
+        # ===== Phase 1: Input Validation and Preprocessing =====
+        # Check required columns
+        for col in channels_to_use:
+            if col not in loc_data.columns:
+                raise ValueError(f"Column '{col}' not found in loc_data")
+
+        # Check for error columns (always use if available)
+        error_cols = [f"{col}_err" for col in channels_to_use]
+        missing_errors = [col for col in error_cols if col not in loc_data.columns]
+        if missing_errors:
+            if verbose:
+                print(
+                    f"Warning: Error columns {missing_errors} not found, will fit without error weighting"
+                )
+
+        # Extract feature matrix
+        X = loc_data[channels_to_use].values
+        n_features = X.shape[1]
+
+        if verbose:
+            print(f"Feature matrix: {X.shape}")
+            print(f"Feature ranges:")
+            for i, col in enumerate(channels_to_use):
+                print(
+                    f"  {col}: [{X[:, i].min():.3f}, {X[:, i].max():.3f}], mean={X[:, i].mean():.3f}"
+                )
+            print()
+
+        # ===== Phase 2: Initial Guess for Channel Means =====
+        if verbose:
+            print(f"Finding initial channel means (method: {initial_guess_method})...")
+
+        if n_features == 1:
+            # 1D case
+            initial_means = self._find_histogram_peaks_1d(
+                X[:, 0], n_channels
+            ).reshape(-1, 1)
+        elif n_features == 2:
+            # 2D case
+            initial_means = self._find_initial_means_2d(
+                X, n_channels, method=initial_guess_method
+            )
+        else:
+            # 3D or higher - use k-means
+            from sklearn.cluster import KMeans
+
+            kmeans = KMeans(n_clusters=n_channels, n_init=10, random_state=42)
+            kmeans.fit(X)
+            initial_means = kmeans.cluster_centers_
+
+        if verbose:
+            print(f"Initial means:")
+            for k in range(n_channels):
+                mean_str = ", ".join(
+                    [f"{channels_to_use[i]}={initial_means[k, i]:.3f}" for i in range(n_features)]
+                )
+                print(f"  Channel {k}: {mean_str}")
+            print()
+
+        # ===== Phase 2.5: Estimate Initial Covariances =====
+        # Two-stage initialization: means from histograms, covariances from data
+        if n_features == 2 and initial_guess_method == "histogram_peaks":
+            if verbose:
+                print("Estimating initial covariances from core regions (conservative)...")
+
+            # Extract error matrix if available
+            if n_features == 2:
+                error_cols = [f"{col}_err" for col in channels_to_use]
+                if all(col in loc_data.columns for col in error_cols):
+                    X_err = loc_data[error_cols].values
+                else:
+                    X_err = None
+            else:
+                X_err = None
+
+            initial_covariances = self._estimate_initial_covariances_2d(
+                X, initial_means, n_channels, X_err=X_err,
+                use_core_region=True, percentile=initial_guess_percentile,
+                scale=initial_guess_scale
+            )
+
+            if verbose:
+                for k in range(n_channels):
+                    det_k = np.linalg.det(initial_covariances[k])
+                    # Calculate standard deviations along principal axes
+                    eigvals = np.linalg.eigvalsh(initial_covariances[k])
+                    sigma1, sigma2 = np.sqrt(eigvals)
+                    print(f"  Channel {k}: det(cov)={det_k:.6f}, σ1={sigma1:.3f}, σ2={sigma2:.3f}")
+                print()
+
+            # Create diagnostic plot showing initial guess
+            if plot_results:
+                self._plot_initial_guess_2d(
+                    X, channels_to_use, initial_means, initial_covariances, n_channels
+                )
+        else:
+            initial_covariances = None
+
+        # ===== Phase 3: GMM Fitting =====
+        # Extract errors - ALWAYS use them if available
+        error_cols = [f"{col}_err" for col in channels_to_use]
+        has_errors = all(col in loc_data.columns for col in error_cols)
+
+        if has_errors:
+            X_err = loc_data[error_cols].values
+        else:
+            X_err = None
+
+        # Intelligent method selection: Use pygmmis if errors available, sklearn otherwise
+        if gmm_fit_method == "EM":
+            if has_errors:
+                # Use pygmmis Extreme Deconvolution (theoretically optimal for per-point errors)
+                actual_method = "extreme_deconvolution"
+                if verbose:
+                    print(f"Fitting GMM (method: EM → Extreme Deconvolution, covariance: {covariance_type})...")
+                    print(f"  Auto-selected pygmmis (error columns detected)")
+                    print(f"  Mean errors: {X_err.mean(axis=0)}")
+            else:
+                # Use sklearn EM (no errors available)
+                actual_method = "sklearn_EM"
+                if verbose:
+                    print(f"Fitting GMM (method: EM → sklearn, covariance: {covariance_type})...")
+                    print("  No error columns found, using sklearn EM without error weighting")
+        else:
+            actual_method = gmm_fit_method
+            if verbose:
+                print(f"Fitting GMM (method: {gmm_fit_method}, covariance: {covariance_type})...")
+                if has_errors:
+                    print(f"  Error columns available (mean errors: {X_err.mean(axis=0)})")
+                else:
+                    print("  No error columns found")
+
+        if actual_method == "sklearn_EM":
+            # Use sklearn GMM without error weighting (pure EM)
+            from sklearn.mixture import GaussianMixture
+
+            # Prepare precisions_init if we have initial covariances
+            if initial_covariances is not None and covariance_type == "full":
+                # sklearn uses precisions (inverse covariances) for initialization
+                precisions_init = np.zeros_like(initial_covariances)
+                for k in range(n_channels):
+                    try:
+                        precisions_init[k] = np.linalg.inv(initial_covariances[k])
+                    except np.linalg.LinAlgError:
+                        # Singular, use regularized version
+                        cov_reg = initial_covariances[k] + np.eye(n_features) * 1e-3
+                        precisions_init[k] = np.linalg.inv(cov_reg)
+            else:
+                precisions_init = None
+
+            gmm = GaussianMixture(
+                n_components=n_channels,
+                covariance_type=covariance_type,
+                max_iter=max_iter,
+                n_init=1,
+                means_init=initial_means,
+                precisions_init=precisions_init,
+                random_state=42,
+            )
+            gmm.fit(X)  # No replication - pure sklearn EM
+            means = gmm.means_
+            covariances = gmm.covariances_
+            weights = gmm.weights_
+            converged = gmm.converged_
+
+        elif gmm_fit_method == "EM_weighted":
+            # Use existing weighted EM implementation
+            photons = loc_data["photons"].values if "photons" in loc_data.columns else None
+            A_R = loc_data["A_R"].values if "A_R" in loc_data.columns else None
+            A_G = loc_data["A_G"].values if "A_G" in loc_data.columns else None
+
+            # ALWAYS use error columns if available (match channels_to_use)
+            if has_errors and len(channels_to_use) == 2:
+                # Extract the specific error columns for the channels being used
+                if channels_to_use[0] == 'A_R':
+                    sigma_dim0 = loc_data["A_R_err"].values
+                elif channels_to_use[0] == 'A_G':
+                    sigma_dim0 = loc_data["A_G_err"].values
+                elif channels_to_use[0] == 'A_B':
+                    sigma_dim0 = loc_data["A_B_err"].values
+                else:
+                    sigma_dim0 = None
+
+                if channels_to_use[1] == 'A_R':
+                    sigma_dim1 = loc_data["A_R_err"].values
+                elif channels_to_use[1] == 'A_G':
+                    sigma_dim1 = loc_data["A_G_err"].values
+                elif channels_to_use[1] == 'A_B':
+                    sigma_dim1 = loc_data["A_B_err"].values
+                else:
+                    sigma_dim1 = None
+
+                # For compatibility with _fit_gmm_em (expects A_R and A_G)
+                sigma_A_R = sigma_dim0
+                sigma_A_G = sigma_dim1
+            else:
+                sigma_A_R = None
+                sigma_A_G = None
+
+            means, covariances, weights, converged = self._fit_gmm_em(
+                X=X,
+                initial_means=initial_means,
+                n_components=n_channels,
+                covariance_type=covariance_type,
+                max_iter=max_iter,
+                photons=photons,
+                A_R=A_R,
+                A_G=A_G,
+                has_error_columns=has_errors,
+                sigma_A_R=sigma_A_R,
+                sigma_A_G=sigma_A_G,
+                verbose=False,
+            )
+            gmm = None  # Not using sklearn GMM object
+
+        elif actual_method == "extreme_deconvolution":
+            # Use pygmmis Extreme Deconvolution for proper error handling
+            if not has_errors:
+                raise ValueError(
+                    "Extreme Deconvolution requires error columns (A_R_err, A_G_err, etc.). "
+                    "This should not happen when auto-selected by gmm_fit_method='EM'."
+                )
+
+            means, covariances, weights, converged = self._fit_gmm_pygmmis(
+                X=X,
+                X_err=X_err,
+                initial_means=initial_means,
+                n_components=n_channels,
+                max_iter=max_iter,
+                verbose=verbose,
+            )
+            gmm = None  # Not using sklearn GMM object
+
+        elif gmm_fit_method == "fixed":
+            # Use initial guess without EM refinement (most conservative)
+            # This prevents EM from expanding the Gaussians
+            means = initial_means
+            covariances = initial_covariances
+
+            # Calculate weights by hard assignment
+            from scipy.spatial.distance import cdist
+            distances = cdist(X, initial_means, metric='euclidean')
+            assignments = np.argmin(distances, axis=1)
+            weights = np.array([np.sum(assignments == k) / len(X) for k in range(n_channels)])
+
+            converged = True  # No iteration needed
+            gmm = None
+
+            if verbose:
+                print("Using fixed initial guess (no EM refinement)")
+
+        else:
+            raise ValueError(f"Unknown gmm_fit_method: {gmm_fit_method}")
+
+        if verbose:
+            status = "converged" if converged else "did not converge"
+            print(f"GMM fitting: {status}")
+            print(f"Fitted means:")
+            for k in range(n_channels):
+                mean_str = ", ".join(
+                    [f"{channels_to_use[i]}={means[k, i]:.3f}" for i in range(n_features)]
+                )
+                weight_pct = weights[k] * 100
+                print(f"  Channel {k}: {mean_str} (weight: {weight_pct:.1f}%)")
+            print()
+
+        # ===== Phase 4: Channel Assignment with Confidence =====
+        if verbose:
+            print("Calculating posterior probabilities and assignments...")
+
+        # Calculate posterior probabilities
+        n_locs = len(X)
+        log_probs = np.zeros((n_locs, n_channels))
+
+        for k in range(n_channels):
+            mvn = multivariate_normal(mean=means[k], cov=covariances[k])
+            log_probs[:, k] = mvn.logpdf(X) + np.log(weights[k])
+
+        # Normalize to get posteriors (log-sum-exp trick)
+        log_probs_max = log_probs.max(axis=1, keepdims=True)
+        probs = np.exp(log_probs - log_probs_max)
+        posterior_probs = probs / probs.sum(axis=1, keepdims=True)
+
+        # Most likely channel
+        channel_assignments = np.argmax(posterior_probs, axis=1)
+
+        # Confidence = posterior of assigned channel
+        confidence = posterior_probs[np.arange(n_locs), channel_assignments]
+
+        # Calculate analytical confusion matrix if FPR specified
+        if false_positive_rate is not None:
+            if verbose:
+                print(
+                    f"Calculating analytical FPR to determine confidence threshold (target: {false_positive_rate:.3f})..."
+                )
+
+            stats = self.calculate_analytical_misidentification(
+                means, covariances, weights, n_samples=10000, random_state=42
+            )
+
+            if verbose:
+                print(f"Analytical accuracy: {stats['overall_accuracy']:.3f}")
+                print(f"Confusion matrix:")
+                print(stats["confusion_matrix"])
+                print()
+
+            # Use simple threshold based on FPR
+            # Higher FPR tolerance → lower threshold → more assignments
+            confidence_threshold = 1.0 - (false_positive_rate / n_channels)
+
+            if verbose:
+                print(
+                    f"Setting confidence threshold to {confidence_threshold:.3f} (from FPR={false_positive_rate:.3f})"
+                )
+
+        # Apply confidence threshold
+        is_assigned = confidence >= confidence_threshold
+        channel_assignments_filtered = channel_assignments.copy()
+        channel_assignments_filtered[~is_assigned] = -1
+
+        # ===== Phase 5: Outlier Detection =====
+        is_outlier = np.zeros(n_locs, dtype=bool)
+
+        if outlier_rejection == "mahalanobis":
+            if verbose:
+                print("Applying Mahalanobis distance outlier rejection...")
+
+            from scipy.stats import chi2
+
+            # Calculate Mahalanobis distance to assigned channel
+            mahalanobis_distances = np.zeros(n_locs)
+
+            for k in range(n_channels):
+                channel_k_mask = channel_assignments_filtered == k
+                if not np.any(channel_k_mask):
+                    continue
+
+                X_k = X[channel_k_mask]
+                try:
+                    inv_cov_k = np.linalg.inv(covariances[k])
+                except np.linalg.LinAlgError:
+                    # Singular covariance, regularize
+                    cov_reg = covariances[k] + 1e-6 * np.eye(n_features)
+                    inv_cov_k = np.linalg.inv(cov_reg)
+
+                diff_k = X_k - means[k]
+                mahal_k = np.sqrt(np.sum(diff_k @ inv_cov_k * diff_k, axis=1))
+                mahalanobis_distances[channel_k_mask] = mahal_k
+
+            # Flag outliers (99.9% quantile of chi-squared)
+            outlier_threshold = np.sqrt(chi2.ppf(0.999, df=n_features))
+            is_outlier = mahalanobis_distances > outlier_threshold
+            channel_assignments_filtered[is_outlier] = -1
+
+            if verbose:
+                n_outliers = is_outlier.sum()
+                print(
+                    f"  Outliers detected: {n_outliers} ({100*n_outliers/n_locs:.2f}%, threshold={outlier_threshold:.2f})"
+                )
+
+        else:
+            # Calculate Mahalanobis distance anyway for diagnostics
+            mahalanobis_distances = np.zeros(n_locs)
+            for k in range(n_channels):
+                channel_k_mask = channel_assignments_filtered == k
+                if not np.any(channel_k_mask):
+                    continue
+
+                X_k = X[channel_k_mask]
+                try:
+                    inv_cov_k = np.linalg.inv(covariances[k])
+                except np.linalg.LinAlgError:
+                    cov_reg = covariances[k] + 1e-6 * np.eye(n_features)
+                    inv_cov_k = np.linalg.inv(cov_reg)
+
+                diff_k = X_k - means[k]
+                mahal_k = np.sqrt(np.sum(diff_k @ inv_cov_k * diff_k, axis=1))
+                mahalanobis_distances[channel_k_mask] = mahal_k
+
+        # ===== Phase 6: Create Output DataFrame =====
+        assigned_locs = loc_data.copy()
+        assigned_locs["channel"] = channel_assignments_filtered
+        assigned_locs["channel_confidence"] = confidence
+        assigned_locs["mahalanobis_distance"] = mahalanobis_distances
+        assigned_locs["is_outlier"] = is_outlier
+
+        # Add per-channel posterior probabilities
+        for k in range(n_channels):
+            assigned_locs[f"channel_probability_{k}"] = posterior_probs[:, k]
+
+        # Create metadata
+        n_assigned_per_channel = {
+            k: np.sum(channel_assignments_filtered == k) for k in range(n_channels)
+        }
+        n_unassigned = np.sum(channel_assignments_filtered == -1)
+
+        metadata = {
+            "means": means,
+            "covariances": covariances,
+            "weights": weights,
+            "converged": converged,
+            "n_assigned": n_assigned_per_channel,
+            "n_unassigned": n_unassigned,
+            "initial_means": initial_means,
+            "channels_used": channels_to_use,
+            "confidence_threshold": confidence_threshold,
+        }
+
+        # Add confusion matrix if calculated
+        if false_positive_rate is not None:
+            metadata["confusion_matrix"] = stats["confusion_matrix"]
+            metadata["assignment_purity"] = np.diag(stats["confusion_matrix"])
+            metadata["false_positive_rates"] = 1.0 - np.diag(stats["confusion_matrix"])
+
+        if verbose:
+            print("\n" + "=" * 70)
+            print("Unmixing Complete")
+            print("=" * 70)
+            print(f"Assignments:")
+            for k in range(n_channels):
+                n_k = n_assigned_per_channel[k]
+                pct_k = 100 * n_k / n_locs
+                print(f"  Channel {k}: {n_k:,} ({pct_k:.1f}%)")
+            pct_unassigned = 100 * n_unassigned / n_locs
+            print(f"  Unassigned: {n_unassigned:,} ({pct_unassigned:.1f}%)")
+            print()
+
+        # ===== Phase 7: Diagnostic Plotting =====
+        if plot_results:
+            self._plot_unmixing_results(
+                X, channels_to_use, channel_assignments_filtered, confidence,
+                means, covariances, weights, n_channels, confidence_threshold,
+                metadata
+            )
+
+        return assigned_locs, metadata
+
+    def _plot_initial_guess_2d(self, X, channels_to_use, initial_means,
+                                initial_covariances, n_channels):
+        """
+        Plot 2D histogram with initial guess overlaid (means and 2σ ellipses).
+
+        Args:
+            X (np.ndarray): Data matrix, shape (n_samples, 2)
+            channels_to_use (list): Channel names
+            initial_means (np.ndarray): Initial means, shape (n_channels, 2)
+            initial_covariances (np.ndarray): Initial covariances, shape (n_channels, 2, 2)
+            n_channels (int): Number of channels
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Ellipse
+
+        # Use colors that don't conflict with channel names (avoid red/green for R/G channels)
+        colors_ch = ['blue', 'orange', 'purple', 'cyan', 'magenta', 'brown'][:n_channels]
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+        # 2D histogram
+        hist_2d, xedges, yedges = np.histogram2d(X[:, 0], X[:, 1], bins=100)
+        extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+
+        im = ax.imshow(
+            hist_2d.T, origin='lower', extent=extent,
+            cmap='gray', aspect='auto', interpolation='nearest'
+        )
+        plt.colorbar(im, ax=ax, label='Count')
+
+        # Overlay initial means and 2σ ellipses
+        for k in range(n_channels):
+            # Plot mean
+            ax.scatter(
+                initial_means[k, 0], initial_means[k, 1],
+                s=200, marker='x', color=colors_ch[k],
+                linewidths=4, label=f'Channel {k}', zorder=10
+            )
+
+            # Plot 2σ confidence ellipse
+            eigvals, eigvecs = np.linalg.eigh(initial_covariances[k])
+            angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
+            width, height = 2 * 2 * np.sqrt(eigvals)  # 2σ
+
+            ellipse = Ellipse(
+                initial_means[k], width, height, angle=angle,
+                edgecolor=colors_ch[k], facecolor='none', linewidth=3, zorder=9
+            )
+            ax.add_patch(ellipse)
+
+        ax.set_xlabel(channels_to_use[0], fontsize=12)
+        ax.set_ylabel(channels_to_use[1], fontsize=12)
+        ax.set_title('Initial Guess: 2D Histogram + Means + 2σ Ellipses', fontsize=14, weight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+        # Don't use tight_layout() - it conflicts with colorbar layout engine
+        fig.subplots_adjust(right=0.85)  # Make room for colorbar
+        plt.show()
+
+    def _plot_unmixing_results(
+        self, X, channels_to_use, assignments, confidence,
+        means, covariances, weights, n_channels, confidence_threshold,
+        metadata
+    ):
+        """Create diagnostic plots for channel unmixing results."""
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Ellipse
+        from scipy.stats import norm
+
+        n_features = X.shape[1]
+
+        # Plot 1: 1D Histograms with GMM overlay
+        fig, axes = plt.subplots(n_features, 1, figsize=(10, 4 * n_features))
+        if n_features == 1:
+            axes = [axes]
+
+        # Use colors that don't conflict with channel names (avoid red/green for R/G channels)
+        colors = ['blue', 'orange', 'purple', 'cyan', 'magenta', 'brown'][:n_channels]
+
+        for i, channel_name in enumerate(channels_to_use):
+            ax = axes[i]
+
+            # Histogram of all data
+            ax.hist(X[:, i], bins=500, alpha=0.3, color='gray', label='All data', density=True)
+
+            # Histograms per assigned channel
+            for k in range(n_channels):
+                mask = assignments == k
+                if mask.sum() > 0:
+                    ax.hist(
+                        X[mask, i], bins=200, alpha=0.5,
+                        color=colors[k], label=f'Channel {k}', density=True
+                    )
+
+            # GMM components (marginal distributions)
+            x_range = np.linspace(X[:, i].min(), X[:, i].max(), 1000)
+            gmm_pdf = np.zeros_like(x_range)
+
+            for k in range(n_channels):
+                # Project to 1D (marginal)
+                if n_features == 1:
+                    mean_1d = means[k, 0]
+                    var_1d = covariances[k, 0, 0]
+                else:
+                    mean_1d = means[k, i]
+                    var_1d = covariances[k, i, i]
+
+                pdf_k = weights[k] * norm.pdf(x_range, mean_1d, np.sqrt(var_1d))
+                ax.plot(x_range, pdf_k, color=colors[k], linewidth=2, linestyle='--',
+                       label=f'GMM Ch{k}')
+                gmm_pdf += pdf_k
+
+            ax.plot(x_range, gmm_pdf, 'k-', linewidth=2, label='GMM total')
+
+            ax.set_xlabel(channel_name, fontsize=12)
+            ax.set_ylabel('Density', fontsize=12)
+            ax.set_title(f'{channel_name} Distribution with GMM Fit', fontsize=14)
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+
+        fig.tight_layout()  # Use fig.tight_layout() instead of plt.tight_layout()
+        plt.show()
+
+        # Plot 2: 2D Scatter (if 2D data)
+        if n_features == 2:
+            fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+            # Left: GMM ellipses
+            ax = axes[0]
+            ax.scatter(X[:, 0], X[:, 1], s=1, alpha=0.2, c='gray', rasterized=True)
+
+            for k in range(n_channels):
+                # 2σ confidence ellipse
+                eigvals, eigvecs = np.linalg.eigh(covariances[k])
+                angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
+                width, height = 2 * 2 * np.sqrt(eigvals)
+
+                ellipse = Ellipse(
+                    means[k], width, height, angle=angle,
+                    edgecolor=colors[k], facecolor='none', linewidth=3
+                )
+                ax.add_patch(ellipse)
+                ax.scatter(
+                    means[k, 0], means[k, 1], s=200, marker='x',
+                    color=colors[k], linewidths=4, label=f'Channel {k}'
+                )
+
+            ax.set_xlabel(channels_to_use[0], fontsize=12)
+            ax.set_ylabel(channels_to_use[1], fontsize=12)
+            ax.set_title('GMM Fit (2σ ellipses)', fontsize=14)
+            ax.legend(fontsize=10)
+            ax.grid(True, alpha=0.3)
+
+            # Right: Assignments
+            ax = axes[1]
+            for k in range(n_channels):
+                mask = assignments == k
+                if mask.sum() > 0:
+                    ax.scatter(
+                        X[mask, 0], X[mask, 1], s=1, alpha=0.5,
+                        color=colors[k], label=f'Ch {k} (n={mask.sum():,})',
+                        rasterized=True
+                    )
+
+            # Unassigned
+            unassigned_mask = assignments == -1
+            if unassigned_mask.sum() > 0:
+                ax.scatter(
+                    X[unassigned_mask, 0], X[unassigned_mask, 1],
+                    s=1, alpha=0.3, color='black',
+                    label=f'Unassigned (n={unassigned_mask.sum():,})',
+                    rasterized=True
+                )
+
+            ax.set_xlabel(channels_to_use[0], fontsize=12)
+            ax.set_ylabel(channels_to_use[1], fontsize=12)
+            ax.set_title(f'Assignments (threshold={confidence_threshold:.2f})', fontsize=14)
+            ax.legend(fontsize=10)
+            ax.grid(True, alpha=0.3)
+
+            fig.tight_layout()  # Use fig.tight_layout() instead of plt.tight_layout()
+            plt.show()
+
+        # Plot 3: Confidence histogram
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        for k in range(n_channels):
+            mask = (assignments == k)
+            if mask.sum() > 0:
+                ax.hist(
+                    confidence[mask], bins=100, alpha=0.6,
+                    color=colors[k], label=f'Channel {k}'
+                )
+
+        ax.axvline(
+            confidence_threshold, color='red', linestyle='--',
+            linewidth=3, label=f'Threshold ({confidence_threshold:.2f})'
+        )
+        ax.set_xlabel('Assignment Confidence', fontsize=12)
+        ax.set_ylabel('Count', fontsize=12)
+        ax.set_title('Distribution of Assignment Confidences', fontsize=14)
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()  # Use fig.tight_layout() instead of plt.tight_layout()
+        plt.show()
+
+        # Plot 4: Confusion matrix (if available)
+        if 'confusion_matrix' in metadata:
+            fig, ax = plt.subplots(figsize=(7, 6))
+            conf_mat = metadata['confusion_matrix']
+
+            im = ax.imshow(conf_mat, cmap='Blues', vmin=0, vmax=1)
+
+            # Annotate cells
+            for i in range(n_channels):
+                for j in range(n_channels):
+                    text_color = 'white' if conf_mat[i, j] > 0.5 else 'black'
+                    ax.text(
+                        j, i, f"{conf_mat[i, j]:.3f}",
+                        ha="center", va="center",
+                        color=text_color, fontsize=14, weight='bold'
+                    )
+
+            ax.set_xticks(np.arange(n_channels))
+            ax.set_yticks(np.arange(n_channels))
+            ax.set_xticklabels([f'Ch {k}' for k in range(n_channels)], fontsize=11)
+            ax.set_yticklabels([f'Ch {k}' for k in range(n_channels)], fontsize=11)
+            ax.set_xlabel('Predicted Channel', fontsize=12)
+            ax.set_ylabel('True Channel', fontsize=12)
+            ax.set_title('Expected Confusion Matrix (Analytical)', fontsize=14)
+            plt.colorbar(im, ax=ax, label='Probability')
+            # Don't use tight_layout() - it conflicts with colorbar layout engine
+            fig.subplots_adjust(right=0.85)  # Make room for colorbar
+            plt.show()
