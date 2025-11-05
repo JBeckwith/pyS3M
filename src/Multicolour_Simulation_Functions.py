@@ -1633,6 +1633,7 @@ class MultiC_Sim_Funcs_Refactored:
         config: Optional[SimulationConfig] = None,
         single_dye_spectrum: Optional[np.ndarray] = None,
         nile_red_wavelength: Optional[float] = None,
+        overwrite: bool = True,
     ) -> None:
         """
         Unified method for all fitting strategies, replacing the 4 duplicate methods.
@@ -1645,6 +1646,8 @@ class MultiC_Sim_Funcs_Refactored:
 
         Args:
             nile_red_wavelength: If provided, will add wavelength fitting columns to raw results
+            overwrite: If True, overwrite existing results. If False, skip already completed
+                      photon levels and continue from where simulation crashed (default: True)
         """
         if config is None:
             config = SimulationConfig()
@@ -1728,56 +1731,93 @@ class MultiC_Sim_Funcs_Refactored:
                 "frame",
             ]
 
-        # Save expected parameters
+        # Save expected parameters (only if overwriting or doesn't exist)
         parameters_to_save = analysis_save_params[:-2]
         real_params = pl.DataFrame(
             data=np.expand_dims(setup_data["expected_parameters"], 0),
             schema=parameters_to_save,
         )
         dyestr = dye.replace("/", "-")
-        real_params.write_csv(
-            os.path.join(
-                save_folder,
-                f"{starting_flag}LM_method_{dyestr}_fittesting_input_parameters.csv",
-            )
+        input_params_path = os.path.join(
+            save_folder,
+            f"{starting_flag}LM_method_{dyestr}_fittesting_input_parameters.csv",
         )
+        if overwrite or not os.path.exists(input_params_path):
+            real_params.write_csv(input_params_path)
 
-        # Save ground truth positions for standard method
+        # Save ground truth positions for standard method (only if overwriting or doesn't exist)
         if strategy == FittingStrategy.STANDARD:
             X0Y0 = {"x0": x0, "y0": y0}
-            pl.DataFrame(X0Y0).write_csv(
-                os.path.join(
-                    save_folder,
-                    f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
-                )
+            groundtruth_path = os.path.join(
+                save_folder,
+                f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
             )
+            if overwrite or not os.path.exists(groundtruth_path):
+                pl.DataFrame(X0Y0).write_csv(groundtruth_path)
 
         # Initialize results arrays
         fit_RMSE_mean = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])
         fit_std = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])
 
-        # Save photon levels CSV once if saving raw results
+        # Check for existing results and determine which photon levels to process
+        completed_photon_levels = set()
+        start_index = 0
+
         if config.save_raw_results:
-            photon_levels_df = pl.DataFrame({
-                "photon_level_index": np.arange(len(n_photon_space)),
-                "n_photons": n_photon_space,
-            })
-            photon_levels_df.write_csv(
-                os.path.join(
-                    save_folder,
-                    f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
-                )
-            )
             # Define HDF5 database path for raw results
             raw_results_h5_path = os.path.join(
                 save_folder,
                 f"{starting_flag}LM_method_{dyestr}_rawresults.h5",
             )
 
+            # Handle overwrite mode
+            if overwrite and os.path.exists(raw_results_h5_path):
+                print(f"Overwrite=True: Deleting existing results file: {os.path.basename(raw_results_h5_path)}")
+                os.remove(raw_results_h5_path)
+
+            # Check if we should skip existing results
+            if not overwrite and os.path.exists(raw_results_h5_path):
+                import pandas as pd
+                try:
+                    # Read existing HDF5 file to find completed photon levels
+                    existing_data = pd.read_hdf(raw_results_h5_path, key="data")
+                    if "photon_level" in existing_data.columns:
+                        completed_photon_levels = set(existing_data["photon_level"].unique())
+                        print(f"Found existing results with {len(completed_photon_levels)} completed photon levels")
+                        print(f"Completed levels: {sorted(completed_photon_levels)}")
+
+                        # If all photon levels are complete, notify and return
+                        if len(completed_photon_levels) >= len(n_photon_space):
+                            print(f"All {len(n_photon_space)} photon levels already completed. Use overwrite=True to rerun.")
+                            return
+                except Exception as e:
+                    print(f"Warning: Could not read existing HDF5 file: {e}")
+                    print("Starting fresh simulation...")
+                    completed_photon_levels = set()
+
+            # Save/update photon levels CSV
+            photon_levels_df = pl.DataFrame({
+                "photon_level_index": np.arange(len(n_photon_space)),
+                "n_photons": n_photon_space,
+            })
+
+            # Only write CSV if overwriting or if it doesn't exist
+            photon_levels_csv_path = os.path.join(
+                save_folder,
+                f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
+            )
+            if overwrite or not os.path.exists(photon_levels_csv_path):
+                photon_levels_df.write_csv(photon_levels_csv_path)
+
         start = time.time()
 
         # Process each photon count
         for i, n_photon in enumerate(n_photon_space):
+            # Skip if this photon level was already completed
+            if i in completed_photon_levels:
+                print(f"Skipping photon level {i} ({n_photon} photons) - already completed", flush=True)
+                continue
+
             n_photons = {"dye": np.full(config.n_bootstrap, n_photon)}
 
             # Stochastic photon sampling for realistic shot noise
@@ -1890,10 +1930,12 @@ class MultiC_Sim_Funcs_Refactored:
                 # Note: _fit_standard already creates photons and background_photons columns
                 # and normalizes A_R/G/B and bg_R/G/B, so we pass normalise_photons=False
                 # to avoid double normalization
+                # Append if: (1) not the first iteration OR (2) continuing from previous run
+                should_append = (i > 0) or (len(completed_photon_levels) > 0)
                 self.io._write_h5_database(
                     fit_results,
                     raw_results_h5_path,
-                    append=(i > 0),  # Append for all iterations after the first
+                    append=should_append,
                     normalise_photons=False,  # Already normalized in _fit_standard
                 )
 
