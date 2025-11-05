@@ -2342,14 +2342,20 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         camera images with proper Bayer pattern and noise, then extracts color
         coordinates for separability analysis.
 
-        **Stochastic Spectral Sampling (Nov 2025):**
-        Each frame samples photons from the emission spectrum to generate realistic
-        shot noise in:
+        **Stochastic Photon Sampling (Nov 2025):**
+        Two levels of realistic shot noise for each frame:
+        1. Poisson photon count variation - each molecule emits a different
+           number of photons drawn from Poisson(expected_photons)
+        2. Spectral sampling - for each frame's photon count, sample which
+           wavelengths are emitted from the dye's emission spectrum
+
+        This generates realistic variation in:
+        - Total photon count per frame (Poisson noise)
         - Per-frame average wavelength (affects PSF width variation)
         - Per-frame BGR color ratios (shot noise in detected color)
 
-        This accounts for the stochastic nature of photon emission wavelengths,
-        not just spatial and Poisson noise.
+        This accounts for the full stochastic nature of photon emission,
+        beyond just spatial Poisson noise in the PSF.
 
         Args:
             dye_name: Name of the dye
@@ -2393,52 +2399,63 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         x0 = np.random.uniform(center - position_range, center + position_range, n_simulations)
         y0 = np.random.uniform(center - position_range, center + position_range, n_simulations)
 
-        # Prepare inputs for gen_camera_image_stack
-        n_photons = {dye_name: np.full(n_simulations, expected_photons)}
-        x0y0 = {dye_name: np.zeros([n_simulations, 2, 1])}
-        x0y0[dye_name][:, 0, 0] = x0
-        x0y0[dye_name][:, 1, 0] = y0
-
-        # STOCHASTIC SPECTRAL SAMPLING:
-        # For each frame, sample photons from the emission spectrum to get:
-        # 1. Per-frame average wavelength (affects PSF width)
-        # 2. Per-frame BGR color ratios (shot noise in color)
-        #
-        # This accounts for the stochastic nature of which photons are emitted
-        # at which wavelengths, giving realistic shot noise in both PSF and color.
+        # STOCHASTIC PHOTON SAMPLING:
+        # Two levels of stochasticity for realistic shot noise:
+        # 1. Poisson photon count variation (each molecule emits different # photons)
+        # 2. Spectral sampling (which wavelengths are emitted for those photons)
 
         rng = np.random.default_rng(42)  # Reproducible random state
 
-        # Sample all photons at once (efficient bulk sampling)
-        total_photons = int(expected_photons * n_simulations)
-        all_photon_wavelengths = self.spectral.sample_photons_from_spectrum(
-            dye_at_detector, wavelength, total_photons, random_state=rng
-        )
+        # Step 1: Poisson photon count sampling (vectorized, single call)
+        # Each frame gets a different photon count drawn from Poisson distribution
+        photon_counts_per_frame = rng.poisson(expected_photons, size=n_simulations)
 
-        # Reshape into per-frame chunks
-        photon_wavelengths_per_frame = all_photon_wavelengths.reshape(
-            n_simulations, int(expected_photons)
-        )
+        # Step 2: Sample photons from emission spectrum for each frame
+        # Strategy: Sample wavelengths for each frame based on its actual photon count
+        # This is more accurate than sampling a fixed number per frame
 
-        # Calculate per-frame average wavelengths (for PSF width variation)
-        average_emission_wavelengths = np.mean(photon_wavelengths_per_frame, axis=1)
-
-        # Calculate per-frame BGR color ratios (shot noise in color)
-        # pixel_QYs shape: (3, n_wavelengths) for [B, G, R]
         pixel_QYs = camera_parameters["pixel_QYs"]
         pixel_order = camera_parameters["pixel_order"]
 
-        # Get BGR ratios for each frame with realistic shot noise
+        average_emission_wavelengths = np.zeros(n_simulations)
         bgr_ratios = np.zeros((n_simulations, 3))
+
         for i in range(n_simulations):
-            _, color_ratios = self.spectral.calculate_colourratio_from_photon_wavelengths(
-                photon_wavelengths_per_frame[i],
-                wavelength,
-                pixel_QYs,
-                pixel_order=pixel_order,
-                pixel_order_indices={'B': 0, 'G': 1, 'R': 2}
-            )
-            bgr_ratios[i] = color_ratios
+            n_photons_this_frame = photon_counts_per_frame[i]
+
+            if n_photons_this_frame > 0:
+                # Sample wavelengths for this frame's photon count
+                photon_wavelengths = self.spectral.sample_photons_from_spectrum(
+                    dye_at_detector, wavelength, n_photons_this_frame, random_state=rng
+                )
+
+                # Calculate average wavelength (for PSF width)
+                average_emission_wavelengths[i] = np.mean(photon_wavelengths)
+
+                # Calculate BGR color ratios with shot noise
+                _, color_ratios = self.spectral.calculate_colourratio_from_photon_wavelengths(
+                    photon_wavelengths,
+                    wavelength,
+                    pixel_QYs,
+                    pixel_order=pixel_order,
+                    pixel_order_indices={'B': 0, 'G': 1, 'R': 2}
+                )
+                bgr_ratios[i] = color_ratios
+            else:
+                # Edge case: zero photons (very rare with high expected_photons)
+                # Use mean wavelength and typical color ratios
+                average_emission_wavelengths[i] = np.trapz(
+                    y=wavelength * dye_at_detector / np.trapz(x=wavelength, y=dye_at_detector),
+                    x=wavelength
+                )
+                bgr_ratios[i] = np.dot(dye_at_detector, pixel_QYs.T)
+                bgr_ratios[i] /= np.sum(bgr_ratios[i])  # Normalize
+
+        # Prepare inputs for gen_camera_image_stack
+        n_photons = {dye_name: photon_counts_per_frame}  # Array of Poisson-sampled counts
+        x0y0 = {dye_name: np.zeros([n_simulations, 2, 1])}
+        x0y0[dye_name][:, 0, 0] = x0
+        x0y0[dye_name][:, 1, 0] = y0
 
         # Convert BGR ratios to pixel efficiencies (quantum efficiencies per channel)
         # These represent the effective QE for each channel for this specific set of photons
