@@ -2342,6 +2342,15 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         camera images with proper Bayer pattern and noise, then extracts color
         coordinates for separability analysis.
 
+        **Stochastic Spectral Sampling (Nov 2025):**
+        Each frame samples photons from the emission spectrum to generate realistic
+        shot noise in:
+        - Per-frame average wavelength (affects PSF width variation)
+        - Per-frame BGR color ratios (shot noise in detected color)
+
+        This accounts for the stochastic nature of photon emission wavelengths,
+        not just spatial and Poisson noise.
+
         Args:
             dye_name: Name of the dye
             filters: Filter names
@@ -2375,16 +2384,6 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         dye_spectrum = self.spectral.get_dye_or_filter_data([dye_name], wavelength=wavelength)[0]
         dye_at_detector = dye_spectrum * filter_spectrum / np.sum(dye_spectrum * filter_spectrum)
 
-        # Calculate average emission wavelength
-        average_emission_wavelength = np.trapz(
-            y=wavelength * dye_at_detector / np.trapz(x=wavelength, y=dye_at_detector),
-            x=wavelength
-        )
-
-        # Calculate pixel efficiency (effective QE per pixel type)
-        # This gives absolute QE values (probabilities), not relative fractions
-        dye_pixel_efficiency = np.dot(dye_at_detector, camera_parameters["pixel_QYs"].T)
-
         # Generate random positions in center region
         max_pos = pixel_size * image_dims
         center = max_pos / 2
@@ -2400,12 +2399,57 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         x0y0[dye_name][:, 0, 0] = x0
         x0y0[dye_name][:, 1, 0] = y0
 
-        # Generate images
+        # STOCHASTIC SPECTRAL SAMPLING:
+        # For each frame, sample photons from the emission spectrum to get:
+        # 1. Per-frame average wavelength (affects PSF width)
+        # 2. Per-frame BGR color ratios (shot noise in color)
+        #
+        # This accounts for the stochastic nature of which photons are emitted
+        # at which wavelengths, giving realistic shot noise in both PSF and color.
+
+        rng = np.random.default_rng(42)  # Reproducible random state
+
+        # Sample all photons at once (efficient bulk sampling)
+        total_photons = int(expected_photons * n_simulations)
+        all_photon_wavelengths = self.spectral.sample_photons_from_spectrum(
+            dye_at_detector, wavelength, total_photons, random_state=rng
+        )
+
+        # Reshape into per-frame chunks
+        photon_wavelengths_per_frame = all_photon_wavelengths.reshape(
+            n_simulations, int(expected_photons)
+        )
+
+        # Calculate per-frame average wavelengths (for PSF width variation)
+        average_emission_wavelengths = np.mean(photon_wavelengths_per_frame, axis=1)
+
+        # Calculate per-frame BGR color ratios (shot noise in color)
+        # pixel_QYs shape: (3, n_wavelengths) for [B, G, R]
+        pixel_QYs = camera_parameters["pixel_QYs"]
+        pixel_order = camera_parameters["pixel_order"]
+
+        # Get BGR ratios for each frame with realistic shot noise
+        bgr_ratios = np.zeros((n_simulations, 3))
+        for i in range(n_simulations):
+            _, color_ratios = self.spectral.calculate_colourratio_from_photon_wavelengths(
+                photon_wavelengths_per_frame[i],
+                wavelength,
+                pixel_QYs,
+                pixel_order=pixel_order,
+                pixel_order_indices={'B': 0, 'G': 1, 'R': 2}
+            )
+            bgr_ratios[i] = color_ratios
+
+        # Convert BGR ratios to pixel efficiencies (quantum efficiencies per channel)
+        # These represent the effective QE for each channel for this specific set of photons
+        dye_pixel_efficiency = bgr_ratios  # Shape: (n_simulations, 3)
+
+        # Generate images with per-frame wavelengths and color ratios
         data, _, _ = self.gen_camera_image_stack(
             camera_parameters,
             wavelength,
-            average_emission_wavelength,
-            dye_pixel_efficiency,
+            average_emission_wavelengths,  # Array: per-frame wavelengths
+            dye_pixel_efficiency,           # Array: per-frame BGR ratios
             n_photons,
             x0y0,
             smoothing_function,
