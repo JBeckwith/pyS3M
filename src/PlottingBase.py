@@ -857,12 +857,12 @@ class TernaryPlotMixin:
         # - taxis (top vertex, R) runs along bottom edge = 'tside'
         # - laxis (left vertex, G) runs along right edge = 'rside'
         # - raxis (right vertex, B) runs along left edge = 'lside'
-        ax.spines['tside'].set_color('darkred')      # Bottom edge = R axis
+        ax.spines['lside'].set_color('darkred')      # Left edge = R axis
         ax.spines['rside'].set_color('darkgreen')    # Right edge = G axis
-        ax.spines['lside'].set_color('darkblue')     # Left edge = B axis
-        ax.spines['tside'].set_linewidth(1.5)
-        ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['tside'].set_color('darkblue')     # Bottom edge = B axis
         ax.spines['lside'].set_linewidth(1.5)
+        ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['tside'].set_linewidth(1.5)
 
         # Set up grid with colored gridlines
         if show_grid:
@@ -1015,12 +1015,12 @@ class TernaryPlotMixin:
         # - taxis (top vertex, R) runs along bottom edge = 'tside'
         # - laxis (left vertex, G) runs along right edge = 'rside'
         # - raxis (right vertex, B) runs along left edge = 'lside'
-        ax.spines['tside'].set_color('darkred')      # Bottom edge = R axis
+        ax.spines['lside'].set_color('darkred')      # Left edge = R axis
         ax.spines['rside'].set_color('darkgreen')    # Right edge = G axis
-        ax.spines['lside'].set_color('darkblue')     # Left edge = B axis
-        ax.spines['tside'].set_linewidth(1.5)
-        ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['tside'].set_color('darkblue')     # Bottom edge = B axis
         ax.spines['lside'].set_linewidth(1.5)
+        ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['tside'].set_linewidth(1.5)
 
         # Set up grid with colored gridlines
         if show_grid:
