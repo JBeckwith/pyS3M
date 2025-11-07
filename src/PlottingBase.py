@@ -737,6 +737,289 @@ class ImagePlotMixin:
         return axs
 
 
+class TernaryPlotMixin:
+    """Mixin for creating ternary (3-component) plots.
+
+    Provides methods for plotting RGB color data on ternary diagrams
+    using the mpltern library. Handles both scatter and density plots.
+    """
+
+    def create_ternary_plot(
+        self,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        colors: Optional[np.ndarray] = None,
+        marker_size: float = 10,
+        marker_alpha: float = 0.5,
+        edge_width: float = 0.5,
+        title: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        show_grid: bool = True,
+        grid_spacing: float = 0.1,
+        figsize: Tuple[float, float] = (6, 5),
+        rasterized: bool = False,
+        **kwargs
+    ) -> Tuple[Any, Any]:
+        """Create a standalone ternary scatter plot for RGB data.
+
+        This method creates a single-panel ternary plot showing the distribution
+        of R, G, B values. The RGB values should be normalized (sum to 1).
+
+        Args:
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1)
+            colors: Optional RGBA colors for each point. If None, uses point density coloring.
+            marker_size: Size of scatter markers (default: 10)
+            marker_alpha: Transparency of markers (default: 0.5)
+            edge_width: Width of marker edges (default: 0.5)
+            title: Plot title (optional)
+            labels: Dictionary with keys 'R', 'G', 'B' for axis labels (optional)
+            show_grid: Whether to show grid lines (default: True)
+            grid_spacing: Spacing between grid lines (default: 0.1)
+            figsize: Figure size as (width, height) (default: (6, 5))
+            rasterized: Whether to rasterize scatter points (default: False)
+            **kwargs: Additional arguments passed to ax.scatter()
+
+        Returns:
+            Tuple of (fig, ax) where ax is a ternary axis
+
+        Example:
+            >>> from PlottingBase import PublicationPlotter
+            >>> plotter = PublicationPlotter()
+            >>>
+            >>> # Normalize your RGB data
+            >>> total = R + G + B
+            >>> R_norm = R / total
+            >>> G_norm = G / total
+            >>> B_norm = B / total
+            >>>
+            >>> # Create plot
+            >>> fig, ax = plotter.create_ternary_plot(
+            ...     R_norm, G_norm, B_norm,
+            ...     title='Color Distribution',
+            ...     marker_size=5
+            ... )
+            >>> fig.savefig('ternary_plot.png', dpi=300, bbox_inches='tight')
+
+        Notes:
+            - Requires mpltern: `pip install mpltern`
+            - RGB values should be normalized (sum to 1 for each point)
+            - If not normalized, the function will normalize them automatically
+        """
+        try:
+            import mpltern
+        except ImportError:
+            raise ImportError(
+                "mpltern is required for ternary plots. Install with: pip install mpltern"
+            )
+
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays if needed
+        R = np.asarray(R)
+        G = np.asarray(G)
+        B = np.asarray(B)
+
+        # Check for and handle normalization
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-6):
+            # Normalize
+            R = R / totals
+            G = G / totals
+            B = B / totals
+            print(f"Warning: RGB values were not normalized. Automatically normalized to sum=1")
+
+        # Create figure with ternary projection
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='ternary')
+
+        # Set up axis labels
+        default_labels = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}
+        if labels is not None:
+            default_labels.update(labels)
+
+        ax.set_tlabel(default_labels['R'])
+        ax.set_llabel(default_labels['B'])
+        ax.set_rlabel(default_labels['G'])
+
+        # Set up grid
+        if show_grid:
+            from matplotlib.ticker import MultipleLocator
+            for axis in [ax.taxis, ax.laxis, ax.raxis]:
+                axis.set_major_locator(MultipleLocator(grid_spacing))
+            ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
+
+        # Create scatter plot
+        # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
+        # For RGB: t=R (top), l=B (left), r=G (right)
+        if colors is not None:
+            # User-provided colors
+            scatter = ax.scatter(
+                R, B, G,
+                c=colors,
+                s=marker_size,
+                alpha=marker_alpha,
+                linewidths=edge_width,
+                edgecolors='none' if edge_width == 0 else 'black',
+                rasterized=rasterized,
+                **kwargs
+            )
+        else:
+            # No colors specified - use default blue
+            scatter = ax.scatter(
+                R, B, G,
+                s=marker_size,
+                alpha=marker_alpha,
+                linewidths=edge_width,
+                edgecolors='none' if edge_width == 0 else 'black',
+                rasterized=rasterized,
+                **kwargs
+            )
+
+        # Set title
+        if title:
+            ax.set_title(title, pad=20)
+
+        # Adjust layout
+        plt.tight_layout()
+
+        return fig, ax
+
+    def create_ternary_density(
+        self,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        gridsize: int = 50,
+        cmap: str = 'viridis',
+        show_colorbar: bool = True,
+        title: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        show_grid: bool = True,
+        grid_spacing: float = 0.1,
+        figsize: Tuple[float, float] = (7, 5),
+        log_scale: bool = False,
+        **kwargs
+    ) -> Tuple[Any, Any]:
+        """Create a ternary density plot (hexbin) for RGB data.
+
+        This method creates a single-panel ternary plot showing the density
+        distribution of R, G, B values using hexagonal binning.
+
+        Args:
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1)
+            gridsize: Number of hexagons in x direction (default: 50)
+            cmap: Colormap name (default: 'viridis')
+            show_colorbar: Whether to show colorbar (default: True)
+            title: Plot title (optional)
+            labels: Dictionary with keys 'R', 'G', 'B' for axis labels (optional)
+            show_grid: Whether to show grid lines (default: True)
+            grid_spacing: Spacing between grid lines (default: 0.1)
+            figsize: Figure size as (width, height) (default: (7, 5))
+            log_scale: Use logarithmic color scale (default: False)
+            **kwargs: Additional arguments passed to ax.hexbin()
+
+        Returns:
+            Tuple of (fig, ax) where ax is a ternary axis
+
+        Example:
+            >>> plotter = PublicationPlotter()
+            >>> fig, ax = plotter.create_ternary_density(
+            ...     R_norm, G_norm, B_norm,
+            ...     gridsize=100,
+            ...     cmap='hot',
+            ...     title='Color Density Distribution'
+            ... )
+
+        Notes:
+            - Requires mpltern: `pip install mpltern`
+            - RGB values should be normalized (sum to 1 for each point)
+            - Use larger gridsize for smoother density visualization
+        """
+        try:
+            import mpltern
+        except ImportError:
+            raise ImportError(
+                "mpltern is required for ternary plots. Install with: pip install mpltern"
+            )
+
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays if needed
+        R = np.asarray(R)
+        G = np.asarray(G)
+        B = np.asarray(B)
+
+        # Check for and handle normalization
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-6):
+            # Normalize
+            R = R / totals
+            G = G / totals
+            B = B / totals
+            print(f"Warning: RGB values were not normalized. Automatically normalized to sum=1")
+
+        # Create figure with ternary projection
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='ternary')
+
+        # Set up axis labels
+        default_labels = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}
+        if labels is not None:
+            default_labels.update(labels)
+
+        ax.set_tlabel(default_labels['R'])
+        ax.set_llabel(default_labels['B'])
+        ax.set_rlabel(default_labels['G'])
+
+        # Set up grid
+        if show_grid:
+            from matplotlib.ticker import MultipleLocator
+            for axis in [ax.taxis, ax.laxis, ax.raxis]:
+                axis.set_major_locator(MultipleLocator(grid_spacing))
+            ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
+
+        # Create hexbin density plot
+        # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
+        # For RGB: t=R (top), l=B (left), r=G (right)
+        if log_scale:
+            bins = 'log'
+        else:
+            bins = None
+
+        hexbin = ax.hexbin(
+            R, B, G,
+            gridsize=gridsize,
+            cmap=cmap,
+            bins=bins,
+            edgecolors='none',
+            rasterized=True,
+            **kwargs
+        )
+
+        # Add colorbar
+        if show_colorbar:
+            cbar = plt.colorbar(hexbin, ax=ax, pad=0.05)
+            cbar.set_label('Count' if not log_scale else 'Count (log scale)', rotation=270, labelpad=20)
+
+        # Set title
+        if title:
+            ax.set_title(title, pad=20)
+
+        # Adjust layout
+        plt.tight_layout()
+
+        return fig, ax
+
+
 class DatashaderMixin:
     """Mixin for handling large datasets with datashader when available.
 
@@ -1230,11 +1513,12 @@ class DatashaderMixin:
         return scatter
 
 
-class PublicationPlotter(BasePlotter, ImagePlotMixin):
-    """Publication-quality plotter with enhanced image capabilities.
+class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
+    """Publication-quality plotter with enhanced image and ternary plot capabilities.
 
     This class provides high-quality plotting functionality suitable for
     scientific publications, with consistent styling and professional appearance.
+    Includes support for ternary (3-component) plots via the TernaryPlotMixin.
     """
 
     def __init__(self, poster: bool = False, dark_background: bool = False):
@@ -1260,15 +1544,16 @@ class PublicationPlotter(BasePlotter, ImagePlotMixin):
             plt.style.use("dark_background")
 
 
-class AnalysisPlotter(DatashaderMixin, ImagePlotMixin, BasePlotter):
-    """Analysis-focused plotter with large dataset handling.
+class AnalysisPlotter(TernaryPlotMixin, DatashaderMixin, ImagePlotMixin, BasePlotter):
+    """Analysis-focused plotter with large dataset handling and ternary plots.
 
     This class is optimised for interactive data analysis and exploration,
     with support for large datasets and quick visualisation. Automatically
     switches to datashader for datasets >1k points (configurable).
+    Includes support for ternary (3-component) plots via the TernaryPlotMixin.
 
-    Note: MRO is DatashaderMixin -> ImagePlotMixin -> BasePlotter to ensure
-    proper initialization order.
+    Note: MRO is TernaryPlotMixin -> DatashaderMixin -> ImagePlotMixin -> BasePlotter
+    to ensure proper initialization order.
     """
 
     def __init__(self, datashader_threshold: int = 1000):
