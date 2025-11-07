@@ -847,6 +847,19 @@ class TernaryPlotMixin:
         ax.set_llabel(default_labels['G'], color='darkgreen', fontsize=12)
         ax.set_rlabel(default_labels['B'], color='darkblue', fontsize=12)
 
+        # Color the tick marks and tick labels
+        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
+        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
+        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
+
+        # Color the axis lines (spines)
+        ax.spines['tside'].set_color('darkred')
+        ax.spines['lside'].set_color('darkgreen')
+        ax.spines['rside'].set_color('darkblue')
+        ax.spines['tside'].set_linewidth(1.5)
+        ax.spines['lside'].set_linewidth(1.5)
+        ax.spines['rside'].set_linewidth(1.5)
+
         # Set up grid with colored gridlines
         if show_grid:
             from matplotlib.ticker import MultipleLocator
@@ -987,6 +1000,19 @@ class TernaryPlotMixin:
         ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
         ax.set_llabel(default_labels['G'], color='darkgreen', fontsize=12)
         ax.set_rlabel(default_labels['B'], color='darkblue', fontsize=12)
+
+        # Color the tick marks and tick labels
+        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
+        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
+        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
+
+        # Color the axis lines (spines)
+        ax.spines['tside'].set_color('darkred')
+        ax.spines['lside'].set_color('darkgreen')
+        ax.spines['rside'].set_color('darkblue')
+        ax.spines['tside'].set_linewidth(1.5)
+        ax.spines['lside'].set_linewidth(1.5)
+        ax.spines['rside'].set_linewidth(1.5)
 
         # Set up grid with colored gridlines
         if show_grid:
