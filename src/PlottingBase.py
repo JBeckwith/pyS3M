@@ -837,21 +837,26 @@ class TernaryPlotMixin:
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111, projection='ternary')
 
-        # Set up axis labels
+        # Set up axis labels with colors
         default_labels = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}
         if labels is not None:
             default_labels.update(labels)
 
-        ax.set_tlabel(default_labels['R'])
-        ax.set_llabel(default_labels['B'])
-        ax.set_rlabel(default_labels['G'])
+        ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
+        ax.set_llabel(default_labels['B'], color='darkblue', fontsize=12)
+        ax.set_rlabel(default_labels['G'], color='darkgreen', fontsize=12)
 
-        # Set up grid
+        # Set up grid with colored gridlines
         if show_grid:
             from matplotlib.ticker import MultipleLocator
             for axis in [ax.taxis, ax.laxis, ax.raxis]:
                 axis.set_major_locator(MultipleLocator(grid_spacing))
+
+            # Color the gridlines to match the axes
             ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.taxis.grid(color='darkred', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.laxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.raxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
 
         # Create scatter plot
         # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
@@ -971,21 +976,26 @@ class TernaryPlotMixin:
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111, projection='ternary')
 
-        # Set up axis labels
+        # Set up axis labels with colors
         default_labels = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}
         if labels is not None:
             default_labels.update(labels)
 
-        ax.set_tlabel(default_labels['R'])
-        ax.set_llabel(default_labels['B'])
-        ax.set_rlabel(default_labels['G'])
+        ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
+        ax.set_llabel(default_labels['B'], color='darkblue', fontsize=12)
+        ax.set_rlabel(default_labels['G'], color='darkgreen', fontsize=12)
 
-        # Set up grid
+        # Set up grid with colored gridlines
         if show_grid:
             from matplotlib.ticker import MultipleLocator
             for axis in [ax.taxis, ax.laxis, ax.raxis]:
                 axis.set_major_locator(MultipleLocator(grid_spacing))
+
+            # Color the gridlines to match the axes
             ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.taxis.grid(color='darkred', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.laxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.raxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
 
         # Create hexbin density plot
         # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
