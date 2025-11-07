@@ -126,6 +126,7 @@ class SimulationConfig:
         subtractx0y0 (bool): Whether to subtract ground truth positions from results (default: False)
         saverawimages (bool): Whether to save raw Bayer images (default: False)
         use_lut (bool): Use LUT for fast Nile Red wavelength fitting (default: True)
+        verbose (bool): Whether to print detailed progress messages (default: True)
     """
 
     n_bootstrap: int = 100000
@@ -139,6 +140,7 @@ class SimulationConfig:
     saverawimages: bool = False
     use_lut: bool = True
     use_stochastic_photons: bool = True
+    verbose: bool = True
 
     def __post_init__(self):
         """
@@ -1937,6 +1939,7 @@ class MultiC_Sim_Funcs_Refactored:
                     raw_results_h5_path,
                     append=should_append,
                     normalise_photons=False,  # Already normalized in _fit_standard
+                    verbose=config.verbose,
                 )
 
             # Compute statistics for this photon count

@@ -794,7 +794,7 @@ class extract_SMs:
             # Save single frame database
             sf_path = os.path.join(output_folder, f"{output_prefix}_single_frames.h5")
             self.io._write_h5_database(
-                single_frame_db, sf_path, normalise_photons=False, append=False
+                single_frame_db, sf_path, normalise_photons=False, append=False, verbose=verbose
             )
             if verbose:
                 print(f"  Saved: {os.path.basename(sf_path)}")
