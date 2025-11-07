@@ -842,9 +842,10 @@ class TernaryPlotMixin:
         if labels is not None:
             default_labels.update(labels)
 
+        # Note: scatter(R, G, B) means t=R (top), l=G (left), r=B (right)
         ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
-        ax.set_llabel(default_labels['B'], color='darkblue', fontsize=12)
-        ax.set_rlabel(default_labels['G'], color='darkgreen', fontsize=12)
+        ax.set_llabel(default_labels['G'], color='darkgreen', fontsize=12)
+        ax.set_rlabel(default_labels['B'], color='darkblue', fontsize=12)
 
         # Set up grid with colored gridlines
         if show_grid:
@@ -855,16 +856,17 @@ class TernaryPlotMixin:
             # Color the gridlines to match the axes
             ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
             ax.taxis.grid(color='darkred', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.laxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.raxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.laxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.raxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
 
         # Create scatter plot
-        # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
-        # For RGB: t=R (top), l=B (left), r=G (right)
+        # Note: mpltern uses (t, l, r) ordering where t=top, l=left/bottom-left, r=right/bottom-right
+        # For RGB with standard orientation: t=R (top), l=G (bottom-left), r=B (bottom-right)
+        # We swap to: scatter(R, G, B) so Blue ends up at bottom-right as expected
         if colors is not None:
             # User-provided colors
             scatter = ax.scatter(
-                R, B, G,
+                R, G, B,
                 c=colors,
                 s=marker_size,
                 alpha=marker_alpha,
@@ -876,7 +878,7 @@ class TernaryPlotMixin:
         else:
             # No colors specified - use default blue
             scatter = ax.scatter(
-                R, B, G,
+                R, G, B,
                 s=marker_size,
                 alpha=marker_alpha,
                 linewidths=edge_width,
@@ -981,9 +983,10 @@ class TernaryPlotMixin:
         if labels is not None:
             default_labels.update(labels)
 
+        # Note: scatter(R, G, B) means t=R (top), l=G (left), r=B (right)
         ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
-        ax.set_llabel(default_labels['B'], color='darkblue', fontsize=12)
-        ax.set_rlabel(default_labels['G'], color='darkgreen', fontsize=12)
+        ax.set_llabel(default_labels['G'], color='darkgreen', fontsize=12)
+        ax.set_rlabel(default_labels['B'], color='darkblue', fontsize=12)
 
         # Set up grid with colored gridlines
         if show_grid:
@@ -994,19 +997,19 @@ class TernaryPlotMixin:
             # Color the gridlines to match the axes
             ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
             ax.taxis.grid(color='darkred', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.laxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.raxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.laxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.raxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
 
         # Create hexbin density plot
         # Note: mpltern uses (t, l, r) ordering where t=top, l=left, r=right
-        # For RGB: t=R (top), l=B (left), r=G (right)
+        # For RGB: scatter(R, G, B) means t=R (top), l=G (left), r=B (right)
         if log_scale:
             bins = 'log'
         else:
             bins = None
 
         hexbin = ax.hexbin(
-            R, B, G,
+            R, G, B,
             gridsize=gridsize,
             cmap=cmap,
             bins=bins,
