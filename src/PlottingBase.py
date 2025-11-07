@@ -853,12 +853,16 @@ class TernaryPlotMixin:
         ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
 
         # Color the axis lines (spines)
-        ax.spines['tside'].set_color('darkred')
-        ax.spines['lside'].set_color('darkgreen')
-        ax.spines['rside'].set_color('darkblue')
+        # Note: In ternary plots, each axis runs along the OPPOSITE side:
+        # - taxis (top vertex, R) runs along bottom edge = 'tside'
+        # - laxis (left vertex, G) runs along right edge = 'rside'
+        # - raxis (right vertex, B) runs along left edge = 'lside'
+        ax.spines['tside'].set_color('darkred')      # Bottom edge = R axis
+        ax.spines['rside'].set_color('darkgreen')    # Right edge = G axis
+        ax.spines['lside'].set_color('darkblue')     # Left edge = B axis
         ax.spines['tside'].set_linewidth(1.5)
-        ax.spines['lside'].set_linewidth(1.5)
         ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['lside'].set_linewidth(1.5)
 
         # Set up grid with colored gridlines
         if show_grid:
@@ -1007,12 +1011,16 @@ class TernaryPlotMixin:
         ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
 
         # Color the axis lines (spines)
-        ax.spines['tside'].set_color('darkred')
-        ax.spines['lside'].set_color('darkgreen')
-        ax.spines['rside'].set_color('darkblue')
+        # Note: In ternary plots, each axis runs along the OPPOSITE side:
+        # - taxis (top vertex, R) runs along bottom edge = 'tside'
+        # - laxis (left vertex, G) runs along right edge = 'rside'
+        # - raxis (right vertex, B) runs along left edge = 'lside'
+        ax.spines['tside'].set_color('darkred')      # Bottom edge = R axis
+        ax.spines['rside'].set_color('darkgreen')    # Right edge = G axis
+        ax.spines['lside'].set_color('darkblue')     # Left edge = B axis
         ax.spines['tside'].set_linewidth(1.5)
-        ax.spines['lside'].set_linewidth(1.5)
         ax.spines['rside'].set_linewidth(1.5)
+        ax.spines['lside'].set_linewidth(1.5)
 
         # Set up grid with colored gridlines
         if show_grid:
