@@ -441,10 +441,15 @@ def initial_guess(smoothed_data, raw_data, masks):
         x_ig (float): centroid guess in x.
         y_ig (float): centroid guess in y.
         sigma (float): sigma guess
-        bB (float): background guess Blue
-        bG (float): background guess Green
-        bR (float): background guess Red
-        A_ig (float): amplitude guess for all colours
+        bB (float): background guess Blue (sqrt of actual background)
+        bG (float): background guess Green (sqrt of actual background)
+        bR (float): background guess Red (sqrt of actual background)
+        A_ig (float): amplitude guess for all colours (sqrt of actual amplitude)
+
+    Note:
+        Background and amplitude parameters are returned as sqrt(value) because
+        WLS_model_nobounds squares them. This prevents catastrophic initial guess
+        errors at high photon counts (>30k) that cause LM fitting to fail.
     """
     BG_matrix = np.zeros(masks.shape[-1])
     flattened_rawdata = raw_data.ravel()
@@ -458,4 +463,9 @@ def initial_guess(smoothed_data, raw_data, masks):
     A, x_ig, y_ig = _sum_and_centre_of_mass(bs_data, size)
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
     A_ig = A / 3.0
-    return x_ig, y_ig, sigma_y, sigma_x, bB, bG, bR, A_ig, A_ig, A_ig
+
+    # Return sqrt of background and amplitude parameters since the model squares them
+    # Use np.abs to handle any negative values (though they should already be positive)
+    return (x_ig, y_ig, sigma_y, sigma_x,
+            np.sqrt(np.abs(bB)), np.sqrt(np.abs(bG)), np.sqrt(np.abs(bR)),
+            np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)))
