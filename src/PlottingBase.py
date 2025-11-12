@@ -575,7 +575,7 @@ class BasePlotter(ABC):
         xlim: Optional[Tuple[float, float]] = None,
         ylim: Optional[Tuple[float, float]] = None,
         color: str = "blue",
-        edgecolor: str = "black",
+        edgecolor = None,
         alpha: float = 0.7,
         density: bool = False,
         label: str = "",
