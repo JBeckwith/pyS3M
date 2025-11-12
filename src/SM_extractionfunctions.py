@@ -34,26 +34,30 @@ class extract_SMs:
             io_functions if io_functions is not None else IOFunctions.IO_Functions()
         )
 
-    def filter_quality_localizations(
+    def filter_quality_localisations(
         self,
         loc_data,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
     ):
         """
-        Apply quality filters to localization data.
+        Apply quality filters to localisation data.
 
         Args:
             loc_data (pd.DataFrame): Localization data to filter
             chi_val (float, optional): Chi-squared threshold. If None, uses median.
-            max_localization_error (float): Maximum localization precision in pixels
+            max_localization_error (float): Maximum localisation precision in pixels
             min_photons (int): Minimum total photon count
             max_photons (int): Maximum total photon count
 
         Returns:
-            pd.DataFrame: Filtered localization data
+            pd.DataFrame: Filtered localisation data
         """
         # Calculate chi-squared threshold if not provided
         if chi_val is None:
@@ -61,8 +65,15 @@ class extract_SMs:
 
         # Apply quality filters
         filtered_data = loc_data[loc_data["chi_sqr"] < chi_val].copy()
-        filtered_data = filtered_data[filtered_data["xc_err"] < max_localization_error]
-        filtered_data = filtered_data[filtered_data["yc_err"] < max_localization_error]
+        filtered_data = filtered_data[filtered_data["xc_err"] < max_localisation_error]
+        filtered_data = filtered_data[filtered_data["yc_err"] < max_localisation_error]
+        for key in ['A_R_err', 'A_G_err', 'A_B_err', 'bg_R_err', 'bg_G_err', 'bg_B_err']:
+            filtered_data = filtered_data[filtered_data[key] < max_colour_error]
+        for key in ['s_x_err', 's_y_err']:
+            filtered_data = filtered_data[filtered_data[key] < max_sigma_error]
+        for key in ['s_x', 's_y']:
+            filtered_data = filtered_data[filtered_data[key] < max_sigma]
+            filtered_data = filtered_data[filtered_data[key] > min_sigma]
 
         # Add photons column using centralized method and apply photon count filters
         if "photons" not in filtered_data.columns:
@@ -175,7 +186,11 @@ class extract_SMs:
         loc_data,
         min_cluster_size=10,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
     ):
@@ -193,8 +208,10 @@ class extract_SMs:
 
         molecular_index_offset = 0
 
-        loc_data = self.filter_quality_localizations(
-            loc_data, chi_val, max_localization_error, min_photons, max_photons
+        loc_data = self.filter_quality_localisations(
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
         loc_precision = 0.5 * (
@@ -228,7 +245,11 @@ class extract_SMs:
         loc_data,
         min_cluster_size=10,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
     ):
@@ -246,8 +267,10 @@ class extract_SMs:
 
         molecular_index_offset = 0
 
-        loc_data = self.filter_quality_localizations(
-            loc_data, chi_val, max_localization_error, min_photons, max_photons
+        loc_data = self.filter_quality_localisations(
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
         loc_precision = 0.5 * (
@@ -282,7 +305,11 @@ class extract_SMs:
         max_distance=1.0,
         max_frames=10,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
     ):
@@ -307,8 +334,10 @@ class extract_SMs:
         """
         molecular_index_offset = 0
 
-        loc_data = self.filter_quality_localizations(
-            loc_data, chi_val, max_localization_error, min_photons, max_photons
+        loc_data = self.filter_quality_localisations(
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
 
         # Convert to numpy record array for postprocess.py compatibility and sort by frame
@@ -380,7 +409,11 @@ class extract_SMs:
         clustering_method="HDBSCAN",
         min_cluster_size=10,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=1e6,
         max_distance=0.5,
@@ -453,7 +486,11 @@ class extract_SMs:
                     loc_data,
                     min_cluster_size=min_cluster_size,
                     chi_val=chi_val,
-                    max_localization_error=max_localization_error,
+                    max_localisation_error=max_localisation_error,
+                    max_colour_error=max_colour_error,
+                    min_sigma=min_sigma,
+                    max_sigma=max_sigma,
+                    max_sigma_error=max_sigma_error,
                     min_photons=min_photons,
                     max_photons=max_photons,
                 )
@@ -462,7 +499,11 @@ class extract_SMs:
                     loc_data,
                     min_cluster_size=min_cluster_size,
                     chi_val=chi_val,
-                    max_localization_error=max_localization_error,
+                    max_localisation_error=max_localisation_error,
+                    max_colour_error=max_colour_error,
+                    min_sigma=min_sigma,
+                    max_sigma=max_sigma,
+                    max_sigma_error=max_sigma_error,
                     min_photons=min_photons,
                     max_photons=max_photons,
                 )
@@ -472,7 +513,11 @@ class extract_SMs:
                     max_distance=max_distance,
                     max_frames=max_frames,
                     chi_val=chi_val,
-                    max_localization_error=max_localization_error,
+                    max_localisation_error=max_localisation_error,
+                    max_colour_error=max_colour_error,
+                    min_sigma=min_sigma,
+                    max_sigma=max_sigma,
+                    max_sigma_error=max_sigma_error,
                     min_photons=min_photons,
                     max_photons=max_photons,
                 )
@@ -694,14 +739,18 @@ class extract_SMs:
 
         return photon_accumulation_db
 
-    def analyze_multi_fov_dataset(
+    def analyse_multi_fov_dataset(
         self,
         localisation_files,
         clustering_method="HDBSCAN",
         build_accumulation=True,
         min_cluster_size=10,
         chi_val=None,
-        max_localization_error=1.0,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75./69),
+        max_sigma=(160./69),
+        max_sigma_error=(40./69),
         min_photons=500,
         max_photons=1e6,
         max_distance=0.5,
@@ -759,7 +808,11 @@ class extract_SMs:
             clustering_method=clustering_method,
             min_cluster_size=min_cluster_size,
             chi_val=chi_val,
-            max_localization_error=max_localization_error,
+            max_localisation_error=max_localisation_error,
+            max_colour_error=max_colour_error,
+            min_sigma=min_sigma,
+            max_sigma=max_sigma,
+            max_sigma_error=max_sigma_error,
             min_photons=min_photons,
             max_photons=max_photons,
             max_distance=max_distance,
