@@ -18,7 +18,8 @@ Created: 2025-11-12
 
 import numpy as np
 from scipy.sparse import diags_array
-from typing import Optional, Tuple, List, Dict
+from scipy.spatial.distance import cdist
+from typing import Optional, Tuple, List, Dict, Set
 from dataclasses import dataclass, field
 from numba import jit
 
@@ -77,6 +78,337 @@ class Molecule:
         self.trajectory.append(position.copy())
         self.times.append(time)
         self.position = position.copy()
+
+
+class BindingKinetics:
+    """
+    Handles binding/unbinding kinetics between molecules using Gillespie algorithm.
+
+    Uses 2D matrices to define binding rates between different color pairs:
+    - k_on_matrix[i, j]: binding rate for color_i + color_j → complex
+    - k_off_matrix[i, j]: unbinding rate for complex → color_i + color_j
+
+    The Gillespie algorithm ensures correct stochastic kinetics.
+    """
+
+    def __init__(self, colors: List[str], k_on_matrix: np.ndarray,
+                 k_off_matrix: np.ndarray, binding_radius: float):
+        """
+        Initialize binding kinetics.
+
+        Args:
+            colors: List of color labels (e.g., ['R', 'G', 'B'])
+            k_on_matrix: 2D array of binding rates (1/(nM·s)) between color pairs
+                        k_on_matrix[i,j] is rate for colors[i] + colors[j]
+            k_off_matrix: 2D array of unbinding rates (1/s) for each pair
+            binding_radius: Distance threshold for binding (nm)
+        """
+        self.colors = colors
+        self.color_to_idx = {c: i for i, c in enumerate(colors)}
+        self.k_on_matrix = np.array(k_on_matrix)
+        self.k_off_matrix = np.array(k_off_matrix)
+        self.binding_radius = binding_radius
+
+        # Validate matrices
+        n_colors = len(colors)
+        assert self.k_on_matrix.shape == (n_colors, n_colors), \
+            f"k_on_matrix shape {self.k_on_matrix.shape} != ({n_colors}, {n_colors})"
+        assert self.k_off_matrix.shape == (n_colors, n_colors), \
+            f"k_off_matrix shape {self.k_off_matrix.shape} != ({n_colors}, {n_colors})"
+
+        # Make matrices symmetric (binding is bidirectional)
+        self.k_on_matrix = (self.k_on_matrix + self.k_on_matrix.T) / 2
+        self.k_off_matrix = (self.k_off_matrix + self.k_off_matrix.T) / 2
+
+        # Track binding events for analysis
+        self.binding_events: List[Dict] = []
+        self.unbinding_events: List[Dict] = []
+
+    def can_bind(self, mol1: Molecule, mol2: Molecule) -> bool:
+        """
+        Check if two molecules can bind.
+
+        Args:
+            mol1: First molecule
+            mol2: Second molecule
+
+        Returns:
+            can_bind: True if binding is allowed
+        """
+        # Can't bind if either is already bound
+        if mol1.is_bound or mol2.is_bound:
+            return False
+
+        # Check if binding rate is non-zero
+        idx1 = self.color_to_idx[mol1.color]
+        idx2 = self.color_to_idx[mol2.color]
+
+        return self.k_on_matrix[idx1, idx2] > 0
+
+    def get_binding_rate(self, mol1: Molecule, mol2: Molecule) -> float:
+        """
+        Get binding rate constant for two molecules.
+
+        Args:
+            mol1: First molecule
+            mol2: Second molecule
+
+        Returns:
+            k_on: Binding rate (1/(nM·s))
+        """
+        idx1 = self.color_to_idx[mol1.color]
+        idx2 = self.color_to_idx[mol2.color]
+        return self.k_on_matrix[idx1, idx2]
+
+    def get_unbinding_rate(self, mol1: Molecule, mol2: Molecule) -> float:
+        """
+        Get unbinding rate constant for a bound pair.
+
+        Args:
+            mol1: First molecule
+            mol2: Second molecule
+
+        Returns:
+            k_off: Unbinding rate (1/s)
+        """
+        idx1 = self.color_to_idx[mol1.color]
+        idx2 = self.color_to_idx[mol2.color]
+        return self.k_off_matrix[idx1, idx2]
+
+    def find_potential_binding_pairs(self, molecules: List[Molecule]) -> List[Tuple[Molecule, Molecule, float]]:
+        """
+        Find all molecule pairs within binding radius.
+
+        Args:
+            molecules: List of all molecules
+
+        Returns:
+            pairs: List of (mol1, mol2, distance) tuples within binding radius
+        """
+        # Get positions of unbound molecules
+        unbound_mols = [m for m in molecules if not m.is_bound]
+
+        if len(unbound_mols) < 2:
+            return []
+
+        # Compute pairwise distances
+        positions = np.array([m.position for m in unbound_mols])
+        distances = cdist(positions, positions)
+
+        pairs = []
+        for i in range(len(unbound_mols)):
+            for j in range(i + 1, len(unbound_mols)):
+                mol1 = unbound_mols[i]
+                mol2 = unbound_mols[j]
+                dist = distances[i, j]
+
+                if dist <= self.binding_radius and self.can_bind(mol1, mol2):
+                    pairs.append((mol1, mol2, dist))
+
+        return pairs
+
+    def calculate_propensities(self, molecules: List[Molecule], area: float) -> Tuple[List, List, float]:
+        """
+        Calculate all binding and unbinding propensities.
+
+        Propensity = rate × (molecules in contact / effective volume)
+        For binding: a_on = k_on × (pairs within radius)
+        For unbinding: a_off = k_off
+
+        Args:
+            molecules: List of all molecules
+            area: Simulation area (nm²) for concentration calculation
+
+        Returns:
+            binding_propensities: List of (mol1, mol2, rate) for binding events
+            unbinding_propensities: List of (mol1, mol2, rate) for unbinding events
+            total_propensity: Sum of all propensities
+        """
+        binding_propensities = []
+        unbinding_propensities = []
+
+        # Find potential binding pairs
+        pairs = self.find_potential_binding_pairs(molecules)
+
+        # Calculate binding propensities
+        # For surface diffusion: effective concentration ~ 1/area
+        # Propensity = k_on × (effective concentration)
+        effective_volume = area * 1.0  # nm² × 1 nm height = nm³
+        nM_to_nm3 = 1e-9 / 6.022e23 * 1e24  # Convert nM to molecules/nm³
+
+        for mol1, mol2, dist in pairs:
+            k_on = self.get_binding_rate(mol1, mol2)
+            # Propensity increases as molecules get closer
+            # Use simple model: full rate within binding radius
+            propensity = k_on * nM_to_nm3 * effective_volume
+            binding_propensities.append((mol1, mol2, propensity))
+
+        # Calculate unbinding propensities
+        # Find all bound pairs
+        bound_pairs = set()
+        for mol in molecules:
+            if mol.is_bound and mol.bound_partner is not None:
+                # Store pairs as sorted tuple to avoid duplicates
+                pair = tuple(sorted([mol.molecule_id, mol.bound_partner.molecule_id]))
+                bound_pairs.add(pair)
+
+        for pair_ids in bound_pairs:
+            mol1 = next(m for m in molecules if m.molecule_id == pair_ids[0])
+            mol2 = next(m for m in molecules if m.molecule_id == pair_ids[1])
+            k_off = self.get_unbinding_rate(mol1, mol2)
+            unbinding_propensities.append((mol1, mol2, k_off))
+
+        # Total propensity
+        total = sum(p[2] for p in binding_propensities) + \
+                sum(p[2] for p in unbinding_propensities)
+
+        return binding_propensities, unbinding_propensities, total
+
+    def choose_event(self, binding_propensities: List, unbinding_propensities: List,
+                    total_propensity: float) -> Optional[Tuple[str, Molecule, Molecule]]:
+        """
+        Choose next binding/unbinding event stochastically.
+
+        Uses Gillespie algorithm: probability ∝ propensity
+
+        Args:
+            binding_propensities: List of binding events
+            unbinding_propensities: List of unbinding events
+            total_propensity: Sum of all propensities
+
+        Returns:
+            event: ('bind', mol1, mol2) or ('unbind', mol1, mol2) or None
+        """
+        if total_propensity == 0:
+            return None
+
+        # Choose event with probability proportional to propensity
+        r = np.random.uniform(0, total_propensity)
+
+        cumsum = 0
+        # Check binding events
+        for mol1, mol2, prop in binding_propensities:
+            cumsum += prop
+            if r < cumsum:
+                return ('bind', mol1, mol2)
+
+        # Check unbinding events
+        for mol1, mol2, prop in unbinding_propensities:
+            cumsum += prop
+            if r < cumsum:
+                return ('unbind', mol1, mol2)
+
+        return None
+
+    def execute_binding(self, mol1: Molecule, mol2: Molecule, time: float):
+        """
+        Execute a binding event.
+
+        Args:
+            mol1: First molecule
+            mol2: Second molecule
+            time: Current simulation time
+        """
+        mol1.is_bound = True
+        mol2.is_bound = True
+        mol1.bound_partner = mol2
+        mol2.bound_partner = mol1
+
+        # Record event
+        self.binding_events.append({
+            'time': time,
+            'mol1_id': mol1.molecule_id,
+            'mol2_id': mol2.molecule_id,
+            'mol1_color': mol1.color,
+            'mol2_color': mol2.color,
+            'position': (mol1.position + mol2.position) / 2
+        })
+
+    def execute_unbinding(self, mol1: Molecule, mol2: Molecule, time: float):
+        """
+        Execute an unbinding event.
+
+        Args:
+            mol1: First molecule
+            mol2: Second molecule
+            time: Current simulation time
+        """
+        mol1.is_bound = False
+        mol2.is_bound = False
+        mol1.bound_partner = None
+        mol2.bound_partner = None
+
+        # Record event
+        self.unbinding_events.append({
+            'time': time,
+            'mol1_id': mol1.molecule_id,
+            'mol2_id': mol2.molecule_id,
+            'mol1_color': mol1.color,
+            'mol2_color': mol2.color,
+            'position': (mol1.position + mol2.position) / 2
+        })
+
+    def process_events(self, molecules: List[Molecule], dt: float,
+                      area: float, current_time: float) -> int:
+        """
+        Process binding/unbinding events during a timestep.
+
+        Uses Gillespie algorithm to determine if events occur.
+
+        Args:
+            molecules: List of all molecules
+            dt: Timestep duration (ms)
+            area: Simulation area (nm²)
+            current_time: Current simulation time (ms)
+
+        Returns:
+            n_events: Number of events that occurred
+        """
+        n_events = 0
+
+        # Calculate propensities
+        bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
+
+        if total_prop == 0:
+            return 0
+
+        # Time to next event (exponential distribution)
+        # Convert rates: k_on is 1/(nM·s), k_off is 1/s
+        # Need to convert to 1/ms
+        total_prop_per_ms = total_prop / 1000.0  # Convert /s to /ms
+
+        tau = np.random.exponential(1.0 / total_prop_per_ms) if total_prop_per_ms > 0 else np.inf
+
+        # Process events that occur within this timestep
+        time_elapsed = 0
+        while time_elapsed + tau < dt:
+            # Choose which event occurs
+            event = self.choose_event(bind_props, unbind_props, total_prop)
+
+            if event is None:
+                break
+
+            event_type, mol1, mol2 = event
+            event_time = current_time + time_elapsed + tau
+
+            if event_type == 'bind':
+                self.execute_binding(mol1, mol2, event_time)
+            else:  # unbind
+                self.execute_unbinding(mol1, mol2, event_time)
+
+            n_events += 1
+            time_elapsed += tau
+
+            # Recalculate propensities after event
+            bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
+
+            if total_prop == 0:
+                break
+
+            total_prop_per_ms = total_prop / 1000.0
+            tau = np.random.exponential(1.0 / total_prop_per_ms) if total_prop_per_ms > 0 else np.inf
+
+        return n_events
 
 
 class LangevinDiffusion2D:
@@ -206,7 +538,8 @@ class DiffusionSimulator2D:
 
     def __init__(self, area: Tuple[float, float], dt: float, t_exposure: float,
                  sigma0: float, s0: float, R: float = 1.0/6,
-                 boundary: str = 'reflective'):
+                 boundary: str = 'reflective',
+                 binding_kinetics: Optional[BindingKinetics] = None):
         """
         Initialize 2D diffusion simulator.
 
@@ -218,6 +551,7 @@ class DiffusionSimulator2D:
             s0: PSF standard deviation (nm)
             R: Motion blur coefficient (default 1/6)
             boundary: Boundary condition ('periodic', 'reflective', 'absorbing')
+            binding_kinetics: Optional BindingKinetics object for binding/unbinding
         """
         self.area = np.array(area)
         self.dt = dt
@@ -227,6 +561,9 @@ class DiffusionSimulator2D:
 
         # Diffusion engine
         self.diffusion_engine = LangevinDiffusion2D(sigma0, s0, R)
+
+        # Binding kinetics
+        self.binding_kinetics = binding_kinetics
 
         # Molecule storage
         self.molecules: List[Molecule] = []
@@ -323,38 +660,125 @@ class DiffusionSimulator2D:
 
         return pos
 
-    def run(self, n_steps: int):
+    def _update_bound_pair_positions(self, mol1: Molecule, mol2: Molecule, new_position: np.ndarray):
         """
-        Run simulation for n_steps.
+        Update positions of bound pair to move together.
 
-        Generates full trajectories for all molecules at once to preserve
-        the proper covariance structure from Michalet & Berglund (2012).
+        Bound molecules move to their center of mass.
+
+        Args:
+            mol1: First molecule in bound pair
+            mol2: Second molecule in bound pair
+            new_position: New position for the pair
+        """
+        mol1.position = new_position.copy()
+        mol2.position = new_position.copy()
+
+    def run(self, n_steps: int, enable_binding: bool = True, chunk_size: int = 10):
+        """
+        Run simulation for n_steps with optional binding kinetics.
+
+        With binding disabled: Generates full trajectories for all molecules at once
+        to preserve proper covariance structure from Michalet & Berglund (2012).
+
+        With binding enabled: Uses chunk-based approach:
+        - Generates trajectories in chunks
+        - Processes binding/unbinding events between chunks
+        - Bound pairs move together at D_bound
 
         Args:
             n_steps: Number of timesteps to simulate
+            enable_binding: Whether to process binding events (default True)
+            chunk_size: Steps per chunk when binding enabled (default 10)
         """
-        for mol in self.molecules:
-            # Get current D (depends on binding state)
-            D = mol.get_current_D()
+        if not enable_binding or self.binding_kinetics is None:
+            # Fast path: no binding, generate full trajectories at once
+            for mol in self.molecules:
+                D = mol.get_current_D()
+                trajectory = self.diffusion_engine.generate_trajectory_2D(
+                    D=D,
+                    N=n_steps,
+                    dt=self.dt,
+                    t_exposure=self.t_exposure,
+                    starting_position=mol.position
+                )
 
-            # Generate full trajectory at once (N steps from current position)
-            # This preserves the covariance structure
-            trajectory = self.diffusion_engine.generate_trajectory_2D(
-                D=D,
-                N=n_steps,
-                dt=self.dt,
-                t_exposure=self.t_exposure,
-                starting_position=mol.position
+                for i in range(n_steps):
+                    new_position = self._apply_boundary_condition(trajectory[i])
+                    time = mol.times[-1] + (i + 1) * self.dt
+                    mol.add_position(new_position, time)
+
+            self.current_time += n_steps * self.dt
+            return
+
+        # With binding: process in chunks
+        steps_remaining = n_steps
+        while steps_remaining > 0:
+            current_chunk = min(chunk_size, steps_remaining)
+
+            # Process binding/unbinding events
+            area_nm2 = self.area[0] * self.area[1]
+            self.binding_kinetics.process_events(
+                self.molecules, current_chunk * self.dt, area_nm2, self.current_time
             )
 
-            # Apply boundary conditions to each position
-            for i in range(n_steps):
-                new_position = self._apply_boundary_condition(trajectory[i])
-                time = mol.times[-1] + (i + 1) * self.dt
-                mol.add_position(new_position, time)
+            # Generate trajectories for this chunk
+            # Track which molecules are bound to avoid double-processing
+            processed_pairs = set()
 
-        # Update current time
-        self.current_time += n_steps * self.dt
+            for mol in self.molecules:
+                # Skip if this molecule was already processed as part of a bound pair
+                if mol.molecule_id in processed_pairs:
+                    continue
+
+                D = mol.get_current_D()
+
+                if mol.is_bound and mol.bound_partner is not None:
+                    # Generate trajectories for both partners
+                    partner = mol.bound_partner
+
+                    traj1 = self.diffusion_engine.generate_trajectory_2D(
+                        D=D, N=current_chunk, dt=self.dt,
+                        t_exposure=self.t_exposure,
+                        starting_position=mol.position
+                    )
+
+                    traj2 = self.diffusion_engine.generate_trajectory_2D(
+                        D=partner.get_current_D(), N=current_chunk, dt=self.dt,
+                        t_exposure=self.t_exposure,
+                        starting_position=partner.position
+                    )
+
+                    # Move bound pair to center of mass at each step
+                    for i in range(current_chunk):
+                        pos1 = self._apply_boundary_condition(traj1[i])
+                        pos2 = self._apply_boundary_condition(traj2[i])
+                        com_pos = (pos1 + pos2) / 2
+
+                        time = self.current_time + (i + 1) * self.dt
+                        mol.add_position(com_pos, time)
+                        partner.add_position(com_pos, time)
+
+                    processed_pairs.add(mol.molecule_id)
+                    processed_pairs.add(partner.molecule_id)
+
+                else:
+                    # Unbound molecule moves independently
+                    trajectory = self.diffusion_engine.generate_trajectory_2D(
+                        D=D, N=current_chunk, dt=self.dt,
+                        t_exposure=self.t_exposure,
+                        starting_position=mol.position
+                    )
+
+                    for i in range(current_chunk):
+                        new_position = self._apply_boundary_condition(trajectory[i])
+                        time = self.current_time + (i + 1) * self.dt
+                        mol.add_position(new_position, time)
+
+                    processed_pairs.add(mol.molecule_id)
+
+            self.current_time += current_chunk * self.dt
+            steps_remaining -= current_chunk
 
     def get_trajectory(self, molecule_id: int) -> Tuple[np.ndarray, np.ndarray]:
         """
