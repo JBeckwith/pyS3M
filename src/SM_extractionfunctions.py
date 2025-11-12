@@ -636,35 +636,61 @@ class extract_SMs:
                     flush=True,
                 )
 
-            # Build cumulative arrays
+            # Build cumulative arrays using inverse-variance weighted averaging
             # IMPORTANT: A_R, A_G, A_B are already normalized per-frame (sum to 1.0)
-            # We want cumulative AVERAGES, not cumulative sums, to avoid temporal bias
-            cumsum_A_R = np.cumsum(mol_data["A_R"].values)
-            cumsum_A_G = np.cumsum(mol_data["A_G"].values)
-            cumsum_A_B = np.cumsum(mol_data["A_B"].values)
+            # We use inverse-variance weighting: frames with lower error contribute more
             cumsum_photons = np.cumsum(mol_data["photons"].values)
-
             frames_range = np.arange(1, n_frames + 1)
 
-            # Cumulative averages of already-normalized A_R, A_G, A_B
-            # This gives equal weight to each frame and avoids temporal bias
-            A_R_mean = cumsum_A_R / frames_range
-            A_G_mean = cumsum_A_G / frames_range
-            A_B_mean = cumsum_A_B / frames_range
-
-            # Error propagation for cumulative averages
-            # For average: σ_avg = sqrt(σ_1² + σ_2² + ... + σ_N²) / N
-            # This is standard error of the mean for independent measurements
             if "A_R_err" in mol_data.columns:
-                cumsum_A_R_err_sq = np.cumsum(mol_data["A_R_err"].values ** 2)
-                cumsum_A_G_err_sq = np.cumsum(mol_data["A_G_err"].values ** 2)
-                cumsum_A_B_err_sq = np.cumsum(mol_data["A_B_err"].values ** 2)
+                # Inverse-variance weighted cumulative average
+                # weight_i = 1 / σ_i²
+                # weighted_mean = Σ(w_i * x_i) / Σ(w_i)
+                # error = 1 / sqrt(Σ(w_i))
 
-                # Standard error of cumulative mean
-                A_R_mean_err = np.sqrt(cumsum_A_R_err_sq) / frames_range
-                A_G_mean_err = np.sqrt(cumsum_A_G_err_sq) / frames_range
-                A_B_mean_err = np.sqrt(cumsum_A_B_err_sq) / frames_range
+                A_R_vals = mol_data["A_R"].values
+                A_G_vals = mol_data["A_G"].values
+                A_B_vals = mol_data["A_B"].values
+
+                A_R_errs = mol_data["A_R_err"].values
+                A_G_errs = mol_data["A_G_err"].values
+                A_B_errs = mol_data["A_B_err"].values
+
+                # Avoid division by zero - use small epsilon
+                eps = 1e-12
+                A_R_weights = 1.0 / (A_R_errs**2 + eps)
+                A_G_weights = 1.0 / (A_G_errs**2 + eps)
+                A_B_weights = 1.0 / (A_B_errs**2 + eps)
+
+                # Cumulative weighted sums
+                cumsum_A_R_weighted = np.cumsum(A_R_weights * A_R_vals)
+                cumsum_A_G_weighted = np.cumsum(A_G_weights * A_G_vals)
+                cumsum_A_B_weighted = np.cumsum(A_B_weights * A_B_vals)
+
+                cumsum_A_R_weights = np.cumsum(A_R_weights)
+                cumsum_A_G_weights = np.cumsum(A_G_weights)
+                cumsum_A_B_weights = np.cumsum(A_B_weights)
+
+                # Weighted mean at each accumulation step
+                A_R_mean = cumsum_A_R_weighted / cumsum_A_R_weights
+                A_G_mean = cumsum_A_G_weighted / cumsum_A_G_weights
+                A_B_mean = cumsum_A_B_weighted / cumsum_A_B_weights
+
+                # Error of weighted mean: 1 / sqrt(sum of weights)
+                A_R_mean_err = 1.0 / np.sqrt(cumsum_A_R_weights)
+                A_G_mean_err = 1.0 / np.sqrt(cumsum_A_G_weights)
+                A_B_mean_err = 1.0 / np.sqrt(cumsum_A_B_weights)
+
             else:
+                # Fallback: simple cumulative average if no errors available
+                cumsum_A_R = np.cumsum(mol_data["A_R"].values)
+                cumsum_A_G = np.cumsum(mol_data["A_G"].values)
+                cumsum_A_B = np.cumsum(mol_data["A_B"].values)
+
+                A_R_mean = cumsum_A_R / frames_range
+                A_G_mean = cumsum_A_G / frames_range
+                A_B_mean = cumsum_A_B / frames_range
+
                 A_R_mean_err = np.zeros(n_frames)
                 A_G_mean_err = np.zeros(n_frames)
                 A_B_mean_err = np.zeros(n_frames)
