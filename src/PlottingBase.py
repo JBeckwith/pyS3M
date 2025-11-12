@@ -393,6 +393,341 @@ class BasePlotter(ABC):
 
         return scatters
 
+    # Convenience plotting methods for common plot types
+    def line_plot(
+        self,
+        ax: matplotlib.axes.Axes,
+        x: np.ndarray,
+        y: np.ndarray,
+        xlabel: str = "x axis",
+        ylabel: str = "y axis",
+        xlim: Optional[Tuple[float, float]] = None,
+        ylim: Optional[Tuple[float, float]] = None,
+        color: str = "k",
+        linewidth: float = 1.0,
+        linestyle: str = "-",
+        label: str = "",
+        alpha: float = 1.0,
+        grid: bool = True,
+    ) -> matplotlib.axes.Axes:
+        """Create a line plot with consistent styling.
+
+        Args:
+            ax: Axes object to plot on
+            x: X data
+            y: Y data
+            xlabel: X axis label
+            ylabel: Y axis label
+            xlim: X axis limits (min, max)
+            ylim: Y axis limits (min, max)
+            color: Line color
+            linewidth: Line width
+            linestyle: Line style ('-', '--', '-.', ':')
+            label: Line label for legend
+            alpha: Line transparency
+            grid: Whether to show grid
+
+        Returns:
+            Modified axes object
+        """
+        ax.plot(x, y, color=color, linewidth=linewidth, linestyle=linestyle,
+                label=label, alpha=alpha)
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, grid=grid)
+
+        if label:
+            ax.legend()
+
+        return ax
+
+    def line_plot_with_error(
+        self,
+        ax: matplotlib.axes.Axes,
+        x: np.ndarray,
+        y: np.ndarray,
+        yerr: np.ndarray,
+        xlabel: str = "x axis",
+        ylabel: str = "y axis",
+        xlim: Optional[Tuple[float, float]] = None,
+        ylim: Optional[Tuple[float, float]] = None,
+        color: str = "k",
+        linewidth: float = 1.0,
+        label: str = "",
+        alpha: float = 0.3,
+        grid: bool = True,
+    ) -> matplotlib.axes.Axes:
+        """Create a line plot with error bars/shading.
+
+        Args:
+            ax: Axes object to plot on
+            x: X data
+            y: Y data
+            yerr: Y error values
+            xlabel: X axis label
+            ylabel: Y axis label
+            xlim: X axis limits (min, max)
+            ylim: Y axis limits (min, max)
+            color: Line and error color
+            linewidth: Line width
+            label: Line label for legend
+            alpha: Error shading transparency
+            grid: Whether to show grid
+
+        Returns:
+            Modified axes object
+        """
+        ax.plot(x, y, color=color, linewidth=linewidth, label=label)
+        ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=alpha)
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, grid=grid)
+
+        if label:
+            ax.legend()
+
+        return ax
+
+    def scatter_plot(
+        self,
+        ax: matplotlib.axes.Axes,
+        x: np.ndarray,
+        y: np.ndarray,
+        xlabel: str = "x axis",
+        ylabel: str = "y axis",
+        xlim: Optional[Tuple[float, float]] = None,
+        ylim: Optional[Tuple[float, float]] = None,
+        color: str = "k",
+        edgecolor: str = "k",
+        facecolor: str = "white",
+        size: float = 20,
+        marker: str = "o",
+        label: str = "",
+        alpha: float = 1.0,
+        linewidth: float = 0.75,
+        rasterized: bool = False,
+        grid: bool = True,
+    ) -> matplotlib.axes.Axes:
+        """Create a scatter plot with consistent styling.
+
+        Args:
+            ax: Axes object to plot on
+            x: X data
+            y: Y data
+            xlabel: X axis label
+            ylabel: Y axis label
+            xlim: X axis limits (min, max)
+            ylim: Y axis limits (min, max)
+            color: Overall marker color (overridden by facecolor/edgecolor)
+            edgecolor: Marker edge color
+            facecolor: Marker face color
+            size: Marker size
+            marker: Marker style
+            label: Scatter label for legend
+            alpha: Marker transparency
+            linewidth: Edge line width
+            rasterized: Whether to rasterize markers (recommended for >1000 points)
+            grid: Whether to show grid
+
+        Returns:
+            Modified axes object
+        """
+        ax.scatter(
+            x, y,
+            s=size,
+            c=color if facecolor == "white" and edgecolor == "k" else None,
+            edgecolors=edgecolor,
+            facecolors=facecolor if facecolor != "white" or edgecolor != "k" else None,
+            marker=marker,
+            label=label,
+            alpha=alpha,
+            linewidths=linewidth,
+            rasterized=rasterized,
+        )
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, grid=grid)
+
+        if label:
+            ax.legend()
+
+        return ax
+
+    def histogram_plot(
+        self,
+        ax: matplotlib.axes.Axes,
+        data: np.ndarray,
+        bins: Union[int, np.ndarray] = 50,
+        xlabel: str = "Value",
+        ylabel: str = "Counts",
+        xlim: Optional[Tuple[float, float]] = None,
+        ylim: Optional[Tuple[float, float]] = None,
+        color: str = "blue",
+        edgecolor: str = "black",
+        alpha: float = 0.7,
+        density: bool = False,
+        label: str = "",
+        grid: bool = True,
+    ) -> matplotlib.axes.Axes:
+        """Create a histogram with consistent styling.
+
+        Args:
+            ax: Axes object to plot on
+            data: Data to histogram
+            bins: Number of bins or bin edges
+            xlabel: X axis label
+            ylabel: Y axis label
+            xlim: X axis limits (min, max)
+            ylim: Y axis limits (min, max)
+            color: Bar color
+            edgecolor: Bar edge color
+            alpha: Bar transparency
+            density: Whether to normalize to probability density
+            label: Histogram label for legend
+            grid: Whether to show grid
+
+        Returns:
+            Modified axes object
+        """
+        ax.hist(
+            data,
+            bins=bins,
+            color=color,
+            edgecolor=edgecolor,
+            alpha=alpha,
+            density=density,
+            label=label,
+        )
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, grid=grid)
+
+        if label:
+            ax.legend()
+
+        return ax
+
+    def image_plot(
+        self,
+        ax: matplotlib.axes.Axes,
+        image: np.ndarray,
+        xlabel: str = "",
+        ylabel: str = "",
+        title: str = "",
+        cmap: str = "gray",
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        colorbar: bool = True,
+        colorbar_label: str = "",
+        aspect: str = "equal",
+        interpolation: str = "nearest",
+        origin: str = "lower",
+    ) -> Tuple[matplotlib.axes.Axes, matplotlib.image.AxesImage]:
+        """Create an image plot with consistent styling.
+
+        Args:
+            ax: Axes object to plot on
+            image: 2D image data
+            xlabel: X axis label
+            ylabel: Y axis label
+            title: Plot title
+            cmap: Colormap name
+            vmin: Minimum value for colormap (auto if None)
+            vmax: Maximum value for colormap (auto if None)
+            colorbar: Whether to add colorbar
+            colorbar_label: Label for colorbar
+            aspect: Aspect ratio ('equal', 'auto', or float)
+            interpolation: Interpolation method
+            origin: Image origin ('lower' or 'upper')
+
+        Returns:
+            Tuple of (modified axes, image object)
+        """
+        # Auto-calculate vmin/vmax using percentiles if not provided
+        if vmin is None:
+            vmin = np.percentile(image, 1)
+        if vmax is None:
+            vmax = np.percentile(image, 99)
+
+        im = ax.imshow(
+            image,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            aspect=aspect,
+            interpolation=interpolation,
+            origin=origin,
+        )
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
+
+        if colorbar:
+            self.add_colorbar(ax, im, label=colorbar_label)
+
+        return ax, im
+
+    def contour_plot(
+        self,
+        ax: matplotlib.axes.Axes,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        xlabel: str = "x axis",
+        ylabel: str = "y axis",
+        title: str = "",
+        levels: int = 10,
+        cmap: str = "viridis",
+        colorbar: bool = True,
+        colorbar_label: str = "",
+        filled: bool = True,
+    ) -> Tuple[matplotlib.axes.Axes, Any]:
+        """Create a contour plot with consistent styling.
+
+        Args:
+            ax: Axes object to plot on
+            x: X coordinates (1D or 2D array)
+            y: Y coordinates (1D or 2D array)
+            z: Z values (2D array)
+            xlabel: X axis label
+            ylabel: Y axis label
+            title: Plot title
+            levels: Number of contour levels
+            cmap: Colormap name
+            colorbar: Whether to add colorbar
+            colorbar_label: Label for colorbar
+            filled: Whether to use filled contours (contourf) vs lines (contour)
+
+        Returns:
+            Tuple of (modified axes, contour object)
+        """
+        if filled:
+            contours = ax.contourf(x, y, z, levels=levels, cmap=cmap)
+        else:
+            contours = ax.contour(x, y, z, levels=levels, cmap=cmap)
+
+        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
+
+        if colorbar:
+            self.add_colorbar(ax, contours, label=colorbar_label)
+
+        return ax, contours
+
     def save_or_show(
         self,
         fig: matplotlib.figure.Figure,

@@ -567,6 +567,8 @@ class Plotter(PublicationPlotter):
     ):
         """Create a line plot.
 
+        **DEPRECATED:** Use the base class method instead.
+
         Args:
             axs: Axes object.
             x: X data.
@@ -584,21 +586,22 @@ class Plotter(PublicationPlotter):
         Returns:
             Modified axes object.
         """
-        font_size = self._get_plot_font_size()
+        # Delegate to base class with parameter name translation
+        xlim_tuple = tuple(xlim) if xlim is not None else None
+        ylim_tuple = tuple(ylim) if ylim is not None else None
 
-        if xlim is None:
-            xlim = self._calculate_limits(x)
-        if ylim is None:
-            ylim = self._calculate_limits(y)
-
-        axs.plot(x, y, lw=lw, color=color, label=label, ls=ls, alpha=alpha)
-        axs.set_xlim(xlim)
-        axs.set_ylim(ylim)
-
-        self._setup_grid(axs)
-        axs.set_xlabel(xaxislabel, fontsize=font_size)
-        axs.set_ylabel(yaxislabel, fontsize=font_size)
-        return axs
+        return super().line_plot(
+            axs, x, y,
+            xlabel=xaxislabel,
+            ylabel=yaxislabel,
+            xlim=xlim_tuple,
+            ylim=ylim_tuple,
+            color=color,
+            linewidth=lw,
+            linestyle=ls,
+            label=label,
+            alpha=alpha,
+        )
 
     def line_error_plot(
         self,
@@ -618,6 +621,8 @@ class Plotter(PublicationPlotter):
     ):
         """Create a line plot with error bands.
 
+        **DEPRECATED:** Use the base class method instead.
+
         Args:
             axs: Axes object.
             x: X data.
@@ -636,22 +641,21 @@ class Plotter(PublicationPlotter):
         Returns:
             Modified axes object.
         """
-        font_size = self._get_plot_font_size()
+        # Delegate to base class with parameter name translation
+        xlim_tuple = tuple(xlim) if xlim is not None else None
+        ylim_tuple = tuple(ylim) if ylim is not None else None
 
-        if xlim is None:
-            xlim = self._calculate_limits(x)
-        if ylim is None:
-            ylim = self._calculate_limits(y)
-
-        axs.plot(x, y, lw=lw, color=color, label=label, ls=ls)
-        axs.fill_between(x, y - yerror, y + yerror, color=color, alpha=alpha)
-        axs.set_xlim(xlim)
-        axs.set_ylim(ylim)
-
-        self._setup_grid(axs)
-        axs.set_xlabel(xaxislabel, fontsize=font_size)
-        axs.set_ylabel(yaxislabel, fontsize=font_size)
-        return axs
+        return super().line_plot_with_error(
+            axs, x, y, yerror,
+            xlabel=xaxislabel,
+            ylabel=yaxislabel,
+            xlim=xlim_tuple,
+            ylim=ylim_tuple,
+            color=color,
+            linewidth=lw,
+            label=label,
+            alpha=alpha,
+        )
 
     def histogram_plot(
         self,
@@ -669,6 +673,8 @@ class Plotter(PublicationPlotter):
     ):
         """Create a histogram plot.
 
+        **DEPRECATED:** Use the base class method instead.
+
         Args:
             axs: Axes object.
             data: Data array.
@@ -685,32 +691,23 @@ class Plotter(PublicationPlotter):
         Returns:
             Modified axes object.
         """
-        font_size = self._get_plot_font_size()
+        # Delegate to base class with parameter name translation
+        xlim_tuple = tuple(xlim) if xlim is not None else None
+        ylim_tuple = tuple(ylim) if ylim is not None else None
+        ylabel = "probability density" if density else "Counts"
 
-        if xlim is None:
-            xlim = np.array([np.min(data), np.max(data)])
-
-        axs.hist(
-            data,
+        return super().histogram_plot(
+            axs, data,
             bins=bins,
-            density=density,
+            xlabel=xaxislabel,
+            ylabel=ylabel,
+            xlim=xlim_tuple,
+            ylim=ylim_tuple,
             color=histcolor,
             alpha=alpha,
-            histtype=histtype,
+            density=density,
             label=label,
         )
-
-        self._setup_grid(axs)
-
-        ylabel = "probability density" if density else "frequency"
-        axs.set_ylabel(ylabel, fontsize=font_size)
-        axs.set_xlim(xlim)
-
-        if ylim is not None:
-            axs.set_ylim(ylim)
-
-        axs.set_xlabel(xaxislabel, fontsize=font_size)
-        return axs
 
     def scatter_plot(
         self,
@@ -732,6 +729,8 @@ class Plotter(PublicationPlotter):
     ):
         """Create a scatter plot.
 
+        **DEPRECATED:** Use the base class method instead.
+
         Args:
             axs: Axes object.
             x: X data.
@@ -752,33 +751,25 @@ class Plotter(PublicationPlotter):
         Returns:
             Modified axes object.
         """
-        font_size = self._get_plot_font_size("scatter")
+        # Delegate to base class with parameter name translation
+        xlim_tuple = tuple(xlim) if xlim is not None else None
+        ylim_tuple = tuple(ylim) if ylim is not None else None
 
-        if xlim is None:
-            xlim = self._calculate_limits(x)
-        if ylim is None:
-            ylim = self._calculate_limits(y)
-
-        axs.scatter(
-            x,
-            y,
-            s=s,
-            edgecolors=edgecolor,
+        return super().scatter_plot(
+            axs, x, y,
+            xlabel=xaxislabel,
+            ylabel=yaxislabel,
+            xlim=xlim_tuple,
+            ylim=ylim_tuple,
+            edgecolor=edgecolor,
             facecolor=facecolor,
-            lw=lw,
+            size=s,
+            linewidth=lw,
+            marker=marker,
             label=label,
             alpha=alpha,
-            marker=marker,
             rasterized=rasterized,
         )
-
-        axs.set_xlim(xlim)
-        axs.set_ylim(ylim)
-
-        self._setup_grid(axs)
-        axs.set_xlabel(xaxislabel, fontsize=font_size)
-        axs.set_ylabel(yaxislabel, fontsize=font_size)
-        return axs
 
     def _setup_colorbar(self, im, axs, cbarlabel: str, location: str = "right") -> None:
         """Set up colorbar for plots using consolidated base functionality.
