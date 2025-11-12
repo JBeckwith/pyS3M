@@ -17,12 +17,11 @@ from ImportManager import (
     get_module,
     is_available,
     safe_import,
-    get_plotting_functions,
     get_postprocess,
     get_render,
     get_imageprocess,
 )
-from PlottingBase import AnalysisPlotter, PlottingConfig
+from PlottingBase import AnalysisPlotter, PlottingConfig, PublicationPlotter
 
 # Get modules through import manager
 plt = get_module("matplotlib.pyplot")
@@ -32,10 +31,24 @@ patches = safe_import(
 )
 
 # Get local modules through import manager
-PlottingFunctions = get_plotting_functions()
 render = get_render()
 imageprocess = get_imageprocess()
 postprocess = get_postprocess()
+
+# Lazy load PublicationPlotter for backwards compatibility
+_PublicationPlotter = None
+
+
+def _ensure_plotter():
+    """Lazy load PublicationPlotter class."""
+    global _PublicationPlotter
+    if _PublicationPlotter is None:
+        try:
+            from PlottingBase import PublicationPlotter as PP
+            _PublicationPlotter = PP
+        except ImportError:
+            _PublicationPlotter = None
+    return _PublicationPlotter
 
 # We'll need to handle FiducialDetectionResult via parameter typing
 # to avoid circular imports
@@ -68,13 +81,14 @@ class DriftPlotter(AnalysisPlotter):
         save_path: Optional[str] = None,
     ) -> None:
         """Create step-by-step visualization of fiducial detection process."""
-        if PlottingFunctions is None:
-            print("⚠️ PlottingFunctions not available, skipping step-by-step plots")
+        plotter_class = _ensure_plotter()
+        if plotter_class is None:
+            print("⚠️ PublicationPlotter not available, skipping step-by-step plots")
             return
 
         try:
             # Create plotter instance
-            plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
+            plotter = plotter_class(poster=False, dark_background=False)
 
             # Create the comprehensive figure
             fig, axes = plotter.two_column_plot(
@@ -252,9 +266,10 @@ class DriftPlotter(AnalysisPlotter):
         info: List[dict],
         save_path: Optional[str] = None,
     ) -> None:
-        """Create a plot of fiducial detection results using PlottingFunctions."""
-        if PlottingFunctions is None:
-            print("⚠️ PlottingFunctions not available, skipping plot creation")
+        """Create a plot of fiducial detection results using PlottingBase."""
+        plotter_class = _ensure_plotter()
+        if plotter_class is None:
+            print("⚠️ PublicationPlotter not available, skipping plot creation")
             return
 
         try:
@@ -262,7 +277,7 @@ class DriftPlotter(AnalysisPlotter):
             from DriftCorrectionFunctions import CoordinateProcessor
 
             # Create plotter instance
-            plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
+            plotter = plotter_class(poster=False, dark_background=False)
 
             # Extract metadata for plotting
             meta = CoordinateProcessor.extract_metadata(info)
@@ -668,7 +683,7 @@ class DriftPlotter(AnalysisPlotter):
         base_path: str,
         title: str,
     ) -> None:
-        """Create detailed plots for individual clustering results using PlottingFunctions."""
+        """Create detailed plots for individual clustering results using PlottingBase."""
         try:
             import matplotlib.pyplot as plt
 
@@ -751,7 +766,7 @@ class DriftPlotter(AnalysisPlotter):
         output_figure_path: Optional[str],
         title: str,
     ) -> None:
-        """Create visualization of DBSCAN clustering results using PlottingFunctions."""
+        """Create visualization of DBSCAN clustering results using PlottingBase."""
         try:
             import matplotlib.pyplot as plt
 
@@ -1065,14 +1080,15 @@ class DriftPlotter(AnalysisPlotter):
         title: str,
     ) -> None:
         """Create separate detailed plots for density detection analysis."""
-        if PlottingFunctions is None:
-            print("⚠️ PlottingFunctions not available, skipping separate plots")
+        plotter_class = _ensure_plotter()
+        if plotter_class is None:
+            print("⚠️ PublicationPlotter not available, skipping separate plots")
             return
 
         try:
-            plotter = PlottingFunctions.Plotter(poster=False)
+            plotter = plotter_class(poster=False)
 
-            # Create a basic visualization using PlottingFunctions
+            # Create a basic visualization using PlottingBase
             fig, axes = plotter.two_by_two_plot()
 
             # Plot 1: Smoothed image
@@ -1131,7 +1147,7 @@ class DriftPlotter(AnalysisPlotter):
 
         except Exception as e:
             print(f"⚠️ Error creating separate plots: {e}")
-            # Fallback to basic matplotlib if PlottingFunctions fails
+            # Fallback to basic matplotlib if PlottingBase fails
             try:
                 import matplotlib.pyplot as plt
 

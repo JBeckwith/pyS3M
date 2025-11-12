@@ -97,7 +97,7 @@ try:
     import render
     import imageprocess
     import postprocess
-    import PlottingFunctions
+    from PlottingBase import PublicationPlotter
 except ImportError:
     warnings.warn(
         "Could not import render/imageprocess modules. RCC method may not work."
@@ -105,7 +105,7 @@ except ImportError:
     render = None
     imageprocess = None
     postprocess = None
-    PlottingFunctions = None
+    PublicationPlotter = None
 
 
 class DriftMethod(Enum):
@@ -2385,7 +2385,7 @@ class Drift_Correction_Functions:
         """Detect fiducial markers in localisation data.
 
         This function automatically detects fiducial markers and creates a visualization
-        using PlottingFunctions. Supports temporal chunking for datasets with strong drift.
+        using PlottingBase. Supports temporal chunking for datasets with strong drift.
 
         Args:
             locs: Localisation data (group field not required)
@@ -3286,16 +3286,16 @@ class Drift_Correction_Functions:
         """Plot individual Gaussian validation results showing kept vs discarded points."""
 
         try:
-            import PlottingFunctions
+            from PlottingBase import PublicationPlotter
             import matplotlib.pyplot as plt
             import numpy as np
 
-            plotter = PlottingFunctions.Plotter(poster=False)
+            plotter = PublicationPlotter(poster=False)
         except ImportError:
-            print("PlottingFunctions not available, skipping Gaussian plot")
+            print("PlottingBase not available, skipping Gaussian plot")
             return
 
-        # Create a single column plot using PlottingFunctions
+        # Create a single column plot using PlottingBase
         fig, ax = plotter.one_column_plot(width=3.5, height=3.5)
 
         fig.suptitle(

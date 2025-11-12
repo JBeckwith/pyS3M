@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 """Class related to making figure-quality plots.
 
+**DEPRECATED:** This module is maintained for backwards compatibility only.
+New code should use `PlottingBase.PublicationPlotter` directly instead of
+`PlottingFunctions.Plotter`.
+
 Probably best to set your default sans-serif font to Helvetica before you make
 figures: https://fowlerlab.org/2019/01/03/changing-the-sans-serif-font-to-helvetica/
 
@@ -15,6 +19,7 @@ annotations and legends are 6 point font.
 """
 from typing import Optional, List, Tuple, Any, Union
 import numpy as np
+import warnings
 
 # Use centralised import management and base plotting classes
 from ImportManager import get_module, safe_import, is_available
@@ -69,6 +74,9 @@ class PlotConstants:
 class Plotter(PublicationPlotter):
     """A class for creating figure-quality plots with consistent styling.
 
+    **DEPRECATED:** This class is a compatibility wrapper around PublicationPlotter.
+    Use `PlottingBase.PublicationPlotter` directly in new code instead.
+
     Now inherits from PublicationPlotter for enhanced functionality while
     maintaining backwards compatibility with existing code.
     """
@@ -80,6 +88,12 @@ class Plotter(PublicationPlotter):
             poster: Whether to use poster-style formatting (larger fonts/lines).
             dark_background: Whether to use dark background style.
         """
+        warnings.warn(
+            "PlottingFunctions.Plotter is deprecated and will be removed in a future version. "
+            "Use PlottingBase.PublicationPlotter directly instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         # Initialize base plotter with appropriate configuration
         super().__init__(poster=poster, dark_background=dark_background)
 

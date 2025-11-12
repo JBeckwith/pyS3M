@@ -19,7 +19,7 @@ import MaskFunctions
 import ImageAnalysisFunctions
 from ImageAnalysisFunctions import FittingStrategy
 import SpotDetectionFunctions
-import PlottingFunctions
+from PlottingBase import PublicationPlotter
 import sCMOSFunctions
 from Constants import ResultColumns
 
@@ -99,7 +99,7 @@ class SuperRes_Functions:
             if spot_detection_functions is not None
             else SpotDetectionFunctions.SpotDetection_Functions()
         )
-        self.plotter = plotter if plotter is not None else PlottingFunctions.Plotter()
+        self.plotter = plotter if plotter is not None else PublicationPlotter()
         self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
 
     def _postprocess_fit_results(

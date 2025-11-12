@@ -41,7 +41,7 @@ plt = get_module("matplotlib.pyplot")
 # Lazy load local modules to avoid circular imports
 postprocess = None
 imageprocess = None
-PlottingFunctions = None
+PublicationPlotter = None
 
 
 def _ensure_postprocess():
@@ -52,12 +52,16 @@ def _ensure_postprocess():
     return postprocess
 
 
-def _ensure_plotting():
-    """Lazy load PlottingFunctions module."""
-    global PlottingFunctions
-    if PlottingFunctions is None:
-        PlottingFunctions = get_module("PlottingFunctions")
-    return PlottingFunctions
+def _ensure_plotter():
+    """Lazy load PublicationPlotter class."""
+    global PublicationPlotter
+    if PublicationPlotter is None:
+        try:
+            from PlottingBase import PublicationPlotter as PP
+            PublicationPlotter = PP
+        except ImportError:
+            PublicationPlotter = None
+    return PublicationPlotter
 
 
 class FiducialDetector:
@@ -494,9 +498,9 @@ class FiducialDetector:
         if not is_available("matplotlib.pyplot"):
             return
 
-        PF = _ensure_plotting()
-        if PF is None:
-            print("⚠️ PlottingFunctions not available, skipping visualization")
+        plotter_class = _ensure_plotter()
+        if plotter_class is None:
+            print("⚠️ PublicationPlotter not available, skipping visualization")
             return
 
         try:
