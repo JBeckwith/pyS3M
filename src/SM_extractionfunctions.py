@@ -637,42 +637,41 @@ class extract_SMs:
                 )
 
             # Build cumulative arrays
+            # IMPORTANT: A_R, A_G, A_B are already normalized per-frame (sum to 1.0)
+            # We want cumulative AVERAGES, not cumulative sums, to avoid temporal bias
             cumsum_A_R = np.cumsum(mol_data["A_R"].values)
             cumsum_A_G = np.cumsum(mol_data["A_G"].values)
             cumsum_A_B = np.cumsum(mol_data["A_B"].values)
             cumsum_photons = np.cumsum(mol_data["photons"].values)
 
-            # Error propagation for cumulative sums (assuming independent measurements)
-            # σ_sum² = σ_1² + σ_2² + ... + σ_N²
+            frames_range = np.arange(1, n_frames + 1)
+
+            # Cumulative averages of already-normalized A_R, A_G, A_B
+            # This gives equal weight to each frame and avoids temporal bias
+            A_R_mean = cumsum_A_R / frames_range
+            A_G_mean = cumsum_A_G / frames_range
+            A_B_mean = cumsum_A_B / frames_range
+
+            # Error propagation for cumulative averages
+            # For average: σ_avg = sqrt(σ_1² + σ_2² + ... + σ_N²) / N
+            # This is standard error of the mean for independent measurements
             if "A_R_err" in mol_data.columns:
                 cumsum_A_R_err_sq = np.cumsum(mol_data["A_R_err"].values ** 2)
                 cumsum_A_G_err_sq = np.cumsum(mol_data["A_G_err"].values ** 2)
                 cumsum_A_B_err_sq = np.cumsum(mol_data["A_B_err"].values ** 2)
-                cumsum_A_R_err = np.sqrt(cumsum_A_R_err_sq)
-                cumsum_A_G_err = np.sqrt(cumsum_A_G_err_sq)
-                cumsum_A_B_err = np.sqrt(cumsum_A_B_err_sq)
+
+                # Standard error of cumulative mean
+                A_R_mean_err = np.sqrt(cumsum_A_R_err_sq) / frames_range
+                A_G_mean_err = np.sqrt(cumsum_A_G_err_sq) / frames_range
+                A_B_mean_err = np.sqrt(cumsum_A_B_err_sq) / frames_range
             else:
-                cumsum_A_R_err = np.zeros(n_frames)
-                cumsum_A_G_err = np.zeros(n_frames)
-                cumsum_A_B_err = np.zeros(n_frames)
-
-            # Normalize RGB at each accumulation step
-            total_rgb = cumsum_A_R + cumsum_A_G + cumsum_A_B
-            A_R_norm = cumsum_A_R / total_rgb
-            A_G_norm = cumsum_A_G / total_rgb
-            A_B_norm = cumsum_A_B / total_rgb
-
-            # Propagate errors through normalization
-            # For f = R/(R+G+B), using simplified error propagation
-            # σ_f ≈ σ_R / (R+G+B)  (ignoring correlations)
-            A_R_norm_err = cumsum_A_R_err / total_rgb
-            A_G_norm_err = cumsum_A_G_err / total_rgb
-            A_B_norm_err = cumsum_A_B_err / total_rgb
+                A_R_mean_err = np.zeros(n_frames)
+                A_G_mean_err = np.zeros(n_frames)
+                A_B_mean_err = np.zeros(n_frames)
 
             # Calculate position statistics
             xc_cumsum = np.cumsum(mol_data["xc"].values)
             yc_cumsum = np.cumsum(mol_data["yc"].values)
-            frames_range = np.arange(1, n_frames + 1)
 
             xc_mean = xc_cumsum / frames_range
             yc_mean = yc_cumsum / frames_range
@@ -702,12 +701,12 @@ class extract_SMs:
                     "molecular_index": mol_idx,
                     "frames_accumulated": i + 1,
                     "photons_accumulated": cumsum_photons[i],
-                    "A_R": A_R_norm[i],
-                    "A_G": A_G_norm[i],
-                    "A_B": A_B_norm[i],
-                    "A_R_err": A_R_norm_err[i],
-                    "A_G_err": A_G_norm_err[i],
-                    "A_B_err": A_B_norm_err[i],
+                    "A_R": A_R_mean[i],
+                    "A_G": A_G_mean[i],
+                    "A_B": A_B_mean[i],
+                    "A_R_err": A_R_mean_err[i],
+                    "A_G_err": A_G_mean_err[i],
+                    "A_B_err": A_B_mean_err[i],
                     "xc_mean": xc_mean[i],
                     "yc_mean": yc_mean[i],
                     "xc_std": xc_std[i],
