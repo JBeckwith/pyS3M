@@ -4028,75 +4028,74 @@ class extract_SMs:
             if verbose:
                 print(f"Iteration {iteration}: Testing {n_unassigned:,} unassigned locs...")
 
-            # For each unassigned loc, apply hierarchical spatial-spectral test
+            # VECTORIZED APPROACH: Query all unassigned locs at once per channel
+            # Performance: Instead of n_locs × n_channels individual queries,
+            # we do n_channels vectorized queries (10-100× faster)
             unassigned_indices = np.where(unassigned_mask)[0]
             new_assignments = {}  # loc_index → (channel, distance, is_overlap)
 
-            # Add progress bar for testing unassigned locs
-            try:
-                from tqdm.auto import tqdm
-                iterator = tqdm(unassigned_indices,
-                              desc=f"Iter {iteration}",
-                              leave=False,
-                              disable=not verbose)
-            except ImportError:
-                iterator = unassigned_indices
+            # Get coordinates of all unassigned locs
+            unassigned_coords = assigned_current.loc[unassigned_mask, ['xc', 'yc']].values
+            n_unassigned_locs = len(unassigned_indices)
 
-            for idx in iterator:
-                loc_row = assigned_current.iloc[idx]
-                loc_coords = np.array([[loc_row['xc'], loc_row['yc']]])
+            # Get spectral preferences for unassigned locs
+            unassigned_most_likely = most_likely_channel[unassigned_indices]
+            unassigned_confidence = confidence_per_loc[unassigned_indices]
 
-                # Get this loc's spectral preferences
-                loc_most_likely_channel = most_likely_channel[idx]
-                loc_confidence = confidence_per_loc[idx]
+            # STAGE 1: Vectorized KDTree queries for all channels
+            # For each channel, find distance to nearest punctum for ALL unassigned locs
+            nearest_distances = np.full((n_unassigned_locs, n_channels), np.inf)
 
-                # STAGE 1: Identify which channels have nearby puncta
-                nearby_channels = []  # List of (channel, distance) tuples
+            for k in range(n_channels):
+                if k not in puncta_kdtrees:
+                    continue  # No puncta for this channel, leave as inf
 
-                for k in range(n_channels):
-                    if k not in puncta_kdtrees:
-                        continue  # No puncta for this channel
+                # Query ALL unassigned locs at once (VECTORIZED)
+                distances, _ = puncta_kdtrees[k].query(unassigned_coords, k=1)
+                nearest_distances[:, k] = distances.ravel()
 
-                    # Query nearest punctum from channel k
-                    distances, indices = puncta_kdtrees[k].query(loc_coords, k=1)
-                    nearest_distance_k = distances[0, 0]
+            # STAGE 2: Determine spatial context for each loc
+            # Count how many channels have puncta within spatial_eps
+            nearby_mask = (nearest_distances <= spatial_eps)  # (n_locs, n_channels)
+            n_nearby_channels = nearby_mask.sum(axis=1)  # (n_locs,)
 
-                    if nearest_distance_k <= spatial_eps:
-                        nearby_channels.append((k, nearest_distance_k))
+            # Identify overlap regions: >1 nearby channel
+            is_overlap_per_loc = (n_nearby_channels > 1)
+            is_clear_per_loc = (n_nearby_channels == 1)
 
-                if len(nearby_channels) == 0:
-                    # Not near any puncta → cannot assign
+            # STAGE 3: Apply adaptive spectral thresholds
+            # Determine required confidence based on spatial context
+            required_confidence = np.where(
+                is_overlap_per_loc,
+                confidence_threshold_overlap,  # Overlap: high threshold
+                np.where(
+                    is_clear_per_loc,
+                    confidence_threshold_clear,  # Clear: moderate threshold
+                    np.inf  # No nearby puncta: impossible threshold
+                )
+            )
+
+            # STAGE 4: Check spectral confidence meets threshold
+            passes_spectral_threshold = (unassigned_confidence >= required_confidence)
+
+            # STAGE 5: Verify most likely channel has nearby punctum
+            # For each loc, check if its spectral preference is among nearby channels
+            loc_channel_nearby = nearby_mask[np.arange(n_unassigned_locs), unassigned_most_likely]
+
+            # STAGE 6: Combine all criteria
+            # Can assign if: passes spectral threshold AND preferred channel is nearby
+            can_assign = passes_spectral_threshold & loc_channel_nearby
+
+            # Build assignments for locs that pass all criteria
+            for i, global_idx in enumerate(unassigned_indices):
+                if not can_assign[i]:
                     continue
 
-                # STAGE 2: Determine spatial context (clear vs overlap)
-                is_overlap = len(nearby_channels) > 1
+                k = unassigned_most_likely[i]
+                distance_to_k = nearest_distances[i, k]
+                is_overlap = is_overlap_per_loc[i]
 
-                # STAGE 3: Apply appropriate spectral threshold
-                if is_overlap:
-                    # OVERLAP REGION: Multiple channels have nearby puncta
-                    # Require HIGH spectral confidence
-                    required_confidence = confidence_threshold_overlap
-                else:
-                    # CLEAR REGION: Only one channel has nearby puncta
-                    # Allow MODERATE spectral confidence
-                    required_confidence = confidence_threshold_clear
-
-                # STAGE 4: Check if loc meets threshold
-                if loc_confidence < required_confidence:
-                    continue  # Spectral confidence too low for this spatial context
-
-                # STAGE 5: Verify most likely channel is among nearby channels
-                k = loc_most_likely_channel
-                nearby_channel_ids = [ch for ch, _ in nearby_channels]
-
-                if k not in nearby_channel_ids:
-                    # Spectral preference doesn't match any nearby punctum
-                    continue
-
-                # STAGE 6: Assign to most likely channel
-                # Find distance to that channel's nearest punctum
-                distance_to_k = next(dist for ch, dist in nearby_channels if ch == k)
-                new_assignments[idx] = (k, distance_to_k, is_overlap)
+                new_assignments[global_idx] = (k, distance_to_k, is_overlap)
 
             # Apply new assignments
             n_new = len(new_assignments)
