@@ -3617,7 +3617,7 @@ class Drift_Correction_Functions:
         all_fiducial_weights_y = all_fiducial_weights_y[:, valid_fiducials]
 
         ma_x = np.ma.MaskedArray(all_corrected_x, mask=np.isnan(all_corrected_x))
-        ma_y = np.ma.MaskedArray(all_corrected_y, mask=np.isnan(all_corrected_x))
+        ma_y = np.ma.MaskedArray(all_corrected_y, mask=np.isnan(all_corrected_y))  # BUG FIX: was using all_corrected_x
         ma_x_err = np.ma.MaskedArray(
             all_fiducial_weights_x, mask=np.isnan(all_fiducial_weights_x)
         )
@@ -3629,17 +3629,37 @@ class Drift_Correction_Functions:
         drift_y = np.ma.average(ma_y, weights=ma_y_err, axis=1)
 
         # Find which frames have valid drift corrections (not NaN/masked)
-        mask_x = (
-            np.ma.is_masked(drift_x)
-            if hasattr(drift_x, "mask")
-            else np.zeros(len(drift_x), dtype=bool)
-        )
-        mask_y = (
-            np.ma.is_masked(drift_y)
-            if hasattr(drift_y, "mask")
-            else np.zeros(len(drift_y), dtype=bool)
-        )
+        # For MaskedArrays, drift_x.mask gives the mask directly
+        if isinstance(drift_x, np.ma.MaskedArray):
+            mask_x = np.ma.getmaskarray(drift_x)  # Always returns array, handles scalar masks correctly
+        else:
+            mask_x = np.zeros(len(drift_x), dtype=bool)
+
+        if isinstance(drift_y, np.ma.MaskedArray):
+            mask_y = np.ma.getmaskarray(drift_y)  # Always returns array, handles scalar masks correctly
+        else:
+            mask_y = np.zeros(len(drift_y), dtype=bool)
+
         valid_frame_mask = np.logical_not(mask_x | mask_y)
+
+        # DIAGNOSTIC: Check why no frames are valid
+        print(f"\nDEBUG: Drift calculation results:")
+        print(f"  - Total unique frames in locs: {len(unique_frames)}")
+        print(f"  - drift_x type: {type(drift_x)}, shape: {np.shape(drift_x)}")
+        print(f"  - drift_y type: {type(drift_y)}, shape: {np.shape(drift_y)}")
+        print(f"  - mask_x sum (masked frames): {np.sum(mask_x)}")
+        print(f"  - mask_y sum (masked frames): {np.sum(mask_y)}")
+        print(f"  - valid_frame_mask sum: {np.sum(valid_frame_mask)}")
+        if len(drift_x) > 0:
+            print(f"  - drift_x first 5 values: {drift_x[:5]}")
+            print(f"  - drift_y first 5 values: {drift_y[:5]}")
+        if np.sum(valid_frame_mask) == 0:
+            print(f"  ⚠️ WARNING: No valid frames! All drift values are masked/NaN")
+            print(f"  - Checking all_corrected arrays:")
+            print(f"    - all_corrected_x shape: {all_corrected_x.shape}")
+            print(f"    - all_corrected_y shape: {all_corrected_y.shape}")
+            print(f"    - Non-NaN entries in all_corrected_x: {np.sum(~np.isnan(all_corrected_x))}")
+            print(f"    - Non-NaN entries in all_corrected_y: {np.sum(~np.isnan(all_corrected_y))}")
 
         valid_frame_numbers = unique_frames[valid_frame_mask]
         valid_drift_x = np.asarray(drift_x[valid_frame_mask])

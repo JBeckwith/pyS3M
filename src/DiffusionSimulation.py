@@ -1075,3 +1075,516 @@ def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
         iter_count += 1
 
     return D, var
+
+
+# =============================================================================
+# Camera Imaging Adapter - Converts diffusion trajectories to TIFF movies
+# =============================================================================
+
+class CameraAdapter:
+    """
+    Adapter to convert diffusion simulation trajectories to camera images.
+
+    This class bridges DiffusionSimulator2D output to Multicolour_Simulation_Functions
+    for generating realistic TIFF movies with Bayer filtering, PSF, and camera noise.
+
+    Features:
+    - Poisson brightness sampling per frame
+    - Spectral profile handling for multicolor imaging
+    - Blinking support (future extension)
+    - Compatible with existing pyBayerSMLM analysis pipeline
+    """
+
+    def __init__(self, simulator: DiffusionSimulator2D):
+        """
+        Initialize camera adapter with diffusion simulator.
+
+        Args:
+            simulator: DiffusionSimulator2D instance with run trajectories
+        """
+        self.simulator = simulator
+
+    def prepare_localisations_for_imaging(
+        self,
+        n_photons_per_dye: Dict[str, float],
+        frame_indices: Optional[np.ndarray] = None,
+        blinking_probability: Optional[Dict[str, float]] = None,
+        poisson_brightness: bool = True,
+        random_state: Optional[np.random.Generator] = None
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+        Convert trajectories to localisation format for image generation.
+
+        This prepares molecule positions, photon counts, and spectral profiles
+        for each frame in the format expected by gen_camera_image_stack.
+
+        Args:
+            n_photons_per_dye: Mean photon count per dye color {'R': 1000, 'G': 800, ...}
+            frame_indices: Frame indices to extract (default: all frames)
+            blinking_probability: Probability of blinking off per frame (default: None = always on)
+            poisson_brightness: Sample photons from Poisson distribution (default: True)
+            random_state: Random generator for reproducibility
+
+        Returns:
+            x0y0: Dict[dye_name, positions array (n_frames, 2, n_molecules)]
+            n_photons: Dict[dye_name, photon counts (n_frames, n_molecules)]
+            spectral_profiles: Dict[dye_name, (A_R, A_G, A_B) arrays (n_molecules, 3)]
+        """
+        if random_state is None:
+            random_state = np.random.default_rng()
+
+        # Determine which frames to extract
+        if frame_indices is None:
+            # Use all frames from simulation
+            n_frames = len(self.simulator.molecules[0].trajectory)
+            frame_indices = np.arange(n_frames)
+        else:
+            n_frames = len(frame_indices)
+
+        # Group molecules by color
+        molecules_by_color: Dict[str, List[Molecule]] = {}
+        for mol in self.simulator.molecules:
+            color = mol.color
+            if color not in molecules_by_color:
+                molecules_by_color[color] = []
+            molecules_by_color[color].append(mol)
+
+        # Prepare output dictionaries
+        x0y0 = {}
+        n_photons = {}
+        spectral_profiles = {}
+
+        for color, molecules in molecules_by_color.items():
+            n_molecules = len(molecules)
+
+            # Initialize position array: (n_frames, 2, n_molecules)
+            positions = np.zeros((n_frames, 2, n_molecules))
+
+            # Initialize photon counts: (n_frames, n_molecules)
+            photons = np.zeros((n_frames, n_molecules))
+
+            # Get spectral profiles (constant per molecule)
+            profiles = np.zeros((n_molecules, 3))  # (A_R, A_G, A_B)
+
+            for mol_idx, mol in enumerate(molecules):
+                # Extract positions at requested frames
+                for frame_idx, traj_idx in enumerate(frame_indices):
+                    if traj_idx < len(mol.trajectory):
+                        positions[frame_idx, 0, mol_idx] = mol.trajectory[traj_idx][0]  # x
+                        positions[frame_idx, 1, mol_idx] = mol.trajectory[traj_idx][1]  # y
+
+                        # Sample photons for this frame
+                        mean_photons = n_photons_per_dye[color]
+
+                        # Check blinking
+                        is_visible = True
+                        if blinking_probability is not None and color in blinking_probability:
+                            if random_state.random() < blinking_probability[color]:
+                                is_visible = False
+
+                        if is_visible:
+                            if poisson_brightness:
+                                # Poisson sampling for realistic shot noise
+                                photons[frame_idx, mol_idx] = random_state.poisson(mean_photons)
+                            else:
+                                # Deterministic brightness
+                                photons[frame_idx, mol_idx] = mean_photons
+                        else:
+                            # Blinked off
+                            photons[frame_idx, mol_idx] = 0
+
+                # Get spectral profile
+                profiles[mol_idx, 0] = mol.spectral_profile.get('A_R', 0.33)
+                profiles[mol_idx, 1] = mol.spectral_profile.get('A_G', 0.33)
+                profiles[mol_idx, 2] = mol.spectral_profile.get('A_B', 0.34)
+
+            # Store in dictionaries
+            dye_name = f"dye_{color}"
+            x0y0[dye_name] = positions
+            n_photons[dye_name] = photons
+            spectral_profiles[dye_name] = profiles
+
+        return x0y0, n_photons, spectral_profiles
+
+    def generate_tiff_stack(
+        self,
+        camera_parameters: Dict,
+        wavelength: np.ndarray,
+        n_photons_per_dye: Dict[str, float],
+        smoothing_function,
+        output_path: str,
+        frame_indices: Optional[np.ndarray] = None,
+        blinking_probability: Optional[Dict[str, float]] = None,
+        poisson_brightness: bool = True,
+        background_photons: float = 40.0,
+        background_colour: List[float] = None,
+        NA: float = 1.49,
+        pixel_size: float = 69,
+        save_tiff: bool = True,
+        random_state: Optional[np.random.Generator] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Generate TIFF movie from diffusion trajectories using Multicolour_Simulation_Functions.
+
+        This is the main method that converts diffusion simulation output to camera images.
+
+        Args:
+            camera_parameters: Camera calibration dict (gain, offset, variance, masks, etc.)
+            wavelength: Wavelength array for spectral calculations (nm)
+            n_photons_per_dye: Mean photon count per dye {'R': 1000, 'G': 800, ...}
+            smoothing_function: Smoothing function for PSF (from Multicolour_Simulation_Functions)
+            output_path: Path to save TIFF file
+            frame_indices: Frames to render (default: all)
+            blinking_probability: Per-color blinking probability (default: None)
+            poisson_brightness: Use Poisson brightness sampling (default: True)
+            background_photons: Background photons per pixel (default: 40)
+            background_colour: RGB background weights (default: [1,1,1])
+            NA: Numerical aperture (default: 1.49)
+            pixel_size: Camera pixel size in nm (default: 69)
+            save_tiff: Whether to save TIFF file (default: True)
+            random_state: Random generator for reproducibility
+
+        Returns:
+            bayer_image: Raw Bayer-filtered image stack (n_frames, w, h)
+            smoothed_image: Smoothed image stack (n_frames, w, h)
+        """
+        # Import required module
+        import sys
+        import os
+        module_dir = os.path.abspath(os.path.dirname(__file__))
+        sys.path.insert(0, module_dir)
+
+        import Multicolour_Simulation_Functions as MSF
+        import IOFunctions
+
+        # Initialize simulation functions
+        sim_funcs = MSF.MultiC_Sim_Funcs()
+        io_funcs = IOFunctions.IO_Functions()
+
+        if background_colour is None:
+            background_colour = [1, 1, 1]
+
+        if random_state is None:
+            random_state = np.random.default_rng()
+
+        # Prepare localisation data
+        x0y0, n_photons, spectral_profiles = self.prepare_localisations_for_imaging(
+            n_photons_per_dye=n_photons_per_dye,
+            frame_indices=frame_indices,
+            blinking_probability=blinking_probability,
+            poisson_brightness=poisson_brightness,
+            random_state=random_state,
+        )
+
+        # Calculate average emission wavelengths and pixel efficiencies per dye
+        # For now, use simple weighted average based on spectral profiles
+        # More sophisticated: could use SpectralFunctions.get_pixel_fractions_rawspectra
+
+        average_emission_wavelengths = {}
+        dye_pixel_efficiencies = {}
+
+        for dye_name, profiles in spectral_profiles.items():
+            # Average spectral profile across molecules
+            avg_profile = np.mean(profiles, axis=0)  # (A_R, A_G, A_B)
+
+            # Store as pixel efficiency
+            dye_pixel_efficiencies[dye_name] = avg_profile
+
+            # Estimate average wavelength (rough approximation)
+            # R ~ 630nm, G ~ 530nm, B ~ 470nm
+            wavelength_map = np.array([630.0, 530.0, 470.0])  # R, G, B
+            avg_wavelength = np.sum(avg_profile * wavelength_map) / np.sum(avg_profile)
+            average_emission_wavelengths[dye_name] = avg_wavelength
+
+        # Convert to format expected by gen_camera_image_stack
+        # Need single dye_pixel_efficiency array if all dyes have same color ratios
+        # Otherwise, need to handle multiple dyes separately
+
+        # For simplicity, merge all dyes into single "mixture"
+        # by concatenating molecules along last axis
+
+        # Determine total number of molecules and frames
+        n_frames = len(frame_indices) if frame_indices is not None else len(self.simulator.molecules[0].trajectory)
+
+        # Merge x0y0 and n_photons across dyes
+        all_positions = []
+        all_photons = []
+        all_wavelengths = []
+        all_efficiencies = []
+
+        for dye_name in x0y0.keys():
+            n_mols_this_dye = x0y0[dye_name].shape[2]
+
+            all_positions.append(x0y0[dye_name])  # (n_frames, 2, n_mols)
+            all_photons.append(n_photons[dye_name])  # (n_frames, n_mols)
+
+            # Repeat wavelength and efficiency for each molecule
+            all_wavelengths.extend([average_emission_wavelengths[dye_name]] * n_mols_this_dye)
+            all_efficiencies.append(np.tile(dye_pixel_efficiencies[dye_name], (n_mols_this_dye, 1)))
+
+        # Concatenate across molecules
+        merged_positions = np.concatenate(all_positions, axis=2)  # (n_frames, 2, total_mols)
+        merged_photons = np.concatenate(all_photons, axis=1)  # (n_frames, total_mols)
+        merged_efficiencies = np.vstack(all_efficiencies)  # (total_mols, 3)
+
+        # Format for gen_camera_image_stack expects:
+        # x0y0: Dict[str, array(n_frames, 2, n_molecules)]
+        # n_photons: Dict[str, array(n_frames)]  -- BUT we need per-molecule!
+        # dye_pixel_efficiency: array(n_molecules, 3) or (3,)
+
+        # Since gen_camera_image_stack expects single photon count per dye per frame,
+        # we need to call it frame-by-frame with individual molecules
+
+        print(f"Generating {n_frames} frames with {merged_positions.shape[2]} molecules...")
+
+        w, h = camera_parameters['gain'].shape
+        bayer_image_stack = np.zeros((n_frames, w, h))
+        smoothed_image_stack = np.zeros((n_frames, w, h))
+
+        # Process frame by frame
+        for frame_idx in range(n_frames):
+            # For this frame, create x0y0 and n_photons for each molecule
+            # Each "molecule" is treated as a separate "dye"
+
+            frame_x0y0 = {}
+            frame_n_photons = {}
+
+            for mol_idx in range(merged_positions.shape[2]):
+                mol_name = f"mol_{mol_idx}"
+
+                # Position for this molecule: (2, 1)
+                frame_x0y0[mol_name] = merged_positions[frame_idx, :, mol_idx:mol_idx+1]
+
+                # Photons for this molecule: scalar
+                frame_n_photons[mol_name] = merged_photons[frame_idx, mol_idx]
+
+            # Call gen_camera_image_stack for this frame
+            # Use merged_efficiencies (different per molecule)
+            bayer_frame, smoothed_frame, _ = sim_funcs.gen_camera_image_stack(
+                camera_calibration=camera_parameters,
+                wavelength=wavelength,
+                average_emission_wavelengths=np.array(all_wavelengths),
+                dye_pixel_efficiency=merged_efficiencies,
+                n_photons=frame_n_photons,
+                x0y0=frame_x0y0,
+                smoothing_function=smoothing_function,
+                background_photons=background_photons,
+                background_colour=background_colour,
+                NA=NA,
+                pixel_size=pixel_size,
+                return_normal_image=False,
+            )
+
+            bayer_image_stack[frame_idx] = bayer_frame
+            smoothed_image_stack[frame_idx] = smoothed_frame
+
+            if frame_idx % 10 == 0:
+                print(f"  Frame {frame_idx}/{n_frames} complete", end='\r')
+
+        print(f"\nImage generation complete!")
+
+        # Save TIFF if requested
+        if save_tiff:
+            io_funcs.write_tiff(bayer_image_stack.astype(np.uint16), output_path)
+            print(f"Saved TIFF stack to: {output_path}")
+
+        return bayer_image_stack, smoothed_image_stack
+
+    def generate_ground_truth_rgb_video(
+        self,
+        output_path: str,
+        frame_indices: Optional[np.ndarray] = None,
+        image_size_nm: Optional[Tuple[float, float]] = None,
+        pixel_size_nm: float = 69.0,
+        gaussian_width_nm: float = 50.0,
+        colormap: str = 'spectral',
+        save_video: bool = True,
+        background_value: int = 10,
+        scale_intensity: bool = True,
+        max_intensity: int = 255,
+    ) -> np.ndarray:
+        """
+        Generate ground truth RGB video showing molecules as colored Gaussians.
+
+        This creates a "perfect" visualization where each molecule is rendered as a
+        Gaussian spot with color determined by its spectral profile. Useful for
+        comparing Bayer-filtered analysis results to ground truth.
+
+        Args:
+            output_path: Path to save video (TIFF stack)
+            frame_indices: Frames to render (default: all)
+            image_size_nm: (width, height) in nm (default: use simulator area)
+            pixel_size_nm: Pixel size for video (default: 69 nm, matching camera)
+            gaussian_width_nm: Width (sigma) of Gaussian PSFs (default: 50 nm)
+            colormap: How to map spectral profiles to RGB:
+                      'spectral' - Blue (B-dominant) → Red (R-dominant)
+                      'direct' - Use (A_R, A_G, A_B) directly as RGB
+            save_video: Whether to save TIFF file
+            background_value: Background pixel value (default: 10)
+            scale_intensity: Whether to auto-scale intensity per frame
+            max_intensity: Maximum pixel value (default: 255 for uint8)
+
+        Returns:
+            rgb_video: RGB video stack (n_frames, height, width, 3) uint8
+        """
+        # Determine image size
+        if image_size_nm is None:
+            image_size_nm = self.simulator.area
+
+        width_pixels = int(np.ceil(image_size_nm[0] / pixel_size_nm))
+        height_pixels = int(np.ceil(image_size_nm[1] / pixel_size_nm))
+
+        # Determine frames
+        if frame_indices is None:
+            n_frames = len(self.simulator.molecules[0].trajectory)
+            frame_indices = np.arange(n_frames)
+        else:
+            n_frames = len(frame_indices)
+
+        # Initialize RGB video
+        rgb_video = np.zeros((n_frames, height_pixels, width_pixels, 3), dtype=np.uint8)
+
+        # Add background
+        rgb_video[:, :, :, :] = background_value
+
+        # Create coordinate grids (in pixels)
+        x_pixels = np.arange(width_pixels)
+        y_pixels = np.arange(height_pixels)
+        X, Y = np.meshgrid(x_pixels, y_pixels)
+
+        # Convert Gaussian width to pixels
+        sigma_pixels = gaussian_width_nm / pixel_size_nm
+
+        print(f"Generating ground truth RGB video: {n_frames} frames, {width_pixels}×{height_pixels} pixels")
+
+        # Render each frame
+        for frame_idx, traj_idx in enumerate(frame_indices):
+            # Accumulate RGB channels
+            r_channel = np.zeros((height_pixels, width_pixels), dtype=np.float32)
+            g_channel = np.zeros((height_pixels, width_pixels), dtype=np.float32)
+            b_channel = np.zeros((height_pixels, width_pixels), dtype=np.float32)
+
+            # Render each molecule
+            for mol in self.simulator.molecules:
+                if traj_idx >= len(mol.trajectory):
+                    continue
+
+                # Get position in nm
+                pos_nm = mol.trajectory[traj_idx]
+                x_nm, y_nm = pos_nm[0], pos_nm[1]
+
+                # Convert to pixels
+                x_px = x_nm / pixel_size_nm
+                y_px = y_nm / pixel_size_nm
+
+                # Check if molecule is in field of view
+                if x_px < -3*sigma_pixels or x_px > width_pixels + 3*sigma_pixels:
+                    continue
+                if y_px < -3*sigma_pixels or y_px > height_pixels + 3*sigma_pixels:
+                    continue
+
+                # Generate 2D Gaussian
+                gaussian = np.exp(-((X - x_px)**2 + (Y - y_px)**2) / (2 * sigma_pixels**2))
+
+                # Normalize to total intensity = 1
+                gaussian = gaussian / (2 * np.pi * sigma_pixels**2)
+
+                # Get color based on spectral profile
+                if colormap == 'spectral':
+                    # Map spectral profile to blue→red gradient
+                    # Calculate "redness" metric: high A_R = red, high A_B = blue
+                    A_R = mol.spectral_profile.get('A_R', 0.33)
+                    A_G = mol.spectral_profile.get('A_G', 0.33)
+                    A_B = mol.spectral_profile.get('A_B', 0.34)
+
+                    # Compute spectral position (0=blue, 1=red)
+                    # Weight: R=1, G=0.5, B=0
+                    spectral_pos = (A_R * 1.0 + A_G * 0.5 + A_B * 0.0)
+
+                    # Map to RGB using smooth gradient
+                    # Blue (0, 0, 1) → Cyan (0, 1, 1) → Green (0, 1, 0) → Yellow (1, 1, 0) → Red (1, 0, 0)
+                    if spectral_pos < 0.25:
+                        # Blue → Cyan
+                        t = spectral_pos / 0.25
+                        rgb = np.array([0.0, t, 1.0])
+                    elif spectral_pos < 0.5:
+                        # Cyan → Green
+                        t = (spectral_pos - 0.25) / 0.25
+                        rgb = np.array([0.0, 1.0, 1.0 - t])
+                    elif spectral_pos < 0.75:
+                        # Green → Yellow
+                        t = (spectral_pos - 0.5) / 0.25
+                        rgb = np.array([t, 1.0, 0.0])
+                    else:
+                        # Yellow → Red
+                        t = (spectral_pos - 0.75) / 0.25
+                        rgb = np.array([1.0, 1.0 - t, 0.0])
+
+                elif colormap == 'direct':
+                    # Use spectral profile directly as RGB
+                    A_R = mol.spectral_profile.get('A_R', 0.33)
+                    A_G = mol.spectral_profile.get('A_G', 0.33)
+                    A_B = mol.spectral_profile.get('A_B', 0.34)
+                    rgb = np.array([A_R, A_G, A_B])
+                    # Normalize to max = 1
+                    rgb = rgb / np.max(rgb) if np.max(rgb) > 0 else rgb
+
+                else:
+                    raise ValueError(f"Unknown colormap: {colormap}")
+
+                # Add to RGB channels
+                r_channel += gaussian * rgb[0]
+                g_channel += gaussian * rgb[1]
+                b_channel += gaussian * rgb[2]
+
+            # Scale intensity if requested
+            if scale_intensity:
+                # Find max across all channels
+                max_val = max(r_channel.max(), g_channel.max(), b_channel.max())
+                if max_val > 0:
+                    scale_factor = (max_intensity - background_value) / max_val
+                    r_channel = r_channel * scale_factor
+                    g_channel = g_channel * scale_factor
+                    b_channel = b_channel * scale_factor
+
+            # Clip and convert to uint8
+            r_channel = np.clip(r_channel + background_value, 0, max_intensity).astype(np.uint8)
+            g_channel = np.clip(g_channel + background_value, 0, max_intensity).astype(np.uint8)
+            b_channel = np.clip(b_channel + background_value, 0, max_intensity).astype(np.uint8)
+
+            # Store in video
+            rgb_video[frame_idx, :, :, 0] = r_channel
+            rgb_video[frame_idx, :, :, 1] = g_channel
+            rgb_video[frame_idx, :, :, 2] = b_channel
+
+            if frame_idx % 10 == 0:
+                print(f"  Frame {frame_idx}/{n_frames} complete", end='\r')
+
+        print(f"\nGround truth video generation complete!")
+
+        # Save if requested
+        if save_video:
+            # TIFF doesn't natively support RGB, so we save as separate channels
+            # or use ImageJ hyperstack format
+            # For simplicity, save as RGB interleaved
+            import sys
+            import os
+            module_dir = os.path.abspath(os.path.dirname(__file__))
+            sys.path.insert(0, module_dir)
+
+            import IOFunctions
+            io_funcs = IOFunctions.IO_Functions()
+
+            # Reshape to (n_frames * 3, height, width) for TIFF
+            # Each frame becomes R, G, B slices
+            tiff_stack = np.zeros((n_frames * 3, height_pixels, width_pixels), dtype=np.uint8)
+            for i in range(n_frames):
+                tiff_stack[i*3 + 0] = rgb_video[i, :, :, 0]  # R
+                tiff_stack[i*3 + 1] = rgb_video[i, :, :, 1]  # G
+                tiff_stack[i*3 + 2] = rgb_video[i, :, :, 2]  # B
+
+            io_funcs.write_tiff(tiff_stack, output_path)
+            print(f"Saved ground truth RGB video to: {output_path}")
+            print(f"Format: {n_frames} frames × 3 channels (R, G, B) = {n_frames * 3} slices")
+
+        return rgb_video

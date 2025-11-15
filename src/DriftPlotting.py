@@ -222,8 +222,8 @@ class DriftPlotter(AnalysisPlotter):
                         0.5,
                         f"Error plotting groups: {e}",
                         transform=ax4.transAxes,
-                        ha="centre",
-                        va="centre",
+                        ha="center",
+                        va="center",
                     )
 
             # Plot 5: Summary statistics
@@ -850,7 +850,7 @@ class DriftPlotter(AnalysisPlotter):
                             bar.get_x() + bar.get_width() / 2,
                             bar.get_height() + 1,
                             f"{rate:.1f}%",
-                            ha="centre",
+                            ha="center",
                             va="bottom",
                             fontsize=8,
                         )
@@ -1089,7 +1089,8 @@ class DriftPlotter(AnalysisPlotter):
             plotter = plotter_class(poster=False)
 
             # Create a basic visualization using PlottingBase
-            fig, axes = plotter.two_by_two_plot()
+            fig, axes = plotter.create_subplots(nrows=2, ncols=2, figsize=(12, 10))
+            axes = axes.flatten()  # Flatten to access as axes[0], axes[1], etc.
 
             # Plot 1: Smoothed image
             im1 = axes[0].imshow(smoothed_image, cmap="hot", origin="lower")
@@ -1125,7 +1126,7 @@ class DriftPlotter(AnalysisPlotter):
                     cx, cy, "wo", markersize=8, markeredgecolor="red", markeredgewidth=2
                 )
                 axes[3].text(
-                    cx, cy, str(i), color="white", ha="centre", va="centre", fontsize=8
+                    cx, cy, str(i), color="white", ha="center", va="center", fontsize=8
                 )
             axes[3].set_title(f"{title} - {len(region_centres)} Regions")
             axes[3].set_xlabel("X (pixels)")
