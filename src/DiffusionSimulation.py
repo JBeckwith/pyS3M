@@ -1457,7 +1457,9 @@ class CameraAdapter:
 
         print(f"Generating ground truth RGB video: {n_frames} frames, {width_pixels}×{height_pixels} pixels")
 
-        # Render each frame
+        # First pass: render all frames to float arrays
+        rgb_video_float = np.zeros((n_frames, height_pixels, width_pixels, 3), dtype=np.float32)
+
         for frame_idx, traj_idx in enumerate(frame_indices):
             # Accumulate RGB channels
             r_channel = np.zeros((height_pixels, width_pixels), dtype=np.float32)
@@ -1485,9 +1487,6 @@ class CameraAdapter:
 
                 # Generate 2D Gaussian
                 gaussian = np.exp(-((X - x_px)**2 + (Y - y_px)**2) / (2 * sigma_pixels**2))
-
-                # Normalize to total intensity = 1
-                gaussian = gaussian / (2 * np.pi * sigma_pixels**2)
 
                 # Get color based on spectral profile
                 if colormap == 'spectral':
@@ -1532,59 +1531,85 @@ class CameraAdapter:
                 else:
                     raise ValueError(f"Unknown colormap: {colormap}")
 
-                # Add to RGB channels
+                # Add to RGB channels (Gaussian peak = 1.0)
                 r_channel += gaussian * rgb[0]
                 g_channel += gaussian * rgb[1]
                 b_channel += gaussian * rgb[2]
 
-            # Scale intensity if requested
-            if scale_intensity:
-                # Find max across all channels
-                max_val = max(r_channel.max(), g_channel.max(), b_channel.max())
-                if max_val > 0:
-                    scale_factor = (max_intensity - background_value) / max_val
-                    r_channel = r_channel * scale_factor
-                    g_channel = g_channel * scale_factor
-                    b_channel = b_channel * scale_factor
+            # Store in float video
+            rgb_video_float[frame_idx, :, :, 0] = r_channel
+            rgb_video_float[frame_idx, :, :, 1] = g_channel
+            rgb_video_float[frame_idx, :, :, 2] = b_channel
 
-            # Clip and convert to uint8
-            r_channel = np.clip(r_channel + background_value, 0, max_intensity).astype(np.uint8)
-            g_channel = np.clip(g_channel + background_value, 0, max_intensity).astype(np.uint8)
-            b_channel = np.clip(b_channel + background_value, 0, max_intensity).astype(np.uint8)
-
-            # Store in video
-            rgb_video[frame_idx, :, :, 0] = r_channel
-            rgb_video[frame_idx, :, :, 1] = g_channel
-            rgb_video[frame_idx, :, :, 2] = b_channel
-
-            if frame_idx % 10 == 0:
+            if frame_idx % 100 == 0:
                 print(f"  Frame {frame_idx}/{n_frames} complete", end='\r')
 
-        print(f"\nGround truth video generation complete!")
+        print(f"\nRendering complete, applying intensity scaling...")
+
+        # Second pass: apply global intensity scaling
+        if scale_intensity:
+            # Find global max across ALL frames and channels
+            global_max = rgb_video_float.max()
+            print(f"  Global max intensity: {global_max:.6f}")
+
+            if global_max > 0:
+                # Scale so global max → (max_intensity - background_value)
+                scale_factor = (max_intensity - background_value) / global_max
+                rgb_video_float = rgb_video_float * scale_factor
+                print(f"  Applied scale factor: {scale_factor:.2f}")
+        else:
+            # No scaling: use raw Gaussian intensities
+            # Multiply by a reasonable factor to make visible
+            # (Each Gaussian has peak ~1.0, need to scale to 0-255 range)
+            scale_factor = max_intensity - background_value
+            rgb_video_float = rgb_video_float * scale_factor
+            print(f"  No auto-scaling: using fixed scale factor {scale_factor:.2f}")
+
+        # Convert to uint8 with background
+        rgb_video = np.clip(rgb_video_float + background_value, 0, max_intensity).astype(np.uint8)
+
+        print(f"Ground truth video generation complete!")
 
         # Save if requested
         if save_video:
-            # TIFF doesn't natively support RGB, so we save as separate channels
-            # or use ImageJ hyperstack format
-            # For simplicity, save as RGB interleaved
-            import sys
-            import os
-            module_dir = os.path.abspath(os.path.dirname(__file__))
-            sys.path.insert(0, module_dir)
+            # Save as proper RGB TIFF using tifffile for ImageJ compatibility
+            try:
+                import tifffile
+                # tifffile expects shape (T, Y, X, C) for RGB time series
+                # Our rgb_video is already in this format
+                tifffile.imwrite(
+                    output_path,
+                    rgb_video,
+                    photometric='rgb',
+                    metadata={'axes': 'TYXC'}
+                )
+                print(f"Saved ground truth RGB video to: {output_path}")
+                print(f"Format: RGB TIFF, {n_frames} frames × {height_pixels}×{width_pixels} pixels")
+                print(f"  → Open in ImageJ/Fiji as RGB composite")
+            except ImportError:
+                # Fallback: save as hyperstack with separate channels
+                print("Warning: tifffile not available, using fallback format")
+                import sys
+                import os
+                module_dir = os.path.abspath(os.path.dirname(__file__))
+                sys.path.insert(0, module_dir)
 
-            import IOFunctions
-            io_funcs = IOFunctions.IO_Functions()
+                import IOFunctions
+                io_funcs = IOFunctions.IO_Functions()
 
-            # Reshape to (n_frames * 3, height, width) for TIFF
-            # Each frame becomes R, G, B slices
-            tiff_stack = np.zeros((n_frames * 3, height_pixels, width_pixels), dtype=np.uint8)
-            for i in range(n_frames):
-                tiff_stack[i*3 + 0] = rgb_video[i, :, :, 0]  # R
-                tiff_stack[i*3 + 1] = rgb_video[i, :, :, 1]  # G
-                tiff_stack[i*3 + 2] = rgb_video[i, :, :, 2]  # B
+                # Save as ImageJ hyperstack: TZCYXS order
+                # For RGB composite in ImageJ: (n_frames, 3, height, width)
+                tiff_stack = np.zeros((n_frames, 3, height_pixels, width_pixels), dtype=np.uint8)
+                for i in range(n_frames):
+                    tiff_stack[i, 0] = rgb_video[i, :, :, 0]  # R
+                    tiff_stack[i, 1] = rgb_video[i, :, :, 1]  # G
+                    tiff_stack[i, 2] = rgb_video[i, :, :, 2]  # B
 
-            io_funcs.write_tiff(tiff_stack, output_path)
-            print(f"Saved ground truth RGB video to: {output_path}")
-            print(f"Format: {n_frames} frames × 3 channels (R, G, B) = {n_frames * 3} slices")
+                # Reshape to (n_frames * 3, height, width) for write_tiff
+                tiff_stack = tiff_stack.reshape(n_frames * 3, height_pixels, width_pixels)
+                io_funcs.write_tiff(tiff_stack, output_path)
+                print(f"Saved ground truth RGB video to: {output_path}")
+                print(f"Format: {n_frames} frames × 3 channels = {n_frames * 3} slices")
+                print(f"  → In ImageJ: Image → Color → Make Composite, set Display Mode to Composite")
 
         return rgb_video

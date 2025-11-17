@@ -3712,6 +3712,36 @@ class extract_SMs:
 
         assigned_initial['spatial_cluster_id'] = spatial_cluster_ids
 
+        # ===== STEP 2.5: Refine Spectral Model from Puncta (OPTIONAL ENHANCEMENT) =====
+        n_puncta_total = sum(puncta_per_channel.values())
+
+        if n_puncta_total >= n_channels:
+            if verbose:
+                print("=" * 80)
+                print("STEP 2.5: Refine Spectral Model from Puncta")
+                print("=" * 80)
+
+            # Refine spectral model using puncta-based statistics
+            means, covariances, weights = self._refine_spectral_model_from_puncta(
+                assigned_initial,
+                channels_to_use,
+                means,  # original means as fallback
+                covariances,  # original covs as fallback
+                weights,  # original weights as fallback
+                n_channels,
+                min_locs_per_channel=30,
+                verbose=verbose
+            )
+
+            if verbose:
+                print()
+        else:
+            if verbose:
+                print("=" * 80)
+                print(f"STEP 2.5: Skipping spectral refinement (only {n_puncta_total} puncta)")
+                print("=" * 80)
+                print()
+
         # ===== STEP 3: Hierarchical Iterative Refinement =====
         if verbose:
             print("=" * 80)
@@ -3911,6 +3941,101 @@ class extract_SMs:
                 print()
 
         return epsilon_pixels, puncta_per_channel, spatial_cluster_ids
+
+    def _refine_spectral_model_from_puncta(
+        self,
+        assigned_current: pd.DataFrame,
+        channels_to_use: list,
+        original_means: np.ndarray,
+        original_covs: np.ndarray,
+        original_weights: np.ndarray,
+        n_channels: int,
+        min_locs_per_channel: int = 30,
+        verbose: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Refine spectral means/covariances by averaging over spatially-clustered puncta.
+
+        This method computes empirical statistics from locs in valid puncta (spatial_cluster_id >= 0),
+        which are likely to be "pure" single-color signals. This produces sharper channel means
+        and can improve assignment accuracy in subsequent iterations.
+
+        Parameters
+        ----------
+        assigned_current : pd.DataFrame
+            Current assignments with 'channel' and 'spatial_cluster_id' columns
+        channels_to_use : list
+            Spectral feature names (e.g., ['A_R', 'A_G'])
+        original_means : np.ndarray
+            Original GMM means (fallback if insufficient data)
+        original_covs : np.ndarray
+            Original GMM covariances (fallback)
+        original_weights : np.ndarray
+            Original GMM weights (fallback)
+        n_channels : int
+            Number of spectral channels
+        min_locs_per_channel : int
+            Minimum locs required per channel for stable statistics (default: 30)
+        verbose : bool
+            Print diagnostics
+
+        Returns
+        -------
+        means : np.ndarray (n_channels, n_features)
+            Refined channel means
+        covariances : np.ndarray (n_channels, n_features, n_features)
+            Refined covariances
+        weights : np.ndarray (n_channels,)
+            Refined channel weights
+        """
+        n_features = len(channels_to_use)
+        refined_means = original_means.copy()
+        refined_covs = original_covs.copy()
+        refined_weights = np.zeros(n_channels)
+
+        for k in range(n_channels):
+            # Get all locs in valid puncta for this channel
+            mask = (assigned_current['channel'] == k) & \
+                   (assigned_current['spatial_cluster_id'] >= 0)
+
+            n_locs_k = mask.sum()
+
+            if n_locs_k < min_locs_per_channel:
+                if verbose:
+                    print(f"  Channel {k}: Only {n_locs_k} locs in puncta (< {min_locs_per_channel}), keeping original GMM parameters")
+                # Keep original GMM parameters (safety)
+                refined_weights[k] = original_weights[k]
+                continue
+
+            # Extract spectral features
+            X_k = assigned_current.loc[mask, channels_to_use].values
+
+            # Compute refined statistics
+            refined_means[k] = X_k.mean(axis=0)
+
+            # Compute empirical covariance with regularization
+            cov_k = np.cov(X_k, rowvar=False)
+
+            # Ensure positive definiteness by adding small diagonal regularization
+            # This prevents numerical issues with near-singular matrices
+            eps = 1e-6
+            cov_k += eps * np.eye(cov_k.shape[0])
+
+            refined_covs[k] = cov_k
+            refined_weights[k] = n_locs_k
+
+            if verbose:
+                print(f"  Channel {k}: Refined from {n_locs_k:,} locs in puncta")
+                print(f"    Original mean: {original_means[k]}")
+                print(f"    Refined mean:  {refined_means[k]}")
+
+        # Normalize weights
+        if refined_weights.sum() > 0:
+            refined_weights /= refined_weights.sum()
+        else:
+            refined_weights = original_weights.copy()
+
+        return refined_means, refined_covs, refined_weights
 
     def _calculate_posteriors(
         self,

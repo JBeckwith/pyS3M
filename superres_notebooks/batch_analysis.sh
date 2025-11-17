@@ -628,13 +628,15 @@ process_folder() {
         wait_for_memory_relief
     fi
     
-    # Run Python analysis with explicit garbage collection and memory monitoring 
+    # Run Python analysis with explicit garbage collection and memory monitoring
     # Don't use nocache for analysis - we want TIFF files cached for faster processing
     export PYTHONHASHSEED=0
     export MALLOC_TRIM_THRESHOLD_=65536
-    
+
     # Use variance-aware demosaicing setting from threshold parameters file
-    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "$use_variance_aware" >> "$LOG_FILE" 2>&1; then
+    # temporal_median_mode: 0=NONE (no EVER), 1=FITTING_ONLY, 2=DETECTION_AND_FITTING
+    # ever_window: window size for EVER (not used when mode=0)
+    if python3 "$PYTHON_SCRIPT" "$folder_type" "$scratch_folder" "$folder_path" "$wavelength" "$pfa" "$sigma" "$fraction_true" "$use_variance_aware" "0" "100" >> "$LOG_FILE" 2>&1; then
         log_message "SUCCESS: Analysis completed on scratch folder"
         analysis_success=true
         # Force immediate garbage collection after successful analysis
