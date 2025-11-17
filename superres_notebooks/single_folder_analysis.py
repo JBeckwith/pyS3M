@@ -237,6 +237,7 @@ def main():
 
         if folder_type == "sm":
             # SM data processing - process files from scratch, .h5 files will be created there
+            # Note: fit_SM_data() does NOT support temporal_median_mode/ever_window parameters
             print(f"Processing as SM data with wavelength {peak_wavelength}")
             SupRes_F.fit_SM_data(
                 scratch_folder_path,  # Process files from scratch
@@ -255,8 +256,6 @@ def main():
                 fraction_true=fraction_true,
                 image_type=".tif",
                 use_variance_aware_demosaic=use_variance_aware_demosaic,
-                temporal_median_mode=temporal_median_mode_enum,
-                ever_window=ever_window,
             )
             print("SM data processing completed")
         else:
