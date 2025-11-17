@@ -3679,8 +3679,9 @@ class extract_SMs:
         weights = metadata['weights']
 
         # Track assignment stage
-        assigned_initial['assignment_stage'] = 'unassigned'
-        assigned_initial.loc[assigned_initial['channel'] >= 0, 'assignment_stage'] = 'initial'
+        # assignment_stage: 0=unassigned, 1=initial, 2+=refinement_iteration
+        assigned_initial['assignment_stage'] = 0
+        assigned_initial.loc[assigned_initial['channel'] >= 0, 'assignment_stage'] = 1
 
         n_assigned_initial = {k: (assigned_initial['channel'] == k).sum()
                               for k in range(n_channels)}
@@ -4105,7 +4106,7 @@ class extract_SMs:
 
             for idx, (channel_k, distance, is_overlap) in new_assignments.items():
                 assigned_current.loc[idx, 'channel'] = channel_k
-                assigned_current.loc[idx, 'assignment_stage'] = f'refinement_iter_{iteration}'
+                assigned_current.loc[idx, 'assignment_stage'] = 1 + iteration  # 2, 3, 4, ... for iterations 1, 2, 3, ...
                 assigned_current.loc[idx, 'nearest_punctum_distance'] = distance
                 assigned_current.loc[idx, 'is_spatial_overlap'] = is_overlap
 
@@ -4272,7 +4273,7 @@ class extract_SMs:
 
             # Plot initial assignments (conservative)
             mask_initial = (assigned_current['channel'] == k) & \
-                          (assigned_current['assignment_stage'] == 'initial')
+                          (assigned_current['assignment_stage'] == 1)
             if mask_initial.any():
                 ax.scatter(
                     assigned_current.loc[mask_initial, 'xc'],
@@ -4280,10 +4281,10 @@ class extract_SMs:
                     s=1, alpha=0.5, color=channel_colors[k % len(channel_colors)],
                     label='Initial', rasterized=True
                 )
-            
+
             # Plot recovered assignments (refinement iterations)
             mask_refined = (assigned_current['channel'] == k) & \
-                          (assigned_current['assignment_stage'].str.startswith('refinement'))
+                          (assigned_current['assignment_stage'] >= 2)
             if mask_refined.any():
                 ax.scatter(
                     assigned_current.loc[mask_refined, 'xc'],
