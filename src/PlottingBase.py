@@ -54,7 +54,9 @@ class PlottingConfig:
     DEFAULT_VMAX_PERCENTILE: float = 99.0
 
     # Font and line properties
-    DEFAULT_FONT_SIZE: int = 7
+    DEFAULT_FONT_SIZE: int = 7  # General default (axis labels)
+    DEFAULT_TICK_LABELSIZE: int = 8  # Tick labels
+    DEFAULT_LEGEND_FONTSIZE: int = 6  # Legends and annotations
     DEFAULT_LINE_WIDTH: float = 1.0
     DEFAULT_MARKER_SIZE: float = 1.0
 
@@ -70,7 +72,11 @@ class PlottingConfig:
         """Set up matplotlib parameters based on configuration."""
         matplotlib.rcParams.update(
             {
-                "font.size": self.DEFAULT_FONT_SIZE,
+                "font.size": self.DEFAULT_FONT_SIZE,  # Base font size (axis labels)
+                "axes.labelsize": self.DEFAULT_FONT_SIZE,  # Axis labels (7pt)
+                "xtick.labelsize": self.DEFAULT_TICK_LABELSIZE,  # Tick labels (8pt)
+                "ytick.labelsize": self.DEFAULT_TICK_LABELSIZE,  # Tick labels (8pt)
+                "legend.fontsize": self.DEFAULT_LEGEND_FONTSIZE,  # Legend text (6pt)
                 "axes.linewidth": self.DEFAULT_LINE_WIDTH,
                 "xtick.major.width": self.DEFAULT_LINE_WIDTH,
                 "ytick.major.width": self.DEFAULT_LINE_WIDTH,
