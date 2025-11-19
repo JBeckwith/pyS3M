@@ -74,6 +74,9 @@ class PlottingConfig:
                 "axes.linewidth": self.DEFAULT_LINE_WIDTH,
                 "xtick.major.width": self.DEFAULT_LINE_WIDTH,
                 "ytick.major.width": self.DEFAULT_LINE_WIDTH,
+                # Save text as editable text objects in vector formats
+                "svg.fonttype": "none",  # Save text as text (not paths) in SVG
+                "pdf.fonttype": 42,  # Embed fonts as TrueType (editable) in PDF
             }
         )
 
