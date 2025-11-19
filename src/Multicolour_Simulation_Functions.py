@@ -2852,6 +2852,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         integration_time_ms: float = 100,
         excitation_power_scaling: float = 1.0,
         exhaustive_search: bool = False,
+        return_all_simulations: bool = False,
         verbose: bool = True
     ) -> Dict[str, Any]:
         """
@@ -2884,6 +2885,8 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
             excitation_power_scaling: Photon count scaling factor (default: 1.0)
             exhaustive_search: If True, test all combinations (slow!).
                               If False, use greedy selection (default: False)
+            return_all_simulations: If True, return simulation data for ALL viable dyes,
+                                   not just the selected ones (default: False)
             verbose: Print progress and results (default: True)
 
         Returns:
@@ -2891,8 +2894,10 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
                 'selected_dyes': list of n_dyes_desired dye names,
                 'overall_accuracy': float - overall classification accuracy,
                 'confusion_matrix': np.ndarray - confusion matrix for selected dyes,
-                'dye_gaussians': dict - Gaussian parameters for each selected dye,
-                'expected_photons': dict - expected photon counts for each selected dye,
+                'dye_gaussians': dict - Gaussian parameters (selected or all dyes),
+                'dye_simulations': dict - Simulation data (selected or all dyes),
+                'expected_photons': dict - expected photon counts (selected or all dyes),
+                'viable_dyes': list - all viable dyes that passed photon threshold,
                 'all_combinations_tested': list of dicts (if exhaustive_search=True),
                 'separability_stats': dict - full separability statistics
             }
@@ -3078,13 +3083,22 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
                 detector = filtered['expected_photons_at_detector'][dye]
                 print(f"  {dye}: {source:.0f} / {detector:.0f}")
 
+        # Decide which dyes to include in returned data
+        if return_all_simulations:
+            # Return data for ALL viable dyes
+            dyes_to_return = viable_dyes
+        else:
+            # Return data only for selected dyes (original behavior)
+            dyes_to_return = best_result['dyes']
+
         return {
             'selected_dyes': best_result['dyes'],
             'overall_accuracy': best_result['accuracy'],
             'confusion_matrix': best_result['stats']['confusion_matrix'],
-            'dye_gaussians': {dye: dye_gaussians[dye] for dye in best_result['dyes']},
-            'dye_simulations': {dye: dye_simulations[dye] for dye in best_result['dyes']},
-            'expected_photons': {dye: filtered['expected_photons'][dye] for dye in best_result['dyes']},
+            'dye_gaussians': {dye: dye_gaussians[dye] for dye in dyes_to_return},
+            'dye_simulations': {dye: dye_simulations[dye] for dye in dyes_to_return},
+            'expected_photons': {dye: filtered['expected_photons'][dye] for dye in dyes_to_return},
+            'viable_dyes': viable_dyes,  # Always include list of all viable dyes
             'all_combinations_tested': results if exhaustive_search else None,
             'separability_stats': best_result['stats']
         }
