@@ -41,7 +41,7 @@ class PlottingConfig:
     DEFAULT_VMAX_PERCENTILE: float = 99.0
 
     # Font and line properties
-    DEFAULT_FONT_SIZE: int = 12
+    DEFAULT_FONT_SIZE: int = 7
     DEFAULT_LINE_WIDTH: float = 1.0
     DEFAULT_MARKER_SIZE: float = 1.0
 
