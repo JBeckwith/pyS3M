@@ -20,6 +20,19 @@ from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 
+# Import mpltern to register ternary projection with matplotlib
+# This allows using projection="ternary" in add_subplot()
+try:
+    import mpltern
+    MPLTERN_AVAILABLE = True
+except ImportError:
+    MPLTERN_AVAILABLE = False
+    warnings.warn(
+        "mpltern not available. Ternary plots will not work. "
+        "Install with: pip install mpltern",
+        ImportWarning
+    )
+
 
 @dataclass
 class PlottingConfig:
