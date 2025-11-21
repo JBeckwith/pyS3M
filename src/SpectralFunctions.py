@@ -713,8 +713,11 @@ class Spectral_Funcs:
         weighted_wavelengths = wavelength * spectra_normalised
         average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
 
-        # Calculate pixel efficiencies
-        pixel_efficiencies = np.dot(spectra, pixel_QYs.T)
+        # Calculate pixel efficiencies using simple integral (unnormalized, absolute QE)
+        # This gives the correct photoelectron conversion probability:
+        #   abs_QE[c] = ∫ spectrum_normalized(λ) × QE_c(λ) dλ
+        # Note: Uses normalized spectra so result is independent of absolute intensity
+        pixel_efficiencies = np.dot(spectra_normalised, pixel_QYs.T)
 
         return np.squeeze(average_wavelengths), np.squeeze(pixel_efficiencies)
 
@@ -724,32 +727,45 @@ class Spectral_Funcs:
         filters: Optional[List[str]],
         wavelength: np.ndarray,
         pixel_QYs: np.ndarray,
+        normalized: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate pixel efficiencies for dyes with optional filters.
 
-        This method uses per-wavelength normalization to match the stochastic photon
-        sampling behavior in calculate_colourratio_from_photon_wavelengths. This ensures
-        that the expected BGR ratios match the actual sampling distribution.
-
-        Mathematical approach:
-            BGR[c] = ∫ spectrum(λ) × [QE_c(λ) / ∑_c' QE_c'(λ)] dλ
-
-        This differs from simple integral normalization:
-            BGR[c] = ∫ spectrum(λ) × QE_c(λ) dλ / [∑_c ∫ spectrum(λ) × QE_c(λ) dλ]
-
-        The per-wavelength normalization correctly accounts for how photons are
-        stochastically assigned to channels based on relative QE at each wavelength.
+        This method can return either normalized color ratios (for classification)
+        or unnormalized absolute quantum efficiencies (for photoelectron generation).
 
         Args:
             dyes: List of dye names to analyze.
             filters: List of filter names to apply (None for no filtering).
             wavelength: Wavelength array.
             pixel_QYs: Pixel quantum yield array (n_pixels x n_wavelengths).
+            normalized: If True, return normalized BGR ratios that sum to 1 using
+                       per-wavelength normalization to match stochastic photon sampling.
+                       If False, return unnormalized absolute QE values for photoelectron
+                       generation (simple integral: ∫ spectrum(λ) × QE_c(λ) dλ).
 
         Returns:
             Tuple containing:
                 - Average emission wavelengths for each dye
                 - Pixel efficiencies for each dye and pixel type
+                  (normalized ratios if normalized=True, absolute QE if normalized=False)
+
+        Mathematical details:
+
+        When normalized=True (for color classification):
+            BGR[c] = ∫ spectrum(λ) × [QE_c(λ) / ∑_c' QE_c'(λ)] dλ
+
+            This uses per-wavelength normalization to match the stochastic photon
+            sampling behavior in calculate_colourratio_from_photon_wavelengths.
+            This ensures that the expected BGR ratios match the actual sampling
+            distribution when photons are assigned to channels probabilistically.
+
+        When normalized=False (for photoelectron generation):
+            abs_QE[c] = ∫ spectrum(λ) × QE_c(λ) dλ
+
+            This gives the absolute quantum efficiency for photoelectron conversion.
+            The integral represents the expected number of photoelectrons generated
+            per input photon for pixels of type c.
         """
         # Get filter transmission (unity if no filters)
         if filters is None:
@@ -777,29 +793,42 @@ class Spectral_Funcs:
         weighted_wavelengths = wavelength * dye_normalized_spectra
         average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
 
-        # Calculate pixel efficiencies using per-wavelength normalization
-        # This matches the stochastic sampling behavior in calculate_colourratio_from_photon_wavelengths
-        #
-        # For each wavelength λ, the probability a photon is detected in channel c is:
-        #   P(c|λ) = QE_c(λ) / [∑_c' QE_c'(λ)]
-        #
-        # The expected color ratios are then:
-        #   E[c] = ∫ spectrum(λ) × P(c|λ) dλ
-        #        = ∫ spectrum(λ) × [QE_c(λ) / total_QE(λ)] dλ
+        # Calculate pixel efficiencies
+        if normalized:
+            # Use per-wavelength normalization for color ratios
+            # This matches the stochastic sampling behavior in calculate_colourratio_from_photon_wavelengths
+            #
+            # For each wavelength λ, the probability a photon is detected in channel c is:
+            #   P(c|λ) = QE_c(λ) / [∑_c' QE_c'(λ)]
+            #
+            # The expected color ratios are then:
+            #   E[c] = ∫ spectrum(λ) × P(c|λ) dλ
+            #        = ∫ spectrum(λ) × [QE_c(λ) / total_QE(λ)] dλ
 
-        # Sum QE across all channels at each wavelength
-        total_QE_per_wavelength = np.sum(pixel_QYs, axis=0)  # Shape: (n_wavelengths,)
-        total_QE_per_wavelength = np.maximum(total_QE_per_wavelength, 1e-10)  # Avoid division by zero
+            # Sum QE across all channels at each wavelength
+            total_QE_per_wavelength = np.sum(pixel_QYs, axis=0)  # Shape: (n_wavelengths,)
+            total_QE_per_wavelength = np.maximum(total_QE_per_wavelength, 1e-10)  # Avoid division by zero
 
-        # Calculate per-wavelength detection probabilities for each channel
-        # Shape: (n_pixels, n_wavelengths)
-        prob_per_wavelength = pixel_QYs / total_QE_per_wavelength
+            # Calculate per-wavelength detection probabilities for each channel
+            # Shape: (n_pixels, n_wavelengths)
+            prob_per_wavelength = pixel_QYs / total_QE_per_wavelength
 
-        # Calculate expected color ratios by integrating spectrum × probability
-        # For multiple dyes: dye_normalized_spectra has shape (n_dyes, n_wavelengths)
-        # prob_per_wavelength has shape (n_pixels, n_wavelengths)
-        # Result: (n_dyes, n_pixels)
-        pixel_efficiencies = np.dot(dye_normalized_spectra, prob_per_wavelength.T)
+            # Calculate expected color ratios by integrating spectrum × probability
+            # For multiple dyes: dye_normalized_spectra has shape (n_dyes, n_wavelengths)
+            # prob_per_wavelength has shape (n_pixels, n_wavelengths)
+            # Result: (n_dyes, n_pixels)
+            pixel_efficiencies = np.dot(dye_normalized_spectra, prob_per_wavelength.T)
+
+        else:
+            # Use simple integral for absolute quantum efficiency
+            # This gives the correct photoelectron conversion probability
+            #
+            # abs_QE[c] = ∫ spectrum(λ) × QE_c(λ) dλ
+            #
+            # For multiple dyes: dye_normalized_spectra has shape (n_dyes, n_wavelengths)
+            # pixel_QYs has shape (n_pixels, n_wavelengths)
+            # Result: (n_dyes, n_pixels)
+            pixel_efficiencies = np.dot(dye_normalized_spectra, pixel_QYs.T)
 
         return np.squeeze(average_wavelengths), np.squeeze(pixel_efficiencies)
 

@@ -1684,7 +1684,8 @@ class MultiC_Sim_Funcs_Refactored:
         else:
             average_emission_wavelength, dye_pixel_efficiency = (
                 self.spectral.get_pixel_fractions_dye_and_filters(
-                    [dye], filters, wavelength, camera_params.pixel_QYs
+                    [dye], filters, wavelength, camera_params.pixel_QYs,
+                    normalized=False  # Use absolute QE for photoelectron generation
                 )
             )
 
