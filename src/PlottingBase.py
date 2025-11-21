@@ -1423,6 +1423,278 @@ class TernaryPlotMixin:
 
         return fig, ax
 
+    def plot_ternary_kde_contours(
+        self,
+        ax,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        color: str = 'blue',
+        label: Optional[str] = None,
+        levels: Union[List[float], str] = [0.5, 0.9, 0.99],
+        bandwidth: Union[float, str] = 'scott',
+        linewidths: Union[float, List[float]] = 2.0,
+        linestyles: Union[str, List[str]] = 'solid',
+        alpha: float = 0.8,
+        grid_resolution: int = 100,
+        **kwargs
+    ) -> None:
+        """Plot KDE contour lines on an existing ternary axis.
+
+        This function calculates a 2D kernel density estimate in (R, G) space
+        and plots confidence contours on a ternary diagram. This provides a
+        cleaner visualization of dye separability compared to scatter plots with
+        alpha transparency, avoiding the visual "overlap deception" issue.
+
+        Args:
+            ax: mpltern TernaryAxes object to plot on
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1) - used for validation only
+            color: Color for contour lines (default: 'blue')
+            label: Label for legend (optional)
+            levels: Contour levels as:
+                   - List of floats: [0.5, 0.9, 0.99] for confidence levels
+                   - 'auto': Automatically choose N levels
+                   - int: Number of levels to auto-generate
+            bandwidth: KDE bandwidth selection:
+                      - 'scott': Scott's rule (default, recommended)
+                      - 'silverman': Silverman's rule
+                      - float: Manual bandwidth value
+            linewidths: Line width(s) for contours. Can be:
+                       - Single float: Same width for all levels
+                       - List of floats: Width per level (inner to outer)
+            linestyles: Line style(s) for contours ('solid', 'dashed', 'dotted')
+            alpha: Transparency for contour lines (0-1, default: 0.8)
+            grid_resolution: Resolution of KDE evaluation grid (default: 100)
+            **kwargs: Additional arguments passed to ax.tricontour()
+
+        Returns:
+            None (modifies ax in place)
+
+        Example:
+            >>> import matplotlib.pyplot as plt
+            >>> import mpltern
+            >>> from PlottingBase import PublicationPlotter
+            >>>
+            >>> # Create ternary figure
+            >>> fig = plt.figure(figsize=(8, 6))
+            >>> ax = fig.add_subplot(projection='ternary')
+            >>>
+            >>> # Plot KDE contours for multiple dyes
+            >>> plotter = PublicationPlotter()
+            >>> plotter.plot_ternary_kde_contours(
+            ...     ax, R_dye1, G_dye1, B_dye1,
+            ...     color='red', label='ATTO 655',
+            ...     levels=[0.5, 0.9, 0.99],
+            ...     linewidths=[1, 2, 3]
+            ... )
+            >>> plotter.plot_ternary_kde_contours(
+            ...     ax, R_dye2, G_dye2, B_dye2,
+            ...     color='blue', label='JF646',
+            ...     levels=[0.5, 0.9, 0.99],
+            ...     linewidths=[1, 2, 3]
+            ... )
+            >>> ax.legend()
+            >>> plt.show()
+
+        Notes:
+            - Requires scipy for KDE calculation
+            - Requires mpltern for ternary plotting
+            - KDE is computed in 2D (R, G) space since B = 1 - R - G
+            - Confidence levels [0.5, 0.9, 0.99] correspond to approximately
+              [1.18σ, 4.60σ, 9.21σ] for 2D Gaussian distributions
+            - Use varying linewidths to emphasize core vs tail of distribution
+            - This method avoids the "alpha transparency deception" where
+              overlapping scatter points visually exaggerate overlap
+
+        See Also:
+            create_ternary_plot: Basic ternary scatter plot
+            create_ternary_density: Hexbin density plot
+        """
+        from scipy.stats import gaussian_kde
+
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays
+        R = np.asarray(R, dtype=np.float64)
+        G = np.asarray(G, dtype=np.float64)
+        B = np.asarray(B, dtype=np.float64)
+
+        # Remove any NaN or inf values
+        valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
+        if not np.all(valid_mask):
+            n_invalid = (~valid_mask).sum()
+            print(f"Warning: Removed {n_invalid} invalid values from KDE calculation")
+            R = R[valid_mask]
+            G = G[valid_mask]
+            B = B[valid_mask]
+
+        if len(R) < 10:
+            print(f"Warning: Only {len(R)} valid points for KDE. Skipping contour plot.")
+            return
+
+        # Check normalization (should sum to 1)
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-3):
+            print(f"Warning: RGB values not normalized (sum={np.mean(totals):.3f}). Normalizing...")
+            R = R / totals
+            G = G / totals
+            B = B / totals
+
+        # Compute KDE in 2D (R, G) space
+        # Note: B = 1 - R - G is redundant, so we only need 2D
+        data = np.vstack([R, G])
+
+        try:
+            if bandwidth == 'scott':
+                kde = gaussian_kde(data, bw_method='scott')
+            elif bandwidth == 'silverman':
+                kde = gaussian_kde(data, bw_method='silverman')
+            elif isinstance(bandwidth, (int, float)):
+                kde = gaussian_kde(data, bw_method=float(bandwidth))
+            else:
+                raise ValueError(f"Invalid bandwidth: {bandwidth}")
+        except Exception as e:
+            print(f"Error creating KDE: {e}")
+            print(f"Data shape: {data.shape}, R range: [{R.min():.3f}, {R.max():.3f}], G range: [{G.min():.3f}, {G.max():.3f}]")
+            return
+
+        # Create evaluation grid in (R, G) space
+        # Grid covers valid ternary space: R + G <= 1, R >= 0, G >= 0
+        r_grid = np.linspace(0, 1, grid_resolution)
+        g_grid = np.linspace(0, 1, grid_resolution)
+        R_grid, G_grid = np.meshgrid(r_grid, g_grid)
+
+        # Mask invalid points (where R + G > 1)
+        valid_ternary = (R_grid + G_grid) <= 1.0
+        B_grid = 1.0 - R_grid - G_grid
+
+        # Evaluate KDE only on valid ternary points
+        valid_indices = valid_ternary.ravel()
+        grid_points_all = np.vstack([R_grid.ravel(), G_grid.ravel()])
+        grid_points_valid = grid_points_all[:, valid_indices]
+
+        try:
+            kde_values_valid = kde(grid_points_valid)
+        except Exception as e:
+            print(f"Error evaluating KDE: {e}")
+            return
+
+        # Create full KDE array with zeros for invalid points
+        kde_values_full = np.zeros(R_grid.size)
+        kde_values_full[valid_indices] = kde_values_valid
+        kde_values = kde_values_full.reshape(R_grid.shape)
+
+        # Determine contour levels
+        if isinstance(levels, str) and levels == 'auto':
+            # Auto-select levels based on KDE values
+            valid_kde = kde_values[valid_ternary]
+            levels_to_plot = np.percentile(valid_kde, [10, 30, 50, 70, 90])
+        elif isinstance(levels, int):
+            # Generate N evenly-spaced levels
+            valid_kde = kde_values[valid_ternary]
+            levels_to_plot = np.linspace(valid_kde.min(), valid_kde.max(), levels)
+        else:
+            # Convert confidence levels to density levels
+            # For 2D Gaussian: P(inside ellipse) = 1 - exp(-r²/2)
+            # Solving: r² = -2*ln(1-P)
+            # Density at radius r: exp(-r²/2) / (2π σ²)
+            # But we use empirical approach: percentiles of KDE values
+            valid_kde = kde_values[valid_ternary]
+            levels_array = np.asarray(levels)
+
+            # Map confidence levels to KDE density thresholds
+            # Use only non-zero KDE values (many grid points are outside data region)
+            nonzero_kde = valid_kde[valid_kde > 0]
+
+            if len(nonzero_kde) < 10:
+                print(f"Warning: Only {len(nonzero_kde)} non-zero KDE values. Using all valid values.")
+                nonzero_kde = valid_kde
+
+            # Sort KDE values (highest to lowest)
+            sorted_kde = np.sort(nonzero_kde)[::-1]
+            n_points = len(sorted_kde)
+
+            levels_to_plot = []
+            for conf in levels_array:
+                # For confidence level conf, we want the threshold where
+                # conf% of the probability mass is above it
+                # For a 2D Gaussian: 50% → ~0.39 of peak, 90% → ~0.105 of peak, 99% → ~0.018 of peak
+                # Use this as approximation
+                if conf == 0.5:
+                    # 50% contour: roughly 0.4 of maximum
+                    level_val = sorted_kde[0] * 0.4
+                elif conf == 0.9:
+                    # 90% contour: roughly 0.1 of maximum
+                    level_val = sorted_kde[0] * 0.1
+                elif conf == 0.99:
+                    # 99% contour: roughly 0.02 of maximum
+                    level_val = sorted_kde[0] * 0.02
+                else:
+                    # General case: use empirical quantile
+                    idx = int(conf * n_points)
+                    if idx >= n_points:
+                        idx = n_points - 1
+                    level_val = sorted_kde[idx]
+
+                levels_to_plot.append(level_val)
+            levels_to_plot = np.array(levels_to_plot)
+
+        # Ensure levels are sorted (lowest to highest) for proper contour plotting
+        levels_to_plot = np.sort(levels_to_plot)
+
+        # Handle linewidths and linestyles
+        if isinstance(linewidths, (int, float)):
+            linewidths_list = [linewidths] * len(levels_to_plot)
+        else:
+            linewidths_list = list(linewidths)
+            if len(linewidths_list) < len(levels_to_plot):
+                # Repeat last value
+                linewidths_list += [linewidths_list[-1]] * (len(levels_to_plot) - len(linewidths_list))
+
+        if isinstance(linestyles, str):
+            linestyles_list = [linestyles] * len(levels_to_plot)
+        else:
+            linestyles_list = list(linestyles)
+            if len(linestyles_list) < len(levels_to_plot):
+                linestyles_list += [linestyles_list[-1]] * (len(levels_to_plot) - len(linestyles_list))
+
+        # Plot contours on ternary axis
+        # mpltern tricontour expects (t, l, r) = (R, G, B) and values
+        try:
+            contour = ax.tricontour(
+                R_grid.ravel(),
+                G_grid.ravel(),
+                B_grid.ravel(),
+                kde_values.ravel(),
+                levels=levels_to_plot,
+                colors=[color] * len(levels_to_plot),
+                linewidths=linewidths_list,
+                linestyles=linestyles_list,
+                alpha=alpha,
+                **kwargs
+            )
+
+            # Add label for legend (only to first contour level)
+            if label is not None:
+                # Create a dummy line for legend
+                from matplotlib.lines import Line2D
+                legend_line = Line2D([0], [0], color=color, linewidth=linewidths_list[0],
+                                    linestyle=linestyles_list[0], alpha=alpha, label=label)
+                # Store it for potential legend creation
+                if not hasattr(ax, '_kde_legend_handles'):
+                    ax._kde_legend_handles = []
+                ax._kde_legend_handles.append(legend_line)
+
+        except Exception as e:
+            print(f"Error plotting contours: {e}")
+            print(f"Levels: {levels_to_plot}")
+            print(f"KDE values range: [{np.nanmin(kde_values):.6f}, {np.nanmax(kde_values):.6f}]")
+            return
+
 
 class DatashaderMixin:
     """Mixin for handling large datasets with datashader when available.
