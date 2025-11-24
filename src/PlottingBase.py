@@ -750,7 +750,7 @@ class BasePlotter(ABC):
 
         return ax, contours
 
-    def overlay_localizations_with_contours(
+    def overlay_localisations_with_contours(
         self,
         ax: matplotlib.axes.Axes,
         image_data: np.ndarray,
@@ -770,17 +770,19 @@ class BasePlotter(ABC):
         image_vmax: Optional[float] = None,
     ) -> matplotlib.axes.Axes:
         """
-        Overlay super-resolved localizations as crosses with Gaussian contours on an image.
+        Overlay super-resolved localisations as crosses with Gaussian contours on an image.
 
-        This function is useful for comparing localized positions to raw camera images,
-        showing both the precise localization (cross) and the uncertainty/PSF (contour).
+        This function is useful for comparing localised positions to raw camera images,
+        showing both the precise localisation (cross) and the uncertainty/PSF (contour).
+        Positions are automatically shifted by 0.5 pixels to align with matplotlib's
+        imshow coordinate system. Axis labels and ticks are removed for clean display.
 
         Args:
             ax: Axes object to plot on
             image_data: 2D array of camera image data (e.g., Bayer-filtered image)
-            positions_x: X coordinates of localizations in nm
-            positions_y: Y coordinates of localizations in nm
-            colors: Color for each localization (RGB tuple, hex string, or matplotlib color).
+            positions_x: X coordinates of localisations in nm
+            positions_y: Y coordinates of localisations in nm
+            colors: Color for each localisation (RGB tuple, hex string, or matplotlib color).
                     If None, uses default cycle. If single color, applies to all.
             pixelsize: Physical pixel size in nm (default: 69.0 for camera pixels)
             marker_size: Size of cross markers (default: 50)
@@ -795,19 +797,20 @@ class BasePlotter(ABC):
             image_vmax: Maximum value for image colormap (auto if None)
 
         Returns:
-            Modified axes object
+            Modified axes object with no axis labels or ticks
 
         Example:
             >>> fig, ax = plotter.one_column_plot()
-            >>> ax = plotter.overlay_localizations_with_contours(
+            >>> ax = plotter.overlay_localisations_with_contours(
             ...     ax, bayer_image, x_coords, y_coords,
             ...     colors=['red', 'blue', 'green'],
             ...     contour_sigma=30.0
             ... )
         """
-        # Convert positions from nm to pixels
-        pos_x_pixels = positions_x / pixelsize
-        pos_y_pixels = positions_y / pixelsize
+        # Convert positions from nm to pixels and shift by half pixel
+        # to align with matplotlib's imshow coordinate system
+        pos_x_pixels = positions_x / pixelsize + 0.5
+        pos_y_pixels = positions_y / pixelsize + 0.5
         contour_sigma_pixels = contour_sigma / pixelsize
 
         # Show background image if requested
@@ -876,6 +879,12 @@ class BasePlotter(ABC):
         ax.set_xlim(0, image_width)
         ax.set_ylim(0, image_height)
         ax.set_aspect('equal')
+
+        # Remove axis labels and ticks for cleaner image display
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('')
+        ax.set_ylabel('')
 
         return ax
 
