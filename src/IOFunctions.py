@@ -369,7 +369,125 @@ class IO_Functions:
         except (UnicodeDecodeError, LookupError) as e:
             with open(filename, "r") as file:
                 data = json.load(file)
+        except json.JSONDecodeError as e:
+            # Try to salvage partial JSON data
+            print(f"Warning: JSON parsing error at line {e.lineno}, column {e.colno}")
+            print(f"Error message: {e.msg}")
+            print(f"Attempting to read partial data...")
+
+            try:
+                with open(filename, "r", encoding=encoding) as file:
+                    content = file.read()
+
+                # Try to find and parse up to the error position
+                if e.pos and e.pos > 0:
+                    # Find the last complete object before the error
+                    partial = content[:e.pos]
+                    # Try to close incomplete structures
+                    brace_count = partial.count('{') - partial.count('}')
+                    bracket_count = partial.count('[') - partial.count(']')
+
+                    if brace_count > 0 or bracket_count > 0:
+                        print(f"Attempting to close {brace_count} braces and {bracket_count} brackets...")
+                        partial += ']' * bracket_count + '}' * brace_count
+                        try:
+                            data = json.loads(partial)
+                            print(f"Successfully recovered partial JSON data")
+                            return data
+                        except json.JSONDecodeError:
+                            pass
+
+                # If that doesn't work, raise the original error with helpful context
+                raise json.JSONDecodeError(
+                    f"Cannot parse JSON file. {e.msg} at line {e.lineno}, col {e.colno}. "
+                    f"File may be corrupted or incomplete. Position: {e.pos}/{len(content)} bytes",
+                    e.doc, e.pos
+                ) from e
+            except Exception as read_err:
+                raise json.JSONDecodeError(
+                    f"Cannot parse JSON file: {e.msg}. File may be corrupted.",
+                    e.doc, e.pos
+                ) from e
         return data
+
+    def read_json_streaming_first_framekey(self, filename, encoding="ISO-8859-1"):
+        """
+        Stream-parse a large ImageJ JSON file to find the first FrameKey entry without loading the entire file.
+
+        This is much more memory-efficient for large metadata files (>100MB) that contain
+        per-frame information, as it stops parsing once the first FrameKey is found.
+
+        Args:
+            filename (str): Path to the ImageJ JSON metadata file
+            encoding (str): File encoding, defaults to ISO-8859-1 for ImageJ compatibility
+
+        Returns:
+            dict: Dictionary containing the first FrameKey and its metadata
+                  Format: {framekey_name: {metadata_dict}}
+
+        Raises:
+            ValueError: If no FrameKey is found in the file
+            json.JSONDecodeError: If the JSON is malformed before finding a FrameKey
+        """
+        import re
+
+        with open(filename, "r", encoding=encoding) as f:
+            buffer = ""
+            framekey_pattern = re.compile(r'"(FrameKey-\d+-\d+-\d+)"\s*:\s*\{')
+            framekey_name = None
+            brace_depth = 0
+            framekey_value_start = -1
+            found_start = False
+
+            # Read file in chunks
+            chunk_size = 8192
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+
+                buffer += chunk
+
+                # Look for FrameKey pattern if we haven't found one yet
+                if not found_start:
+                    match = framekey_pattern.search(buffer)
+                    if match:
+                        framekey_name = match.group(1)
+                        found_start = True
+                        # The opening brace position is at match.end() - 1
+                        framekey_value_start = match.end() - 1
+                        brace_depth = 1  # We've seen the opening brace
+
+                if found_start:
+                    # Count braces from where we left off
+                    start_pos = max(0, len(buffer) - len(chunk) - 1)
+                    for i in range(start_pos, len(buffer)):
+                        char = buffer[i]
+                        if i > framekey_value_start:  # Only count after the opening brace
+                            if char == '{':
+                                brace_depth += 1
+                            elif char == '}':
+                                brace_depth -= 1
+                                if brace_depth == 0:
+                                    # Found complete FrameKey entry
+                                    framekey_end = i + 1
+                                    framekey_json = buffer[framekey_value_start:framekey_end].strip()
+
+                                    try:
+                                        framekey_data = json.loads(framekey_json)
+                                        return {framekey_name: framekey_data}
+                                    except json.JSONDecodeError as e:
+                                        raise json.JSONDecodeError(
+                                            f"Error parsing FrameKey '{framekey_name}': {e.msg}",
+                                            e.doc, e.pos
+                                        ) from e
+
+                # Don't truncate buffer if we're actively parsing
+                # Only truncate if we haven't found the start yet
+                if not found_start and len(buffer) > chunk_size * 2:
+                    buffer = buffer[-chunk_size:]
+
+        raise ValueError("No FrameKey found in JSON file")
 
     def get_num_pages_in_TIF(self, filename):
         """
@@ -391,6 +509,8 @@ class IO_Functions:
         Loads metadata from an imageJ json file.
         NB ImageJ starts its ROIs at (0,0), like Python
 
+        Uses streaming parser for large files (>10MB) to avoid loading entire file into memory.
+
         Args:
             filename (str): The name of the json file to load.
 
@@ -400,8 +520,21 @@ class IO_Functions:
             width (int): width
             height (int): height
         """
-        data = self.read_json(filename)
-        key = np.sort([x for x in data.keys() if "FrameKey" in x])[0]
+        import os
+
+        # Check file size to decide on parsing strategy
+        file_size = os.path.getsize(filename)
+
+        if file_size > 10 * 1024 * 1024:  # > 10MB
+            # Use streaming parser for large files
+            print(f"Large metadata file detected ({file_size / 1024 / 1024:.1f} MB), using streaming parser...")
+            data = self.read_json_streaming_first_framekey(filename)
+            key = list(data.keys())[0]  # Already have the first FrameKey
+        else:
+            # Use standard parser for small files
+            data = self.read_json(filename)
+            key = np.sort([x for x in data.keys() if "FrameKey" in x])[0]
+
         metadatadict = data[key]
         ROI = metadatadict["ROI"].split("-")
         # ROI format from ImageJ/MicroManager is: y-x-width-height
