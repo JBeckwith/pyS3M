@@ -750,6 +750,129 @@ class BasePlotter(ABC):
 
         return ax, contours
 
+    def overlay_localizations_with_contours(
+        self,
+        ax: matplotlib.axes.Axes,
+        image_data: np.ndarray,
+        positions_x: np.ndarray,
+        positions_y: np.ndarray,
+        colors: Optional[Union[np.ndarray, list]] = None,
+        pixelsize: float = 69.0,
+        marker_size: float = 50,
+        marker_style: str = 'x',
+        marker_linewidth: float = 1.5,
+        contour_sigma: float = 50.0,
+        contour_levels: int = 3,
+        contour_alpha: float = 0.6,
+        show_image: bool = True,
+        image_cmap: str = 'gray',
+        image_vmin: Optional[float] = None,
+        image_vmax: Optional[float] = None,
+    ) -> matplotlib.axes.Axes:
+        """
+        Overlay super-resolved localizations as crosses with Gaussian contours on an image.
+
+        This function is useful for comparing localized positions to raw camera images,
+        showing both the precise localization (cross) and the uncertainty/PSF (contour).
+
+        Args:
+            ax: Axes object to plot on
+            image_data: 2D array of camera image data (e.g., Bayer-filtered image)
+            positions_x: X coordinates of localizations in nm
+            positions_y: Y coordinates of localizations in nm
+            colors: Color for each localization (RGB tuple, hex string, or matplotlib color).
+                    If None, uses default cycle. If single color, applies to all.
+            pixelsize: Physical pixel size in nm (default: 69.0 for camera pixels)
+            marker_size: Size of cross markers (default: 50)
+            marker_style: Matplotlib marker style (default: 'x' for crosses)
+            marker_linewidth: Line width for markers (default: 1.5)
+            contour_sigma: Standard deviation of Gaussian contour in nm (default: 50.0)
+            contour_levels: Number of contour levels to draw (default: 3)
+            contour_alpha: Transparency of contours (default: 0.6)
+            show_image: Whether to show the background image (default: True)
+            image_cmap: Colormap for background image (default: 'gray')
+            image_vmin: Minimum value for image colormap (auto if None)
+            image_vmax: Maximum value for image colormap (auto if None)
+
+        Returns:
+            Modified axes object
+
+        Example:
+            >>> fig, ax = plotter.one_column_plot()
+            >>> ax = plotter.overlay_localizations_with_contours(
+            ...     ax, bayer_image, x_coords, y_coords,
+            ...     colors=['red', 'blue', 'green'],
+            ...     contour_sigma=30.0
+            ... )
+        """
+        # Convert positions from nm to pixels
+        pos_x_pixels = positions_x / pixelsize
+        pos_y_pixels = positions_y / pixelsize
+        contour_sigma_pixels = contour_sigma / pixelsize
+
+        # Show background image if requested
+        if show_image:
+            ax.imshow(
+                image_data,
+                cmap=image_cmap,
+                vmin=image_vmin,
+                vmax=image_vmax,
+                origin='lower',
+                extent=[0, image_data.shape[1], 0, image_data.shape[0]],
+            )
+
+        # Handle colors
+        if colors is None:
+            # Use default color cycle
+            colors = [f'C{i%10}' for i in range(len(positions_x))]
+        elif isinstance(colors, (str, tuple)):
+            # Single color for all
+            colors = [colors] * len(positions_x)
+        elif len(colors) != len(positions_x):
+            raise ValueError(f"Number of colors ({len(colors)}) must match number of positions ({len(positions_x)})")
+
+        # Create meshgrid for contours
+        image_height, image_width = image_data.shape
+        x_grid = np.arange(0, image_width, 0.5)  # Higher resolution for smooth contours
+        y_grid = np.arange(0, image_height, 0.5)
+        X, Y = np.meshgrid(x_grid, y_grid)
+
+        # Plot each localization
+        for i, (x_px, y_px, color) in enumerate(zip(pos_x_pixels, pos_y_pixels, colors)):
+            # Plot cross marker
+            ax.scatter(
+                x_px, y_px,
+                marker=marker_style,
+                s=marker_size,
+                c=[color],
+                linewidths=marker_linewidth,
+                zorder=10,
+            )
+
+            # Generate Gaussian contour
+            gaussian = np.exp(-((X - x_px)**2 + (Y - y_px)**2) / (2 * contour_sigma_pixels**2))
+
+            # Normalize to [0, 1]
+            gaussian = gaussian / gaussian.max()
+
+            # Draw contours at specific levels
+            levels = np.linspace(0.1, 0.9, contour_levels)
+            ax.contour(
+                X, Y, gaussian,
+                levels=levels,
+                colors=[color],
+                linewidths=1.0,
+                alpha=contour_alpha,
+                zorder=9,
+            )
+
+        # Set axis limits to match image
+        ax.set_xlim(0, image_width)
+        ax.set_ylim(0, image_height)
+        ax.set_aspect('equal')
+
+        return ax
+
     def save_or_show(
         self,
         fig: matplotlib.figure.Figure,
