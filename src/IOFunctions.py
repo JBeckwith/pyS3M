@@ -594,6 +594,86 @@ class IO_Functions:
         with open(file_name, "w") as json_file:
             json.dump(data, json_file, indent=4)
 
+    def _read_tiff_robust(self, file_path, frames, dtype="float32"):
+        """
+        Robust frame-by-frame TIFF reader that skips corrupted frames.
+
+        This method attempts to read each frame individually, skipping any frames
+        that fail to load due to corruption or incomplete data.
+
+        Args:
+            file_path (str): Path to the TIFF file
+            frames (list or None): List of frame indices to read, or None for all frames
+            dtype (str): Data type for output array
+
+        Returns:
+            numpy.ndarray: Array of successfully loaded frames
+
+        Raises:
+            RuntimeError: If no frames can be loaded successfully
+        """
+        print(f"Opening TIFF with robust frame-by-frame reader...")
+
+        with tifffile.TiffFile(file_path) as tif:
+            n_frames = len(tif.pages)
+
+            # Determine which frames to attempt
+            if frames is None:
+                frame_indices = list(range(n_frames))
+            else:
+                frame_indices = list(frames)
+
+            print(f"Total frames in file: {n_frames}")
+            print(f"Attempting to load {len(frame_indices)} frame(s)")
+
+            # Try to read first good frame to get shape
+            first_frame = None
+            first_idx = None
+            for idx in frame_indices:
+                try:
+                    first_frame = np.asarray(tif.pages[idx].asarray(), dtype=dtype)
+                    first_idx = idx
+                    break
+                except Exception as e:
+                    print(f"  Frame {idx}: FAILED ({type(e).__name__})")
+                    continue
+
+            if first_frame is None:
+                raise RuntimeError(f"Could not load any frames from {file_path}")
+
+            # Pre-allocate array
+            shape = (len(frame_indices),) + first_frame.shape
+            images = np.zeros(shape, dtype=dtype)
+
+            successful_frames = []
+            failed_frames = []
+
+            # Load all frames
+            for i, idx in enumerate(frame_indices):
+                try:
+                    if idx == first_idx:
+                        # Already loaded
+                        images[i] = first_frame
+                    else:
+                        # Read directly from page without keyframe
+                        images[i] = np.asarray(tif.pages[idx].asarray(), dtype=dtype)
+                    successful_frames.append(idx)
+                except Exception as e:
+                    # Frame is corrupted, fill with zeros
+                    print(f"  Frame {idx}: FAILED ({type(e).__name__}), filling with zeros")
+                    failed_frames.append(idx)
+                    images[i] = np.zeros(first_frame.shape, dtype=dtype)
+
+            print(f"Successfully loaded: {len(successful_frames)}/{len(frame_indices)} frames")
+            if failed_frames:
+                print(f"Failed frames (filled with zeros): {failed_frames}")
+
+            # Return single frame if only one requested
+            if len(frame_indices) == 1:
+                return images[0]
+
+            return images
+
     def read_tiff(self, file_path, frame=None, dtype="float32", memmap=True):
         """
         Read a TIFF file using the tifffile library with memory mapping support.
@@ -668,33 +748,51 @@ class IO_Functions:
                 f"Memory mapping failed for {file_path}, falling back to standard loading: {e}"
             )
             if isinstance(frame, type(None)):
-                image = np.asarray(
-                    imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
-                    dtype=dtype,
-                )
+                # Try standard loading for all frames
+                try:
+                    image = np.asarray(
+                        imread(file_path, is_ome=False, is_mmstack=False, is_imagej=False),
+                        dtype=dtype,
+                    )
+                except Exception as e2:
+                    print(f"Standard loading also failed: {e2}")
+                    print("Attempting frame-by-frame recovery...")
+                    image = self._read_tiff_robust(file_path, None, dtype)
             else:
                 if hasattr(frame, "__len__"):
-                    image = np.asarray(
-                        imread(
-                            file_path,
-                            key=frame,
-                            is_ome=False,
-                            is_mmstack=False,
-                            is_imagej=False,
-                        ),
-                        dtype=dtype,
-                    )
+                    # Try standard loading for frame list
+                    try:
+                        image = np.asarray(
+                            imread(
+                                file_path,
+                                key=frame,
+                                is_ome=False,
+                                is_mmstack=False,
+                                is_imagej=False,
+                            ),
+                            dtype=dtype,
+                        )
+                    except Exception as e2:
+                        print(f"Standard loading of frame list failed: {e2}")
+                        print("Attempting frame-by-frame recovery...")
+                        image = self._read_tiff_robust(file_path, frame, dtype)
                 else:
-                    image = np.asarray(
-                        imread(
-                            file_path,
-                            key=int(frame),
-                            is_ome=False,
-                            is_mmstack=False,
-                            is_imagej=False,
-                        ),
-                        dtype=dtype,
-                    )
+                    # Try standard loading for single frame
+                    try:
+                        image = np.asarray(
+                            imread(
+                                file_path,
+                                key=int(frame),
+                                is_ome=False,
+                                is_mmstack=False,
+                                is_imagej=False,
+                            ),
+                            dtype=dtype,
+                        )
+                    except Exception as e2:
+                        print(f"Standard loading of frame {frame} failed: {e2}")
+                        print("Attempting frame-by-frame recovery...")
+                        image = self._read_tiff_robust(file_path, [int(frame)], dtype)
         return image
 
     def read_tiff_tophotoelectrons(
