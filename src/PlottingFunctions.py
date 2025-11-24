@@ -964,7 +964,7 @@ class Plotter(PublicationPlotter):
         cbarlabel: str = "photons",
         label: str = "",
         labelcolor: str = "white",
-        pixelsize: float = 110,
+        pixelsize: float = 69,
         scalebarsize: float = 10000,
         scalebarlabel: str = "10 μm",
         alpha: float = 1,
