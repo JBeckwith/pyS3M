@@ -831,11 +831,8 @@ class BasePlotter(ABC):
         elif len(colors) != len(positions_x):
             raise ValueError(f"Number of colors ({len(colors)}) must match number of positions ({len(positions_x)})")
 
-        # Create meshgrid for contours
+        # Get image dimensions
         image_height, image_width = image_data.shape
-        x_grid = np.arange(0, image_width, 0.5)  # Higher resolution for smooth contours
-        y_grid = np.arange(0, image_height, 0.5)
-        X, Y = np.meshgrid(x_grid, y_grid)
 
         # Plot each localization
         for i, (x_px, y_px, color) in enumerate(zip(pos_x_pixels, pos_y_pixels, colors)):
@@ -849,8 +846,17 @@ class BasePlotter(ABC):
                 zorder=10,
             )
 
+            # Create local high-resolution grid around this localization
+            # Use 4*sigma extent for smooth, circular contours
+            extent = 4 * contour_sigma_pixels
+            grid_resolution = 0.1  # Fine resolution for smooth circles
+
+            x_local = np.arange(x_px - extent, x_px + extent, grid_resolution)
+            y_local = np.arange(y_px - extent, y_px + extent, grid_resolution)
+            X_local, Y_local = np.meshgrid(x_local, y_local)
+
             # Generate Gaussian contour
-            gaussian = np.exp(-((X - x_px)**2 + (Y - y_px)**2) / (2 * contour_sigma_pixels**2))
+            gaussian = np.exp(-((X_local - x_px)**2 + (Y_local - y_px)**2) / (2 * contour_sigma_pixels**2))
 
             # Normalize to [0, 1]
             gaussian = gaussian / gaussian.max()
@@ -858,7 +864,7 @@ class BasePlotter(ABC):
             # Draw contours at specific levels
             levels = np.linspace(0.1, 0.9, contour_levels)
             ax.contour(
-                X, Y, gaussian,
+                X_local, Y_local, gaussian,
                 levels=levels,
                 colors=[color],
                 linewidths=1.0,
