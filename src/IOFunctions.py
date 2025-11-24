@@ -371,10 +371,6 @@ class IO_Functions:
                 data = json.load(file)
         except json.JSONDecodeError as e:
             # Try to salvage partial JSON data
-            print(f"Warning: JSON parsing error at line {e.lineno}, column {e.colno}")
-            print(f"Error message: {e.msg}")
-            print(f"Attempting to read partial data...")
-
             try:
                 with open(filename, "r", encoding=encoding) as file:
                     content = file.read()
@@ -388,11 +384,9 @@ class IO_Functions:
                     bracket_count = partial.count('[') - partial.count(']')
 
                     if brace_count > 0 or bracket_count > 0:
-                        print(f"Attempting to close {brace_count} braces and {bracket_count} brackets...")
                         partial += ']' * bracket_count + '}' * brace_count
                         try:
                             data = json.loads(partial)
-                            print(f"Successfully recovered partial JSON data")
                             return data
                         except json.JSONDecodeError:
                             pass
@@ -527,7 +521,6 @@ class IO_Functions:
 
         if file_size > 10 * 1024 * 1024:  # > 10MB
             # Use streaming parser for large files
-            print(f"Large metadata file detected ({file_size / 1024 / 1024:.1f} MB), using streaming parser...")
             data = self.read_json_streaming_first_framekey(filename)
             key = list(data.keys())[0]  # Already have the first FrameKey
         else:
