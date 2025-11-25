@@ -974,7 +974,8 @@ class Spectral_Funcs:
         pixel_order: Optional[List[str]] = None,
         pixel_order_indices: Optional[Union[List[int], Dict[str, int]]] = None,
         return_counts: bool = False,
-    ) -> Tuple[float, np.ndarray]:
+        return_total_qe: bool = False,
+    ) -> Tuple[float, np.ndarray, Optional[float]]:
         """Convert sampled photon wavelengths to mean wavelength and B:G:R colour ratios.
 
         This function takes photon wavelengths sampled from a spectrum and assigns each
@@ -1059,7 +1060,12 @@ class Spectral_Funcs:
             else:
                 colour_ratios = np.array([0.0, 0.0, 0.0], dtype=np.float64)
 
-        return mean_wavelength, colour_ratios
+        # Optionally return mean total QE across sampled wavelengths
+        if return_total_qe:
+            mean_total_qe = np.mean(total_qy)
+            return mean_wavelength, colour_ratios, mean_total_qe
+        else:
+            return mean_wavelength, colour_ratios
 
     def generate_bootstrap_colour_ratios(
         self,
@@ -1126,16 +1132,39 @@ class Spectral_Funcs:
 
         # Calculate mean wavelengths and colour ratios for each bootstrap
         for i in range(n_bootstrap):
-            mean_wl, colour = self.calculate_colourratio_from_photon_wavelengths(
+            mean_wl, counts, mean_total_qe = self.calculate_colourratio_from_photon_wavelengths(
                 photon_wavelengths_bootstrap[i, :],
                 wavelength,
                 pixel_QYs,
                 pixel_order=pixel_order,
                 pixel_order_indices=pixel_order_indices,
-                return_counts=False,
+                return_counts=True,  # Get counts, not normalized ratios
+                return_total_qe=True,  # Get mean total QE across wavelengths
             )
             mean_wavelengths[i] = mean_wl
-            colour_ratios[i, :] = colour
+
+            # Convert counts to effective QE values
+            # counts = [n_B, n_G, n_R] where n_X is number of photons detected in channel X
+            # mean_total_qe = average of (QE_B + QE_G + QE_R) across sampled wavelengths
+            #
+            # calculate_colourratio_from_photon_wavelengths assigns photons stochastically
+            # based on P(channel | wavelength) = QE_channel(λ) / total_QE(λ)
+            #
+            # The normalized fractions are: n_B/N, n_G/N, n_R/N
+            # These approximate: <QE_B(λ) / total_QE(λ)>, <QE_G(λ) / total_QE(λ)>, <QE_R(λ) / total_QE(λ)>
+            #
+            # To get absolute QE values:
+            # QE_B = <QE_B(λ) / total_QE(λ)> × <total_QE(λ)> = (n_B / N) × mean_total_qe
+            total_detected = counts[0] + counts[1] + counts[2]
+            if total_detected > 0:
+                # Calculate absolute QE for each channel
+                # These represent the effective QE that will be applied with Bayer pattern
+                qe_B = (counts[0] / n_photons_per_image) * mean_total_qe
+                qe_G = (counts[1] / n_photons_per_image) * mean_total_qe
+                qe_R = (counts[2] / n_photons_per_image) * mean_total_qe
+                colour_ratios[i, :] = [qe_B, qe_G, qe_R]
+            else:
+                colour_ratios[i, :] = [0.0, 0.0, 0.0]
 
         return mean_wavelengths, colour_ratios
 
