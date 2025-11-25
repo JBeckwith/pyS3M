@@ -1440,6 +1440,10 @@ class MultiC_Sim_Funcs_Refactored:
         x = np.arange(w, dtype=np.float32)
         masks = camera_calibration["masks"]
 
+        # OPTIMIZATION: Pre-compute mask stack for vectorized operations
+        # Stack masks in the order specified by pixel_order: shape (w, h, n_channels)
+        mask_stack = np.stack([masks[colour] for colour in pixel_colours], axis=2)
+
         # Calculate absolute quantum efficiency per pixel (for deterministic mode)
         # NOTE: This stores QE values in a pixel array for backward compatibility
         # The actual photoelectron generation now uses QE_per_channel to avoid
@@ -1599,15 +1603,21 @@ class MultiC_Sim_Funcs_Refactored:
                         )
                     else:
                         # Accurate path: Different QE per channel
-                        # Generate photoelectrons separately for each channel
-                        photoelectrons_per_channel = np.zeros([w, h, len(pixel_colours)], dtype=int)
-                        for i, colour in enumerate(pixel_colours):
-                            # Get photons hitting this pixel type (masked by Bayer pattern)
-                            n_photons_this_channel = n_photons_total * masks[colour]
-                            # Apply channel-specific QE
-                            photoelectrons_per_channel[:, :, i] = self.psf.gen_photoelectrons(
-                                n_photons_this_channel.astype(int), QE_per_channel_frame[j, i]
-                            )
+                        # OPTIMIZATION: Vectorize photoelectron generation across all channels at once
+                        # Broadcast photons across channels using pre-computed mask_stack
+                        # n_photons_total: (w, h)
+                        # mask_stack: (w, h, 3)
+                        # Result: (w, h, 3) - photons per channel
+                        n_photons_per_channel = (n_photons_total[:, :, np.newaxis] * mask_stack).astype(int)
+
+                        # Generate photoelectrons for all channels simultaneously
+                        # NumPy's binomial can broadcast: n and p can have different shapes
+                        # n_photons_per_channel: (w, h, 3)
+                        # QE_per_channel_frame[j, :]: (3,) -> broadcasts to (w, h, 3)
+                        photoelectrons_per_channel = self.psf.gen_photoelectrons(
+                            n_photons_per_channel,
+                            QE_per_channel_frame[j, :]  # Shape: (3,), broadcasts across (w, h, 3)
+                        )
 
                         # Sum photoelectrons from all channels (each photon contributed to only one)
                         n_photoelectrons[:, :, j] = np.sum(photoelectrons_per_channel, axis=-1)
