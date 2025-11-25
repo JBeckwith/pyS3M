@@ -1440,7 +1440,10 @@ class MultiC_Sim_Funcs_Refactored:
         x = np.arange(w, dtype=np.float32)
         masks = camera_calibration["masks"]
 
-        # Calculate absolute quantum efficiency
+        # Calculate absolute quantum efficiency per pixel (for deterministic mode)
+        # NOTE: This stores QE values in a pixel array for backward compatibility
+        # The actual photoelectron generation now uses QE_per_channel to avoid
+        # the bug where photons could generate photoelectrons on multiple channels
         abs_QE = np.zeros([w, h, len(dye_names)])
         for j, dye in enumerate(dye_names):
             for i, colour in enumerate(pixel_colours):
@@ -1496,15 +1499,15 @@ class MultiC_Sim_Funcs_Refactored:
             # Check if dye_pixel_efficiency has per-frame dimension: (n_frames, n_colours)
             if dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s:
                 # Stochastic mode: recalculate abs_QE for this frame
-                abs_QE_frame = np.zeros([w, h, len(dye_names)])
+                # Store QE per channel (not per pixel!) - shape: (n_dyes, n_channels)
+                QE_per_channel_frame = np.zeros([len(dye_names), len(pixel_colours)])
                 background_photons_matrix_frame = np.zeros([w, h, len(dye_names)])
 
                 for j, dye in enumerate(dye_names):
                     for i, colour in enumerate(pixel_colours):
-                        # Use frame-specific colour ratios
+                        # Use frame-specific QE values
                         dpe = dye_pixel_efficiency[frame, i]
-
-                        abs_QE_frame[:, :, j] += masks[colour] * dpe
+                        QE_per_channel_frame[j, i] = dpe
 
                         if dpe != 0:
                             background_photons_matrix_frame[:, :, j] += (
@@ -1513,8 +1516,15 @@ class MultiC_Sim_Funcs_Refactored:
                                 * background_photons_perdye
                             )
             else:
-                # Deterministic mode: use pre-computed values
-                abs_QE_frame = abs_QE
+                # Deterministic mode: use pre-computed QE values
+                # Extract QE per channel from abs_QE array
+                QE_per_channel_frame = np.zeros([len(dye_names), len(pixel_colours)])
+                for j, dye in enumerate(dye_names):
+                    for i, colour in enumerate(pixel_colours):
+                        # Extract QE value from any pixel of this type (they're all the same)
+                        mask_indices = np.where(masks[colour])
+                        if len(mask_indices[0]) > 0:
+                            QE_per_channel_frame[j, i] = abs_QE[mask_indices[0][0], mask_indices[1][0], j]
                 background_photons_matrix_frame = background_photons_matrix
 
             n_photons_hitting_detector = np.zeros([w, h, len(dye_names)], dtype=int)
@@ -1567,14 +1577,40 @@ class MultiC_Sim_Funcs_Refactored:
                         relative_QE,
                     )
 
-                    n_photons_hitting_detector[:, :, j] = (
-                        self.psf.gen_photons_hitting_detector(
-                            photon_spatial_pdf, background_photons_matrix_frame[:, :, j]
+                    # Generate photons hitting detector (includes background)
+                    n_photons_total = self.psf.gen_photons_hitting_detector(
+                        photon_spatial_pdf, background_photons_matrix_frame[:, :, j]
+                    )
+                    n_photons_hitting_detector[:, :, j] = n_photons_total
+
+                    # CRITICAL FIX: Split photons by Bayer pattern FIRST, then apply QE
+                    # Each photon can only hit ONE pixel type (B, G, or R)
+
+                    # Optimization: Check if all QE values are identical (e.g., Standard camera)
+                    # If so, we can apply QE directly without splitting by channel
+                    QE_values = QE_per_channel_frame[j, :]
+                    all_QE_equal = np.allclose(QE_values, QE_values[0], rtol=1e-9)
+
+                    if all_QE_equal:
+                        # Fast path: All channels have same QE
+                        # Apply uniform QE to all photons regardless of pixel type
+                        n_photoelectrons[:, :, j] = self.psf.gen_photoelectrons(
+                            n_photons_total.astype(int), QE_values[0]
                         )
-                    )
-                    n_photoelectrons[:, :, j] = self.psf.gen_photoelectrons(
-                        n_photons_hitting_detector[:, :, j], abs_QE_frame[:, :, j]
-                    )
+                    else:
+                        # Accurate path: Different QE per channel
+                        # Generate photoelectrons separately for each channel
+                        photoelectrons_per_channel = np.zeros([w, h, len(pixel_colours)], dtype=int)
+                        for i, colour in enumerate(pixel_colours):
+                            # Get photons hitting this pixel type (masked by Bayer pattern)
+                            n_photons_this_channel = n_photons_total * masks[colour]
+                            # Apply channel-specific QE
+                            photoelectrons_per_channel[:, :, i] = self.psf.gen_photoelectrons(
+                                n_photons_this_channel.astype(int), QE_per_channel_frame[j, i]
+                            )
+
+                        # Sum photoelectrons from all channels (each photon contributed to only one)
+                        n_photoelectrons[:, :, j] = np.sum(photoelectrons_per_channel, axis=-1)
 
             bayer_image[frame, :, :] = self.psf.photoelectrons_to_image(
                 np.sum(n_photoelectrons, axis=-1), gain, offset, variance
