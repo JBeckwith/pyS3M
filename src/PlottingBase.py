@@ -224,47 +224,6 @@ class BasePlotter(ABC):
         )
         return fig, ax
 
-    def create_subplots(
-        self,
-        nrows: int = 1,
-        ncols: int = 1,
-        figsize: Optional[Tuple[float, float]] = None,
-        height_ratios: Optional[List[float]] = None,
-        width_ratios: Optional[List[float]] = None,
-        **kwargs,
-    ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
-        """Create standardised subplots.
-
-        Args:
-            nrows: Number of rows
-            ncols: Number of columns
-            figsize: Figure size in inches (width, height)
-            height_ratios: Heights of the rows
-            width_ratios: Widths of the columns
-            **kwargs: Additional arguments passed to plt.subplots
-
-        Returns:
-            Tuple of (figure, axes)
-        """
-        figsize = figsize or self.config.DEFAULT_FIGSIZE
-
-        # Calculate appropriate figsize for subplots
-        if figsize == self.config.DEFAULT_FIGSIZE:
-            figsize = (figsize[0] * ncols, figsize[1] * nrows)
-
-        fig, axes = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=figsize,
-            gridspec_kw={
-                "height_ratios": height_ratios,
-                "width_ratios": width_ratios,
-            },
-            **kwargs,
-        )
-
-        return fig, axes
-
     def one_column_plot(
         self,
         npanels: int = 1,
