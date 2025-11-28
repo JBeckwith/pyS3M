@@ -1924,15 +1924,17 @@ class MultiC_Sim_Funcs_Refactored:
         if overwrite or not os.path.exists(input_params_path):
             real_params.write_csv(input_params_path)
 
-        # Save ground truth positions for standard method (only if overwriting or doesn't exist)
+        # Save ground truth positions for standard method
+        # CRITICAL: Always save ground truth to ensure it matches the x0, y0 positions used in simulation
+        # The x0, y0 are randomly generated each time this function runs, so the file must be updated
         if strategy == FittingStrategy.STANDARD:
             X0Y0 = {"x0": x0, "y0": y0}
             groundtruth_path = os.path.join(
                 save_folder,
                 f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
             )
-            if overwrite or not os.path.exists(groundtruth_path):
-                pl.DataFrame(X0Y0).write_csv(groundtruth_path)
+            # Always write ground truth file to match current x0, y0 positions
+            pl.DataFrame(X0Y0).write_csv(groundtruth_path)
 
         # Initialize results arrays
         fit_RMSE_mean = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])
@@ -1990,6 +1992,23 @@ class MultiC_Sim_Funcs_Refactored:
 
         start = time.time()
 
+        # OPTIMIZATION: Pre-compute full spectrum outside loop (constant across photon levels)
+        # This avoids repeated database queries and array operations (200× per simulation)
+        if config.use_stochastic_photons:
+            if single_dye_spectrum is not None:
+                # Use provided spectrum (already filtered)
+                full_spectrum_template = filtered_spectrum
+            else:
+                # Get spectrum from database ONCE
+                dye_spectrum = S_F.get_dye_or_filter_data(
+                    names=[dye], wavelength=wavelength, dye_or_filter=True
+                )
+                filter_spectra = S_F.get_dye_or_filter_data(
+                    names=filters, wavelength=wavelength, dye_or_filter=False
+                )
+                total_filter_transmission = np.prod(filter_spectra, axis=0)
+                full_spectrum_template = dye_spectrum[0] * total_filter_transmission
+
         # Process each photon count
         for i, n_photon in enumerate(n_photon_space):
             # Skip if this photon level was already completed
@@ -2001,20 +2020,8 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Stochastic photon sampling for realistic shot noise
             if config.use_stochastic_photons:
-                # Prepare full spectrum (emission × filters × pixel QE if needed)
-                if single_dye_spectrum is not None:
-                    # Use provided spectrum (already filtered)
-                    full_spectrum = filtered_spectrum
-                else:
-                    # Get spectrum from database
-                    dye_spectrum = S_F.get_dye_or_filter_data(
-                        names=[dye], wavelength=wavelength, dye_or_filter=True
-                    )
-                    filter_spectra = S_F.get_dye_or_filter_data(
-                        names=filters, wavelength=wavelength, dye_or_filter=False
-                    )
-                    total_filter_transmission = np.prod(filter_spectra, axis=0)
-                    full_spectrum = dye_spectrum[0] * total_filter_transmission
+                # Use pre-computed spectrum
+                full_spectrum = full_spectrum_template
 
                 # Generate stochastic colour ratios and wavelengths for bootstrap samples
                 mean_wavelengths_bootstrap, colour_ratios_bootstrap = (
@@ -2958,8 +2965,8 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         n_dyes = len(dye_names)
         colors = plt.cm.tab10(np.linspace(0, 1, n_dyes))
 
-        # Use plotter's create_figure for consistent styling
-        fig, ax = plotter.create_figure(figsize=(10, 8))
+        # Use plotter's one_column_plot for consistent publication styling
+        fig, ax = plotter.one_column_plot(npanels=1, height=6)
 
         for idx, dye_name in enumerate(dye_names):
             color = colors[idx]

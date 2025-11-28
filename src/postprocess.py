@@ -48,7 +48,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
 
         plotter = AnalysisPlotter()
 
-        fig, axes = plotter.create_subplots(1, 2, figsize=(17, 6))
+        fig, axes = plotter.two_column_plot(nrows=1, ncols=2, width=17, height=6, big=True)
         fig.suptitle("Estimated drift")
 
         # Calculate time points for original measurements
@@ -2285,8 +2285,8 @@ def segment_locs_by_rendered_image(
             plotter = AnalysisPlotter()
 
             # Create a 3-panel figure
-            fig, axs = plotter.create_subplots(
-                nrows=3, ncols=1, figsize=(8, 12), height_ratios=[1, 1, 1]
+            fig, axs = plotter.one_column_plot(
+                npanels=3, ratios=[1, 1, 1], width=8, height=12
             )
 
             # Panel 1: Rendered super-resolved image

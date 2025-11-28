@@ -751,8 +751,10 @@ class SuperRes_Functions:
             # Use new PlottingBase infrastructure
             import matplotlib.pyplot as plt
             import matplotlib.patches as patches
+            from PlottingBase import PublicationPlotter
 
-            fig, axs = plt.subplots(2, 2, figsize=(12, 10), dpi=100)
+            plotter = PublicationPlotter()
+            fig, axs = plotter.two_column_plot(nrows=2, ncols=2, height=8)
 
             # Calculate percentiles for consistent display
             vmin_processed = np.percentile(image_to_analyse, 1)

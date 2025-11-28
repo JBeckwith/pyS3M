@@ -40,7 +40,7 @@ def _plot_image_correlation(imageA, imageB, XCorr, xc, yc, save_path=None):
 
         plotter = AnalysisPlotter()
 
-        fig, axes = plotter.create_subplots(1, 3, figsize=(17, 10))
+        fig, axes = plotter.two_column_plot(nrows=1, ncols=3, width=17, height=10, big=True)
 
         # Image A
         im1 = axes[0].imshow(imageA, interpolation="none")
