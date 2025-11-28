@@ -3330,11 +3330,13 @@ class extract_SMs:
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
+        from PlottingBase import PublicationPlotter
 
         # Use colors that don't conflict with channel names (avoid red/green for R/G channels)
         colors_ch = ['blue', 'orange', 'purple', 'cyan', 'magenta', 'brown'][:n_channels]
 
-        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        plotter = PublicationPlotter()
+        fig, ax = plotter.two_column_plot(nrows=1, ncols=1, height=6)
 
         # 2D histogram
         hist_2d, xedges, yedges = np.histogram2d(X[:, 0], X[:, 1], bins=100)
@@ -3385,11 +3387,13 @@ class extract_SMs:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
         from scipy.stats import norm
+        from PlottingBase import PublicationPlotter
 
         n_features = X.shape[1]
 
         # Plot 1: 1D Histograms with GMM overlay
-        fig, axes = plt.subplots(n_features, 1, figsize=(10, 4 * n_features))
+        plotter = PublicationPlotter()
+        fig, axes = plotter.one_column_plot(npanels=n_features, height=4 * n_features)
         if n_features == 1:
             axes = [axes]
 
@@ -3442,7 +3446,7 @@ class extract_SMs:
 
         # Plot 2: 2D Scatter (if 2D data)
         if n_features == 2:
-            fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+            fig, axes = plotter.two_column_plot(nrows=1, ncols=2, height=5)
 
             # Left: GMM ellipses
             ax = axes[0]
@@ -3501,7 +3505,7 @@ class extract_SMs:
             plt.show()
 
         # Plot 3: Confidence histogram
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plotter.one_column_plot(npanels=1, height=4.5)
 
         for k in range(n_channels):
             mask = (assignments == k)
@@ -3525,7 +3529,7 @@ class extract_SMs:
 
         # Plot 4: Confusion matrix (if available)
         if 'confusion_matrix' in metadata:
-            fig, ax = plt.subplots(figsize=(7, 6))
+            fig, ax = plotter.one_column_plot(npanels=1, height=3.5)
             conf_mat = metadata['confusion_matrix']
 
             im = ax.imshow(conf_mat, cmap='Blues', vmin=0, vmax=1)
@@ -4286,6 +4290,7 @@ class extract_SMs:
             If provided, save figure to this path
         """
         import matplotlib.pyplot as plt
+        from PlottingBase import PublicationPlotter
 
         # Extract metadata
         assignments_per_iteration = metadata['assignments_per_iteration']
@@ -4294,7 +4299,8 @@ class extract_SMs:
         n_recovered = metadata['n_recovered']
 
         # Create 3-panel summary figure
-        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(18, 5))
+        plotter = PublicationPlotter()
+        fig, axes = plotter.two_column_plot(nrows=1, ncols=3, height=4)
         
         # Panel 1: Assignments per iteration
         ax = axes[0]
@@ -4382,11 +4388,13 @@ class extract_SMs:
             Base path for saving (will append '_spatial')
         """
         import matplotlib.pyplot as plt
+        from PlottingBase import PublicationPlotter
 
         # Create figure with n_channels + 1 subplots (one per channel + combined)
-        fig, axes = plt.subplots(
+        plotter = PublicationPlotter()
+        fig, axes = plotter.two_column_plot(
             nrows=1, ncols=n_channels + 1,
-            figsize=(6 * (n_channels + 1), 5)
+            width=6 * (n_channels + 1), height=5, big=True
         )
         
         # Standard matplotlib colors for channels

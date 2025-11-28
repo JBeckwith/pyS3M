@@ -92,12 +92,13 @@ class DriftPlotter(AnalysisPlotter):
 
             # Create the comprehensive figure
             fig, axes = plotter.two_column_plot(
-                ncolumns=2,
+                ncols=2,
                 nrows=3,
-                widthratio=[1.0, 1.0],
-                heightratio=[1.0, 1.0, 0.8],
+                width_ratios=[1.0, 1.0],
+                height_ratios=[1.0, 1.0, 0.8],
                 width=14,
                 height=12,
+                big=True,  # Allow oversized for this detailed diagnostic figure
             )
 
             pixelsize_nm = info[0]["Pixelsize"] * 1000 if info else 100.0
@@ -284,7 +285,7 @@ class DriftPlotter(AnalysisPlotter):
             pixelsize = meta.get("pixelsize", 130.0)  # nm
 
             # Create figure
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            fig, (ax1, ax2) = plotter.two_column_plot(nrows=1, ncols=2)
 
             # Left plot: Detection image with fiducial markers
             # Get fiducial coordinates for scatter overlay (fixed coordinate order)
@@ -526,7 +527,7 @@ class DriftPlotter(AnalysisPlotter):
             import matplotlib.pyplot as plt
 
             # Create comprehensive figure
-            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
             axes = axes.flatten()
 
             # Plot 1: All localisations with intelligent downsampling
@@ -696,7 +697,10 @@ class DriftPlotter(AnalysisPlotter):
             cols = min(3, n_validated)
             rows = (n_validated + cols - 1) // cols
 
-            fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 5 * rows))
+            # Use two_column_plot with big=True for flexibility
+            fig, axes = self.two_column_plot(
+                nrows=rows, ncols=cols, width=6 * cols, height=5 * rows, big=True
+            )
             if n_validated == 1:
                 axes = [axes]
             elif rows == 1:
@@ -778,7 +782,7 @@ class DriftPlotter(AnalysisPlotter):
                 return
 
             # Create summary figure
-            fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
             axes = axes.flatten()
 
             # Plot 1: Original puncta overview
@@ -929,7 +933,7 @@ class DriftPlotter(AnalysisPlotter):
                 return
 
             # Create summary figure with 2x2 layout
-            fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
             axes = axes.flatten()
 
             # Plot 1: Validation statistics distribution
@@ -1089,7 +1093,7 @@ class DriftPlotter(AnalysisPlotter):
             plotter = plotter_class(poster=False)
 
             # Create a basic visualization using PlottingBase
-            fig, axes = plotter.create_subplots(nrows=2, ncols=2, figsize=(12, 10))
+            fig, axes = plotter.two_column_plot(nrows=2, ncols=2, height=8)
             axes = axes.flatten()  # Flatten to access as axes[0], axes[1], etc.
 
             # Plot 1: Smoothed image
@@ -1152,7 +1156,8 @@ class DriftPlotter(AnalysisPlotter):
             try:
                 import matplotlib.pyplot as plt
 
-                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+                # Use publication standards even in fallback
+                fig, axes = plt.subplots(2, 2, figsize=(6.69, 8), dpi=600)
                 axes = axes.flatten()
 
                 # Simple fallback visualization
