@@ -85,7 +85,7 @@ get_threshold_params() {
     local default_fraction_true="0.25"
     local default_wavelength="0.650"
     local default_use_variance_aware="true"
-    local default_ever_mode="2"  # Default to DETECTION_AND_FITTING
+    local default_ever_mode="0"  # Default to NONE (EVER off)
     local default_ever_window="500"
 
     # Look for exact match first
