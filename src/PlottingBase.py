@@ -857,6 +857,11 @@ class BasePlotter(ABC):
         aspect: str = "equal",
         interpolation: str = "nearest",
         origin: str = "lower",
+        scalebar: bool = False,
+        pixelsize: float = 69.0,
+        scalebarsize: float = 10000.0,
+        scalebarlabel: str = "10 μm",
+        scalebar_color: str = "white",
     ) -> Tuple[matplotlib.axes.Axes, matplotlib.image.AxesImage]:
         """Create an image plot with consistent styling.
 
@@ -874,6 +879,11 @@ class BasePlotter(ABC):
             aspect: Aspect ratio ('equal', 'auto', or float)
             interpolation: Interpolation method
             origin: Image origin ('lower' or 'upper')
+            scalebar: Whether to add scale bar
+            pixelsize: Pixel size in nm (for scalebar)
+            scalebarsize: Scale bar size in nm
+            scalebarlabel: Scale bar label (e.g., "10 μm")
+            scalebar_color: Scale bar color
 
         Returns:
             Tuple of (modified axes, image object)
@@ -898,6 +908,16 @@ class BasePlotter(ABC):
 
         if colorbar:
             self.add_colorbar(ax, im, label=colorbar_label)
+
+        if scalebar:
+            self.add_scalebar(
+                ax,
+                pixelsize=pixelsize,
+                length_nm=scalebarsize,
+                location="lower right",
+                color=scalebar_color,
+                label=scalebarlabel,
+            )
 
         return ax, im
 
