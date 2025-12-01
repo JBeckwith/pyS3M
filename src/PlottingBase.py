@@ -852,7 +852,7 @@ class BasePlotter(ABC):
         cmap: str = "gray",
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
-        colorbar: bool = True,
+        colorbar: bool = False,
         colorbar_label: str = "",
         aspect: str = "equal",
         interpolation: str = "nearest",
@@ -862,19 +862,23 @@ class BasePlotter(ABC):
         scalebarsize: float = 10000.0,
         scalebarlabel: str = "10 μm",
         scalebar_color: str = "white",
+        show_axes: bool = False,
     ) -> Tuple[matplotlib.axes.Axes, matplotlib.image.AxesImage]:
         """Create an image plot with consistent styling.
+
+        For microscopy images, axes are OFF by default (show_axes=False).
+        Scalebars are used instead for scale indication.
 
         Args:
             ax: Axes object to plot on
             image: 2D image data
-            xlabel: X axis label
-            ylabel: Y axis label
+            xlabel: X axis label (only used if show_axes=True)
+            ylabel: Y axis label (only used if show_axes=True)
             title: Plot title
             cmap: Colormap name
             vmin: Minimum value for colormap (auto if None)
             vmax: Maximum value for colormap (auto if None)
-            colorbar: Whether to add colorbar
+            colorbar: Whether to add colorbar (default False for microscopy)
             colorbar_label: Label for colorbar
             aspect: Aspect ratio ('equal', 'auto', or float)
             interpolation: Interpolation method
@@ -884,6 +888,7 @@ class BasePlotter(ABC):
             scalebarsize: Scale bar size in nm
             scalebarlabel: Scale bar label (e.g., "10 μm")
             scalebar_color: Scale bar color
+            show_axes: Whether to show axes (default False for microscopy images)
 
         Returns:
             Tuple of (modified axes, image object)
@@ -904,7 +909,15 @@ class BasePlotter(ABC):
             origin=origin,
         )
 
-        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
+        # For microscopy images, axes are typically off
+        if not show_axes:
+            ax.axis("off")
+        else:
+            self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
+
+        if title and not show_axes:
+            # Add title even when axes are off
+            ax.set_title(title, fontsize=self.config.axis_label_size)
 
         if colorbar:
             self.add_colorbar(ax, im, label=colorbar_label)
