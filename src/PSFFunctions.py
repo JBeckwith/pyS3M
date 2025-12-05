@@ -470,7 +470,7 @@ class PSF_Functions:
         for i in range(n_photoelectrons.shape[0]):
             for j in range(n_photoelectrons.shape[1]):
                 image_matrix[i, j] = np.random.normal(
-                    loc_for_gauss[i, j], variance[i, j]
+                    loc_for_gauss[i, j], np.sqrt(variance[i, j])
                 )
         return image_matrix.clip(0, np.inf)
 
@@ -492,7 +492,7 @@ class PSF_Functions:
             image_matrix (numpy.2darray): 2D image matrix
         """
         loc_for_gauss = np.add(np.multiply(gain, n_photoelectrons), offset)
-        image_matrix = np.random.normal(loc_for_gauss, variance)
+        image_matrix = np.random.normal(loc_for_gauss, np.sqrt(variance))
         return image_matrix.clip(0, np.inf)
 
     def generate_sCMOS_g2DPSFs(
