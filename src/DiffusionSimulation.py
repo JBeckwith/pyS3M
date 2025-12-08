@@ -1630,6 +1630,7 @@ class CameraAdapter:
         background_value: int = 10,
         scale_intensity: bool = True,
         max_intensity: int = 255,
+        intensity_percentile: float = 99.5,
     ) -> np.ndarray:
         """
         Generate ground truth RGB video showing molecules as colored Gaussians.
@@ -1651,6 +1652,9 @@ class CameraAdapter:
             background_value: Background pixel value (default: 10)
             scale_intensity: Whether to auto-scale intensity per frame
             max_intensity: Maximum pixel value (default: 255 for uint8)
+            intensity_percentile: Percentile for intensity scaling (default: 99.5).
+                                 Lower values (e.g., 95) give brighter videos by allowing
+                                 bright spots to saturate. 100 = use absolute max (dimmest).
 
         Returns:
             rgb_video: RGB video stack (n_frames, height, width, 3) uint8
@@ -1776,13 +1780,21 @@ class CameraAdapter:
 
         # Second pass: apply global intensity scaling
         if scale_intensity:
-            # Find global max across ALL frames and channels
-            global_max = rgb_video_float.max()
-            print(f"  Global max intensity: {global_max:.6f}")
+            # Use percentile-based scaling for better brightness
+            # This allows rare bright spots to saturate while boosting typical intensities
+            if intensity_percentile >= 100.0:
+                # Use absolute max (original behavior)
+                scale_target = rgb_video_float.max()
+                print(f"  Using absolute max intensity: {scale_target:.6f}")
+            else:
+                # Use percentile (makes video brighter by allowing some saturation)
+                scale_target = np.percentile(rgb_video_float, intensity_percentile)
+                actual_max = rgb_video_float.max()
+                print(f"  Using {intensity_percentile}th percentile: {scale_target:.6f} (max: {actual_max:.6f})")
 
-            if global_max > 0:
-                # Scale so global max → (max_intensity - background_value)
-                scale_factor = (max_intensity - background_value) / global_max
+            if scale_target > 0:
+                # Scale so target intensity → (max_intensity - background_value)
+                scale_factor = (max_intensity - background_value) / scale_target
                 rgb_video_float = rgb_video_float * scale_factor
                 print(f"  Applied scale factor: {scale_factor:.2f}")
         else:
