@@ -312,7 +312,10 @@ class BindingKinetics:
         idx1 = self.color_to_idx[mol1.color]
         idx2 = self.color_to_idx[mol2.color]
 
-        return self.k_on_matrix[idx1, idx2] > 0
+        if self.use_microscopic:
+            return self.k_micro_matrix[idx1, idx2] > 0
+        else:
+            return self.k_on_matrix[idx1, idx2] > 0
 
     def get_binding_rate(self, mol1: Molecule, mol2: Molecule) -> float:
         """
@@ -376,21 +379,30 @@ class BindingKinetics:
 
         return pairs
 
-    def calculate_propensities(self, molecules: List[Molecule], area: float) -> Tuple[List, List, float]:
+    def calculate_propensities(self, molecules: List[Molecule], area: float,
+                              lattice_spacing: float = None,
+                              diffusion_coeff: float = None) -> Tuple[List, List, float]:
         """
         Calculate all binding and unbinding propensities.
 
-        Propensity = rate × (molecules in contact / effective volume)
-        For binding: a_on = k_on × (pairs within radius)
-        For unbinding: a_off = k_off
+        LEGACY MODE:
+            Propensity = k_on × effective_concentration × volume
+            (concentration-dependent, volume-based calculation)
+
+        MICROSCOPIC MODE:
+            Propensity = q_a(h) or q_d(h)
+            (intrinsic rates, no volume dependence)
+            Requires lattice_spacing and diffusion_coeff parameters
 
         Args:
             molecules: List of all molecules
-            area: Simulation area (nm²) for concentration calculation
+            area: Simulation area (nm²) - only used in legacy mode
+            lattice_spacing: h (nm) - spatial discretization (microscopic mode only)
+            diffusion_coeff: D (nm²/ms) - combined diffusion (microscopic mode only)
 
         Returns:
-            binding_propensities: List of (mol1, mol2, rate) for binding events
-            unbinding_propensities: List of (mol1, mol2, rate) for unbinding events
+            binding_propensities: List of (mol1, mol2, propensity) for binding events
+            unbinding_propensities: List of (mol1, mol2, propensity) for unbinding events
             total_propensity: Sum of all propensities
         """
         binding_propensities = []
@@ -399,39 +411,86 @@ class BindingKinetics:
         # Find potential binding pairs
         pairs = self.find_potential_binding_pairs(molecules)
 
-        # Calculate binding propensities
-        # For surface diffusion: effective concentration ~ 1/area
-        # Propensity = k_on × (effective concentration)
-        effective_volume = area * 1.0  # nm² × 1 nm height = nm³
-        nM_to_nm3 = 1e-9 / 6.022e23 * 1e24  # Convert nM to molecules/nm³
+        if self.use_microscopic:
+            # MICROSCOPIC MODE: Use mesoscopic rates q_a(h), q_d(h)
+            if lattice_spacing is None or diffusion_coeff is None:
+                raise ValueError("Microscopic mode requires lattice_spacing and diffusion_coeff")
 
-        for mol1, mol2, dist in pairs:
-            k_on = self.get_binding_rate(mol1, mol2)
-            # Propensity increases as molecules get closer
-            # Use simple model: full rate within binding radius
-            propensity = k_on * nM_to_nm3 * effective_volume
-            binding_propensities.append((mol1, mol2, propensity))
+            # Calculate mesoscopic rates for current discretization
+            q_a_matrix, q_d_matrix = self.calculate_mesoscopic_rates(
+                lattice_spacing, diffusion_coeff, dimensionality=3
+            )
 
-        # Calculate unbinding propensities
-        # Find all bound pairs
-        bound_pairs = set()
-        for mol in molecules:
-            if mol.is_bound and mol.bound_partner is not None:
-                # Store pairs as sorted tuple to avoid duplicates
-                pair = tuple(sorted([mol.molecule_id, mol.bound_partner.molecule_id]))
-                bound_pairs.add(pair)
+            # Calculate binding propensities
+            for mol1, mol2, dist in pairs:
+                idx1 = self.color_to_idx[mol1.color]
+                idx2 = self.color_to_idx[mol2.color]
+                q_a = q_a_matrix[idx1, idx2]  # Already in 1/ms
 
-        for pair_ids in bound_pairs:
-            mol1 = next(m for m in molecules if m.molecule_id == pair_ids[0])
-            mol2 = next(m for m in molecules if m.molecule_id == pair_ids[1])
-            k_off = self.get_unbinding_rate(mol1, mol2)
-            unbinding_propensities.append((mol1, mol2, k_off))
+                if q_a > 0:
+                    # Propensity is just the mesoscopic rate
+                    # No volume normalization! Molecules are already in contact
+                    propensity = q_a  # 1/ms
+                    binding_propensities.append((mol1, mol2, propensity))
+
+            # Calculate unbinding propensities
+            bound_pairs = self._get_bound_pairs(molecules)
+            for mol1, mol2 in bound_pairs:
+                idx1 = self.color_to_idx[mol1.color]
+                idx2 = self.color_to_idx[mol2.color]
+                q_d = q_d_matrix[idx1, idx2]  # Already in 1/ms
+                unbinding_propensities.append((mol1, mol2, q_d))
+
+        else:
+            # LEGACY MODE: Use macroscopic k_on, k_off with volume-based calculation
+            # Calculate binding propensities
+            # For surface diffusion: effective concentration ~ 1/area
+            # Propensity = k_on × (effective concentration)
+            effective_volume = area * 1.0  # nm² × 1 nm height = nm³
+            nM_to_nm3 = 1e-9 / 6.022e23 * 1e24  # Convert nM to molecules/nm³
+
+            for mol1, mol2, dist in pairs:
+                k_on = self.get_binding_rate(mol1, mol2)
+                # Propensity increases as molecules get closer
+                # Use simple model: full rate within binding radius
+                propensity = k_on * nM_to_nm3 * effective_volume
+                binding_propensities.append((mol1, mol2, propensity))
+
+            # Calculate unbinding propensities
+            bound_pairs = self._get_bound_pairs(molecules)
+            for mol1, mol2 in bound_pairs:
+                k_off = self.get_unbinding_rate(mol1, mol2)
+                # Convert from 1/s to 1/ms
+                unbinding_propensities.append((mol1, mol2, k_off / 1000.0))
 
         # Total propensity
         total = sum(p[2] for p in binding_propensities) + \
                 sum(p[2] for p in unbinding_propensities)
 
         return binding_propensities, unbinding_propensities, total
+
+    def _get_bound_pairs(self, molecules: List[Molecule]) -> List[Tuple[Molecule, Molecule]]:
+        """
+        Get all bound molecule pairs (helper to avoid code duplication).
+
+        Returns:
+            pairs: List of (mol1, mol2) tuples for bound pairs
+        """
+        bound_pairs_set = set()
+        for mol in molecules:
+            if mol.is_bound and mol.bound_partner is not None:
+                # Store pairs as sorted tuple to avoid duplicates
+                pair = tuple(sorted([mol.molecule_id, mol.bound_partner.molecule_id]))
+                bound_pairs_set.add(pair)
+
+        # Convert to list of molecule pairs
+        pairs = []
+        for pair_ids in bound_pairs_set:
+            mol1 = next(m for m in molecules if m.molecule_id == pair_ids[0])
+            mol2 = next(m for m in molecules if m.molecule_id == pair_ids[1])
+            pairs.append((mol1, mol2))
+
+        return pairs
 
     def choose_event(self, binding_propensities: List, unbinding_propensities: List,
                     total_propensity: float) -> Optional[Tuple[str, Molecule, Molecule]]:
