@@ -577,7 +577,9 @@ class BindingKinetics:
         })
 
     def process_events(self, molecules: List[Molecule], dt: float,
-                      area: float, current_time: float) -> int:
+                      area: float, current_time: float,
+                      lattice_spacing: Optional[float] = None,
+                      diffusion_coeff: Optional[float] = None) -> int:
         """
         Process binding/unbinding events during a timestep.
 
@@ -588,14 +590,18 @@ class BindingKinetics:
             dt: Timestep duration (ms)
             area: Simulation area (nm²)
             current_time: Current simulation time (ms)
+            lattice_spacing: Lattice spacing for microscopic mode (nm)
+            diffusion_coeff: Combined diffusion coefficient for microscopic mode (nm²/ms)
 
         Returns:
             n_events: Number of events that occurred
         """
         n_events = 0
 
-        # Calculate propensities
-        bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
+        # Calculate propensities (pass lattice_spacing and diffusion_coeff for microscopic mode)
+        bind_props, unbind_props, total_prop = self.calculate_propensities(
+            molecules, area, lattice_spacing=lattice_spacing, diffusion_coeff=diffusion_coeff
+        )
 
         if total_prop == 0:
             return 0
@@ -628,7 +634,9 @@ class BindingKinetics:
             time_elapsed += tau
 
             # Recalculate propensities after event
-            bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
+            bind_props, unbind_props, total_prop = self.calculate_propensities(
+                molecules, area, lattice_spacing=lattice_spacing, diffusion_coeff=diffusion_coeff
+            )
 
             if total_prop == 0:
                 break
@@ -767,7 +775,8 @@ class DiffusionSimulator2D:
     def __init__(self, area: Tuple[float, float], dt: float, t_exposure: float,
                  sigma0: float, s0: float, R: float = 1.0/6,
                  boundary: str = 'reflective',
-                 binding_kinetics: Optional[BindingKinetics] = None):
+                 binding_kinetics: Optional[BindingKinetics] = None,
+                 lattice_spacing: float = 50.0):
         """
         Initialize 2D diffusion simulator.
 
@@ -780,12 +789,14 @@ class DiffusionSimulator2D:
             R: Motion blur coefficient (default 1/6)
             boundary: Boundary condition ('periodic', 'reflective', 'absorbing')
             binding_kinetics: Optional BindingKinetics object for binding/unbinding
+            lattice_spacing: Lattice spacing for microscopic binding rates (nm, default: 50.0)
         """
         self.area = np.array(area)
         self.dt = dt
         self.t_exposure = t_exposure
         self.boundary = boundary
         self.current_time = 0.0
+        self.lattice_spacing = lattice_spacing
 
         # Diffusion engine
         self.diffusion_engine = LangevinDiffusion2D(sigma0, s0, R)
@@ -946,8 +957,25 @@ class DiffusionSimulator2D:
 
             # Process binding/unbinding events
             area_nm2 = self.area[0] * self.area[1]
+
+            # Calculate combined diffusion coefficient for microscopic mode
+            # Use average of all unbound molecules' D_free (typical approach)
+            if self.binding_kinetics.use_microscopic:
+                D_values = [mol.D_free for mol in self.molecules if not mol.is_bound]
+                if D_values:
+                    # Combined D ≈ D1 + D2 for two molecules
+                    # Use 2× mean D as representative combined diffusion
+                    combined_D = 2.0 * np.mean(D_values)
+                else:
+                    # Fallback if all molecules are bound
+                    combined_D = np.mean([mol.D_free for mol in self.molecules]) * 2.0
+            else:
+                combined_D = None
+
             self.binding_kinetics.process_events(
-                self.molecules, current_chunk * self.dt, area_nm2, self.current_time
+                self.molecules, current_chunk * self.dt, area_nm2, self.current_time,
+                lattice_spacing=self.lattice_spacing,
+                diffusion_coeff=combined_D
             )
 
             # Generate trajectories for this chunk
