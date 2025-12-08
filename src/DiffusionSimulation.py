@@ -84,45 +84,214 @@ class BindingKinetics:
     """
     Handles binding/unbinding kinetics between molecules using Gillespie algorithm.
 
-    Uses 2D matrices to define binding rates between different color pairs:
-    - k_on_matrix[i, j]: binding rate for color_i + color_j → complex
-    - k_off_matrix[i, j]: unbinding rate for complex → color_i + color_j
+    Two modes:
+    1. LEGACY: Uses macroscopic k_on/k_off matrices (concentration-dependent)
+    2. MICROSCOPIC: Uses microscopic k, γ, ρ parameters (Fange et al. 2010)
+       - Automatically calculates scale-dependent mesoscopic rates q_a(h), q_d(h)
 
     The Gillespie algorithm ensures correct stochastic kinetics.
     """
 
-    def __init__(self, colors: List[str], k_on_matrix: np.ndarray,
-                 k_off_matrix: np.ndarray, binding_radius: float):
+    def __init__(self, colors: List[str], k_on_matrix: np.ndarray = None,
+                 k_off_matrix: np.ndarray = None, binding_radius: float = 100.0,
+                 reaction_radius: float = None, k_micro_matrix: np.ndarray = None,
+                 gamma_matrix: np.ndarray = None, use_microscopic: bool = False):
         """
         Initialize binding kinetics.
 
-        Args:
-            colors: List of color labels (e.g., ['R', 'G', 'B'])
+        LEGACY MODE (use_microscopic=False):
             k_on_matrix: 2D array of binding rates (1/(nM·s)) between color pairs
-                        k_on_matrix[i,j] is rate for colors[i] + colors[j]
             k_off_matrix: 2D array of unbinding rates (1/s) for each pair
             binding_radius: Distance threshold for binding (nm)
+
+        MICROSCOPIC MODE (use_microscopic=True, recommended):
+            reaction_radius: ρ (nm) - contact distance for binding
+            k_micro_matrix: 2D array of intrinsic on-rates k (1/s) at contact
+            gamma_matrix: 2D array of intrinsic off-rates γ (1/s)
+            binding_radius: Distance threshold for finding pairs (nm)
+                           Should be 3-5× reaction_radius
+
+        Args:
+            colors: List of color labels (e.g., ['R', 'G', 'B'])
+            use_microscopic: If True, use Fange et al. 2010 framework
         """
         self.colors = colors
         self.color_to_idx = {c: i for i, c in enumerate(colors)}
-        self.k_on_matrix = np.array(k_on_matrix)
-        self.k_off_matrix = np.array(k_off_matrix)
         self.binding_radius = binding_radius
+        self.use_microscopic = use_microscopic
 
-        # Validate matrices
         n_colors = len(colors)
-        assert self.k_on_matrix.shape == (n_colors, n_colors), \
-            f"k_on_matrix shape {self.k_on_matrix.shape} != ({n_colors}, {n_colors})"
-        assert self.k_off_matrix.shape == (n_colors, n_colors), \
-            f"k_off_matrix shape {self.k_off_matrix.shape} != ({n_colors}, {n_colors})"
 
-        # Make matrices symmetric (binding is bidirectional)
-        self.k_on_matrix = (self.k_on_matrix + self.k_on_matrix.T) / 2
-        self.k_off_matrix = (self.k_off_matrix + self.k_off_matrix.T) / 2
+        if use_microscopic:
+            # Microscopic framework (Fange et al. 2010)
+            if reaction_radius is None or k_micro_matrix is None or gamma_matrix is None:
+                raise ValueError("Microscopic mode requires: reaction_radius, k_micro_matrix, gamma_matrix")
+
+            self.reaction_radius = reaction_radius  # ρ (nm)
+            self.k_micro_matrix = np.array(k_micro_matrix)  # k (1/s)
+            self.gamma_matrix = np.array(gamma_matrix)      # γ (1/s)
+
+            # Validate
+            assert self.k_micro_matrix.shape == (n_colors, n_colors), \
+                f"k_micro_matrix shape {self.k_micro_matrix.shape} != ({n_colors}, {n_colors})"
+            assert self.gamma_matrix.shape == (n_colors, n_colors), \
+                f"gamma_matrix shape {self.gamma_matrix.shape} != ({n_colors}, {n_colors})"
+
+            # Make symmetric
+            self.k_micro_matrix = (self.k_micro_matrix + self.k_micro_matrix.T) / 2
+            self.gamma_matrix = (self.gamma_matrix + self.gamma_matrix.T) / 2
+
+            # Legacy matrices will be calculated on-demand via calculate_mesoscopic_rates()
+            self.k_on_matrix = None
+            self.k_off_matrix = None
+
+        else:
+            # Legacy macroscopic framework
+            if k_on_matrix is None or k_off_matrix is None:
+                raise ValueError("Legacy mode requires: k_on_matrix, k_off_matrix")
+
+            self.k_on_matrix = np.array(k_on_matrix)
+            self.k_off_matrix = np.array(k_off_matrix)
+            self.reaction_radius = None
+            self.k_micro_matrix = None
+            self.gamma_matrix = None
+
+            # Validate
+            assert self.k_on_matrix.shape == (n_colors, n_colors), \
+                f"k_on_matrix shape {self.k_on_matrix.shape} != ({n_colors}, {n_colors})"
+            assert self.k_off_matrix.shape == (n_colors, n_colors), \
+                f"k_off_matrix shape {self.k_off_matrix.shape} != ({n_colors}, {n_colors})"
+
+            # Make symmetric
+            self.k_on_matrix = (self.k_on_matrix + self.k_on_matrix.T) / 2
+            self.k_off_matrix = (self.k_off_matrix + self.k_off_matrix.T) / 2
 
         # Track binding events for analysis
         self.binding_events: List[Dict] = []
         self.unbinding_events: List[Dict] = []
+
+    def calculate_mesoscopic_rates(self, lattice_spacing: float,
+                                   diffusion_coeff: float,
+                                   dimensionality: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate scale-dependent mesoscopic rates q_a(h) and q_d(h).
+
+        Based on Fange et al. (2010) PNAS 107(46):19820-19825, Eqs. 1-2 and 7-8.
+        This fixes the RDME divergence problem at fine spatial discretization.
+
+        The mesoscopic rates account for:
+        - Spatial discretization effects (lattice spacing h)
+        - Diffusion-controlled vs reaction-controlled kinetics (parameter α)
+        - Reactions between neighboring subvolumes (Cartesian grids)
+        - Microscopic rebinding after dissociation
+
+        Args:
+            lattice_spacing: h (nm) - size of spatial discretization (voxel side length)
+            diffusion_coeff: D (nm²/ms) - combined diffusion D_A + D_B
+            dimensionality: 2 or 3 for 2D/3D systems
+
+        Returns:
+            q_a_matrix: Mesoscopic association rates
+                       Units: 1/ms (propensity per pair in contact)
+            q_d_matrix: Mesoscopic dissociation rates
+                       Units: 1/ms
+
+        Notes:
+            - For 3D: Rates converge to macroscopic values at h >> ρ
+            - For 2D: Rates are scale-dependent at ALL discretizations
+            - Satisfies detailed balance: q_a/q_d = K (equilibrium constant)
+            - Include neighbor reactions: h_eff calculated from 7ℓ³ (3D) or 5ℓ² (2D)
+
+        References:
+            Fange et al. (2010) doi:10.1073/pnas.1006565107
+        """
+        if not self.use_microscopic:
+            raise RuntimeError("calculate_mesoscopic_rates() requires use_microscopic=True mode")
+
+        if dimensionality not in [2, 3]:
+            raise ValueError("dimensionality must be 2 or 3")
+
+        n_colors = len(self.colors)
+        q_a_matrix = np.zeros((n_colors, n_colors))
+        q_d_matrix = np.zeros((n_colors, n_colors))
+
+        # Calculate effective reaction radius from lattice spacing + neighbors
+        # This accounts for reactions between molecules in neighboring voxels
+        if dimensionality == 3:
+            # Central voxel + 6 neighbors: 4π(h+ρ)³/3 = 7ℓ³
+            # Solve for h: (h+ρ)³ = 7ℓ³ × 3/(4π)
+            h_eff = ((7 * lattice_spacing**3 * 3 / (4*np.pi)))**(1/3) - self.reaction_radius
+        else:  # 2D
+            # Central voxel + 4 neighbors: π(h+ρ)² = 5ℓ²
+            # Solve for h: (h+ρ)² = 5ℓ²/π
+            h_eff = np.sqrt(5 * lattice_spacing**2 / np.pi) - self.reaction_radius
+
+        # For very fine discretization, h_eff can be negative
+        # This is OK - it means β → 1 and rates → microscopic k, γ
+        # Only warn if lattice is MUCH smaller than expected
+        if lattice_spacing < 0.1 * self.reaction_radius:
+            import warnings
+            warnings.warn(f"Lattice spacing {lattice_spacing:.1f} nm is very fine "
+                         f"compared to reaction radius {self.reaction_radius:.1f} nm. "
+                         f"Results may be inaccurate.")
+
+        # Clip h_eff to avoid numerical issues, but allow negative values
+        # (negative h_eff just means very fine grid, β close to 1)
+        h_eff = max(h_eff, -0.9 * self.reaction_radius)
+
+        # Discretization parameter β = ρ/(ρ+h)
+        # β → 1: fine discretization (h → 0), rates → microscopic k, γ
+        # β → 0: coarse discretization (h → ∞), rates → macroscopic k_a, k_d
+        beta = self.reaction_radius / (self.reaction_radius + h_eff)
+
+        # Ensure β is in valid range [0, 1]
+        # If h_eff is very negative, β can exceed 1, which is non-physical
+        # Clip to ensure well-defined behavior
+        beta = np.clip(beta, 0.0, 0.999)  # Don't allow exactly 1 to avoid division issues
+
+        for i in range(n_colors):
+            for j in range(n_colors):
+                k_micro = self.k_micro_matrix[i, j]  # Intrinsic on-rate (1/s)
+                gamma = self.gamma_matrix[i, j]       # Intrinsic off-rate (1/s)
+
+                if k_micro == 0:
+                    # No binding allowed
+                    continue
+
+                # Degree of diffusion control α
+                # α → 0: reaction-limited (slow k, fast diffusion)
+                # α → ∞: diffusion-limited (fast k, slow diffusion)
+                # Note: k_micro is in 1/s, diffusion_coeff is in nm²/ms
+                # Convert D to nm²/s for consistent units
+                D_nm2_per_s = diffusion_coeff * 1000.0
+                if dimensionality == 3:
+                    alpha = k_micro / (4 * np.pi * self.reaction_radius * D_nm2_per_s)
+                else:  # 2D
+                    alpha = k_micro / (2 * np.pi * D_nm2_per_s)
+
+                # Calculate mesoscopic association rate q_a(h)
+                if dimensionality == 3:
+                    # Fange Eq. 1 (approximate form, excellent agreement)
+                    # Exact form is Eq. 7 (more complex, see SI)
+                    q_a = k_micro / (1 + alpha * (1-beta) * (1 - 0.58*beta))
+                else:  # 2D
+                    # Fange Eq. 2
+                    # In 2D, no macroscopic limit exists (always scale-dependent)
+                    if beta < 0.999:  # Avoid log(0)
+                        q_a = k_micro / (1 + alpha * np.log(1 + 0.544*(1-beta)/beta))
+                    else:
+                        q_a = k_micro  # Very fine discretization
+
+                # Mesoscopic dissociation rate q_d(h)
+                # Detailed balance requires q_a/q_d = k/γ = K
+                K = k_micro / gamma  # Equilibrium constant
+                q_d = q_a / K
+
+                # Convert from 1/s to 1/ms
+                q_a_matrix[i, j] = q_a / 1000.0
+                q_d_matrix[i, j] = q_d / 1000.0
+
+        return q_a_matrix, q_d_matrix
 
     def can_bind(self, mol1: Molecule, mol2: Molecule) -> bool:
         """
