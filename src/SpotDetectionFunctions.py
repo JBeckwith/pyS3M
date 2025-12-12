@@ -260,7 +260,8 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-    ) -> np.ndarray:
+        return_quality: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
         """detect_puncta_in_image: Returns spots from an image supplied
 
         Args:
@@ -276,9 +277,19 @@ class SpotDetection_Functions:
             local_factor (float): local max factor
             sigma (float): sigma threshold for true puncta
             fraction_true (float): fraction of pixels in inner region above threshold
+            return_quality (bool): if True, return quality metrics dict
 
         Returns:
-            detected_puncta (np.ndarray): xy coordinates of detected puncta"""
+            detected_puncta (np.ndarray): xy coordinates of detected puncta
+            quality_metrics (dict): Optional, returned if return_quality=True. Contains per-spot:
+                - 'matched_filter_response': Matched filter response at spot location
+                - 'background': Local background estimate
+                - 'background_std': Local background standard deviation
+                - 'mean_inner_intensity': Mean intensity in inner region
+                - 'fraction_above_threshold': Fraction of inner pixels above threshold
+                - 'n_pixels_above_threshold': Number of inner pixels above threshold
+                - 'snr': Signal-to-noise ratio
+        """
         if variance is not None:
             image_for_detection = np.divide(image, variance)
         else:
@@ -303,17 +314,53 @@ class SpotDetection_Functions:
         detected_puncta = self.get_detection_points(
             filtered_image, self.cacfar, pfa, local_max_range, kernel=square_annulus
         )
-        detected_puncta = detected_puncta[
-            self.real_puncta_indices(
-                image_for_detection,
-                detected_puncta,
-                guard_interval,
-                reference_interval,
-                threshold_sigma,
-                fraction_true,
-            )
+
+        if not return_quality:
+            # Backward compatible: just return indices
+            detected_puncta = detected_puncta[
+                self.real_puncta_indices(
+                    image_for_detection,
+                    detected_puncta,
+                    guard_interval,
+                    reference_interval,
+                    threshold_sigma,
+                    fraction_true,
+                    return_quality=False,
+                )
+            ]
+            return detected_puncta
+
+        # Get quality metrics
+        true_puncta_mask, quality_metrics = self.real_puncta_indices(
+            image_for_detection,
+            detected_puncta,
+            guard_interval,
+            reference_interval,
+            threshold_sigma,
+            fraction_true,
+            return_quality=True,
+        )
+
+        # Filter to keep only true puncta
+        detected_puncta_filtered = detected_puncta[true_puncta_mask]
+
+        # Add matched filter response for the filtered spots
+        matched_filter_values = filtered_image[
+            detected_puncta_filtered[:, 0], detected_puncta_filtered[:, 1]
         ]
-        return detected_puncta
+
+        # Filter quality metrics to match filtered puncta
+        quality_metrics_filtered = {
+            'matched_filter_response': matched_filter_values,
+            'background': quality_metrics['background'][true_puncta_mask],
+            'background_std': quality_metrics['background_std'][true_puncta_mask],
+            'mean_inner_intensity': quality_metrics['mean_inner_intensity'][true_puncta_mask],
+            'fraction_above_threshold': quality_metrics['fraction_above_threshold'][true_puncta_mask],
+            'n_pixels_above_threshold': quality_metrics['n_pixels_above_threshold'][true_puncta_mask],
+            'snr': quality_metrics['snr'][true_puncta_mask],
+        }
+
+        return detected_puncta_filtered, quality_metrics_filtered
 
     def real_puncta_indices(
         self,
@@ -323,6 +370,7 @@ class SpotDetection_Functions:
         reference_interval,
         sigma=1.5,
         fraction_true=0.2,
+        return_quality=False,
     ):
         """
         Estimate intensity values for each centroid in the image.
@@ -332,9 +380,19 @@ class SpotDetection_Functions:
             centroids (numpy.ndarray): Centroid locations.
             guard_interval (int): Range of internal hole.
             reference_interval (int): Width of non-zero band.
+            sigma (float): Threshold sigma multiplier (default: 1.5).
+            fraction_true (float): Fraction of inner pixels that must exceed threshold (default: 0.2).
+            return_quality (bool): If True, return quality metrics dict in addition to indices.
 
         Returns:
-            estimated_intensity (numpy.ndarray): Estimated sum intensity per punctum.
+            true_puncta (numpy.ndarray): Boolean array indicating which puncta pass the filter.
+            quality_metrics (dict): Optional, returned if return_quality=True. Contains per-spot quality:
+                - 'background': Local background estimate (median of outer annulus)
+                - 'background_std': Local background standard deviation
+                - 'mean_inner_intensity': Mean intensity in inner region
+                - 'fraction_above_threshold': Fraction of inner pixels above threshold
+                - 'n_pixels_above_threshold': Number of inner pixels above threshold
+                - 'snr': Signal-to-noise ratio (mean_inner - background) / background_std
         """
         detected_puncta = np.asarray(detected_puncta, dtype=int)
         image_size = image.shape
@@ -352,8 +410,26 @@ class SpotDetection_Functions:
         background_std_est = np.std(image[x_out, y_out], axis=0)
         threshold = background_est + sigma * background_std_est
         intensity_est = image[x_in, y_in]
-        true_puncta = np.sum(intensity_est > threshold, axis=0) > n_pixels
-        return true_puncta
+        n_above = np.sum(intensity_est > threshold, axis=0)
+        true_puncta = n_above > n_pixels
+
+        if not return_quality:
+            return true_puncta
+
+        # Calculate quality metrics
+        mean_inner = np.mean(intensity_est, axis=0)
+        n_inner_pixels = intensity_est.shape[0]
+
+        quality_metrics = {
+            'background': background_est,
+            'background_std': background_std_est,
+            'mean_inner_intensity': mean_inner,
+            'fraction_above_threshold': n_above / n_inner_pixels,
+            'n_pixels_above_threshold': n_above,
+            'snr': (mean_inner - background_est) / (background_std_est + 1e-10),
+        }
+
+        return true_puncta, quality_metrics
 
     def intensity_pixel_indices(self, centroid_loc, image_size, annulus):
         """
