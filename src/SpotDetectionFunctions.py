@@ -122,7 +122,8 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-    ) -> np.ndarray:
+        return_quality: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
         """
         function to fit puncta in parallel
 
@@ -143,9 +144,11 @@ class SpotDetection_Functions:
             local_factor (float): local max factor
             sigma (float): sigma threshold for true puncta
             fraction_true (float): fraction of pixels in inner region above threshold
+            return_quality (bool): if True, return quality metrics
 
         Returns:
-            puncta_detected (list): list of puncta detected
+            puncta_detected (np.ndarray): detected puncta coordinates
+            quality_metrics (dict): Optional, if return_quality=True
         """
         n_frames = int(image.shape[0])
         n_workers, n_tasks, frames_per_task, start_indices = (
@@ -171,6 +174,7 @@ class SpotDetection_Functions:
                         local_factor=local_factor,
                         sigma=sigma,
                         fraction_true=fraction_true,
+                        return_quality=return_quality,
                     )
                 )
         with ProgressUtils.analysis_progress_bar(
@@ -178,6 +182,9 @@ class SpotDetection_Functions:
         ) as progress_bar:
             for f in futures.as_completed(fs):
                 progress_bar.update(1)
+
+        if return_quality:
+            return self.spots_and_quality_from_futures(fs)
         return self.spots_from_futures(fs)
 
     def spots_from_futures(self, fs):
@@ -193,6 +200,56 @@ class SpotDetection_Functions:
         detected_puncta = [np.concatenate(_.result()) for _ in fs]
         return np.vstack(detected_puncta)
 
+    def spots_and_quality_from_futures(self, fs):
+        """
+        function to return spots and quality metrics from a futures object
+
+        Args:
+            fs (futures object): futures from parallel detection with return_quality=True
+
+        Returns:
+            spots (np.ndarray): spot locations
+            quality_metrics (dict): aggregated quality metrics for all spots
+        """
+        all_puncta = []
+        all_quality = []
+
+        for f in fs:
+            result = f.result()
+            if isinstance(result, tuple):
+                puncta_list, quality_dict = result
+                all_puncta.append(np.concatenate(puncta_list))
+                all_quality.append(quality_dict)
+            else:
+                # Backward compatibility: if result is just puncta array
+                all_puncta.append(np.concatenate(result))
+
+        detected_puncta = np.vstack(all_puncta)
+
+        # Aggregate quality metrics from all workers
+        combined_quality = {}
+        if len(all_quality) > 0:
+            # Get keys from first non-empty quality dict
+            for quality_dict in all_quality:
+                if len(quality_dict) > 0:
+                    for key in quality_dict.keys():
+                        combined_quality[key] = []
+                    break
+
+            # Concatenate arrays for each metric
+            for quality_dict in all_quality:
+                if len(quality_dict) > 0:
+                    for key in combined_quality.keys():
+                        if key in quality_dict:
+                            combined_quality[key].append(quality_dict[key])
+
+            # Convert lists to arrays
+            for key in combined_quality.keys():
+                if len(combined_quality[key]) > 0:
+                    combined_quality[key] = np.concatenate(combined_quality[key])
+
+        return detected_puncta, combined_quality
+
     def detect_puncta_in_images(
         self,
         image: np.ndarray,
@@ -207,7 +264,8 @@ class SpotDetection_Functions:
         local_factor: float = 3.0,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-    ) -> np.ndarray:
+        return_quality: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
         """detect_puncta_in_image: Returns spots from an image supplied
 
         Args:
@@ -222,29 +280,77 @@ class SpotDetection_Functions:
             mf_factor (float): match filter factor
             sigma (float): sigma threshold for true puncta
             fraction_true (float): fraction of pixels in inner region above threshold
+            return_quality (bool): if True, return quality metrics dict
 
         Returns:
-            detected_puncta (np.ndarray): xy coordinates of detected puncta"""
+            detected_puncta (list of np.ndarray): xy coordinates of detected puncta per frame
+            quality_metrics (dict): Optional, if return_quality=True. Dict with arrays of quality
+                                   metrics for all detected spots across all frames"""
         detected_puncta = []
+        all_quality_metrics = [] if return_quality else None
+
         for i in np.arange(image.shape[0]):
-            points_perframe = self.detect_puncta_in_image(
-                image[i, :, :],
-                psf_fun=psf_fun,
-                variance=variance,
-                pfa=pfa,
-                wavelength=wavelength,
-                pixel_size=pixel_size,
-                NA=NA,
-                mf_factor=mf_factor,
-                local_factor=local_factor,
-                sigma=sigma,
-                fraction_true=fraction_true,
-            )
+            if return_quality:
+                points_perframe, quality_perframe = self.detect_puncta_in_image(
+                    image[i, :, :],
+                    psf_fun=psf_fun,
+                    variance=variance,
+                    pfa=pfa,
+                    wavelength=wavelength,
+                    pixel_size=pixel_size,
+                    NA=NA,
+                    mf_factor=mf_factor,
+                    local_factor=local_factor,
+                    sigma=sigma,
+                    fraction_true=fraction_true,
+                    return_quality=True,
+                )
+                all_quality_metrics.append(quality_perframe)
+            else:
+                points_perframe = self.detect_puncta_in_image(
+                    image[i, :, :],
+                    psf_fun=psf_fun,
+                    variance=variance,
+                    pfa=pfa,
+                    wavelength=wavelength,
+                    pixel_size=pixel_size,
+                    NA=NA,
+                    mf_factor=mf_factor,
+                    local_factor=local_factor,
+                    sigma=sigma,
+                    fraction_true=fraction_true,
+                    return_quality=False,
+                )
+
             detected_puncta.append(
                 np.vstack(
                     [points_perframe.T, np.full(len(points_perframe), i + start_frame)]
                 ).T
             )
+
+        if return_quality:
+            # Concatenate quality metrics from all frames
+            combined_quality = {}
+            if len(all_quality_metrics) > 0 and len(all_quality_metrics[0]) > 0:
+                # Get keys from first non-empty frame
+                for frame_quality in all_quality_metrics:
+                    if len(frame_quality) > 0:
+                        for key in frame_quality.keys():
+                            combined_quality[key] = []
+                        break
+
+                # Concatenate arrays for each metric
+                for frame_quality in all_quality_metrics:
+                    if len(frame_quality) > 0:
+                        for key in combined_quality.keys():
+                            combined_quality[key].append(frame_quality[key])
+
+                # Convert lists to arrays
+                for key in combined_quality.keys():
+                    combined_quality[key] = np.concatenate(combined_quality[key])
+
+            return detected_puncta, combined_quality
+
         return detected_puncta
 
     def detect_puncta_in_image(
@@ -910,11 +1016,20 @@ def _detect_puncta_in_images_standalone(
     local_factor: float = 3.0,
     sigma: float = 1.5,
     fraction_true: float = 0.2,
-) -> np.ndarray:
+    return_quality: bool = False,
+):
     """Standalone version of detect_puncta_in_images for multiprocessing.
 
     This function creates a temporary instance to perform detection
     since bound methods cannot be pickled for multiprocessing.
+
+    Args:
+        ... (same as detect_puncta_in_images)
+        return_quality (bool): if True, return quality metrics
+
+    Returns:
+        detected_puncta (list of np.ndarray): xy coordinates per frame
+        quality_metrics (dict): Optional, if return_quality=True
     """
     # Import here to ensure all dependencies are available in worker process
     import sys
@@ -928,7 +1043,7 @@ def _detect_puncta_in_images_standalone(
     try:
         # Create instance with proper error handling
         detector = SpotDetection_Functions()
-        return detector.detect_puncta_in_images(
+        result = detector.detect_puncta_in_images(
             image=image,
             start_frame=start_frame,
             psf_fun=psf_fun,
@@ -941,7 +1056,11 @@ def _detect_puncta_in_images_standalone(
             local_factor=local_factor,
             sigma=sigma,
             fraction_true=fraction_true,
+            return_quality=return_quality,
         )
+        return result
     except Exception:
-        # Return empty array if detection fails to prevent crash
+        # Return empty array/dict if detection fails to prevent crash
+        if return_quality:
+            return np.empty((0, 3), dtype=np.float32), {}
         return np.empty((0, 3), dtype=np.float32)
