@@ -110,6 +110,7 @@ class SuperRes_Functions:
         planes,
         width,
         height,
+        quality_metrics=None,  # NEW: Optional quality metrics dict
     ):
         """Post-process fitting results into filtered DataFrame.
 
@@ -120,13 +121,21 @@ class SuperRes_Functions:
             planes (list): Frame numbers for each punctum
             width (int): ROI width for filtering
             height (int): ROI height for filtering
+            quality_metrics (dict): Optional dict of quality metric arrays per detection
 
         Returns:
-            pd.DataFrame: Filtered and sorted fit results
+            pd.DataFrame: Filtered and sorted fit results with quality metrics (if provided)
         """
         # Stack results and errors
         fit_tosave = np.hstack([fit_results_array, fit_errors_array])
         fit_results = pd.DataFrame(fit_tosave, columns=result_columns)
+
+        # NEW: Add quality metrics BEFORE filtering (so they're filtered together with fits)
+        if quality_metrics is not None and len(quality_metrics) > 0:
+            # Add each quality metric as a column (with 'spot_' prefix to avoid name conflicts)
+            for key, values in quality_metrics.items():
+                if len(values) == len(fit_results):
+                    fit_results[f'spot_{key}'] = values
 
         # Fix frame numbers: replace with offset plane values for continuous numbering
         if len(planes) == len(fit_results):
@@ -135,7 +144,8 @@ class SuperRes_Functions:
         # Sort by frame for consistent ordering in saved files
         fit_results = fit_results.sort_values("frame").reset_index(drop=True)
 
-        # Apply filtering
+        # Apply filtering - this will automatically filter both fits AND quality metrics
+        # Failed fits (NaN values) will be removed along with their quality metrics
         fit_results = self._filter_fit_results(fit_results, width, height)
 
         return fit_results
@@ -1121,6 +1131,7 @@ class SuperRes_Functions:
             all_weights_tofit = []
             all_relative_coords = []
             all_planes = []
+            all_quality_metrics = []  # NEW: Accumulate quality metrics
 
             print(
                 f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}"
@@ -1149,7 +1160,8 @@ class SuperRes_Functions:
                     variance=variance,
                 )
 
-                detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
+                # Detect puncta with quality metrics
+                detected_puncta, quality_metrics = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
                     pfa=pfa,
                     variance=variance,
@@ -1158,6 +1170,7 @@ class SuperRes_Functions:
                     NA=NA,
                     sigma=sigma,
                     fraction_true=fraction_true,
+                    return_quality=True,  # Enable quality metrics
                 )
 
                 # Process ROIs for this chunk (keep original frame indices for raw_data access)
@@ -1191,9 +1204,10 @@ class SuperRes_Functions:
                 all_weights_tofit.extend(chunk_weights)
                 all_relative_coords.extend(chunk_coords)
                 all_planes.extend(chunk_planes)
+                all_quality_metrics.append(quality_metrics)  # NEW: Accumulate quality metrics
 
                 # Clean up chunk data
-                del raw_data, detected_puncta, image_to_analyse
+                del raw_data, detected_puncta, quality_metrics, image_to_analyse
                 if "buffer_data" in locals() and buffer_data is not None:
                     del buffer_data
                 gc.collect()
@@ -1207,6 +1221,28 @@ class SuperRes_Functions:
             weights_tofit = all_weights_tofit
             relative_coords = all_relative_coords
             planes = all_planes
+
+            # NEW: Combine quality metrics from all chunks
+            combined_quality_metrics = {}
+            if len(all_quality_metrics) > 0:
+                # Get keys from first non-empty quality dict
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in quality_dict.keys():
+                            combined_quality_metrics[key] = []
+                        break
+
+                # Concatenate arrays for each metric
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in combined_quality_metrics.keys():
+                            if key in quality_dict:
+                                combined_quality_metrics[key].append(quality_dict[key])
+
+                # Convert lists to arrays
+                for key in combined_quality_metrics.keys():
+                    if len(combined_quality_metrics[key]) > 0:
+                        combined_quality_metrics[key] = np.concatenate(combined_quality_metrics[key])
 
             # ROI processing already done in chunks above
 
@@ -1230,6 +1266,7 @@ class SuperRes_Functions:
                 planes,
                 width,
                 height,
+                quality_metrics=combined_quality_metrics,  # NEW: Pass quality metrics
             )
 
             self.io._write_h5_database(fit_results, fit_savename, append=False)
@@ -1795,6 +1832,7 @@ class SuperRes_Functions:
                 planes,
                 width,
                 height,
+                quality_metrics=combined_quality_metrics,  # NEW: Pass quality metrics
             )
 
             if FOVn == 0:
