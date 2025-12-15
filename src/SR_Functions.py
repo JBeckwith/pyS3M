@@ -136,6 +136,8 @@ class SuperRes_Functions:
             for key, values in quality_metrics.items():
                 if len(values) == len(fit_results):
                     fit_results[f'spot_{key}'] = values
+                else:
+                    print(f"    WARNING: Skipping quality metric '{key}' due to length mismatch: {len(values)} != {len(fit_results)}")
 
         # Fix frame numbers: replace with offset plane values for continuous numbering
         if len(planes) == len(fit_results):
@@ -376,6 +378,7 @@ class SuperRes_Functions:
         is_multi_frame=False,
         raw_data_for_fitting=None,
         fitting_data_is_photoelectrons=False,
+        quality_metrics=None,
     ):
         """Process a batch of detected puncta into fitting-ready ROIs.
 
@@ -399,16 +402,20 @@ class SuperRes_Functions:
             is_multi_frame (bool, optional): Whether processing multi-frame data (default: False)
             raw_data_for_fitting (np.ndarray, optional): Separate data for fitting if different
                 from detection data (e.g., temporal median subtracted)
+            quality_metrics (dict, optional): Dict of quality metric arrays from spot detection.
+                Will be filtered to match ROIs that pass processing (not too close to edges, etc.)
 
         Returns:
             tuple: (puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit,
-                   relative_coords, planes)
+                   relative_coords, planes, filtered_quality_metrics)
                 - puncta_tofit: List of photoelectron ROIs ready for fitting
                 - smoothed_puncta_tofit: List of smoothed ROIs
                 - masks_tofit: List of Bayer mask ROIs
                 - weights_tofit: List of weight ROIs for fitting
                 - relative_coords: List of (x, y) coordinates for each ROI
                 - planes: List of frame numbers for each ROI
+                - filtered_quality_metrics: Quality metrics filtered to match processed ROIs
+                  (None if quality_metrics was None)
 
         Example:
             >>> # Single frame processing
@@ -416,14 +423,15 @@ class SuperRes_Functions:
             ...     raw_data, detected_puncta, width, height, ROI_size,
             ...     smoothing_function, read_noise, masks
             ... )
-            >>> puncta, smoothed, masks_roi, weights, coords, frames = results
+            >>> puncta, smoothed, masks_roi, weights, coords, frames, qm = results
 
-            >>> # Multi-frame with temporal median subtraction
+            >>> # Multi-frame with temporal median subtraction and quality metrics
             >>> results = self._process_detected_puncta_batch(
             ...     raw_data_original, detected_puncta, width, height, ROI_size,
             ...     smoothing_function, read_noise, masks,
             ...     frame_offset=1000, is_multi_frame=True,
-            ...     raw_data_for_fitting=temporal_median_subtracted_data
+            ...     raw_data_for_fitting=temporal_median_subtracted_data,
+            ...     quality_metrics=qm_dict
             ... )
         """
         puncta_tofit = []
@@ -432,6 +440,7 @@ class SuperRes_Functions:
         weights_tofit = []
         relative_coords = []
         planes = []
+        valid_indices = []  # Track which indices were successfully processed
 
         for i in np.arange(len(detected_puncta)):
             result = self._process_roi(
@@ -466,6 +475,24 @@ class SuperRes_Functions:
             weights_tofit.append(weights_roi)
             relative_coords.append(coords)
             planes.append(plane)
+            valid_indices.append(i)  # Track that this index was successfully processed
+
+        # Filter quality metrics to match successfully processed ROIs
+        filtered_quality_metrics = None
+        if quality_metrics is not None and len(quality_metrics) > 0:
+            filtered_quality_metrics = {}
+            # Convert valid_indices to numpy array for proper indexing
+            valid_indices_array = np.array(valid_indices)
+            for key, values in quality_metrics.items():
+                if len(values) == len(detected_puncta):
+                    # Filter to only include metrics for successfully processed ROIs
+                    filtered_quality_metrics[key] = values[valid_indices_array]
+                else:
+                    import logging
+                    logging.warning(
+                        f"Quality metric '{key}' length ({len(values)}) doesn't match "
+                        f"detected_puncta length ({len(detected_puncta)}). Skipping."
+                    )
 
         return (
             puncta_tofit,
@@ -474,6 +501,7 @@ class SuperRes_Functions:
             weights_tofit,
             relative_coords,
             planes,
+            filtered_quality_metrics,
         )
 
     def example_spots_singleframe(
@@ -690,6 +718,7 @@ class SuperRes_Functions:
             weights_tofit,
             relative_coords,
             _,
+            _,  # filtered_quality_metrics (None - not using quality metrics in this method)
         ) = self._process_detected_puncta_batch(
             raw_data_for_detection,
             detected_puncta,
@@ -1174,6 +1203,7 @@ class SuperRes_Functions:
                 )
 
                 # Process ROIs for this chunk (keep original frame indices for raw_data access)
+                # Pass quality_metrics so they get filtered to match ROIs that passed processing
                 (
                     chunk_puncta,
                     chunk_smoothed,
@@ -1181,6 +1211,7 @@ class SuperRes_Functions:
                     chunk_weights,
                     chunk_coords,
                     chunk_planes,
+                    filtered_quality_metrics,  # Returns filtered metrics matching processed ROIs
                 ) = self._process_detected_puncta_batch(
                     raw_data,
                     detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
@@ -1195,6 +1226,7 @@ class SuperRes_Functions:
                     rqe=rqe,
                     frame_offset=chunk_start,  # Frame offset for this chunk
                     is_multi_frame=True,
+                    quality_metrics=quality_metrics,  # Pass quality metrics to be filtered
                 )
 
                 # Accumulate results from this chunk
@@ -1204,7 +1236,9 @@ class SuperRes_Functions:
                 all_weights_tofit.extend(chunk_weights)
                 all_relative_coords.extend(chunk_coords)
                 all_planes.extend(chunk_planes)
-                all_quality_metrics.append(quality_metrics)  # NEW: Accumulate quality metrics
+                # Use FILTERED quality metrics (already matched to processed ROIs)
+                if filtered_quality_metrics is not None:
+                    all_quality_metrics.append(filtered_quality_metrics)
 
                 # Clean up chunk data
                 del raw_data, detected_puncta, quality_metrics, image_to_analyse
@@ -1634,6 +1668,9 @@ class SuperRes_Functions:
                 f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}"
             )
 
+            # NEW: Accumulate quality metrics across chunks
+            all_quality_metrics = []
+
             # Process file in chunks
             for chunk_start in range(0, file_frames, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, file_frames)
@@ -1746,7 +1783,8 @@ class SuperRes_Functions:
                     variance=variance,
                 )
 
-                detected_puncta = self.spot_detection.detect_puncta_in_stack_parallel(
+                # NEW: Capture quality metrics during detection
+                detected_puncta, quality_metrics = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
                     pfa=pfa,
                     wavelength=peak_wavelength,
@@ -1755,10 +1793,12 @@ class SuperRes_Functions:
                     NA=NA,
                     sigma=sigma,
                     fraction_true=fraction_true,
+                    return_quality=True,  # NEW: Enable quality metrics
                 )
 
                 # Process ROIs for this chunk
                 # Detection uses original data, fitting uses temporal median subtracted if enabled
+                # Pass quality_metrics so they get filtered to match ROIs that passed processing
                 (
                     chunk_puncta,
                     chunk_smoothed,
@@ -1766,6 +1806,7 @@ class SuperRes_Functions:
                     chunk_weights,
                     chunk_coords,
                     chunk_planes,
+                    filtered_quality_metrics,  # Returns filtered metrics matching processed ROIs
                 ) = self._process_detected_puncta_batch(
                     raw_data_for_detection,
                     detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
@@ -1783,6 +1824,7 @@ class SuperRes_Functions:
                     is_multi_frame=True,
                     raw_data_for_fitting=raw_data_for_fitting,
                     fitting_data_is_photoelectrons=(temporal_median_mode != TemporalMedianMode.NONE),
+                    quality_metrics=quality_metrics,  # Pass quality metrics to be filtered
                 )
 
                 # Accumulate results from this chunk
@@ -1792,6 +1834,9 @@ class SuperRes_Functions:
                 all_weights_tofit.extend(chunk_weights)
                 all_relative_coords.extend(chunk_coords)
                 all_planes.extend(chunk_planes)
+                # Use FILTERED quality metrics (already matched to processed ROIs)
+                if filtered_quality_metrics is not None:
+                    all_quality_metrics.append(filtered_quality_metrics)
 
                 # Clean up chunk data
                 del raw_data, raw_data_for_detection, detected_puncta, image_to_analyse
@@ -1811,6 +1856,32 @@ class SuperRes_Functions:
 
             # ROI processing already done in chunks above
             total_frames += file_frames
+
+            # NEW: Combine quality metrics from all chunks
+            combined_quality_metrics = {}
+            if len(all_quality_metrics) > 0:
+                # Get keys from first non-empty quality dict
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in quality_dict.keys():
+                            combined_quality_metrics[key] = []
+                        break
+
+                # Concatenate arrays for each metric
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in combined_quality_metrics.keys():
+                            if key in quality_dict:
+                                combined_quality_metrics[key].append(quality_dict[key])
+
+                # Convert lists to arrays
+                for key in combined_quality_metrics.keys():
+                    if len(combined_quality_metrics[key]) > 0:
+                        combined_quality_metrics[key] = np.concatenate(
+                            combined_quality_metrics[key]
+                        )
+            else:
+                print("  WARNING: No quality metrics collected!")
 
             fit_results_array, fit_errors_array = (
                 self.image_analysis.fit_puncta_parallel_method(
