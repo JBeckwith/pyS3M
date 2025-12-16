@@ -3432,10 +3432,10 @@ class extract_SMs:
             )
             ax.add_patch(ellipse)
 
-        ax.set_xlabel(channels_to_use[0], fontsize=12)
-        ax.set_ylabel(channels_to_use[1], fontsize=12)
-        ax.set_title('Initial Guess: 2D Histogram + Means + 2σ Ellipses', fontsize=14, weight='bold')
-        ax.legend(fontsize=10)
+        ax.set_xlabel(channels_to_use[0])
+        ax.set_ylabel(channels_to_use[1])
+        ax.set_title('Initial Guess: 2D Histogram + Means + 2σ Ellipses', weight='bold')
+        ax.legend()
         ax.grid(True, alpha=0.3)
 
         # Don't use tight_layout() - it conflicts with colorbar layout engine
@@ -3500,10 +3500,10 @@ class extract_SMs:
 
             ax.plot(x_range, gmm_pdf, 'k-', linewidth=2, label='GMM total')
 
-            ax.set_xlabel(channel_name, fontsize=12)
-            ax.set_ylabel('Density', fontsize=12)
-            ax.set_title(f'{channel_name} Distribution with GMM Fit', fontsize=14)
-            ax.legend(fontsize=9)
+            ax.set_xlabel(channel_name)
+            ax.set_ylabel('Density')
+            ax.set_title(f'{channel_name} Distribution with GMM Fit')
+            ax.legend()
             ax.grid(True, alpha=0.3)
 
         _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
@@ -3533,10 +3533,10 @@ class extract_SMs:
                     color=colors[k], linewidths=4, label=f'Channel {k}'
                 )
 
-            ax.set_xlabel(channels_to_use[0], fontsize=12)
-            ax.set_ylabel(channels_to_use[1], fontsize=12)
-            ax.set_title('GMM Fit (2σ ellipses)', fontsize=14)
-            ax.legend(fontsize=10)
+            ax.set_xlabel(channels_to_use[0])
+            ax.set_ylabel(channels_to_use[1])
+            ax.set_title('GMM Fit (2σ ellipses)')
+            ax.legend()
             ax.grid(True, alpha=0.3)
 
             # Right: Assignments
@@ -3560,10 +3560,10 @@ class extract_SMs:
                     rasterized=True
                 )
 
-            ax.set_xlabel(channels_to_use[0], fontsize=12)
-            ax.set_ylabel(channels_to_use[1], fontsize=12)
-            ax.set_title(f'Assignments (threshold={confidence_threshold:.2f})', fontsize=14)
-            ax.legend(fontsize=10)
+            ax.set_xlabel(channels_to_use[0])
+            ax.set_ylabel(channels_to_use[1])
+            ax.set_title(f'Assignments (threshold={confidence_threshold:.2f})')
+            ax.legend()
             ax.grid(True, alpha=0.3)
 
             _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
@@ -3584,10 +3584,10 @@ class extract_SMs:
             confidence_threshold, color='red', linestyle='--',
             linewidth=3, label=f'Threshold ({confidence_threshold:.2f})'
         )
-        ax.set_xlabel('Assignment Confidence', fontsize=12)
-        ax.set_ylabel('Count', fontsize=12)
-        ax.set_title('Distribution of Assignment Confidences', fontsize=14)
-        ax.legend(fontsize=10)
+        ax.set_xlabel('Assignment Confidence')
+        ax.set_ylabel('Count')
+        ax.set_title('Distribution of Assignment Confidences')
+        ax.legend()
         ax.grid(True, alpha=0.3)
         _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
         plt.show()
@@ -3606,16 +3606,16 @@ class extract_SMs:
                     ax.text(
                         j, i, f"{conf_mat[i, j]:.3f}",
                         ha="center", va="center",
-                        color=text_color, fontsize=14, weight='bold'
+                        color=text_color, weight='bold'
                     )
 
             ax.set_xticks(np.arange(n_channels))
             ax.set_yticks(np.arange(n_channels))
-            ax.set_xticklabels([f'Ch {k}' for k in range(n_channels)], fontsize=11)
-            ax.set_yticklabels([f'Ch {k}' for k in range(n_channels)], fontsize=11)
-            ax.set_xlabel('Predicted Channel', fontsize=12)
-            ax.set_ylabel('True Channel', fontsize=12)
-            ax.set_title('Expected Confusion Matrix (Analytical)', fontsize=14)
+            ax.set_xticklabels([f'Ch {k}' for k in range(n_channels)])
+            ax.set_yticklabels([f'Ch {k}' for k in range(n_channels)])
+            ax.set_xlabel('Predicted Channel')
+            ax.set_ylabel('True Channel')
+            ax.set_title('Expected Confusion Matrix (Analytical)')
             plt.colorbar(im, ax=ax, label='Probability')
             # Don't use tight_layout() - it conflicts with colorbar layout engine
             fig.subplots_adjust(right=0.85)  # Make room for colorbar
