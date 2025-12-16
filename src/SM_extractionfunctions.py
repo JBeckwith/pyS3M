@@ -1781,7 +1781,7 @@ class extract_SMs:
                 from PlottingBase import AnalysisPlotter
 
                 plotter = AnalysisPlotter()
-                fig, (ax1, ax2) = plotter.create_subplots(nrows=1, ncols=2, figsize=(12, 4))
+                fig, (ax1, ax2) = plotter.two_column_plot(nrows=1, ncols=2, height=3)
 
                 # Define colors for each component
                 colors = ['red', 'green', 'blue', 'orange', 'purple'][:n_components]
@@ -2484,7 +2484,7 @@ class extract_SMs:
                     labels = np.argmax(log_probs, axis=1)
 
                     plotter = AnalysisPlotter()
-                    fig, (ax1, ax2) = plotter.create_subplots(nrows=1, ncols=2, figsize=(12, 4))
+                    fig, (ax1, ax2) = plotter.two_column_plot(nrows=1, ncols=2, height=3)
 
                     colors = ['red', 'green', 'blue', 'orange', 'purple'][:n_components]
 
@@ -2679,25 +2679,27 @@ class extract_SMs:
         well-separated core of each distribution.
 
         Args:
-            X (np.ndarray): Data matrix, shape (n_samples, 2)
-            initial_means (np.ndarray): Initial means, shape (n_channels, 2)
+            X (np.ndarray): Data matrix, shape (n_samples, n_features)
+            initial_means (np.ndarray): Initial means, shape (n_channels, n_features)
             n_channels (int): Number of channels
-            X_err (np.ndarray, optional): Error matrix, shape (n_samples, 2)
+            X_err (np.ndarray, optional): Error matrix, shape (n_samples, n_features)
             use_core_region (bool): If True, use only core percentile of each component
             percentile (float): Percentile threshold for core region (default: 50)
             scale (float): Scaling factor for covariances (default: 0.7)
 
         Returns:
-            np.ndarray: Initial covariances, shape (n_channels, 2, 2)
+            np.ndarray: Initial covariances, shape (n_channels, n_features, n_features)
         """
         from scipy.spatial.distance import cdist
+
+        n_samples, n_features = X.shape
 
         # Hard assignment: assign each point to nearest mean
         distances = cdist(X, initial_means, metric='euclidean')
         assignments = np.argmin(distances, axis=1)
 
         # Calculate sample covariance for each component
-        initial_covariances = np.zeros((n_channels, 2, 2))
+        initial_covariances = np.zeros((n_channels, n_features, n_features))
 
         for k in range(n_channels):
             mask = assignments == k
@@ -2742,15 +2744,15 @@ class extract_SMs:
                     cov_k = cov_k * scale
 
                     # Add small regularization to ensure positive definite
-                    cov_k += np.eye(2) * 1e-5
+                    cov_k += np.eye(n_features) * 1e-5
 
                     initial_covariances[k] = cov_k
                 else:
                     # Not enough core points, use small isotropic
-                    initial_covariances[k] = np.eye(2) * 0.005
+                    initial_covariances[k] = np.eye(n_features) * 0.005
             else:
                 # Very few points assigned, use small isotropic covariance
-                initial_covariances[k] = np.eye(2) * 0.005
+                initial_covariances[k] = np.eye(n_features) * 0.005
 
         return initial_covariances
 
@@ -2885,17 +2887,41 @@ class extract_SMs:
             if col not in loc_data.columns:
                 raise ValueError(f"Column '{col}' not found in loc_data")
 
-        # Check for error columns (always use if available)
+        # Check for error columns and auto-generate if needed
+        # Make a copy of loc_data to avoid modifying the original
+        loc_data_work = loc_data.copy()
+
         error_cols = [f"{col}_err" for col in channels_to_use]
-        missing_errors = [col for col in error_cols if col not in loc_data.columns]
+        missing_errors = [col for col in error_cols if col not in loc_data_work.columns]
+
         if missing_errors:
             if verbose:
-                print(
-                    f"Warning: Error columns {missing_errors} not found, will fit without error weighting"
-                )
+                print(f"Missing error columns: {missing_errors}")
+                print("Attempting to auto-generate errors...")
+
+            for error_col in missing_errors:
+                # Extract base column name (remove '_err' suffix)
+                base_col = error_col.replace('_err', '')
+
+                if base_col == 'photons':
+                    # Poisson statistics: σ = sqrt(N)
+                    loc_data_work[error_col] = np.sqrt(np.maximum(loc_data_work[base_col].values, 1))
+                    if verbose:
+                        mean_err = loc_data_work[error_col].mean()
+                        print(f"  {error_col}: Generated from Poisson statistics (mean={mean_err:.2f})")
+                elif base_col in loc_data_work.columns:
+                    # For other columns, use a small fraction of the value as error estimate
+                    # This is a conservative guess - user should provide real errors if possible
+                    loc_data_work[error_col] = loc_data_work[base_col].values * 0.05  # 5% relative error
+                    if verbose:
+                        mean_err = loc_data_work[error_col].mean()
+                        print(f"  {error_col}: Estimated as 5% of {base_col} (mean={mean_err:.4f})")
+                        print(f"    WARNING: Using estimated errors. Provide measured errors for better results.")
+                else:
+                    raise ValueError(f"Cannot auto-generate error for '{error_col}': column '{base_col}' not found")
 
         # Extract feature matrix
-        X = loc_data[channels_to_use].values
+        X = loc_data_work[channels_to_use].values
         n_features = X.shape[1]
 
         if verbose:
@@ -2940,17 +2966,14 @@ class extract_SMs:
 
         # ===== Phase 2.5: Estimate Initial Covariances =====
         # Two-stage initialization: means from histograms, covariances from data
-        if n_features == 2 and initial_guess_method == "histogram_peaks":
+        if initial_guess_method == "histogram_peaks":
             if verbose:
                 print("Estimating initial covariances from core regions (conservative)...")
 
-            # Extract error matrix if available
-            if n_features == 2:
-                error_cols = [f"{col}_err" for col in channels_to_use]
-                if all(col in loc_data.columns for col in error_cols):
-                    X_err = loc_data[error_cols].values
-                else:
-                    X_err = None
+            # Extract error matrix if available (now works for any n_features)
+            error_cols = [f"{col}_err" for col in channels_to_use]
+            if all(col in loc_data_work.columns for col in error_cols):
+                X_err = loc_data_work[error_cols].values
             else:
                 X_err = None
 
@@ -2965,25 +2988,28 @@ class extract_SMs:
                     det_k = np.linalg.det(initial_covariances[k])
                     # Calculate standard deviations along principal axes
                     eigvals = np.linalg.eigvalsh(initial_covariances[k])
-                    sigma1, sigma2 = np.sqrt(eigvals)
-                    print(f"  Channel {k}: det(cov)={det_k:.6f}, σ1={sigma1:.3f}, σ2={sigma2:.3f}")
+                    sigma_str = ", ".join([f"σ{i+1}={np.sqrt(eigvals[i]):.3f}" for i in range(n_features)])
+                    print(f"  Channel {k}: det(cov)={det_k:.6f}, {sigma_str}")
                 print()
 
-            # Create diagnostic plot showing initial guess
-            if plot_results:
+            # Create diagnostic plot showing initial guess (only for 2D)
+            if plot_results and n_features == 2:
                 self._plot_initial_guess_2d(
                     X, channels_to_use, initial_means, initial_covariances, n_channels
                 )
+            elif plot_results and n_features > 2:
+                if verbose:
+                    print(f"  Skipping initial guess plot (only available for 2D, current: {n_features}D)")
         else:
             initial_covariances = None
 
         # ===== Phase 3: GMM Fitting =====
-        # Extract errors - ALWAYS use them if available
+        # Extract errors - ALWAYS use them if available (now includes auto-generated ones)
         error_cols = [f"{col}_err" for col in channels_to_use]
-        has_errors = all(col in loc_data.columns for col in error_cols)
+        has_errors = all(col in loc_data_work.columns for col in error_cols)
 
         if has_errors:
-            X_err = loc_data[error_cols].values
+            X_err = loc_data_work[error_cols].values
         else:
             X_err = None
 
@@ -3046,35 +3072,42 @@ class extract_SMs:
 
         elif gmm_fit_method == "EM_weighted":
             # Use existing weighted EM implementation
-            photons = loc_data["photons"].values if "photons" in loc_data.columns else None
-            A_R = loc_data["A_R"].values if "A_R" in loc_data.columns else None
-            A_G = loc_data["A_G"].values if "A_G" in loc_data.columns else None
+            photons = loc_data_work["photons"].values if "photons" in loc_data_work.columns else None
+            A_R = loc_data_work["A_R"].values if "A_R" in loc_data_work.columns else None
+            A_G = loc_data_work["A_G"].values if "A_G" in loc_data_work.columns else None
 
             # ALWAYS use error columns if available (match channels_to_use)
+            # NOTE: EM_weighted only supports 2D (legacy method, use 'EM' for N-D support)
             if has_errors and len(channels_to_use) == 2:
                 # Extract the specific error columns for the channels being used
                 if channels_to_use[0] == 'A_R':
-                    sigma_dim0 = loc_data["A_R_err"].values
+                    sigma_dim0 = loc_data_work["A_R_err"].values
                 elif channels_to_use[0] == 'A_G':
-                    sigma_dim0 = loc_data["A_G_err"].values
+                    sigma_dim0 = loc_data_work["A_G_err"].values
                 elif channels_to_use[0] == 'A_B':
-                    sigma_dim0 = loc_data["A_B_err"].values
+                    sigma_dim0 = loc_data_work["A_B_err"].values
+                elif channels_to_use[0] == 'photons':
+                    sigma_dim0 = loc_data_work["photons_err"].values
                 else:
-                    sigma_dim0 = None
+                    sigma_dim0 = loc_data_work[f"{channels_to_use[0]}_err"].values
 
                 if channels_to_use[1] == 'A_R':
-                    sigma_dim1 = loc_data["A_R_err"].values
+                    sigma_dim1 = loc_data_work["A_R_err"].values
                 elif channels_to_use[1] == 'A_G':
-                    sigma_dim1 = loc_data["A_G_err"].values
+                    sigma_dim1 = loc_data_work["A_G_err"].values
                 elif channels_to_use[1] == 'A_B':
-                    sigma_dim1 = loc_data["A_B_err"].values
+                    sigma_dim1 = loc_data_work["A_B_err"].values
+                elif channels_to_use[1] == 'photons':
+                    sigma_dim1 = loc_data_work["photons_err"].values
                 else:
-                    sigma_dim1 = None
+                    sigma_dim1 = loc_data_work[f"{channels_to_use[1]}_err"].values
 
                 # For compatibility with _fit_gmm_em (expects A_R and A_G)
                 sigma_A_R = sigma_dim0
                 sigma_A_G = sigma_dim1
             else:
+                if len(channels_to_use) != 2:
+                    raise ValueError("EM_weighted method only supports 2D (len(channels_to_use)==2). Use gmm_fit_method='EM' for N-D support.")
                 sigma_A_R = None
                 sigma_A_G = None
 
