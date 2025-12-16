@@ -3400,7 +3400,7 @@ class extract_SMs:
         colors_ch = ['blue', 'orange', 'purple', 'cyan', 'magenta', 'brown'][:n_channels]
 
         plotter = PublicationPlotter()
-        fig, ax = plotter.two_column_plot(nrows=1, ncols=1, height=6)
+        fig, ax = plotter.two_column_plot(nrows=1, ncols=1)  # Use default height (3 inches)
 
         # 2D histogram
         hist_2d, xedges, yedges = np.histogram2d(X[:, 0], X[:, 1], bins=100)
@@ -3457,7 +3457,8 @@ class extract_SMs:
 
         # Plot 1: 1D Histograms with GMM overlay
         plotter = PublicationPlotter()
-        fig, axes = plotter.one_column_plot(npanels=n_features, height=4 * n_features)
+        # Use 2.5 inches per panel (reasonable for stacked histograms)
+        fig, axes = plotter.one_column_plot(npanels=n_features, height=2.5 * n_features)
         if n_features == 1:
             axes = [axes]
 
@@ -3510,7 +3511,7 @@ class extract_SMs:
 
         # Plot 2: 2D Scatter (if 2D data)
         if n_features == 2:
-            fig, axes = plotter.two_column_plot(nrows=1, ncols=2, height=5)
+            fig, axes = plotter.two_column_plot(nrows=1, ncols=2)  # Use default height (3 inches)
 
             # Left: GMM ellipses
             ax = axes[0]
@@ -3569,7 +3570,7 @@ class extract_SMs:
             plt.show()
 
         # Plot 3: Confidence histogram
-        fig, ax = plotter.one_column_plot(npanels=1, height=4.5)
+        fig, ax = plotter.one_column_plot(npanels=1)  # Use default height (3 inches)
 
         for k in range(n_channels):
             mask = (assignments == k)
