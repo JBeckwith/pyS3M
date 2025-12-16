@@ -2724,6 +2724,9 @@ class extract_SMs:
                     centered = X_k_core - initial_means[k]
                     cov_k = (centered.T @ centered) / len(X_k_core)
 
+                    # Ensure symmetry (numerical precision can break this)
+                    cov_k = (cov_k + cov_k.T) / 2.0
+
                     # If we have error information, incorporate it
                     if X_err is not None:
                         # Average measurement error for this component
@@ -2743,8 +2746,17 @@ class extract_SMs:
                     # Scale down covariance to be conservative (prevents overly broad initial guess)
                     cov_k = cov_k * scale
 
-                    # Add small regularization to ensure positive definite
-                    cov_k += np.eye(n_features) * 1e-5
+                    # Add regularization to ensure positive definite
+                    # Use scale-dependent regularization based on diagonal variance
+                    diag_var = np.diag(cov_k)
+                    reg_scale = np.maximum(1e-6, np.mean(diag_var) * 1e-3)
+                    cov_k += np.eye(n_features) * reg_scale
+
+                    # Final validation: ensure positive definite
+                    eigvals = np.linalg.eigvalsh(cov_k)
+                    if np.min(eigvals) <= 0:
+                        # Add stronger regularization
+                        cov_k += np.eye(n_features) * (np.abs(np.min(eigvals)) + 1e-4)
 
                     initial_covariances[k] = cov_k
                 else:
@@ -3148,8 +3160,27 @@ class extract_SMs:
         elif gmm_fit_method == "fixed":
             # Use initial guess without EM refinement (most conservative)
             # This prevents EM from expanding the Gaussians
+            if initial_covariances is None:
+                raise ValueError(
+                    "gmm_fit_method='fixed' requires initial_guess_method='histogram_peaks' "
+                    "to compute initial covariances. Either change initial_guess_method or "
+                    "use a different gmm_fit_method."
+                )
+
             means = initial_means
             covariances = initial_covariances
+
+            # Validate all covariances are positive definite
+            for k in range(n_channels):
+                eigvals = np.linalg.eigvalsh(covariances[k])
+                if np.min(eigvals) <= 0:
+                    if verbose:
+                        print(f"  Warning: Channel {k} covariance not positive definite (min eigenvalue={np.min(eigvals):.2e})")
+                        print(f"           Adding regularization...")
+                    # Add regularization
+                    diag_mean = np.mean(np.diag(covariances[k]))
+                    reg_amount = np.abs(np.min(eigvals)) + np.maximum(1e-6, diag_mean * 1e-3)
+                    covariances[k] += np.eye(n_features) * reg_amount
 
             # Calculate weights by hard assignment
             from scipy.spatial.distance import cdist
