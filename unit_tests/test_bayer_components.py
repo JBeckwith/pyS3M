@@ -126,20 +126,20 @@ def test_coordinate_mapping_rggb():
     print("-" * 60)
 
     # Create synthetic detections in subsampled space
-    # Format: [frame, y, x, intensity, ...]
+    # Format: [y, x, frame] (from detect_puncta_in_stack_parallel)
     red_dets = np.array([
-        [0, 0, 0, 100],  # (0,0) sub -> (0,0) full
-        [0, 1, 1, 100],  # (1,1) sub -> (2,2) full
+        [0, 0, 0],  # y=0, x=0 sub -> y=0, x=0 full
+        [1, 1, 0],  # y=1, x=1 sub -> y=2, x=2 full
     ])
 
     green_dets = np.array([
-        [0, 0, 0, 200],  # (0,0) sub -> (0,1) full (even row)
-        [0, 1, 0, 200],  # (1,0) sub -> (1,0) full (odd row)
+        [0, 0, 0],  # y=0, x=0 sub -> y=0, x=1 full (even row)
+        [1, 0, 0],  # y=1, x=0 sub -> y=1, x=0 full (odd row)
     ])
 
     blue_dets = np.array([
-        [0, 0, 0, 300],  # (0,0) sub -> (1,1) full
-        [0, 1, 1, 300],  # (1,1) sub -> (3,3) full
+        [0, 0, 0],  # y=0, x=0 sub -> y=1, x=1 full
+        [1, 1, 0],  # y=1, x=1 sub -> y=3, x=3 full
     ])
 
     coord_info = {
@@ -152,31 +152,31 @@ def test_coordinate_mapping_rggb():
     # Test red mapping
     print("\nRed detections (checkerboard 2×):")
     red_full = map_coordinates_to_full_resolution(red_dets, 'red', coord_info)
-    print(f"  Input:  y={red_dets[:, 1]}, x={red_dets[:, 2]}")
-    print(f"  Output: y={red_full[:, 1]}, x={red_full[:, 2]}")
+    print(f"  Input:  y={red_dets[:, 0]}, x={red_dets[:, 1]}")
+    print(f"  Output: y={red_full[:, 0]}, x={red_full[:, 1]}")
     print(f"  Expected: y=[0, 2], x=[0, 2]")
-    assert np.array_equal(red_full[:, 1], [0, 2]), "Red y mapping incorrect"
-    assert np.array_equal(red_full[:, 2], [0, 2]), "Red x mapping incorrect"
+    assert np.array_equal(red_full[:, 0], [0, 2]), "Red y mapping incorrect"
+    assert np.array_equal(red_full[:, 1], [0, 2]), "Red x mapping incorrect"
     print("  ✓ Red mapping correct")
 
     # Test green mapping (quincunx)
     print("\nGreen detections (quincunx):")
     green_full = map_coordinates_to_full_resolution(green_dets, 'green', coord_info)
-    print(f"  Input:  y={green_dets[:, 1]}, x={green_dets[:, 2]}")
-    print(f"  Output: y={green_full[:, 1]}, x={green_full[:, 2]}")
+    print(f"  Input:  y={green_dets[:, 0]}, x={green_dets[:, 1]}")
+    print(f"  Output: y={green_full[:, 0]}, x={green_full[:, 1]}")
     print(f"  Expected: y=[0, 1], x=[1, 0]")
-    assert np.array_equal(green_full[:, 1], [0, 1]), "Green y mapping incorrect"
-    assert np.array_equal(green_full[:, 2], [1, 0]), "Green x mapping incorrect"
+    assert np.array_equal(green_full[:, 0], [0, 1]), "Green y mapping incorrect"
+    assert np.array_equal(green_full[:, 1], [1, 0]), "Green x mapping incorrect"
     print("  ✓ Green mapping correct")
 
     # Test blue mapping
     print("\nBlue detections (checkerboard 2×):")
     blue_full = map_coordinates_to_full_resolution(blue_dets, 'blue', coord_info)
-    print(f"  Input:  y={blue_dets[:, 1]}, x={blue_dets[:, 2]}")
-    print(f"  Output: y={blue_full[:, 1]}, x={blue_full[:, 2]}")
+    print(f"  Input:  y={blue_dets[:, 0]}, x={blue_dets[:, 1]}")
+    print(f"  Output: y={blue_full[:, 0]}, x={blue_full[:, 1]}")
     print(f"  Expected: y=[1, 3], x=[1, 3]")
-    assert np.array_equal(blue_full[:, 1], [1, 3]), "Blue y mapping incorrect"
-    assert np.array_equal(blue_full[:, 2], [1, 3]), "Blue x mapping incorrect"
+    assert np.array_equal(blue_full[:, 0], [1, 3]), "Blue y mapping incorrect"
+    assert np.array_equal(blue_full[:, 1], [1, 3]), "Blue x mapping incorrect"
     print("  ✓ Blue mapping correct")
 
     print("\n✓ PASSED: Coordinate mapping")
@@ -226,26 +226,27 @@ def test_round_trip():
     print(f"  Blue: y={blue_bright[0]}, x={blue_bright[1]}")
 
     # Map back to full resolution
+    # NOTE: detect_puncta_in_stack_parallel returns [y, x, frame] format
     if len(red_bright[0]) > 0:
-        red_det = np.array([[0, red_bright[0][0], red_bright[1][0], 1000]])
+        red_det = np.array([[red_bright[0][0], red_bright[1][0], 0]])  # [y, x, frame]
         red_full = map_coordinates_to_full_resolution(red_det, 'red', coord_info)
-        print(f"\n  Red mapped back to: ({red_full[0, 1]:.0f}, {red_full[0, 2]:.0f})")
+        print(f"\n  Red mapped back to: ({red_full[0, 0]:.0f}, {red_full[0, 1]:.0f})")  # [y, x, frame]
         print(f"    Expected: (4, 6)")
-        assert red_full[0, 1] == 4 and red_full[0, 2] == 6, "Red round-trip failed"
+        assert red_full[0, 0] == 4 and red_full[0, 1] == 6, "Red round-trip failed"
 
     if len(green_bright[0]) > 0:
-        green_det = np.array([[0, green_bright[0][0], green_bright[1][0], 1000]])
+        green_det = np.array([[green_bright[0][0], green_bright[1][0], 0]])  # [y, x, frame]
         green_full = map_coordinates_to_full_resolution(green_det, 'green', coord_info)
-        print(f"  Green mapped back to: ({green_full[0, 1]:.0f}, {green_full[0, 2]:.0f})")
+        print(f"  Green mapped back to: ({green_full[0, 0]:.0f}, {green_full[0, 1]:.0f})")
         print(f"    Expected: (5, 8)")
-        assert green_full[0, 1] == 5 and green_full[0, 2] == 8, "Green round-trip failed"
+        assert green_full[0, 0] == 5 and green_full[0, 1] == 8, "Green round-trip failed"
 
     if len(blue_bright[0]) > 0:
-        blue_det = np.array([[0, blue_bright[0][0], blue_bright[1][0], 1000]])
+        blue_det = np.array([[blue_bright[0][0], blue_bright[1][0], 0]])  # [y, x, frame]
         blue_full = map_coordinates_to_full_resolution(blue_det, 'blue', coord_info)
-        print(f"  Blue mapped back to: ({blue_full[0, 1]:.0f}, {blue_full[0, 2]:.0f})")
+        print(f"  Blue mapped back to: ({blue_full[0, 0]:.0f}, {blue_full[0, 1]:.0f})")
         print(f"    Expected: (7, 9)")
-        assert blue_full[0, 1] == 7 and blue_full[0, 2] == 9, "Blue round-trip failed"
+        assert blue_full[0, 0] == 7 and blue_full[0, 1] == 9, "Blue round-trip failed"
 
     print("\n✓ PASSED: Round-trip test")
     return True

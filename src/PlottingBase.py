@@ -123,7 +123,7 @@ class PlottingConfig:
 
     # Scale bar properties
     DEFAULT_SCALEBAR_COLOR: str = "white"
-    DEFAULT_SCALEBAR_FONTSIZE: int = 10
+    DEFAULT_SCALEBAR_FONTSIZE: int = 6
 
     # Mode flags
     poster_mode: bool = False

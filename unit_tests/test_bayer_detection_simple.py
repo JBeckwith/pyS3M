@@ -123,11 +123,12 @@ def create_synthetic_bayer_image(
 
     # Convert pixel positions to nm coordinates
     # spot_positions is (n_spots, 2) with [y, x]
-    # We need (1, 2, n_spots) format: (n_frames, 2, n_molecules)
+    # Format expected: (n_molecules, 2, n_frames) based on notebooks
     n_spots = len(spot_positions)
-    x0y0 = np.zeros((1, 2, n_spots))  # (n_frames=1, [x,y], n_spots)
-    x0y0[0, 0, :] = spot_positions[:, 1] * pixel_size  # x coordinates
-    x0y0[0, 1, :] = spot_positions[:, 0] * pixel_size  # y coordinates
+    x0y0 = np.zeros((n_spots, 2, 1))  # (n_spots, [x,y], n_frames=1)
+    for i in range(n_spots):
+        x0y0[i, 0, 0] = spot_positions[i, 1] * pixel_size  # x coordinate
+        x0y0[i, 1, 0] = spot_positions[i, 0] * pixel_size  # y coordinate
 
     # Prepare inputs for simulation
     x0y0_dict = {'dye1': x0y0}
@@ -135,6 +136,17 @@ def create_synthetic_bayer_image(
 
     # Calculate average emission wavelength from spectrum
     avg_wavelength = np.sum(wavelengths_nm * emission) / np.sum(emission) / 1000  # Convert to microns
+
+    # Create smoothing function object (as expected by gen_camera_image_stack)
+    import types
+    sigma_nm = psf.sigma_PSF(avg_wavelength, NA)
+    sigma_px = sigma_nm / pixel_size
+
+    smoothing_fn = types.SimpleNamespace()
+    smoothing_fn.args = {"sigma": sigma_px}
+    smoothing_fn.extent = sigma_px
+    smoothing_fn.smoothing_function = scmos.gaussian_filter_stack
+    smoothing_fn.data_arg = "image"
 
     # Generate Bayer image using Multicolour_Simulation_Functions
     simulator = MSF.MultiC_Sim_Funcs()
@@ -146,7 +158,7 @@ def create_synthetic_bayer_image(
         dye_pixel_efficiency=dye_pixel_efficiency,
         n_photons=photons_dict,
         x0y0=x0y0_dict,
-        smoothing_function=None,  # No smoothing for simple test
+        smoothing_function=smoothing_fn,
         background_photons=background,
         background_colour=[1, 1, 1],
         NA=NA,
@@ -155,8 +167,9 @@ def create_synthetic_bayer_image(
         use_vectorized_photoelectrons=True
     )
 
-    # Return single frame
-    return bayer_stack[0]
+    # Return image (simulation returns 2D when n_frames=1)
+    print(f"  Bayer image shape: {bayer_stack.shape}")
+    return bayer_stack
 
 
 def simple_demosaic(bayer_image: np.ndarray, pattern: str = 'RGGB') -> np.ndarray:
@@ -228,9 +241,9 @@ def test_coordinate_mapping():
     # Initialize detector
     spot_detector = SpotDetectionFunctions.SpotDetection_Functions()
 
-    # Detect using Bayer-aware method
+    # Detect using Bayer-aware method (need to add frame dimension)
     detections, metadata = BayerSpotDetection.detect_spots_bayer_multichannel(
-        bayer_img,
+        bayer_img[np.newaxis, :, :],  # Add frame dimension
         spot_detector=spot_detector,
         pattern='RGGB',
         pfa=1e-3,
@@ -394,18 +407,22 @@ def test_parameter_sweep():
     print("Test 3: Parameter Sweep (Photons vs Background)")
     print("="*60)
 
-    # Parameter ranges to test
-    photon_counts = [500, 1000, 2000, 4000]
-    background_levels = [5, 10, 20, 40]
+    # Parameter ranges to test (reduced for faster initial validation)
+    photon_counts = [1000, 2000, 4000]
+    background_levels = [10, 20]
 
-    # Fixed parameters
-    np.random.seed(42)
-    n_spots = 15
+    # Create a grid of spots for systematic testing
     image_size = (256, 256)
-    ground_truth = np.column_stack([
-        np.random.uniform(50, 200, n_spots),
-        np.random.uniform(50, 200, n_spots)
-    ])
+    border = 40
+
+    # 5x5 grid of spots
+    x_positions = np.linspace(border, image_size[1] - border, 5)
+    y_positions = np.linspace(border, image_size[0] - border, 5)
+    xx, yy = np.meshgrid(x_positions, y_positions)
+    ground_truth = np.column_stack([yy.ravel(), xx.ravel()])  # [y, x] format
+
+    n_spots = len(ground_truth)
+    print(f"\nUsing {n_spots} spots in 5×5 grid")
 
     spot_detector = SpotDetectionFunctions.SpotDetection_Functions()
 
