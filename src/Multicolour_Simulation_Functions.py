@@ -1388,17 +1388,24 @@ class MultiC_Sim_Funcs_Refactored:
         NA: float = 1.49,
         pixel_size: float = 69,
         return_normal_image: bool = False,
+        return_photoelectrons: bool = False,
         use_vectorized_photoelectrons: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """Generate camera image stack with optional vectorized photoelectron generation.
 
         Args:
+            return_normal_image: If True, generate a normal (non-Bayer) image with flat QE
+            return_photoelectrons: If True, return normal_image in photoelectrons instead of ADU
+                                  (only applies when return_normal_image=True)
             use_vectorized_photoelectrons: If True, vectorize photoelectron generation across frames
                                           for 2-5× speedup. If False, use original per-frame loop.
                                           Default: True (recommended)
 
         Returns:
             Tuple of (bayer_image, smoothed_image, normal_image)
+            - bayer_image: Bayer-patterned image in ADU
+            - smoothed_image: Smoothed bayer image in ADU
+            - normal_image: Normal image in ADU (or photoelectrons if return_photoelectrons=True)
         """
         if background_colour is None:
             background_colour = [1, 1, 1]
@@ -1618,6 +1625,26 @@ class MultiC_Sim_Funcs_Refactored:
                     variance,
                 )
 
+                if return_normal_image:
+                    # Generate normal image: apply overall_QY to photons, not channel-specific
+                    # Sum photons across all dyes
+                    n_photons_frame_total = np.sum(n_photons_hitting_detector_all[frame, :, :, :], axis=-1)
+                    # Apply overall QY (sum of channel QYs) instead of per-channel
+                    overall_QY_frame = np.sum(QE_per_channel_all[frame, :, :])  # Sum across all dyes and channels
+                    n_photoelectrons_normal = self.psf.gen_photoelectrons(
+                        n_photons_frame_total.astype(int),
+                        overall_QY_frame / len(pixel_colours)  # Average QY across channels
+                    )
+
+                    if return_photoelectrons:
+                        # Return raw photoelectrons (ground truth for demosaicing validation)
+                        normal_image[frame, :, :] = n_photoelectrons_normal
+                    else:
+                        # Convert to ADU (standard output)
+                        normal_image[frame, :, :] = self.psf.photoelectrons_to_image(
+                            n_photoelectrons_normal, gain, offset, variance
+                        )
+
         else:
             # ======================================================================
             # ORIGINAL PER-FRAME PATH: Kept for backward compatibility and testing
@@ -1756,6 +1783,24 @@ class MultiC_Sim_Funcs_Refactored:
                     np.sum(n_photoelectrons, axis=-1), gain, offset, variance
                 )
 
+                if return_normal_image:
+                    # Generate normal image using overall QY instead of channel-specific
+                    n_photons_frame_total = np.sum(n_photons_hitting_detector, axis=-1)
+                    overall_QY_frame = np.sum(QE_per_channel_frame) / len(pixel_colours)  # Average QY
+                    n_photoelectrons_normal = self.psf.gen_photoelectrons(
+                        n_photons_frame_total.astype(int),
+                        overall_QY_frame
+                    )
+
+                    if return_photoelectrons:
+                        # Return raw photoelectrons (ground truth for demosaicing validation)
+                        normal_image[frame, :, :] = n_photoelectrons_normal
+                    else:
+                        # Convert to ADU (standard output)
+                        normal_image[frame, :, :] = self.psf.photoelectrons_to_image(
+                            n_photoelectrons_normal, gain, offset, variance
+                        )
+
         # Check for bit depth overflow and automatically scale to appropriate bit depth
         max_value = np.max(bayer_image)
         min_value = np.min(bayer_image)
@@ -1777,11 +1822,6 @@ class MultiC_Sim_Funcs_Refactored:
         else:
             # Values fit in uint8
             bayer_image = bayer_image.astype(np.uint8)
-
-        # Generate normal image if requested
-        if return_normal_image:
-            # Implementation similar to above but using overall_QY
-            pass  # Shortened for brevity - would implement similar logic
 
         # Apply smoothing
         smoothing_args = smoothing_function.args
