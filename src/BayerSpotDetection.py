@@ -119,12 +119,13 @@ def map_coordinates_to_full_resolution(
     """Map subsampled coordinates back to full Bayer image resolution.
 
     Args:
-        detections: Array of detections with columns [frame, y, x, ...]
+        detections: Array of detections with columns [y, x, frame, ...]
+                   (format from detect_puncta_in_stack_parallel)
         channel: Color channel ('red', 'green', 'blue')
         coord_info: Coordinate mapping info from extract_bayer_channels
 
     Returns:
-        detections_full: Detections with full-resolution coordinates
+        detections_full: Detections with full-resolution coordinates [y, x, frame, ...]
     """
     if detections is None or len(detections) == 0:
         return detections
@@ -132,34 +133,106 @@ def map_coordinates_to_full_resolution(
     detections_full = detections.copy()
     channel = channel.lower()
 
+    # CRITICAL: detect_puncta_in_stack_parallel returns [y, x, frame, ...]
+    # detections[:, 0] = y (row)
+    # detections[:, 1] = x (col)
+    # detections[:, 2] = frame
+
     # For checkerboard patterns (red, blue): 2× spacing
     if channel == 'red':
         y_offset, x_offset = coord_info['red_offset']
-        detections_full[:, 1] = detections[:, 1] * 2 + y_offset  # y coords
-        detections_full[:, 2] = detections[:, 2] * 2 + x_offset  # x coords
+        detections_full[:, 0] = detections[:, 0] * 2 + y_offset  # y coords (row)
+        detections_full[:, 1] = detections[:, 1] * 2 + x_offset  # x coords (col)
 
     elif channel == 'blue':
         y_offset, x_offset = coord_info['blue_offset']
-        detections_full[:, 1] = detections[:, 1] * 2 + y_offset
-        detections_full[:, 2] = detections[:, 2] * 2 + x_offset
+        detections_full[:, 0] = detections[:, 0] * 2 + y_offset
+        detections_full[:, 1] = detections[:, 1] * 2 + x_offset
 
     elif channel == 'green':
         # Quincunx pattern: alternating rows
         # Row i in green corresponds to row i in full image
         # But x-coordinate depends on row parity
-        y_coords = detections[:, 1].astype(int)
-        x_coords = detections[:, 2].astype(int)
+        y_coords = detections[:, 0].astype(int)  # y is in column 0
+        x_coords = detections[:, 1].astype(int)  # x is in column 1
 
         # For RGGB: green pixels alternate
         #   Even rows (0, 2, 4...): green at odd full columns (1, 3, 5...)
         #   Odd rows (1, 3, 5...): green at even full columns (0, 2, 4...)
-        detections_full[:, 1] = y_coords  # y stays the same
-        detections_full[:, 2] = x_coords * 2 + (1 - y_coords % 2)  # x depends on row
+        detections_full[:, 0] = y_coords  # y stays the same
+        detections_full[:, 1] = x_coords * 2 + (1 - y_coords % 2)  # x depends on row
 
     else:
         raise ValueError(f"Unknown channel: {channel}")
 
     return detections_full
+
+
+def merge_nearby_detections(
+    detections_by_channel: Dict[str, np.ndarray],
+    distance_threshold: float = 2.0
+) -> np.ndarray:
+    """Merge detections from different channels that are at the same physical location.
+
+    When detecting on raw Bayer channels, the same fluorophore can appear in multiple
+    color channels (especially for broadband emitters or due to spectral crosstalk).
+    This function merges detections that are within distance_threshold pixels.
+
+    Args:
+        detections_by_channel: Dict mapping channel name to detections array [y, x, frame, ...]
+        distance_threshold: Maximum distance (pixels) to consider detections as duplicates
+
+    Returns:
+        merged_detections: Combined array with duplicates removed [y, x, frame, ...]
+    """
+    # Combine all detections
+    all_detections = []
+    for channel, dets in detections_by_channel.items():
+        if len(dets) > 0:
+            all_detections.append(dets)
+
+    if len(all_detections) == 0:
+        return np.array([])
+
+    combined = np.vstack(all_detections)
+
+    if len(combined) == 0:
+        return combined
+
+    # Group by frame
+    frames = combined[:, 2].astype(int)
+    unique_frames = np.unique(frames)
+
+    merged = []
+    for frame in unique_frames:
+        frame_mask = frames == frame
+        frame_dets = combined[frame_mask]
+
+        if len(frame_dets) == 0:
+            continue
+
+        # Use simple distance-based clustering
+        # Keep track of which detections have been merged
+        used = np.zeros(len(frame_dets), dtype=bool)
+
+        for i in range(len(frame_dets)):
+            if used[i]:
+                continue
+
+            # Find all detections within distance_threshold
+            y, x = frame_dets[i, 0], frame_dets[i, 1]
+            distances = np.sqrt((frame_dets[:, 0] - y)**2 + (frame_dets[:, 1] - x)**2)
+            nearby = distances < distance_threshold
+
+            # Merge nearby detections by averaging coordinates
+            nearby_dets = frame_dets[nearby]
+            merged_det = np.mean(nearby_dets, axis=0)
+            merged_det[2] = frame  # Keep frame as integer
+
+            merged.append(merged_det)
+            used[nearby] = True
+
+    return np.array(merged) if len(merged) > 0 else np.array([])
 
 
 def detect_spots_bayer_multichannel(
@@ -170,27 +243,35 @@ def detect_spots_bayer_multichannel(
     sigma: float = 1.5,
     variance: Optional[np.ndarray] = None,
     channels: Optional[List[str]] = None,
+    merge_distance: float = 2.0,
     **kwargs
-) -> Tuple[Dict[str, np.ndarray], Dict]:
+) -> Tuple[np.ndarray, Dict]:
     """Detect spots in raw Bayer image using per-channel detection.
 
     This function extracts color channels from raw Bayer data and applies
     standard spot detection to each channel independently, preserving noise
     independence.
 
+    IMPORTANT: The same physical fluorophore can be detected in multiple color
+    channels (due to broadband emission or spectral crosstalk). This function
+    ALWAYS merges nearby detections across channels to avoid counting the same
+    spot multiple times.
+
     Args:
         bayer_image: Raw Bayer-patterned image (can be 2D or 3D stack)
         spot_detector: Instance of SpotDetection_Functions class
         pattern: Bayer pattern string ('RGGB', 'GRBG', 'GBRG', 'BGGR')
         pfa: Probability of false alarm
-        sigma: PSF width in pixels (full resolution)
+        sigma: Threshold sigma multiplier for intensity filtering (dimensionless, typically 1.5)
         variance: Optional variance map for sCMOS noise
         channels: List of channels to detect (['red', 'green', 'blue'])
+        merge_distance: Distance threshold (pixels) for merging duplicates (default: 2.0)
         **kwargs: Additional arguments passed to detect_puncta_in_stack_parallel
+                  (e.g., wavelength, pixel_size, NA for PSF calculation)
 
     Returns:
-        detections_by_channel: Dictionary mapping channel name to detection array
-        metadata: Dictionary with extraction info and statistics
+        merged_detections: Array of merged detections [y, x, frame, ...]
+        metadata: Dictionary with extraction info and statistics including per-channel counts
     """
     if channels is None:
         channels = ['red', 'green', 'blue']
@@ -248,13 +329,9 @@ def detect_spots_bayer_multichannel(
 
         print(f"Detecting spots in {channel} channel (shape: {data.shape})...")
 
-        # For subsampled data, PSF sigma needs adjustment
-        # Checkerboard (R,B): 2× sampling → effective sigma is sigma/2
-        # Quincunx (G): sqrt(2)× sampling → effective sigma is sigma/sqrt(2)
-        if channel_lower in ['red', 'blue']:
-            sigma_effective = sigma / 2.0
-        else:  # green
-            sigma_effective = sigma / np.sqrt(2.0)
+        # NOTE: sigma is the threshold multiplier (dimensionless), NOT PSF width
+        # It should be passed unchanged - PSF width is calculated internally from
+        # wavelength, NA, and pixel_size in detect_puncta_in_stack_parallel
 
         # Extract variance for this channel if provided
         if variance is not None:
@@ -275,11 +352,12 @@ def detect_spots_bayer_multichannel(
             var_channel = None
 
         # Run detection on subsampled channel
+        # Pass sigma unchanged (it's a dimensionless threshold multiplier)
         detections = spot_detector.detect_puncta_in_stack_parallel(
             data,
             variance=var_channel,
             pfa=pfa,
-            sigma=sigma_effective,
+            sigma=sigma,
             **kwargs
         )
 
@@ -296,4 +374,17 @@ def detect_spots_bayer_multichannel(
             metadata['n_detections'][channel_lower] = 0
             print(f"  No spots found in {channel} channel")
 
-    return detections_by_channel, metadata
+    # Always merge nearby detections across channels
+    print(f"\nMerging nearby detections across channels (distance < {merge_distance} px)...")
+    merged = merge_nearby_detections(detections_by_channel, merge_distance)
+    n_before = sum(metadata['n_detections'].values())
+    n_after = len(merged)
+    print(f"  Before merge: {n_before} total detections")
+    print(f"  After merge: {n_after} total detections")
+    print(f"  Removed {n_before - n_after} duplicates ({(n_before-n_after)/max(n_before,1)*100:.1f}%)")
+
+    metadata['n_detections_merged'] = n_after
+    metadata['n_duplicates_removed'] = n_before - n_after
+    metadata['merge_distance'] = merge_distance
+
+    return merged, metadata
