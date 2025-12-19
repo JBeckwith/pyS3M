@@ -219,7 +219,7 @@ class Calibration_Functions:
             end="\r",
         )
         print(
-            "The average variance is {:.3f} +- {:.3f} ADU counts".format(
+            "The average variance is {:.3f} +- {:.3f} ADU^2 counts".format(
                 np.nanmean(variance), np.nanstd(variance)
             ),
             end="\r",

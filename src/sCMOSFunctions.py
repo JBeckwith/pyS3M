@@ -48,19 +48,39 @@ class sCMOS_Functions:
         grayscale: bool = False,
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """
-        Alternative approach to variance-aware Malvar demosaicing.
-        Applies variance weighting to the input before standard Malvar demosaicing.
+        Variance-aware Malvar demosaicing for sCMOS cameras.
+
+        This method:
+        1. Converts CFA from ADU to photoelectrons using gain
+        2. Converts variance from ADU² to photoelectrons² using gain²
+        3. Applies inverse-variance weighting in photoelectron space
+        4. Demosaics the weighted photoelectron image
+
+        **Why convert to photoelectrons before demosaicing?**
+
+        For sCMOS cameras with spatially-varying gain, demosaicing must
+        interpolate in photoelectron space, not ADU space. If we interpolate
+        in ADU space, we mix values that have been scaled by different gains,
+        producing physically incorrect results.
+
+        Example with spatially-varying gain:
+            Pixel A: 100 ADU, gain=2 → 50 photoelectrons
+            Pixel B: 100 ADU, gain=1 → 100 photoelectrons
+            Interpolate at midpoint:
+              Correct (pe space): (50 + 100)/2 = 75 pe ✓
+              Wrong (ADU space):  (100 + 100)/2 / gain_mid = 67 pe ✗
 
         Args:
-            CFA: Input CFA data, shape (H, W) or (frames, H, W)
-            variance_map: Variance map, shape (H, W) - same spatial dimensions as CFA
-            offset_map: Offset map, shape (H, W) - same spatial dimensions as CFA
-            gain: Conversion gain from ADU to photoelectrons, scalar or array of shape (H, W)
+            CFA: Input CFA data, shape (H, W) or (frames, H, W), in ADU
+            variance_map: Variance map in ADU², shape (H, W)
+            offset_map: Offset map in ADU, shape (H, W)
+            gain: Conversion gain (ADU/photoelectron), scalar or array (H, W)
             grayscale: Whether to return grayscale image
 
         Returns:
-            result: Demosaiced image
-            grayscale: Grayscale image if requested, None otherwise
+            tuple: (result, grayscale_result)
+                - result: Demosaiced image in photoelectrons
+                - grayscale_result: Grayscale if requested, None otherwise
         """
         CFA = np.asarray(CFA, dtype=np.float32)
         variance_map = np.asarray(variance_map, dtype=np.float32)

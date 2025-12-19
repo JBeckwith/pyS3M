@@ -6,6 +6,7 @@ DriftCorrection_README.md
 *.png
 .claude/
 *_backup.py
+archive/
 
 # Python cache files (comprehensive)
 *.pyc
