@@ -221,10 +221,11 @@ def detect_spots_bayer_multichannel(
     else:
         # Single frame
         red, green, blue, coord_info = extract_bayer_channels(bayer_image, pattern)
+        # Add frame dimension for compatibility with detect_puncta_in_stack_parallel
         channel_data = {
-            'red': red,
-            'green': green,
-            'blue': blue
+            'red': red[np.newaxis, ...],
+            'green': green[np.newaxis, ...],
+            'blue': blue[np.newaxis, ...]
         }
 
     # Detect spots in each channel
