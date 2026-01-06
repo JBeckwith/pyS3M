@@ -797,12 +797,12 @@ class SuperRes_Functions:
 
             # Calculate percentiles for consistent display
             vmin_processed = np.percentile(image_to_analyse, 1)
-            vmax_processed = np.percentile(image_to_analyse, 99)
+            vmax_processed = np.percentile(image_to_analyse, 99.8)
 
             # Plot the photoelectron image that was actually fitted
             # raw_image_for_fitting is always in photoelectrons (with or without EVER)
             vmin_raw = np.percentile(raw_image_for_fitting, 1)
-            vmax_raw = np.percentile(raw_image_for_fitting, 99)
+            vmax_raw = np.percentile(raw_image_for_fitting, 99.8)
 
             # Find highest density region for zoom
             x_fit = fit_results["xc"].to_numpy()
