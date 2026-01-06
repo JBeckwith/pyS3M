@@ -596,6 +596,10 @@ class extract_SMs:
             if verbose:
                 print(f" Found {len(sm_db)} molecules")
 
+            # Skip empty results (from FOVs with insufficient data)
+            if len(sm_db) == 0:
+                continue
+
             # Add FOV tracking columns
             sm_db["fov_index"] = fov_idx
             sm_db["fov_name"] = fov_name
@@ -616,6 +620,12 @@ class extract_SMs:
         # Combine all FOVs
         if verbose:
             print("\nCombining databases...")
+
+        # Handle case where all FOVs had insufficient data
+        if len(all_molecule_dbs) == 0:
+            if verbose:
+                print("Warning: No molecules found in any FOV. Returning empty databases.")
+            return pd.DataFrame(), pd.DataFrame()
 
         single_molecule_database = pd.concat(all_molecule_dbs, ignore_index=True)
         single_frame_database = pd.concat(all_frame_dbs, ignore_index=True)
