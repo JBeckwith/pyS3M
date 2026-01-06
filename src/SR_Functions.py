@@ -850,7 +850,7 @@ class SuperRes_Functions:
                 s=s,
                 c="red",
                 marker="o",
-                alpha=0.5,
+                alpha=0.25,
             )
             plotter.setup_axis(
                 axs[0, 0],
@@ -913,7 +913,7 @@ class SuperRes_Functions:
                 s=s * 5,
                 c="red",
                 marker="o",
-                alpha=0.7,
+                alpha=0.25,
             )
             axs[1, 0].set_xlim(min_x, max_x)
             axs[1, 0].set_ylim(min_y, max_y)
