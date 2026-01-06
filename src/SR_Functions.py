@@ -876,7 +876,7 @@ class SuperRes_Functions:
             im = plotter.create_image_plot(
                 axs[0, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
             )
-            axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.5)
+            axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.25)
             plotter.setup_axis(
                 axs[0, 1],
                 title="Fitted Spots (Full Field)",
@@ -937,7 +937,7 @@ class SuperRes_Functions:
             im = plotter.create_image_plot(
                 axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
             )
-            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.7)
+            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.25)
             axs[1, 1].set_xlim(min_x, max_x)
             axs[1, 1].set_ylim(min_y, max_y)
             plotter.setup_axis(
