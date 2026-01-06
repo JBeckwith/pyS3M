@@ -237,10 +237,16 @@ class extract_SMs:
         molecular_index_offset = 0
 
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
             min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
+
+        # Check if we have any data left after filtering
+        if len(loc_data) == 0:
+            print("Warning: No localizations remaining after filtering. Returning empty databases.")
+            return pd.DataFrame(), pd.DataFrame()
+
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
         loc_precision = 0.5 * (
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
@@ -306,6 +312,12 @@ class extract_SMs:
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
             min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
+
+        # Check if we have any data left after filtering
+        if len(loc_data) == 0:
+            print("Warning: No localizations remaining after filtering. Returning empty databases.")
+            return pd.DataFrame(), pd.DataFrame()
+
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
         loc_precision = 0.5 * (
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
