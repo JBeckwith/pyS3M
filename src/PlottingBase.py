@@ -2063,6 +2063,109 @@ class TernaryPlotMixin:
             print(f"KDE values range: [{np.nanmin(kde_values):.6f}, {np.nanmax(kde_values):.6f}]")
             return
 
+    def plot_ternary_hexbin(
+        self,
+        ax,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        gridsize: int = 30,
+        cmap: str = 'viridis',
+        mincnt: int = 1,
+        show_colorbar: bool = True,
+        colorbar_label: str = 'Count',
+        **kwargs
+    ):
+        """Plot hexbin density on an existing ternary axis.
+
+        This method adds a hexagonal binning density plot to an existing ternary axis.
+        Use this when you want to add a ternary hexbin to a multi-panel figure.
+
+        Args:
+            ax: Existing ternary axis (must have projection='ternary')
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1)
+            gridsize: Number of hexagons in x direction (default: 30)
+            cmap: Colormap name (default: 'viridis')
+            mincnt: Minimum count to display hexagon (default: 1)
+            show_colorbar: Whether to show colorbar (default: True)
+            colorbar_label: Label for colorbar (default: 'Count')
+            **kwargs: Additional arguments passed to ax.hexbin()
+
+        Returns:
+            hexbin: The hexbin plot object (can be used for colorbar, etc.)
+
+        Example:
+            >>> import matplotlib.pyplot as plt
+            >>> import mpltern
+            >>> fig = plt.figure(figsize=(12, 3))
+            >>> ax1 = fig.add_subplot(1, 3, 1)  # Regular plot
+            >>> ax2 = fig.add_subplot(1, 3, 2)  # Regular plot
+            >>> ax3 = fig.add_subplot(1, 3, 3, projection='ternary')  # Ternary plot
+            >>>
+            >>> # Add hexbin to the ternary axis
+            >>> plotter = PublicationPlotter()
+            >>> hexbin = plotter.plot_ternary_hexbin(
+            ...     ax3, R_data, G_data, B_data,
+            ...     gridsize=50,
+            ...     cmap='hot'
+            ... )
+
+        Notes:
+            - Requires mpltern: `pip install mpltern`
+            - RGB values should be normalized (sum to 1 for each point)
+            - If not normalized, the function will normalize them automatically
+            - The axis must already exist with projection='ternary'
+        """
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays if needed
+        R = np.asarray(R)
+        G = np.asarray(G)
+        B = np.asarray(B)
+
+        # Check for and handle normalization
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-6):
+            # Normalize
+            R = R / totals
+            G = G / totals
+            B = B / totals
+
+        # Create hexbin plot
+        # mpltern uses (t, l, r) ordering where t=top, l=left, r=right
+        # For RGB: t=R (top), l=G (left), r=B (right)
+        hexbin = ax.hexbin(
+            R, G, B,
+            gridsize=gridsize,
+            cmap=cmap,
+            mincnt=mincnt,
+            linewidths=0.2,
+            edgecolors='face',
+            **kwargs
+        )
+
+        # Label the axes with colors using publication font sizes
+        ax.set_tlabel('R', color='darkred', fontsize=self.axis_label_fontsize)
+        ax.set_llabel('G', color='darkgreen', fontsize=self.axis_label_fontsize)
+        ax.set_rlabel('B', color='darkblue', fontsize=self.axis_label_fontsize)
+
+        # Color the tick parameters
+        ax.taxis.set_tick_params(colors='darkred', labelsize=self.tick_label_fontsize)
+        ax.laxis.set_tick_params(colors='darkgreen', labelsize=self.tick_label_fontsize)
+        ax.raxis.set_tick_params(colors='darkblue', labelsize=self.tick_label_fontsize)
+
+        # Add colorbar if requested
+        if show_colorbar:
+            cbar = plt.colorbar(hexbin, ax=ax, pad=0.1, fraction=0.05)
+            cbar.set_label(colorbar_label, fontsize=self.axis_label_fontsize - 1)
+            cbar.ax.tick_params(labelsize=self.tick_label_fontsize - 1)
+
+        return hexbin
+
 
 class DatashaderMixin:
     """Mixin for handling large datasets with datashader when available.
