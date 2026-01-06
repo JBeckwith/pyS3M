@@ -282,6 +282,7 @@ class extract_SMs:
         max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
+        epsilon_multiplier=1.0,
     ):
         """
         Extract single molecules from multiple localization files by clustering.
@@ -289,6 +290,9 @@ class extract_SMs:
         Args:
             localisation_files (list): List of HDF5 localization file paths
             chi_val (float, optional): Chi-squared threshold for filtering. Defaults to median.
+            epsilon_multiplier (float): Multiplicative factor for epsilon (clustering distance).
+                                       epsilon = avg_localization_error * epsilon_multiplier.
+                                       Defaults to 1.0.
 
         Returns:
             tuple: (single_molecule_database, single_frame_database) as DataFrames
@@ -298,7 +302,7 @@ class extract_SMs:
         molecular_index_offset = 0
 
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
             min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
@@ -308,7 +312,7 @@ class extract_SMs:
         )
         hdb = DBSCAN(
             min_samples=min_cluster_size,
-            eps=loc_precision,
+            eps=loc_precision * epsilon_multiplier,
         )
         hdb.fit(X)
 
@@ -448,6 +452,7 @@ class extract_SMs:
         max_photons=1e6,
         max_distance=0.5,
         max_frames=10,
+        epsilon_multiplier=1.0,
         verbose=True,
     ):
         """
@@ -466,6 +471,8 @@ class extract_SMs:
             max_photons (float): Maximum total photon count
             max_distance (float): Maximum distance for linked method (pixels)
             max_frames (int): Maximum frame gap for linked method
+            epsilon_multiplier (float): Multiplicative factor for epsilon in DBSCAN clustering.
+                                       Only used when clustering_method="DBSCAN". Defaults to 1.0.
             verbose (bool): Print progress information
 
         Returns:
@@ -536,6 +543,7 @@ class extract_SMs:
                     max_sigma_error=max_sigma_error,
                     min_photons=min_photons,
                     max_photons=max_photons,
+                    epsilon_multiplier=epsilon_multiplier,
                 )
             elif clustering_method.lower() == "linked":
                 sm_db, sf_db = self.extract_single_molecules_linked(
@@ -810,6 +818,7 @@ class extract_SMs:
         max_photons=1e6,
         max_distance=0.5,
         max_frames=10,
+        epsilon_multiplier=0.5,
         output_folder=None,
         output_prefix="analysis",
         verbose=True,
@@ -831,6 +840,8 @@ class extract_SMs:
             max_photons (float): Maximum total photon count
             max_distance (float): Maximum distance for linked method (pixels)
             max_frames (int): Maximum frame gap for linked method
+            epsilon_multiplier (float): Multiplicative factor for epsilon in DBSCAN clustering.
+                                       Only used when clustering_method="DBSCAN". Defaults to 0.5.
             output_folder (str, optional): If provided, save databases to this folder
             output_prefix (str): Prefix for output filenames
             verbose (bool): Print progress information
@@ -872,6 +883,7 @@ class extract_SMs:
             max_photons=max_photons,
             max_distance=max_distance,
             max_frames=max_frames,
+            epsilon_multiplier=epsilon_multiplier,
             verbose=verbose,
         )
 
