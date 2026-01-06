@@ -421,7 +421,6 @@ def initial_rawcolour_guess(smoothed_data, raw_data, masks):
     bB, bG, bR = BG_matrix
     ig_data = np.abs(smoothed_data)
     bs_data = ig_data - np.abs(np.min(ig_data))
-    size = bs_data.shape[0]
     A = np.sum(bs_data)
     A_ig = A / 3.0
     return bB, bG, bR, A_ig, A_ig, A_ig

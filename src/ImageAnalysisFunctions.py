@@ -59,8 +59,8 @@ class FittingConstants:
     """Constants for fitting operations."""
 
     # Fitting tolerances
-    DEFAULT_FTOL = 1e-2
-    DEFAULT_XTOL = 1e-2
+    DEFAULT_FTOL = 1e-4
+    DEFAULT_XTOL = 1e-4
 
     # Parallel processing limits
     MAX_WORKERS = 60  # Python crashes when using >64 cores
