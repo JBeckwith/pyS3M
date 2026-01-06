@@ -2148,23 +2148,191 @@ class TernaryPlotMixin:
             **kwargs
         )
 
-        # Label the axes with colors using publication font sizes
-        ax.set_tlabel('R', color='darkred', fontsize=self.axis_label_fontsize)
-        ax.set_llabel('G', color='darkgreen', fontsize=self.axis_label_fontsize)
-        ax.set_rlabel('B', color='darkblue', fontsize=self.axis_label_fontsize)
+        # Label the axes with colors
+        ax.set_tlabel('R', color='darkred', fontsize=12)
+        ax.set_llabel('G', color='darkgreen', fontsize=12)
+        ax.set_rlabel('B', color='darkblue', fontsize=12)
 
         # Color the tick parameters
-        ax.taxis.set_tick_params(colors='darkred', labelsize=self.tick_label_fontsize)
-        ax.laxis.set_tick_params(colors='darkgreen', labelsize=self.tick_label_fontsize)
-        ax.raxis.set_tick_params(colors='darkblue', labelsize=self.tick_label_fontsize)
+        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
+        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
+        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
 
         # Add colorbar if requested
         if show_colorbar:
             cbar = plt.colorbar(hexbin, ax=ax, pad=0.1, fraction=0.05)
-            cbar.set_label(colorbar_label, fontsize=self.axis_label_fontsize - 1)
-            cbar.ax.tick_params(labelsize=self.tick_label_fontsize - 1)
+            cbar.set_label(colorbar_label, rotation=270, labelpad=20)
 
         return hexbin
+
+    def plot_ternary_kde(
+        self,
+        ax,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        bandwidth: Union[float, str] = 'scott',
+        grid_resolution: int = 100,
+        cmap: str = 'viridis',
+        n_levels: int = 20,
+        show_colorbar: bool = True,
+        colorbar_label: str = 'Density',
+        **kwargs
+    ):
+        """Plot filled KDE density on an existing ternary axis.
+
+        This method adds a smooth kernel density estimate plot to an existing ternary axis.
+        Use this when you want a smoother, more publication-ready density visualization
+        compared to hexbin.
+
+        Args:
+            ax: Existing ternary axis (must have projection='ternary')
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1)
+            bandwidth: KDE bandwidth selection:
+                      - 'scott': Scott's rule (default, recommended)
+                      - 'silverman': Silverman's rule
+                      - float: Manual bandwidth value
+            grid_resolution: Resolution of KDE evaluation grid (default: 100)
+            cmap: Colormap name (default: 'viridis')
+            n_levels: Number of contour levels (default: 20)
+            show_colorbar: Whether to show colorbar (default: True)
+            colorbar_label: Label for colorbar (default: 'Density')
+            **kwargs: Additional arguments passed to ax.tricontourf()
+
+        Returns:
+            contourf: The TriContourSet object from tricontourf
+
+        Example:
+            >>> import matplotlib.pyplot as plt
+            >>> import mpltern
+            >>> fig = plt.figure(figsize=(12, 3))
+            >>> ax1 = fig.add_subplot(1, 3, 1)  # Regular plot
+            >>> ax2 = fig.add_subplot(1, 3, 2)  # Regular plot
+            >>> ax3 = fig.add_subplot(1, 3, 3, projection='ternary')  # Ternary plot
+            >>>
+            >>> # Add KDE density to the ternary axis
+            >>> plotter = PublicationPlotter()
+            >>> cf = plotter.plot_ternary_kde(
+            ...     ax3, R_data, G_data, B_data,
+            ...     bandwidth='scott',
+            ...     cmap='hot'
+            ... )
+
+        Notes:
+            - Requires scipy for KDE calculation
+            - Requires mpltern: `pip install mpltern`
+            - RGB values should be normalized (sum to 1 for each point)
+            - If not normalized, the function will normalize them automatically
+            - The axis must already exist with projection='ternary'
+            - KDE is computed in 2D (R, G) space since B = 1 - R - G
+        """
+        from scipy.stats import gaussian_kde
+
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays
+        R = np.asarray(R, dtype=np.float64)
+        G = np.asarray(G, dtype=np.float64)
+        B = np.asarray(B, dtype=np.float64)
+
+        # Remove any NaN or inf values
+        valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
+        if not np.all(valid_mask):
+            n_invalid = (~valid_mask).sum()
+            print(f"Warning: Removed {n_invalid} invalid values from KDE calculation")
+            R = R[valid_mask]
+            G = G[valid_mask]
+            B = B[valid_mask]
+
+        if len(R) < 10:
+            print(f"Warning: Only {len(R)} valid points for KDE. Returning None.")
+            return None
+
+        # Check normalization (should sum to 1)
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-6):
+            # Normalize
+            R = R / totals
+            G = G / totals
+            B = B / totals
+
+        # Compute KDE in 2D (R, G) space
+        data = np.vstack([R, G])
+
+        try:
+            if bandwidth == 'scott':
+                kde = gaussian_kde(data, bw_method='scott')
+            elif bandwidth == 'silverman':
+                kde = gaussian_kde(data, bw_method='silverman')
+            elif isinstance(bandwidth, (int, float)):
+                kde = gaussian_kde(data, bw_method=float(bandwidth))
+            else:
+                raise ValueError(f"Invalid bandwidth: {bandwidth}")
+        except Exception as e:
+            print(f"Error creating KDE: {e}")
+            return None
+
+        # Create evaluation grid in (R, G) space
+        r_grid = np.linspace(0, 1, grid_resolution)
+        g_grid = np.linspace(0, 1, grid_resolution)
+        R_grid, G_grid = np.meshgrid(r_grid, g_grid)
+
+        # Mask invalid points (where R + G > 1)
+        valid_ternary = (R_grid + G_grid) <= 1.0
+        B_grid = 1.0 - R_grid - G_grid
+
+        # Evaluate KDE only on valid ternary points
+        valid_indices = valid_ternary.ravel()
+        grid_points_all = np.vstack([R_grid.ravel(), G_grid.ravel()])
+        grid_points_valid = grid_points_all[:, valid_indices]
+
+        try:
+            kde_values_valid = kde(grid_points_valid)
+        except Exception as e:
+            print(f"Error evaluating KDE: {e}")
+            return None
+
+        # Create full KDE array with zeros for invalid points
+        kde_values_full = np.zeros(R_grid.size)
+        kde_values_full[valid_indices] = kde_values_valid
+        kde_values = kde_values_full.reshape(R_grid.shape)
+
+        # Plot filled contours on ternary axis
+        # mpltern tricontourf expects (t, l, r) = (R, G, B) and values
+        try:
+            contourf = ax.tricontourf(
+                R_grid.ravel(),
+                G_grid.ravel(),
+                B_grid.ravel(),
+                kde_values.ravel(),
+                levels=n_levels,
+                cmap=cmap,
+                **kwargs
+            )
+        except Exception as e:
+            print(f"Error plotting filled contours: {e}")
+            return None
+
+        # Label the axes with colors
+        ax.set_tlabel('R', color='darkred', fontsize=12)
+        ax.set_llabel('G', color='darkgreen', fontsize=12)
+        ax.set_rlabel('B', color='darkblue', fontsize=12)
+
+        # Color the tick parameters
+        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
+        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
+        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
+
+        # Add colorbar if requested
+        if show_colorbar:
+            cbar = plt.colorbar(contourf, ax=ax, pad=0.1, fraction=0.05)
+            cbar.set_label(colorbar_label, rotation=270, labelpad=20)
+
+        return contourf
 
 
 class DatashaderMixin:
