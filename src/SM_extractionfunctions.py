@@ -247,6 +247,14 @@ class extract_SMs:
             print("Warning: No localizations remaining after filtering. Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
+        # Check if we have enough points for clustering
+        # HDBSCAN needs at least min_cluster_size points to work
+        if len(loc_data) < min_cluster_size:
+            print(f"Warning: Only {len(loc_data)} localizations remaining after filtering, "
+                  f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. "
+                  f"Returning empty databases.")
+            return pd.DataFrame(), pd.DataFrame()
+
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
         loc_precision = 0.5 * (
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
@@ -316,6 +324,14 @@ class extract_SMs:
         # Check if we have any data left after filtering
         if len(loc_data) == 0:
             print("Warning: No localizations remaining after filtering. Returning empty databases.")
+            return pd.DataFrame(), pd.DataFrame()
+
+        # Check if we have enough points for clustering
+        # DBSCAN needs at least min_samples points to work
+        if len(loc_data) < min_cluster_size:
+            print(f"Warning: Only {len(loc_data)} localizations remaining after filtering, "
+                  f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. "
+                  f"Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
