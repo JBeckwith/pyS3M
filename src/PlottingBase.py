@@ -93,8 +93,9 @@ class PlottingConfig:
     """
 
     # Display properties
-    DEFAULT_DPI: int = 600  # High DPI for publication quality
-    DEFAULT_SAVE_DPI: int = 600  # Match display DPI for consistency
+    DEFAULT_DPI: int = 100  # Screen display DPI for notebooks
+    DEFAULT_SAVE_DPI: int = 600  # High DPI for publication quality saving
+    DEFAULT_FIGSIZE: Tuple[float, float] = (3.33, 3.5)  # One-column width figure
 
     # Color schemes
     DEFAULT_COLORMAP: str = "gist_gray"
@@ -233,7 +234,7 @@ class BasePlotter(ABC):
     ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
         """Create a one-column width publication-quality figure.
 
-        Defaults to 3.33" width, 3.5" per panel height at 600 DPI.
+        Defaults to 3.33" width, 3.5" per panel height at 100 DPI for display (600 DPI when saved).
 
         Args:
             npanels: Number of vertical panels
@@ -275,7 +276,7 @@ class BasePlotter(ABC):
             height_ratios=ratios,
             frameon=False,
             squeeze=False,
-            dpi=self.config.DEFAULT_DPI,  # 600 DPI
+            dpi=self.config.DEFAULT_DPI,  # 100 DPI for display
         )
 
         # Configure tick parameters
@@ -301,7 +302,7 @@ class BasePlotter(ABC):
     ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
         """Create a two-column width publication-quality figure.
 
-        Defaults to 6.69" width, 3.0" per row height at 600 DPI.
+        Defaults to 6.69" width, 3.0" per row height at 100 DPI for display (600 DPI when saved).
 
         Args:
             nrows: Number of rows
@@ -3085,8 +3086,8 @@ class AnalysisPlotter(TernaryPlotMixin, DatashaderMixin, ImagePlotMixin, BasePlo
                 auto-switching and always use matplotlib.
         """
         config = PlottingConfig()
-        config.DEFAULT_FIGSIZE = (10, 6)
-        config.DEFAULT_DPI = 100  # Lower DPI for faster rendering
+        config.DEFAULT_FIGSIZE = (10, 6)  # Larger for exploration/analysis
+        # No need to override DEFAULT_DPI - already 100 for display
 
         # Initialize with proper MRO
         super().__init__(config=config, datashader_threshold=datashader_threshold)
