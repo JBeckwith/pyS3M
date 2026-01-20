@@ -2335,6 +2335,157 @@ class TernaryPlotMixin:
 
         return contourf
 
+    def plot_ternary_scatter(
+        self,
+        ax,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        color: Union[str, np.ndarray] = 'black',
+        size: float = 20,
+        marker: str = 'o',
+        alpha: float = 0.6,
+        edgecolor: str = 'none',
+        linewidth: float = 0,
+        label: str = '',
+        rasterized: bool = False,
+        **kwargs
+    ):
+        """Plot scatter points on an existing ternary axis.
+
+        This method adds scatter points to an existing ternary axis.
+        Use this when you want to add individual data points to a multi-panel figure
+        with ternary plots.
+
+        Args:
+            ax: Existing ternary axis (must have projection='ternary')
+            R: Red channel values (normalized, 0-1)
+            G: Green channel values (normalized, 0-1)
+            B: Blue channel values (normalized, 0-1)
+            color: Point color - can be:
+                  - String color name (e.g., 'red', 'blue')
+                  - RGB/RGBA tuple
+                  - Array of colors (one per point)
+                  (default: 'black')
+            size: Point size in points^2 (default: 20)
+            marker: Marker style (default: 'o')
+                   Options: 'o', 's', '^', 'v', '<', '>', 'D', 'p', '*', etc.
+            alpha: Point transparency, 0-1 (default: 0.6)
+            edgecolor: Edge color for markers (default: 'none')
+            linewidth: Width of marker edges (default: 0)
+            label: Label for legend (default: '')
+            rasterized: Whether to rasterize scatter points for smaller file size (default: False)
+            **kwargs: Additional arguments passed to ax.scatter()
+
+        Returns:
+            scatter: The PathCollection object from scatter (can be used for legend, etc.)
+
+        Example:
+            >>> import matplotlib.pyplot as plt
+            >>> import mpltern
+            >>> from PlottingBase import PublicationPlotter
+            >>>
+            >>> # Create figure with ternary subplot
+            >>> fig, ax = plt.subplots(1, 1, figsize=(6, 6), subplot_kw={'projection': 'ternary'})
+            >>>
+            >>> # Add scatter points
+            >>> plotter = PublicationPlotter()
+            >>> scatter = plotter.plot_ternary_scatter(
+            ...     ax, R_data, G_data, B_data,
+            ...     color='red',
+            ...     size=30,
+            ...     alpha=0.7,
+            ...     label='Data points'
+            ... )
+            >>> ax.legend()
+
+            Multi-panel example:
+            >>> import matplotlib.pyplot as plt
+            >>> import mpltern
+            >>> from PlottingBase import PublicationPlotter
+            >>>
+            >>> fig = plt.figure(figsize=(12, 4))
+            >>> ax1 = fig.add_subplot(1, 3, 1)  # Regular plot
+            >>> ax2 = fig.add_subplot(1, 3, 2, projection='ternary')  # Ternary plot
+            >>> ax3 = fig.add_subplot(1, 3, 3)  # Regular plot
+            >>>
+            >>> plotter = PublicationPlotter()
+            >>> # Add scatter to the ternary axis
+            >>> scatter = plotter.plot_ternary_scatter(
+            ...     ax2, R_data, G_data, B_data,
+            ...     color='blue',
+            ...     size=15,
+            ...     alpha=0.5
+            ... )
+
+        Notes:
+            - Requires mpltern: `pip install mpltern`
+            - RGB values should be normalized (sum to 1 for each point)
+            - If not normalized, the function will normalize them automatically
+            - The axis must already exist with projection='ternary'
+            - For large datasets (>10k points), consider using rasterized=True for smaller file sizes
+            - Colors can be specified per-point using an array matching the data length
+        """
+        # Validate inputs
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
+
+        # Convert to numpy arrays if needed
+        R = np.asarray(R)
+        G = np.asarray(G)
+        B = np.asarray(B)
+
+        # Remove NaN/Inf values
+        valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
+        if not np.all(valid_mask):
+            print(f"Warning: Removing {np.sum(~valid_mask)} invalid points (NaN/Inf)")
+            R = R[valid_mask]
+            G = G[valid_mask]
+            B = B[valid_mask]
+            # Also filter color array if it's an array
+            if isinstance(color, np.ndarray) and len(color) == len(valid_mask):
+                color = color[valid_mask]
+
+        if len(R) == 0:
+            print("Warning: No valid points to plot")
+            return None
+
+        # Check for and handle normalization
+        totals = R + G + B
+        if not np.allclose(totals, 1.0, atol=1e-6):
+            # Normalize
+            R = R / totals
+            G = G / totals
+            B = B / totals
+
+        # Create scatter plot
+        # mpltern uses (t, l, r) ordering where t=top, l=left, r=right
+        # For RGB: t=R (top), l=G (left), r=B (right)
+        scatter = ax.scatter(
+            R, G, B,
+            c=color,
+            s=size,
+            marker=marker,
+            alpha=alpha,
+            edgecolors=edgecolor,
+            linewidths=linewidth,
+            label=label,
+            rasterized=rasterized,
+            **kwargs
+        )
+
+        # Label the axes with colors
+        ax.set_tlabel('R', color='darkred', fontsize=12)
+        ax.set_llabel('G', color='darkgreen', fontsize=12)
+        ax.set_rlabel('B', color='darkblue', fontsize=12)
+
+        # Color the tick parameters
+        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
+        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
+        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
+
+        return scatter
+
 
 class DatashaderMixin:
     """Mixin for handling large datasets with datashader when available.
