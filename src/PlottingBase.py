@@ -1959,9 +1959,19 @@ class TernaryPlotMixin:
 
         # Determine contour levels
         if isinstance(levels, str) and levels == 'auto':
-            # Auto-select levels based on KDE values
+            # Auto-select levels based on NON-ZERO KDE values
+            # This is critical for tight clusters where most grid points have zero density
             valid_kde = kde_values[valid_ternary]
-            levels_to_plot = np.percentile(valid_kde, [10, 30, 50, 70, 90])
+            nonzero_kde = valid_kde[valid_kde > 1e-10]  # Exclude numerical zeros
+
+            if len(nonzero_kde) < 10:
+                print(f"Warning: Only {len(nonzero_kde)} non-zero KDE values. Skipping contour plot.")
+                return
+
+            # Use logarithmic spacing for better contour distribution
+            min_log = np.log10(np.percentile(nonzero_kde, 1))
+            max_log = np.log10(np.percentile(nonzero_kde, 99))
+            levels_to_plot = np.logspace(min_log, max_log, 5)
         elif isinstance(levels, int):
             # Generate N evenly-spaced levels
             valid_kde = kde_values[valid_ternary]
@@ -2003,10 +2013,15 @@ class TernaryPlotMixin:
                     # 99% contour: roughly 0.02 of maximum
                     level_val = sorted_kde[0] * 0.02
                 else:
-                    # General case: use empirical quantile
-                    idx = int(conf * n_points)
-                    if idx >= n_points:
-                        idx = n_points - 1
+                    # General case: use cumulative probability mass
+                    # Calculate cumulative sum of sorted densities (high to low)
+                    cumsum = np.cumsum(sorted_kde)
+                    cumsum_normalized = cumsum / cumsum[-1]
+
+                    # Find threshold where cumulative probability = confidence level
+                    idx = np.searchsorted(cumsum_normalized, conf)
+                    if idx >= len(sorted_kde):
+                        idx = len(sorted_kde) - 1
                     level_val = sorted_kde[idx]
 
                 levels_to_plot.append(level_val)
