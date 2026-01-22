@@ -14,7 +14,7 @@ from scipy.ndimage import uniform_filter
 from skimage.filters import gaussian, median
 from skimage.measure import block_reduce
 from skimage.transform import resize
-from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
+from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA_Bayer_bilinear, demosaicing_CFA_Bayer_DDFAPD, demosaicing_CFA_Bayer_Menon2007
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
@@ -27,6 +27,14 @@ except ImportError:
 
 
 class sCMOS_Functions:
+    # Mapping of demosaicing strategy names to functions
+    DEMOSAIC_STRATEGIES = {
+        'malvar': demosaicing_CFA_Bayer_Malvar2004,
+        'bilinear': demosaicing_CFA_Bayer_bilinear,
+        'ddfapd': demosaicing_CFA_Bayer_DDFAPD,
+        'menon2007': demosaicing_CFA_Bayer_Menon2007,
+    }
+
     def __init__(self, helper_functions=None):
         """Initialize sCMOS_Functions class.
 
@@ -39,22 +47,23 @@ class sCMOS_Functions:
             else HelperFunctions.Helper_Functions()
         )
 
-    def variance_aware_malvar_demosaic(
+    def variance_aware_demosaic(
         self,
         CFA: np.ndarray,
         variance_map: np.ndarray,
         offset_map: np.ndarray | None = None,
         gain: float | np.ndarray = 1.0,
         grayscale: bool = False,
+        strategy: str = 'malvar',
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """
-        Variance-aware Malvar demosaicing for sCMOS cameras.
+        Variance-aware demosaicing for sCMOS cameras with selectable algorithm.
 
         This method:
         1. Converts CFA from ADU to photoelectrons using gain
         2. Converts variance from ADU² to photoelectrons² using gain²
         3. Applies inverse-variance weighting in photoelectron space
-        4. Demosaics the weighted photoelectron image
+        4. Demosaics the weighted photoelectron image using selected strategy
 
         **Why convert to photoelectrons before demosaicing?**
 
@@ -76,12 +85,26 @@ class sCMOS_Functions:
             offset_map: Offset map in ADU, shape (H, W)
             gain: Conversion gain (ADU/photoelectron), scalar or array (H, W)
             grayscale: Whether to return grayscale image
+            strategy: Demosaicing algorithm to use. Options:
+                     - 'malvar': Malvar 2004 (default, high quality)
+                     - 'bilinear': Bilinear interpolation (fast, lower quality)
+                     - 'ddfapd': DDFAPD (high quality, slower)
+                     - 'menon2007': Menon 2007 (high quality)
 
         Returns:
             tuple: (result, grayscale_result)
                 - result: Demosaiced image in photoelectrons
                 - grayscale_result: Grayscale if requested, None otherwise
+
+        Raises:
+            ValueError: If strategy is not recognized
         """
+        # Validate strategy
+        if strategy not in self.DEMOSAIC_STRATEGIES:
+            raise ValueError(
+                f"Unknown demosaicing strategy '{strategy}'. "
+                f"Available strategies: {list(self.DEMOSAIC_STRATEGIES.keys())}"
+            )
         CFA = np.asarray(CFA, dtype=np.float32)
         variance_map = np.asarray(variance_map, dtype=np.float32)
 
@@ -185,31 +208,80 @@ class sCMOS_Functions:
         avg_weight = np.mean(weights)
         weighted_CFA = weighted_CFA / avg_weight
 
-        # Now apply standard Malvar demosaicing to the weighted CFA
+        # Now apply selected demosaicing strategy to the weighted CFA
         result, grayscale_result = self.bayer_demosaic_stack(
-            weighted_CFA, grayscale=grayscale
+            weighted_CFA, grayscale=grayscale, strategy=strategy
         )
         if grayscale:
             return grayscale_result
         else:
             return result
 
-    def bayer_demosaic_stack_grayscale(self, image):
+    def variance_aware_malvar_demosaic(
+        self,
+        CFA: np.ndarray,
+        variance_map: np.ndarray,
+        offset_map: np.ndarray | None = None,
+        gain: float | np.ndarray = 1.0,
+        grayscale: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """
+        Backward compatibility wrapper for variance_aware_demosaic with Malvar strategy.
+
+        This function is deprecated. Use variance_aware_demosaic() instead.
+
+        Args:
+            CFA: Input CFA data, shape (H, W) or (frames, H, W), in ADU
+            variance_map: Variance map in ADU², shape (H, W)
+            offset_map: Offset map in ADU, shape (H, W)
+            gain: Conversion gain (ADU/photoelectron), scalar or array (H, W)
+            grayscale: Whether to return grayscale image
+
+        Returns:
+            tuple: (result, grayscale_result)
+        """
+        return self.variance_aware_demosaic(
+            CFA=CFA,
+            variance_map=variance_map,
+            offset_map=offset_map,
+            gain=gain,
+            grayscale=grayscale,
+            strategy='malvar'
+        )
+
+    def bayer_demosaic_stack_grayscale(self, image, strategy='malvar'):
         """
         Apply colour demosaicking across an entire image stack with parallel processing.
 
         Args:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
                                 where H is height, W is width, and C is the number of channels.
+            strategy (str): Demosaicing algorithm to use. Options:
+                           - 'malvar': Malvar 2004 (default, high quality)
+                           - 'bilinear': Bilinear interpolation (fast, lower quality)
+                           - 'ddfapd': DDFAPD (high quality, slower)
+                           - 'menon2007': Menon 2007 (high quality)
 
         Returns:
             grayscale_image (np.ndarray): Grayscale demosaiced image
+
+        Raises:
+            ValueError: If strategy is not recognized
         """
+        # Validate and get demosaicing function
+        if strategy not in self.DEMOSAIC_STRATEGIES:
+            raise ValueError(
+                f"Unknown demosaicing strategy '{strategy}'. "
+                f"Available strategies: {list(self.DEMOSAIC_STRATEGIES.keys())}"
+            )
+
+        demosaic_func = self.DEMOSAIC_STRATEGIES[strategy]
+
         image = image.astype(np.float32)
 
         if len(image.shape) <= 2:
             # Single frame - process directly
-            rgb_image = demosaicing_CFA_Bayer_Malvar2004(image)
+            rgb_image = demosaic_func(image)
             return np.sum(rgb_image, axis=-1)
 
         # Multi-frame processing with parallel execution
@@ -229,6 +301,7 @@ class sCMOS_Functions:
                         executor.submit(
                             _demosaic_frames_standalone,
                             image[i : i + n_frame_task, :, :],
+                            strategy,
                         )
                     )
 
@@ -251,25 +324,43 @@ class sCMOS_Functions:
 
         return grayscale_image
 
-    def bayer_demosaic_stack(self, image, grayscale=False):
+    def bayer_demosaic_stack(self, image, grayscale=False, strategy='malvar'):
         """
         Apply colour demosaicking across an entire image stack.
 
         Args:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
                                 where H is height, W is width, and C is the number of channels.
+            grayscale (bool): Whether to return grayscale image
+            strategy (str): Demosaicing algorithm to use. Options:
+                           - 'malvar': Malvar 2004 (default, high quality)
+                           - 'bilinear': Bilinear interpolation (fast, lower quality)
+                           - 'ddfapd': DDFAPD (high quality, slower)
+                           - 'menon2007': Menon 2007 (high quality)
 
         Returns:
-            RGB_image (np.ndarray): binned image
+            RGB_image (np.ndarray): Demosaiced RGB image
+            grayscale_image (np.ndarray): Grayscale image if requested, None otherwise
+
+        Raises:
+            ValueError: If strategy is not recognized
         """
+        # Validate and get demosaicing function
+        if strategy not in self.DEMOSAIC_STRATEGIES:
+            raise ValueError(
+                f"Unknown demosaicing strategy '{strategy}'. "
+                f"Available strategies: {list(self.DEMOSAIC_STRATEGIES.keys())}"
+            )
+
+        demosaic_func = self.DEMOSAIC_STRATEGIES[strategy]
 
         image = image.astype(np.float32)
         if len(image.shape) > 2:
             RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
             for i in np.arange(image.shape[0]):
-                RGB_image[i, :, :, :] = demosaicing_CFA_Bayer_Malvar2004(image[i, :, :])
+                RGB_image[i, :, :, :] = demosaic_func(image[i, :, :])
         else:
-            BGR_image = demosaicing_CFA_Bayer_Malvar2004(image)
+            BGR_image = demosaic_func(image)
             RGB_image = np.zeros_like(BGR_image)
             RGB_image = BGR_image
         if grayscale:
@@ -422,22 +513,39 @@ class sCMOS_Functions:
 
 
 # Module-level standalone function for multiprocessing (pickleable)
-def _demosaic_frames_standalone(image_chunk: np.ndarray) -> np.ndarray:
+def _demosaic_frames_standalone(image_chunk: np.ndarray, strategy: str = 'malvar') -> np.ndarray:
     """
     Standalone function for demosaicing a chunk of frames.
 
     Args:
         image_chunk: Image chunk of shape (n_frames, H, W)
+        strategy: Demosaicing algorithm to use ('malvar', 'bilinear', 'ddfapd', 'menon2007')
 
     Returns:
         Grayscale demosaiced images of shape (n_frames, H, W)
     """
+    # Map strategy to demosaicing function
+    strategy_map = {
+        'malvar': demosaicing_CFA_Bayer_Malvar2004,
+        'bilinear': demosaicing_CFA_Bayer_bilinear,
+        'ddfapd': demosaicing_CFA_Bayer_DDFAPD,
+        'menon2007': demosaicing_CFA_Bayer_Menon2007,
+    }
+
+    if strategy not in strategy_map:
+        raise ValueError(
+            f"Unknown demosaicing strategy '{strategy}'. "
+            f"Available strategies: {list(strategy_map.keys())}"
+        )
+
+    demosaic_func = strategy_map[strategy]
+
     n_frames, height, width = image_chunk.shape
     results = np.zeros((n_frames, height, width), dtype=np.float32)
 
     for i in range(n_frames):
         # Demosaic to RGB
-        rgb_image = demosaicing_CFA_Bayer_Malvar2004(image_chunk[i, :, :])
+        rgb_image = demosaic_func(image_chunk[i, :, :])
         # Convert to grayscale by summing RGB channels
         results[i, :, :] = np.sum(rgb_image, axis=-1)
 
