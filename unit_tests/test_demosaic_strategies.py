@@ -93,35 +93,6 @@ def test_all_strategies():
     return True
 
 
-def test_backward_compatibility():
-    """Test that the old function name still works."""
-    print("\n\nTesting backward compatibility\n" + "="*60)
-
-    bayer_image = create_test_bayer_image(64)
-    variance_map = np.ones_like(bayer_image) * 1.0
-    offset_map = np.ones_like(bayer_image) * 100.0
-    gain = 0.5
-
-    scmos = sCMOS_Functions()
-
-    try:
-        # Old function name should still work
-        result = scmos.variance_aware_malvar_demosaic(
-            CFA=bayer_image,
-            variance_map=variance_map,
-            offset_map=offset_map,
-            gain=gain,
-            grayscale=True
-        )
-
-        print(f"✓ variance_aware_malvar_demosaic still works!")
-        print(f"  Result shape: {result.shape}, range: [{result.min():.1f}, {result.max():.1f}]")
-        return True
-    except Exception as e:
-        print(f"✗ FAILED: {e}")
-        return False
-
-
 def test_invalid_strategy():
     """Test that invalid strategy raises appropriate error."""
     print("\n\nTesting error handling\n" + "="*60)
@@ -202,7 +173,6 @@ if __name__ == '__main__':
     all_passed = True
 
     all_passed &= test_all_strategies()
-    all_passed &= test_backward_compatibility()
     all_passed &= test_invalid_strategy()
     all_passed &= test_strategy_comparison()
 

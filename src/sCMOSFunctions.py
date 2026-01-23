@@ -54,7 +54,7 @@ class sCMOS_Functions:
         offset_map: np.ndarray | None = None,
         gain: float | np.ndarray = 1.0,
         grayscale: bool = False,
-        strategy: str = 'malvar',
+        strategy: str = 'bilinear',
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """
         Variance-aware demosaicing for sCMOS cameras with selectable algorithm.
@@ -86,8 +86,8 @@ class sCMOS_Functions:
             gain: Conversion gain (ADU/photoelectron), scalar or array (H, W)
             grayscale: Whether to return grayscale image
             strategy: Demosaicing algorithm to use. Options:
-                     - 'malvar': Malvar 2004 (default, high quality)
-                     - 'bilinear': Bilinear interpolation (fast, lower quality)
+                     - 'bilinear': Bilinear interpolation (default, good for spot detection)
+                     - 'malvar': Malvar 2004 (high quality, slower)
                      - 'ddfapd': DDFAPD (high quality, slower)
                      - 'menon2007': Menon 2007 (high quality)
 
@@ -217,39 +217,7 @@ class sCMOS_Functions:
         else:
             return result
 
-    def variance_aware_malvar_demosaic(
-        self,
-        CFA: np.ndarray,
-        variance_map: np.ndarray,
-        offset_map: np.ndarray | None = None,
-        gain: float | np.ndarray = 1.0,
-        grayscale: bool = False,
-    ) -> tuple[np.ndarray, np.ndarray | None]:
-        """
-        Backward compatibility wrapper for variance_aware_demosaic with Malvar strategy.
-
-        This function is deprecated. Use variance_aware_demosaic() instead.
-
-        Args:
-            CFA: Input CFA data, shape (H, W) or (frames, H, W), in ADU
-            variance_map: Variance map in ADU², shape (H, W)
-            offset_map: Offset map in ADU, shape (H, W)
-            gain: Conversion gain (ADU/photoelectron), scalar or array (H, W)
-            grayscale: Whether to return grayscale image
-
-        Returns:
-            tuple: (result, grayscale_result)
-        """
-        return self.variance_aware_demosaic(
-            CFA=CFA,
-            variance_map=variance_map,
-            offset_map=offset_map,
-            gain=gain,
-            grayscale=grayscale,
-            strategy='malvar'
-        )
-
-    def bayer_demosaic_stack_grayscale(self, image, strategy='malvar'):
+    def bayer_demosaic_stack_grayscale(self, image, strategy='bilinear'):
         """
         Apply colour demosaicking across an entire image stack with parallel processing.
 
@@ -257,8 +225,8 @@ class sCMOS_Functions:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
                                 where H is height, W is width, and C is the number of channels.
             strategy (str): Demosaicing algorithm to use. Options:
-                           - 'malvar': Malvar 2004 (default, high quality)
-                           - 'bilinear': Bilinear interpolation (fast, lower quality)
+                           - 'bilinear': Bilinear interpolation (default, good for spot detection)
+                           - 'malvar': Malvar 2004 (high quality, slower)
                            - 'ddfapd': DDFAPD (high quality, slower)
                            - 'menon2007': Menon 2007 (high quality)
 
@@ -324,7 +292,7 @@ class sCMOS_Functions:
 
         return grayscale_image
 
-    def bayer_demosaic_stack(self, image, grayscale=False, strategy='malvar'):
+    def bayer_demosaic_stack(self, image, grayscale=False, strategy='bilinear'):
         """
         Apply colour demosaicking across an entire image stack.
 
@@ -333,8 +301,8 @@ class sCMOS_Functions:
                                 where H is height, W is width, and C is the number of channels.
             grayscale (bool): Whether to return grayscale image
             strategy (str): Demosaicing algorithm to use. Options:
-                           - 'malvar': Malvar 2004 (default, high quality)
-                           - 'bilinear': Bilinear interpolation (fast, lower quality)
+                           - 'bilinear': Bilinear interpolation (default, good for spot detection)
+                           - 'malvar': Malvar 2004 (high quality, slower)
                            - 'ddfapd': DDFAPD (high quality, slower)
                            - 'menon2007': Menon 2007 (high quality)
 
@@ -513,7 +481,7 @@ class sCMOS_Functions:
 
 
 # Module-level standalone function for multiprocessing (pickleable)
-def _demosaic_frames_standalone(image_chunk: np.ndarray, strategy: str = 'malvar') -> np.ndarray:
+def _demosaic_frames_standalone(image_chunk: np.ndarray, strategy: str = 'bilinear') -> np.ndarray:
     """
     Standalone function for demosaicing a chunk of frames.
 

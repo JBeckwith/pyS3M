@@ -1531,16 +1531,17 @@ class SuperRes_Functions:
             - Standard demosaicing uses simple Bayer-to-grayscale conversion
         """
         if use_variance_aware:
-            # Use variance-aware demosaicing for robust spot detection
-            return self.scmos.variance_aware_malvar_demosaic(
+            # Use variance-aware bilinear demosaicing for robust spot detection
+            return self.scmos.variance_aware_demosaic(
                 raw_data,
                 variance_map=variance,
                 offset_map=offset_map,
                 gain=gain_map,
                 grayscale=True,
+                strategy='bilinear',  # Bilinear works best for spot detection
             )
         else:
-            # Use standard grayscale demosaicing
+            # Use standard bilinear grayscale demosaicing
             return self.scmos.bayer_demosaic_stack_grayscale(raw_data)
 
     def fit_imaging_data(

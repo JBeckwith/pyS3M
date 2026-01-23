@@ -541,7 +541,7 @@ class NileRedThresholdTuner:
                     demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_ever_adu)
                 else:
                     # Use variance-aware demosaicing on EVER-subtracted ADU data
-                    demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                    demosaiced_image = self.scmos.variance_aware_demosaic(
                         frame_after_ever_adu,
                         variance_map=camera_data_to_use["variance"],
                         offset_map=camera_data_to_use["offset"],
@@ -734,7 +734,7 @@ class NileRedThresholdTuner:
                     demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
                 else:
                     # Use variance-aware demosaicing
-                    demosaiced_image = self.scmos.variance_aware_malvar_demosaic(
+                    demosaiced_image = self.scmos.variance_aware_demosaic(
                         image,
                         variance_map=camera_data_to_use["variance"],
                         offset_map=camera_data_to_use["offset"],
@@ -795,7 +795,7 @@ class NileRedThresholdTuner:
                         demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
                     else:
                         # Use variance-aware demosaicing
-                        demosaiced_frame = self.scmos.variance_aware_malvar_demosaic(
+                        demosaiced_frame = self.scmos.variance_aware_demosaic(
                             frame,
                             variance_map=camera_data_to_use["variance"],
                             offset_map=camera_data_to_use["offset"],
