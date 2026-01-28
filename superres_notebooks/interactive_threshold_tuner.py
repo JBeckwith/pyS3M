@@ -18,6 +18,7 @@ Date: September 1, 2025
 """
 
 import os
+import re
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
@@ -77,7 +78,7 @@ class InteractiveThresholdTuner:
         self.scmos = sCMOS_Functions()
 
         # Default parameters
-        self.default_pfa = 1e-4
+        self.default_pfa = 1e-3
         self.default_sigma = 1.5
         self.default_true_fraction = 0.2
         self.default_wavelength = 0.7
@@ -174,26 +175,44 @@ class InteractiveThresholdTuner:
             self.roi_width, self.roi_height
         )
 
+    @staticmethod
+    def _extract_wavelength_from_folder(folder_path: str, fallback: float = 0.7) -> float:
+        """Extract wavelength guess from the leaf folder name.
+
+        Looks for a 3-digit number > 400 in the final path component and returns
+        it divided by 1000 as a wavelength in µm (e.g. '638' → 0.638).
+        Falls back to the provided default if no suitable number is found.
+        """
+        folder_name = os.path.basename(folder_path.rstrip('/'))
+        matches = re.findall(r'(?<!\d)(\d{3})(?!\d)', folder_name)
+        for m in matches:
+            if int(m) > 400:
+                return int(m) / 1000.0
+        return fallback
+
     def get_all_processing_folders(self) -> List[Tuple[str, str, float]]:
         """Get all folders that will be processed by batch_analysis.sh with their parameters"""
         all_folders = []
 
-        # SM data directories (hierarchical)
+        # SM data directories (hierarchical) — fallback 0.638
         for base_dir in self.folder_lists["SM_DATA_DIRS"]:
             leaf_dirs = self.find_leaf_directories(base_dir)
             for folder in leaf_dirs:
-                all_folders.append((folder, "sm", 0.638))
+                wavelength = self._extract_wavelength_from_folder(folder, fallback=0.638)
+                all_folders.append((folder, "sm", wavelength))
 
-        # Hierarchical imaging directories
+        # Hierarchical imaging directories — fallback 0.55
         for base_dir in self.folder_lists["HIERARCHICAL_DIRS"]:
             leaf_dirs = self.find_leaf_directories(base_dir)
             for folder in leaf_dirs:
-                all_folders.append((folder, "imaging", 0.55))
+                wavelength = self._extract_wavelength_from_folder(folder, fallback=0.55)
+                all_folders.append((folder, "imaging", wavelength))
 
-        # Cell super-resolution folders (direct)
+        # Cell super-resolution folders (direct) — fallback 0.647
         for folder in self.folder_lists["CELL_SUPERRES_FOLDERS"]:
             if os.path.isdir(folder):
-                all_folders.append((folder, "imaging", 0.647))
+                wavelength = self._extract_wavelength_from_folder(folder, fallback=0.647)
+                all_folders.append((folder, "imaging", wavelength))
 
         return all_folders
 
