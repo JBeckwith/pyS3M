@@ -463,11 +463,12 @@ class InteractiveThresholdTuner:
 
         # Image with detected spots using PlottingFunctions (right panel)
         if len(spots) > 0:
+            # spots[:, 0] = row (y), spots[:, 1] = col (x) from mask2points
             self.pf.image_scatter_plot(
                 ax2,
                 data=image,
-                xdata=spots[:, 0],
-                ydata=spots[:, 1],
+                xdata=spots[:, 1],
+                ydata=spots[:, 0],
                 vmin=float(np.percentile(image, 1)),
                 vmax=float(np.percentile(image, 99)),
                 cmap="gist_gray",
@@ -537,12 +538,13 @@ class InteractiveThresholdTuner:
                 break
 
             # Plot image with detected spots overlaid
+            # spots[:, 0] = row (y), spots[:, 1] = col (x) from mask2points
             if len(spots) > 0:
                 self.pf.image_scatter_plot(
                     axs=axs[i],
                     data=frame,
-                    xdata=spots[:, 0],
-                    ydata=spots[:, 1],
+                    xdata=spots[:, 1],
+                    ydata=spots[:, 0],
                     vmin=float(np.percentile(frame, 1)),
                     vmax=float(np.percentile(frame, 99)),
                     s=30,  # Smaller spots for cleaner display
