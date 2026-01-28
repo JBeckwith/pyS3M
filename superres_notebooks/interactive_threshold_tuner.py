@@ -180,14 +180,15 @@ class InteractiveThresholdTuner:
         """Extract wavelength guess from the leaf folder name.
 
         Looks for a 3-digit number > 400 in the final path component and returns
-        it divided by 1000 as a wavelength in µm (e.g. '638' → 0.638).
-        Falls back to the provided default if no suitable number is found.
+        it divided by 1000, scaled by 1.05, as a wavelength in µm
+        (e.g. '638' → 0.670). Falls back to the provided default if no suitable
+        number is found.
         """
         folder_name = os.path.basename(folder_path.rstrip('/'))
         matches = re.findall(r'(?<!\d)(\d{3})(?!\d)', folder_name)
         for m in matches:
             if int(m) > 400:
-                return int(m) / 1000.0
+                return int(m) / 1000.0 * 1.05
         return fallback
 
     def get_all_processing_folders(self) -> List[Tuple[str, str, float]]:
