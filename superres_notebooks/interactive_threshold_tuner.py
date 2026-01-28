@@ -330,23 +330,15 @@ class InteractiveThresholdTuner:
                     else self.camera_data
                 )
 
-                # Check if calibration data needs to be resized to match image
-                image_shape = image.shape
-                variance_shape = camera_data_to_use["variance"].shape
-
-                if image_shape != variance_shape:
-                    print(f"Warning: Image shape {image_shape} != calibration data shape {variance_shape}")
-                    print("Falling back to standard demosaicing")
-                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
-                else:
-                    # Use variance-aware demosaicing
-                    demosaiced_image = self.scmos.variance_aware_demosaic(
-                        image,
-                        variance_map=camera_data_to_use["variance"],
-                        offset_map=camera_data_to_use["offset"],
-                        gain=camera_data_to_use["gain"],
-                        grayscale=True
-                    )
+                # variance_aware_demosaic handles transposed calibration data internally
+                demosaiced_image = self.scmos.variance_aware_demosaic(
+                    image,
+                    variance_map=camera_data_to_use["variance"],
+                    offset_map=camera_data_to_use["offset"],
+                    gain=camera_data_to_use["gain"],
+                    grayscale=True,
+                    strategy='bilinear',
+                )
             else:
                 # Use standard grayscale demosaicing
                 demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(image)
@@ -391,23 +383,15 @@ class InteractiveThresholdTuner:
                         else self.camera_data
                     )
 
-                    # Check if calibration data needs to be resized to match frame
-                    frame_shape = frame.shape
-                    variance_shape = camera_data_to_use["variance"].shape
-
-                    if frame_shape != variance_shape:
-                        print(f"Warning: Frame shape {frame_shape} != calibration data shape {variance_shape}")
-                        print("Falling back to standard demosaicing")
-                        demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
-                    else:
-                        # Use variance-aware demosaicing
-                        demosaiced_frame = self.scmos.variance_aware_demosaic(
-                            frame,
-                            variance_map=camera_data_to_use["variance"],
-                            offset_map=camera_data_to_use["offset"],
-                            gain=camera_data_to_use["gain"],
-                            grayscale=True
-                        )
+                    # variance_aware_demosaic handles transposed calibration data internally
+                    demosaiced_frame = self.scmos.variance_aware_demosaic(
+                        frame,
+                        variance_map=camera_data_to_use["variance"],
+                        offset_map=camera_data_to_use["offset"],
+                        gain=camera_data_to_use["gain"],
+                        grayscale=True,
+                        strategy='bilinear',
+                    )
                 else:
                     # Use standard grayscale demosaicing
                     demosaiced_frame = self.scmos.bayer_demosaic_stack_grayscale(frame)
