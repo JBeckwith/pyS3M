@@ -604,12 +604,13 @@ class SuperRes_Functions:
 
             print(f"Summing {actual_frames_summed} frames (frames {frame_index} to {end_frame - 1}) for spot detection")
 
-            # Load and sum frames
-            raw_data = np.zeros_like(
-                self.io.read_tiff(file, dtype="float32", frame=frame_index)
-            )
-            for f_idx in range(frame_index, end_frame):
-                raw_data += self.io.read_tiff(file, dtype="float32", frame=f_idx)
+            # Load all frames at once and sum
+            frames_to_load = list(range(frame_index, end_frame))
+            raw_stack = self.io.read_tiff(file, dtype="float32", frame=frames_to_load)
+            if raw_stack.ndim == 2:
+                raw_stack = raw_stack[np.newaxis, :, :]
+            raw_data = np.sum(raw_stack, axis=0)
+            del raw_stack
         else:
             actual_frames_summed = 1
             raw_data = self.io.read_tiff(
@@ -1133,11 +1134,12 @@ class SuperRes_Functions:
             print(f"Phase 1: Detecting spots on summed frames (n={n_frames_sum})")
 
             actual_frames_to_sum = min(n_frames_sum, total_frames)
-            summed_data = np.zeros((height, width), dtype=np.float32)
-
-            for f_idx in range(actual_frames_to_sum):
-                frame_data = self.io.read_tiff(file, dtype="float32", frame=f_idx)
-                summed_data += frame_data
+            frames_to_load = list(range(actual_frames_to_sum))
+            raw_stack = self.io.read_tiff(file, dtype="float32", frame=frames_to_load)
+            if raw_stack.ndim == 2:
+                raw_stack = raw_stack[np.newaxis, :, :]
+            summed_data = np.sum(raw_stack, axis=0)
+            del raw_stack
 
             # Scale variance for summed frames
             variance_summed = variance_crop * actual_frames_to_sum
