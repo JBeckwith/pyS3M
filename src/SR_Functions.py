@@ -1033,16 +1033,17 @@ class SuperRes_Functions:
         pixel_size: float = 0.069,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
-    ) -> pd.DataFrame:
+    ) -> None:
         """Complete FRET analysis pipeline with change point detection.
 
-        Pipeline:
+        Processes each image file independently:
         1. Sum first n_frames_sum frames for improved SNR spot detection
         2. Detect spots on summed (demosaiced) image
         3. Extract time traces (sum of ROI photoelectrons) for each spot
         4. Run PELT change point detection on traces
         5. Filter: keep only spots with >1 change point (real signal)
         6. Fit remaining spots at all frames up to final change point
+        7. Save results to HDF5 database (one per input file)
 
         Args:
             image_folder: Path to folder containing image files
@@ -1068,9 +1069,9 @@ class SuperRes_Functions:
             image_type: Image file extension (default: ".tif")
             use_variance_aware_demosaic: Use variance-aware demosaicing (default: True)
 
-        Returns:
-            DataFrame with multi-index (puncta_id, frame) containing fit results:
-            xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr, and errors
+        Saves:
+            For each input file, saves {filename}.h5 with columns:
+            puncta_id, frame, xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr
         """
         from tqdm import tqdm
 
@@ -1085,11 +1086,7 @@ class SuperRes_Functions:
         )
 
         # Get first file to determine dimensions if needed
-        file = image_files[0]
-        total_frames_file0 = self.io.get_num_pages_in_TIF(file)
-
-        # Load first frame to get dimensions
-        first_frame = self.io.read_tiff(file, dtype="float32", frame=0)
+        first_frame = self.io.read_tiff(image_files[0], dtype="float32", frame=0)
         full_height, full_width = first_frame.shape
 
         if width is None or height is None:
@@ -1099,6 +1096,7 @@ class SuperRes_Functions:
         masks = self.mask.get_stacked_masks(
             start_x, start_y, width, height, self.mosaic_unit
         )
+        masks_stacked = np.dstack([masks[x] for x in masks.keys()])
 
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
@@ -1120,269 +1118,323 @@ class SuperRes_Functions:
         rqe_crop = cropped_maps["rqe"]
         variance_crop = cropped_maps["variance"]
 
-        # ============================================================
-        # PHASE 1: Spot detection on summed frames
-        # ============================================================
-        print(f"Phase 1: Detecting spots on summed frames (n={n_frames_sum})")
+        # Process each file independently
+        for FOVn, file in enumerate(image_files):
+            print(f"\n{'='*60}")
+            print(f"Processing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+            print(f"{'='*60}")
 
-        # Load and sum first n_frames_sum frames
-        actual_frames_to_sum = min(n_frames_sum, total_frames_file0)
-        summed_data = np.zeros((height, width), dtype=np.float32)
+            fit_savename = file.split(".")[0] + ".h5"
+            total_frames = self.io.get_num_pages_in_TIF(file)
 
-        for f_idx in range(actual_frames_to_sum):
-            frame_data = self.io.read_tiff(file, dtype="float32", frame=f_idx)
-            summed_data += frame_data
+            # ============================================================
+            # PHASE 1: Spot detection on summed frames
+            # ============================================================
+            print(f"Phase 1: Detecting spots on summed frames (n={n_frames_sum})")
 
-        # Scale variance for summed frames
-        variance_summed = variance_crop * actual_frames_to_sum
-        offset_summed = offset_map_crop * actual_frames_to_sum
+            actual_frames_to_sum = min(n_frames_sum, total_frames)
+            summed_data = np.zeros((height, width), dtype=np.float32)
 
-        # Demosaic the summed image
-        image_to_analyse = self._demosaic_image(
-            summed_data,
-            use_variance_aware=use_variance_aware_demosaic,
-            gain_map=gain_map_crop,
-            offset_map=offset_summed,
-            variance=variance_summed,
-        )
+            for f_idx in range(actual_frames_to_sum):
+                frame_data = self.io.read_tiff(file, dtype="float32", frame=f_idx)
+                summed_data += frame_data
 
-        # Detect spots
-        detected_puncta = self.spot_detection.detect_puncta_in_image(
-            image_to_analyse,
-            pfa=pfa,
-            variance=variance_summed,
-            wavelength=peak_wavelength,
-            pixel_size=pixel_size,
-            NA=NA,
-            mf_factor=mf_factor,
-            local_factor=local_factor,
-            sigma=sigma,
-            fraction_true=fraction_true,
-        )
+            # Scale variance for summed frames
+            variance_summed = variance_crop * actual_frames_to_sum
+            offset_summed = offset_map_crop * actual_frames_to_sum
 
-        n_detected = len(detected_puncta)
-        print(f"  Detected {n_detected} spots on summed image")
+            # Demosaic the summed image
+            image_to_analyse = self._demosaic_image(
+                summed_data,
+                use_variance_aware=use_variance_aware_demosaic,
+                gain_map=gain_map_crop,
+                offset_map=offset_summed,
+                variance=variance_summed,
+            )
 
-        if n_detected == 0:
-            print("No spots detected. Returning empty DataFrame.")
-            return pd.DataFrame()
+            # Detect spots
+            detected_puncta = self.spot_detection.detect_puncta_in_image(
+                image_to_analyse,
+                pfa=pfa,
+                variance=variance_summed,
+                wavelength=peak_wavelength,
+                pixel_size=pixel_size,
+                NA=NA,
+                mf_factor=mf_factor,
+                local_factor=local_factor,
+                sigma=sigma,
+                fraction_true=fraction_true,
+            )
 
-        del summed_data, image_to_analyse, variance_summed, offset_summed
-        gc.collect()
+            n_detected = len(detected_puncta)
+            print(f"  Detected {n_detected} spots on summed image")
 
-        # ============================================================
-        # PHASE 2: Extract time traces for each spot
-        # ============================================================
-        print("Phase 2: Extracting time traces for detected spots")
+            if n_detected == 0:
+                print("  No spots detected. Skipping file.")
+                del summed_data, image_to_analyse, variance_summed, offset_summed
+                gc.collect()
+                continue
 
-        traces = self._extract_roi_traces(
-            image_files,
-            detected_puncta,
-            ROI_size,
-            width,
-            height,
-            gain_map_crop,
-            offset_map_crop,
-            rqe_crop,
-        )
+            del summed_data, image_to_analyse, variance_summed, offset_summed
+            gc.collect()
 
-        # ============================================================
-        # PHASE 3: Change point detection
-        # ============================================================
-        print("Phase 3: Running change point detection")
+            # ============================================================
+            # PHASE 2: Extract time traces for each spot
+            # ============================================================
+            print("Phase 2: Extracting time traces for detected spots")
 
-        frames_to_fit = self._find_change_points_parallel(
-            traces,
-            model=cp_model,
-            min_size=cp_min_size,
-            penalty_factor=cp_penalty_factor,
-        )
+            # Extract traces for this single file
+            traces = self._extract_roi_traces_single_file(
+                file,
+                detected_puncta,
+                ROI_size,
+                width,
+                height,
+                gain_map_crop,
+                offset_map_crop,
+                rqe_crop,
+            )
 
-        del traces
-        gc.collect()
+            # ============================================================
+            # PHASE 3: Change point detection
+            # ============================================================
+            print("Phase 3: Running change point detection")
 
-        if len(frames_to_fit) == 0:
-            print("No spots with change points found. Returning empty DataFrame.")
-            return pd.DataFrame()
+            frames_to_fit = self._find_change_points_parallel(
+                traces,
+                model=cp_model,
+                min_size=cp_min_size,
+                penalty_factor=cp_penalty_factor,
+            )
 
-        # ============================================================
-        # PHASE 4: Fit spots at all frames up to change point
-        # ============================================================
-        print(f"Phase 4: Fitting {len(frames_to_fit)} spots with change points")
+            del traces
+            gc.collect()
 
-        # Prepare masks as stacked array
-        masks_stacked = np.dstack([masks[x] for x in masks.keys()])
+            if len(frames_to_fit) == 0:
+                print("  No spots with change points found. Skipping file.")
+                continue
 
-        # Compute total number of ROIs to fit
-        total_rois = sum(len(frames) for frames in frames_to_fit.values())
-        print(f"  Total ROIs to fit: {total_rois}")
+            # ============================================================
+            # PHASE 4: Fit spots at all frames up to change point
+            # ============================================================
+            print(f"Phase 4: Fitting {len(frames_to_fit)} spots with change points")
 
-        # Accumulate ROIs for fitting
-        puncta_tofit = []
-        smoothed_puncta_tofit = []
-        masks_tofit = []
-        weights_tofit = []
-        relative_coords = []
-        puncta_ids = []
-        frame_indices = []
+            total_rois = sum(len(frames) for frames in frames_to_fit.values())
+            print(f"  Total ROIs to fit: {total_rois}")
 
-        # Pre-compute ROI bounds for puncta that passed change point filter
-        puncta_bounds = {}
-        for puncta_idx in frames_to_fit.keys():
-            # detected_puncta stores [row, col] = [y, x]
-            ycentre = int(detected_puncta[puncta_idx, 0])
-            xcentre = int(detected_puncta[puncta_idx, 1])
+            # Accumulate ROIs for fitting
+            puncta_tofit = []
+            smoothed_puncta_tofit = []
+            masks_tofit = []
+            weights_tofit = []
+            relative_coords = []
+            puncta_ids = []
+            frame_indices = []
+
+            # Pre-compute ROI bounds for puncta that passed change point filter
+            puncta_bounds = {}
+            for puncta_idx in frames_to_fit.keys():
+                ycentre = int(detected_puncta[puncta_idx, 0])
+                xcentre = int(detected_puncta[puncta_idx, 1])
+                bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
+                puncta_bounds[puncta_idx] = bounds
+
+            # Get all frames needed
+            all_frames_needed = set()
+            for puncta_idx, frames_array in frames_to_fit.items():
+                all_frames_needed.update(frames_array.tolist())
+            all_frames_needed = sorted(all_frames_needed)
+
+            if len(all_frames_needed) == 0:
+                print("  No frames to fit. Skipping file.")
+                continue
+
+            max_frame = max(all_frames_needed)
+            print(f"  Processing frames 0 to {max_frame}")
+
+            # Process in chunks
+            chunk_size = 500
+            for chunk_start in tqdm(range(0, max_frame + 1, chunk_size), desc="Loading frames"):
+                chunk_end = min(chunk_start + chunk_size, max_frame + 1)
+
+                # Find frames in this chunk that are actually needed
+                frames_in_chunk = [f for f in range(chunk_start, chunk_end) if f in all_frames_needed]
+                if not frames_in_chunk:
+                    continue
+
+                # Load the chunk
+                local_frames = list(range(chunk_start, min(chunk_end, total_frames)))
+                if not local_frames:
+                    continue
+
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=local_frames)
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
+
+                # Convert to photoelectrons
+                photoelectrons = self.io.convert_to_photoelectrons(
+                    raw_data, gain_map=gain_map_crop, offset_map=offset_map_crop, rqe=rqe_crop
+                )
+
+                # Apply smoothing
+                smoothed = smoothing_function.smoothing_function(
+                    **{smoothing_function.data_arg: photoelectrons},
+                    **smoothing_function.args
+                )
+
+                # Compute weights
+                weights_data = 1.0 / (read_noise_crop**2 + np.maximum(photoelectrons, 0) / gain_map_crop)
+
+                # Extract ROIs for each puncta at frames in this chunk
+                for puncta_idx, frames_array in frames_to_fit.items():
+                    bounds = puncta_bounds[puncta_idx]
+                    if bounds is None:
+                        continue
+                    xmin, xmax, ymin, ymax = bounds
+
+                    for frame in frames_array:
+                        if frame < chunk_start or frame >= chunk_end:
+                            continue
+
+                        local_idx = frame - chunk_start
+                        if local_idx < 0 or local_idx >= photoelectrons.shape[0]:
+                            continue
+
+                        puncta_tofit.append(photoelectrons[local_idx, ymin:ymax, xmin:xmax].copy())
+                        smoothed_puncta_tofit.append(smoothed[local_idx, ymin:ymax, xmin:xmax].copy())
+                        masks_tofit.append(masks_stacked[ymin:ymax, xmin:xmax, :].copy())
+                        weights_tofit.append(weights_data[local_idx, ymin:ymax, xmin:xmax].copy())
+                        relative_coords.append((xmin, ymin))
+                        puncta_ids.append(puncta_idx)
+                        frame_indices.append(frame)
+
+                del raw_data, photoelectrons, smoothed, weights_data
+                gc.collect()
+
+            print(f"  Accumulated {len(puncta_tofit)} ROIs for fitting")
+
+            if len(puncta_tofit) == 0:
+                print("  No ROIs to fit. Skipping file.")
+                continue
+
+            # Fit all ROIs
+            print("  Running parallel fitting...")
+            fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
+                puncta_tofit,
+                smoothed_puncta_tofit,
+                weights_tofit,
+                relative_coords,
+                list(range(len(puncta_tofit))),
+                FittingStrategy.STANDARD,
+                masks=masks_tofit,
+            )
+
+            # Build result DataFrame
+            result_columns = [
+                "xc", "yc", "s_x", "s_y",
+                "bg_B", "bg_G", "bg_R",
+                "A_B", "A_G", "A_R",
+                "chi_sqr",
+            ]
+            error_columns = [f"{col}_err" for col in result_columns[:-1]]
+
+            fit_df = pd.DataFrame(fit_results, columns=result_columns + ["_dummy"])
+            fit_df = fit_df.drop(columns=["_dummy"])
+
+            if fit_errors is not None and len(fit_errors) > 0:
+                err_df = pd.DataFrame(fit_errors, columns=error_columns)
+                fit_df = pd.concat([fit_df, err_df], axis=1)
+
+            # Add puncta_id and frame columns
+            fit_df["puncta_id"] = puncta_ids
+            fit_df["frame"] = frame_indices
+
+            # Filter results
+            fit_df = self._filter_fit_results(fit_df, width, height)
+
+            # Save to HDF5 database
+            self.io._write_h5_database(fit_df, fit_savename, append=False)
+            print(f"  Saved {len(fit_df)} fits to {fit_savename}")
+
+            # Cleanup
+            del (
+                puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit,
+                relative_coords, puncta_ids, frame_indices, fit_df, detected_puncta
+            )
+            gc.collect()
+
+        print(f"\nFRET analysis complete for all {len(image_files)} files.")
+        return
+
+    def _extract_roi_traces_single_file(
+        self,
+        file: str,
+        detected_puncta: np.ndarray,
+        ROI_size: int,
+        width: int,
+        height: int,
+        gain_map: np.ndarray,
+        offset_map: np.ndarray,
+        rqe: np.ndarray,
+        chunk_size: int = 500,
+    ) -> np.ndarray:
+        """Extract time traces for each detected puncta from a single file.
+
+        Args:
+            file: Path to image file
+            detected_puncta: Array of shape (n_puncta, 2) with [row, col] coordinates
+            ROI_size: Size of ROI to extract around each puncta
+            width, height: Image dimensions
+            gain_map, offset_map, rqe: Calibration maps (cropped to ROI)
+            chunk_size: Number of frames to load at once
+
+        Returns:
+            Array of shape (n_puncta, n_frames) containing summed photoelectrons
+            in each ROI at each frame.
+        """
+        total_frames = self.io.get_num_pages_in_TIF(file)
+        n_puncta = len(detected_puncta)
+
+        # Pre-compute ROI bounds for each puncta
+        roi_bounds = []
+        for i in range(n_puncta):
+            ycentre = int(detected_puncta[i, 0])
+            xcentre = int(detected_puncta[i, 1])
             bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
-            puncta_bounds[puncta_idx] = bounds
+            roi_bounds.append(bounds)
 
-        # Get file frame counts for cross-file access
-        file_frame_counts = [self.io.get_num_pages_in_TIF(f) for f in image_files]
-        cumulative_frames = np.cumsum([0] + file_frame_counts)
-
-        # Process by loading frames in chunks
-        chunk_size = 500
-        all_frames_needed = set()
-        for puncta_idx, frames_array in frames_to_fit.items():
-            all_frames_needed.update(frames_array.tolist())
-        all_frames_needed = sorted(all_frames_needed)
-
-        if len(all_frames_needed) == 0:
-            print("No frames to fit. Returning empty DataFrame.")
-            return pd.DataFrame()
-
-        max_frame = max(all_frames_needed)
-        print(f"  Processing frames 0 to {max_frame}")
+        # Initialize output array
+        traces = np.zeros((n_puncta, total_frames), dtype=np.float32)
 
         # Process in chunks
-        for chunk_start in tqdm(range(0, max_frame + 1, chunk_size), desc="Loading frames"):
-            chunk_end = min(chunk_start + chunk_size, max_frame + 1)
+        for chunk_start in range(0, total_frames, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, total_frames)
+            chunk_frames = list(range(chunk_start, chunk_end))
+            n_chunk = len(chunk_frames)
 
-            # Determine which file(s) this chunk spans
-            # For simplicity, load from appropriate file(s)
-            chunk_frames_global = list(range(chunk_start, chunk_end))
-
-            # Find frames in this chunk that are actually needed
-            frames_in_chunk = [f for f in chunk_frames_global if f in all_frames_needed]
-            if not frames_in_chunk:
-                continue
-
-            # Load the chunk (handle cross-file if needed)
-            # For now, assume single file for simplicity - extend if needed
-            file_idx = 0
-            for i, cum in enumerate(cumulative_frames[1:], 1):
-                if chunk_start < cum:
-                    file_idx = i - 1
-                    break
-
-            local_start = chunk_start - cumulative_frames[file_idx]
-            local_end = min(chunk_end - cumulative_frames[file_idx], file_frame_counts[file_idx])
-
-            if local_end <= local_start:
-                continue
-
-            local_frames = list(range(local_start, local_end))
-            raw_data = self.io.read_tiff(image_files[file_idx], dtype="float32", frame=local_frames)
+            # Load chunk
+            raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
             if raw_data.ndim == 2:
                 raw_data = raw_data[np.newaxis, :, :]
 
             # Convert to photoelectrons
             photoelectrons = self.io.convert_to_photoelectrons(
-                raw_data, gain_map=gain_map_crop, offset_map=offset_map_crop, rqe=rqe_crop
+                raw_data, gain_map=gain_map, offset_map=offset_map, rqe=rqe
             )
 
-            # Apply smoothing
-            smoothed = smoothing_function.smoothing_function(
-                **{smoothing_function.data_arg: photoelectrons},
-                **smoothing_function.args
-            )
-
-            # Compute weights (1/variance in photoelectron space)
-            # For sCMOS: variance = read_noise^2 + signal/gain
-            weights_data = 1.0 / (read_noise_crop**2 + np.maximum(photoelectrons, 0) / gain_map_crop)
-
-            # Extract ROIs for each puncta at frames in this chunk
-            for puncta_idx, frames_array in frames_to_fit.items():
-                bounds = puncta_bounds[puncta_idx]
+            # Extract ROI sums for each puncta
+            for puncta_idx, bounds in enumerate(roi_bounds):
                 if bounds is None:
                     continue
                 xmin, xmax, ymin, ymax = bounds
+                roi_data = photoelectrons[:, ymin:ymax, xmin:xmax]
+                roi_sums = np.sum(roi_data, axis=(1, 2))
+                traces[puncta_idx, chunk_start:chunk_start + n_chunk] = roi_sums
 
-                for global_frame in frames_array:
-                    if global_frame < chunk_start or global_frame >= chunk_end:
-                        continue
-
-                    local_idx = global_frame - chunk_start
-                    if local_idx < 0 or local_idx >= photoelectrons.shape[0]:
-                        continue
-
-                    puncta_tofit.append(photoelectrons[local_idx, ymin:ymax, xmin:xmax].copy())
-                    smoothed_puncta_tofit.append(smoothed[local_idx, ymin:ymax, xmin:xmax].copy())
-                    masks_tofit.append(masks_stacked[ymin:ymax, xmin:xmax, :].copy())
-                    weights_tofit.append(weights_data[local_idx, ymin:ymax, xmin:xmax].copy())
-                    relative_coords.append((xmin, ymin))
-                    puncta_ids.append(puncta_idx)
-                    frame_indices.append(global_frame)
-
-            del raw_data, photoelectrons, smoothed, weights_data
+            del raw_data, photoelectrons
             gc.collect()
 
-        print(f"  Accumulated {len(puncta_tofit)} ROIs for fitting")
-
-        if len(puncta_tofit) == 0:
-            print("No ROIs to fit. Returning empty DataFrame.")
-            return pd.DataFrame()
-
-        # Fit all ROIs
-        print("  Running parallel fitting...")
-        fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
-            puncta_tofit,
-            smoothed_puncta_tofit,
-            weights_tofit,
-            relative_coords,
-            list(range(len(puncta_tofit))),  # dummy planes
-            FittingStrategy.STANDARD,
-            masks=masks_tofit,
-        )
-
-        # Build result DataFrame with multi-index
-        result_columns = [
-            "xc", "yc", "s_x", "s_y",
-            "bg_B", "bg_G", "bg_R",
-            "A_B", "A_G", "A_R",
-            "chi_sqr",
-        ]
-        error_columns = [f"{col}_err" for col in result_columns[:-1]]  # No error for chi_sqr
-
-        # Combine results and errors
-        fit_df = pd.DataFrame(fit_results, columns=result_columns + ["_dummy"])
-        fit_df = fit_df.drop(columns=["_dummy"])
-
-        if fit_errors is not None and len(fit_errors) > 0:
-            err_df = pd.DataFrame(fit_errors, columns=error_columns)
-            fit_df = pd.concat([fit_df, err_df], axis=1)
-
-        # Add puncta_id and frame columns
-        fit_df["puncta_id"] = puncta_ids
-        fit_df["frame"] = frame_indices
-
-        # Set multi-index
-        fit_df = fit_df.set_index(["puncta_id", "frame"])
-        fit_df = fit_df.sort_index()
-
-        # Filter results
-        fit_df = self._filter_fit_results(fit_df.reset_index(), width, height)
-        if "puncta_id" in fit_df.columns and "frame" in fit_df.columns:
-            fit_df = fit_df.set_index(["puncta_id", "frame"])
-
-        # Cleanup
-        del (
-            puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit,
-            relative_coords, puncta_ids, frame_indices
-        )
-        gc.collect()
-
-        print(f"FRET analysis complete. {len(fit_df)} fits returned.")
-        return fit_df
+        return traces
 
     def fit_SM_data(
         self,
