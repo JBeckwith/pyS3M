@@ -1093,11 +1093,10 @@ class SuperRes_Functions:
         if width is None or height is None:
             height, width = full_height, full_width
 
-        # Create masks for ROI
-        masks = self.mask.get_stacked_masks(
+        # Create masks for ROI (get_stacked_masks returns a 3D array)
+        masks_stacked = self.mask.get_stacked_masks(
             start_x, start_y, width, height, self.mosaic_unit
         )
-        masks_stacked = np.dstack([masks[x] for x in masks.keys()])
 
         # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
