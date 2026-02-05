@@ -31,8 +31,8 @@ def gaussian_unscaled_model(
 
     Returns:
         signal (float): signal at particular (x, y) location"""
-    norm_x = 0.3989422804014327 / sigma_x  # empirical
-    norm_y = 0.3989422804014327 / sigma_y  # empirical
+    norm_x = 0.3989422804014327 / sigma_x  # 1/√(2π)
+    norm_y = 0.3989422804014327 / sigma_y  # 1/√(2π)
     xg = norm_x * np.exp(-0.5 * ((x - x0) / sigma_x) ** 2)
     yg = norm_y * np.exp(-0.5 * ((x - y0) / sigma_y) ** 2)
     for i in range(size):

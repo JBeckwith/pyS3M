@@ -19,6 +19,7 @@ from matplotlib.ticker import MultipleLocator
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 # Import mpltern to register ternary projection with matplotlib
 # This allows using projection="ternary" in add_subplot()
@@ -1461,6 +1462,119 @@ class ImagePlotMixin:
             )
 
         return axs
+
+    def make_animated_gif(
+        self,
+        image: np.ndarray,
+        filename: str,
+        vmin: float = 0,
+        vmax: float = 150,
+        pixelsize: float = 69,
+        scalebarsize: float = 300,
+        scalebarlabel: str = "300 nm",
+        label: str = "",
+        fontsz: int = 6,
+        cbarlabel: str = "# of photoelectrons",
+        cbar: bool = False,
+        width: float = 3,
+        height: float = 3,
+        fps: int = 25,
+        dpi: int = 400,
+    ) -> None:
+        """Create animated GIF from image sequence.
+
+        Supports both grayscale and RGB image stacks. For grayscale images,
+        a colormap is applied. For RGB images, the colors are displayed directly.
+
+        Args:
+            image: Image stack with shape (n_frames, H, W) for grayscale
+                   or (n_frames, H, W, 3) for RGB.
+            filename: Output filename (should end in .gif).
+            vmin: Minimum display value (grayscale only).
+            vmax: Maximum display value (grayscale only).
+            pixelsize: Pixel size in nm.
+            scalebarsize: Scale bar size in nm.
+            scalebarlabel: Scale bar label.
+            label: Image label (displayed in top-left corner).
+            fontsz: Font size for label.
+            cbarlabel: Colorbar label (grayscale only).
+            cbar: Whether to show colorbar (grayscale only).
+            width: Figure width in inches.
+            height: Figure height in inches.
+            fps: Frames per second for the GIF.
+            dpi: Resolution of the output GIF.
+        """
+        n_frames = image.shape[0]
+
+        # Detect if image is RGB (shape: n_frames, H, W, 3)
+        is_rgb = image.ndim == 4 and image.shape[-1] == 3
+
+        fig, ax = plt.subplots(figsize=(width, height))
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+        if cbar and not is_rgb:
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.1)
+
+        def animate(i):
+            ax.clear()
+
+            if is_rgb:
+                # RGB image - display directly
+                # Ensure values are in valid range for display
+                frame = image[i, :, :, :]
+                if frame.dtype != np.uint8:
+                    # Normalize to 0-1 range if not already uint8
+                    frame = np.clip(frame, vmin, vmax)
+                    frame = (frame - vmin) / (vmax - vmin)
+                im = ax.imshow(frame)
+            else:
+                # Grayscale image - apply colormap
+                im = ax.imshow(image[i, :, :], vmin=vmin, vmax=vmax, cmap="gist_gray")
+
+                if cbar:
+                    fig.colorbar(im, orientation="vertical", cax=cax)
+                    cax.set_ylabel(cbarlabel, rotation=270, labelpad=8, fontsize=7)
+
+            # Scale bar
+            pixvals = scalebarsize / pixelsize
+            scalebar = AnchoredSizeBar(
+                ax.transData,
+                pixvals,
+                scalebarlabel,
+                "lower right",
+                pad=0.5,
+                color="white",
+                frameon=False,
+                size_vertical=(1 / width),
+            )
+            ax.add_artist(scalebar)
+
+            # Label
+            if label:
+                xy_coord = int(image.shape[1] * 0.05)
+                ax.annotate(
+                    label,
+                    xy=(xy_coord, xy_coord),
+                    xytext=(xy_coord, xy_coord),
+                    xycoords="data",
+                    color="white",
+                    fontsize=fontsz + 1,
+                )
+            ax.axis("off")
+            return [im]
+
+        interval = 1000 / fps  # Convert fps to interval in ms
+        ani = FuncAnimation(
+            fig, animate, interval=interval, blit=True, repeat=True, frames=n_frames
+        )
+        ani.save(
+            filename,
+            dpi=dpi,
+            writer=PillowWriter(fps=fps),
+            savefig_kwargs={"transparent": True},
+        )
+        plt.close(fig)
 
 
 class TernaryPlotMixin:

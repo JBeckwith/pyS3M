@@ -1023,39 +1023,58 @@ class IO_Functions:
 
         return photoelectron_roi, smoothed_roi, weights_roi
 
-    def write_tiff(self, volume, file_path, bit="double", pixel_size=0.11):
+    def write_tiff(self, volume, file_path, bit="double", pixel_size=0.069, photometric=None):
         """
-        Write a TIFF file using the skimage library.
+        Write a TIFF file using tifffile.
 
         Args:
             volume (numpy.ndarray): The volume data to be saved as a TIFF file.
             file_path (str): The path where the TIFF file will be saved.
-            bit (int): Bit-depth for the saved TIFF file (default is 16).
+            bit (str or dtype): Bit-depth for the saved TIFF file (default is "double").
+            pixel_size (float): Pixel size in microns (default is 0.069).
+            photometric (str, optional): Photometric interpretation. Use 'rgb' for
+                RGB images (shape should be [..., H, W, 3]). Default is None
+                (tifffile default, typically 'minisblack' for grayscale).
 
         Notes:
-            The function uses skimage's imsave to save the volume as a TIFF file.
-            The plugin is set to 'tifffile' and photometric to 'minisblack'.
-            Additional metadata specifying the software as 'Python' is included.
+            For RGB images, set photometric='rgb' to ensure ImageJ recognizes
+            the color channels correctly. The volume should have shape (H, W, 3)
+            for single frames or (frames, H, W, 3) for stacks.
         """
-        xamount = str(volume.shape[-2])
-        yamount = str(volume.shape[-1])
-
-        description = "ImageJ=1.54f\nunit=micron\nmin=" + xamount + "\nmax=" + yamount
+        volume = np.asarray(volume, dtype=bit)
 
         pixel_unit = int(1e6 / pixel_size)
+        resolution = (pixel_unit / 1e6, pixel_unit / 1e6)  # pixels per micron
 
-        extra_tags = [
-            ("ImageDescription", "s", 1, description, True),
-            ("XResolution", "i", 2, (pixel_unit, 1000000), True),
-            ("YResolution", "i", 2, (pixel_unit, 1000000), True),
-            ("ResolutionUnit", "i", 1, True),
-        ]
+        if photometric == 'rgb':
+            # For RGB images, use ImageJ-compatible format
+            # Shape should be (T, H, W, 3) for stacks or (H, W, 3) for single frame
+            imwrite(
+                file_path,
+                volume,
+                imagej=True,
+                photometric='rgb',
+                resolution=resolution,
+                metadata={'unit': 'um'},
+            )
+        else:
+            # Original behavior for grayscale
+            xamount = str(volume.shape[-2])
+            yamount = str(volume.shape[-1])
+            description = "ImageJ=1.54f\nunit=micron\nmin=" + xamount + "\nmax=" + yamount
 
-        imwrite(
-            file_path,
-            np.asarray(volume, dtype=bit),
-            extratags=extra_tags,
-        )
+            extra_tags = [
+                ("ImageDescription", "s", 1, description, True),
+                ("XResolution", "i", 2, (pixel_unit, 1000000), True),
+                ("YResolution", "i", 2, (pixel_unit, 1000000), True),
+                ("ResolutionUnit", "i", 1, True),
+            ]
+
+            imwrite(
+                file_path,
+                volume,
+                extratags=extra_tags,
+            )
 
     def save_simulation_results(
         self,

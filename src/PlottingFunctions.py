@@ -1197,9 +1197,12 @@ class Plotter(PublicationPlotter):
     ) -> None:
         """Create animated GIF from image sequence.
 
+        .. deprecated::
+            Use :meth:`make_animated_gif` instead, which also supports RGB images.
+
         Args:
             image: Image stack.
-            n_frames: Number of frames.
+            n_frames: Number of frames (ignored, extracted from image shape).
             filename: Output filename.
             vmin: Minimum display value.
             vmax: Maximum display value.
@@ -1213,53 +1216,24 @@ class Plotter(PublicationPlotter):
             width: Figure width.
             height: Figure height.
         """
-        fig, ax = self.one_column_plot(width=width, height=height)
-
-        if cbar:
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.1)
-
-        def animate(i):
-            ax.clear()
-            im = ax.imshow(image[i, :, :], vmin=vmin, vmax=vmax, cmap="gist_gray")
-
-            if cbar:
-                fig.colorbar(im, orientation="vertical", cax=cax)
-                cax.set_ylabel(cbarlabel, rotation=270, labelpad=8, fontsize=7)
-
-            # Scale bar
-            pixvals = scalebarsize / pixelsize
-            scalebar = AnchoredSizeBar(
-                ax.transData,
-                pixvals,
-                scalebarlabel,
-                "lower right",
-                pad=0.5,
-                color="white",
-                frameon=False,
-                size_vertical=(1 / width),
-            )
-            ax.add_artist(scalebar)
-
-            # Label
-            xy_coord = int(image.shape[1] * 0.05)
-            ax.annotate(
-                label,
-                xy=(xy_coord, xy_coord),
-                xytext=(xy_coord, xy_coord),
-                xycoords="data",
-                color="white",
-                fontsize=fontsz + 1,
-            )
-            ax.axis("off")
-            return [im]
-
-        ani = FuncAnimation(
-            fig, animate, interval=25, blit=True, repeat=True, frames=n_frames
+        warnings.warn(
+            "make_animated_gif_image is deprecated. Use make_animated_gif instead, "
+            "which also supports RGB images.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        ani.save(
-            filename,
-            dpi=400,
-            writer=PillowWriter(fps=25),
-            savefig_kwargs={"transparent": True},
+        self.make_animated_gif(
+            image=image,
+            filename=filename,
+            vmin=vmin,
+            vmax=vmax,
+            pixelsize=pixelsize,
+            scalebarsize=scalebarsize,
+            scalebarlabel=scalebarlabel,
+            label=label,
+            fontsz=fontsz,
+            cbarlabel=cbarlabel,
+            cbar=cbar,
+            width=width,
+            height=height,
         )
