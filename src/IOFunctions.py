@@ -498,7 +498,7 @@ class IO_Functions:
         ) as tif:
             return len(tif.pages)
 
-    def metadata_reader_imageJ(self, filename):
+    def metadata_reader_imageJ(self, filename, return_exposure: bool = False):
         """
         Loads metadata from an imageJ json file.
         NB ImageJ starts its ROIs at (0,0), like Python
@@ -507,12 +507,14 @@ class IO_Functions:
 
         Args:
             filename (str): The name of the json file to load.
+            return_exposure (bool): If True, also return exposure time. Default False.
 
         Returns:
             x_coord (int): starting x_coord pixel.
             y_coord (int): starting y_coord pixel.
             width (int): width
             height (int): height
+            exposure_ms (float): exposure time in ms (only if return_exposure=True)
         """
         import os
 
@@ -536,6 +538,11 @@ class IO_Functions:
         x_coord = int(ROI[1])  # left (column start)
         width = int(ROI[2])  # extent in x-direction (columns)
         height = int(ROI[3])  # extent in y-direction (rows)
+
+        if return_exposure:
+            exposure_ms = float(metadatadict.get("Exposure-ms", 0.0))
+            return x_coord, y_coord, width, height, exposure_ms
+
         return x_coord, y_coord, width, height
 
     def metadata_nframes_reader_imageJ(self, filename):

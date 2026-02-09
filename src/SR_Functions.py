@@ -1120,17 +1120,12 @@ class SuperRes_Functions:
 
         # Process each file independently
         for FOVn, file in enumerate(image_files):
-            print(f"\n{'='*60}")
-            print(f"Processing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
-            print(f"{'='*60}")
+            print(f"\nFile {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
 
             fit_savename = file.split(".")[0] + ".h5"
             total_frames = self.io.get_num_pages_in_TIF(file)
 
-            # ============================================================
             # PHASE 1: Spot detection on summed frames
-            # ============================================================
-            print(f"Phase 1: Detecting spots on summed frames (n={n_frames_sum})")
 
             actual_frames_to_sum = min(n_frames_sum, total_frames)
             frames_to_load = list(range(actual_frames_to_sum))
@@ -1168,10 +1163,9 @@ class SuperRes_Functions:
             )
 
             n_detected = len(detected_puncta)
-            print(f"  Detected {n_detected} spots on summed image")
 
             if n_detected == 0:
-                print("  No spots detected. Skipping file.")
+                print(f"  No spots detected, skipping")
                 del summed_data, image_to_analyse, variance_summed, offset_summed
                 gc.collect()
                 continue
@@ -1179,12 +1173,7 @@ class SuperRes_Functions:
             del summed_data, image_to_analyse, variance_summed, offset_summed
             gc.collect()
 
-            # ============================================================
             # PHASE 2: Extract time traces for each spot
-            # ============================================================
-            print("Phase 2: Extracting time traces for detected spots")
-
-            # Extract traces for this single file
             traces = self._extract_roi_traces_single_file(
                 file,
                 detected_puncta,
@@ -1196,11 +1185,7 @@ class SuperRes_Functions:
                 rqe_crop,
             )
 
-            # ============================================================
             # PHASE 3: Change point detection
-            # ============================================================
-            print("Phase 3: Running change point detection")
-
             frames_to_fit = self._find_change_points_parallel(
                 traces,
                 model=cp_model,
@@ -1212,16 +1197,12 @@ class SuperRes_Functions:
             gc.collect()
 
             if len(frames_to_fit) == 0:
-                print("  No spots with change points found. Skipping file.")
+                print(f"  {n_detected} spots, 0 with change points, skipping")
                 continue
 
-            # ============================================================
             # PHASE 4: Fit spots at all frames up to change point
-            # ============================================================
-            print(f"Phase 4: Fitting {len(frames_to_fit)} spots with change points")
-
             total_rois = sum(len(frames) for frames in frames_to_fit.values())
-            print(f"  Total ROIs to fit: {total_rois}")
+            print(f"  {n_detected} spots, {len(frames_to_fit)} with CPs, {total_rois} ROIs to fit")
 
             # Accumulate ROIs for fitting
             puncta_tofit = []
@@ -1247,11 +1228,9 @@ class SuperRes_Functions:
             all_frames_needed = sorted(all_frames_needed)
 
             if len(all_frames_needed) == 0:
-                print("  No frames to fit. Skipping file.")
                 continue
 
             max_frame = max(all_frames_needed)
-            print(f"  Processing frames 0 to {max_frame}")
 
             # Process in chunks
             chunk_size = 500
@@ -1315,11 +1294,9 @@ class SuperRes_Functions:
             print(f"  Accumulated {len(puncta_tofit)} ROIs for fitting")
 
             if len(puncta_tofit) == 0:
-                print("  No ROIs to fit. Skipping file.")
                 continue
 
             # Fit all ROIs
-            print("  Running parallel fitting...")
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
@@ -1355,7 +1332,7 @@ class SuperRes_Functions:
 
             # Save to HDF5 database
             self.io._write_h5_database(fit_df, fit_savename, append=False)
-            print(f"  Saved {len(fit_df)} fits to {fit_savename}")
+            print(f"  Saved {len(fit_df)} fits to {os.path.basename(fit_savename)}")
 
             # Cleanup
             del (
@@ -1364,7 +1341,6 @@ class SuperRes_Functions:
             )
             gc.collect()
 
-        print(f"\nFRET analysis complete for all {len(image_files)} files.")
         return
 
     def _extract_roi_traces_single_file(
@@ -2041,7 +2017,6 @@ class SuperRes_Functions:
                             frames_to_fit[puncta_idx] = np.arange(last_real_cp)
                     pbar.update(1)
 
-        print(f"Found {len(frames_to_fit)} puncta with change points out of {n_puncta} total")
         return frames_to_fit
 
     def _extract_roi_traces(
@@ -2076,8 +2051,6 @@ class SuperRes_Functions:
         file_frame_counts = [self.io.get_num_pages_in_TIF(f) for f in image_files]
         total_frames = sum(file_frame_counts)
         n_puncta = len(detected_puncta)
-
-        print(f"Extracting traces for {n_puncta} puncta across {total_frames} frames")
 
         # Pre-compute ROI bounds for each puncta
         roi_bounds = []
