@@ -2509,3 +2509,208 @@ def segment_locs_by_rendered_image(
         )
 
     return aggregate_locs_combined, per_aggregate_stats
+
+
+def remove_fiducials(
+    aggregate_locs,
+    per_aggregate_stats,
+    n_frames,
+    A_R_threshold=None,
+    A_G_threshold=None,
+    density_threshold=0.6,
+    require_all=False,
+    verbose=False,
+):
+    """
+    Remove fiducial markers from aggregate data based on spectral and density criteria.
+
+    Fiducial markers (e.g. gold nanoparticles) can be identified by two properties:
+    1. **Spectral signature**: their mean A_R and/or A_G values fall outside
+       the range expected for the fluorescent probe (e.g. Nile Red).
+    2. **High density**: fiducials are typically emitting in >60% of frames,
+       producing many more localisations per aggregate than transient binders.
+
+    The density criterion uses ``n_localisations / n_frames`` per aggregate.
+    Aggregates exceeding the density threshold are flagged as fiducials.
+
+    Parameters
+    ----------
+    aggregate_locs : pd.DataFrame
+        Localisation data with an ``aggregate_id`` column, as returned by
+        ``segment_locs_by_rendered_image``.
+    per_aggregate_stats : pd.DataFrame
+        Per-aggregate statistics with columns including ``aggregate_id``,
+        ``n_localisations``, and optionally ``A_R``, ``A_G``.
+    n_frames : int
+        Total number of frames in the acquisition. Used to compute
+        the localisation density per aggregate.
+    A_R_threshold : float, tuple, or None, optional
+        Threshold for mean A_R. Can be specified as:
+        - ``float``: flag aggregates with A_R **above** this value (default direction).
+        - ``(value, 'above')``: flag aggregates with A_R >= value.
+        - ``(value, 'below')``: flag aggregates with A_R <= value.
+        If None, A_R is not used for filtering.
+    A_G_threshold : float, tuple, or None, optional
+        Threshold for mean A_G. Same format as ``A_R_threshold``.
+        If None, A_G is not used for filtering.
+    density_threshold : float, optional
+        Fraction of frames an aggregate must be localised in to be
+        considered a fiducial (default: 0.6, i.e. present in >60% of frames).
+    require_all : bool, optional
+        If True, an aggregate must satisfy **all** active criteria to be
+        removed. If False (default), satisfying **any** single criterion
+        is sufficient for removal.
+    verbose : bool, optional
+        If True, print summary of removed fiducials (default: False).
+
+    Returns
+    -------
+    filtered_locs : pd.DataFrame
+        Localisations with fiducial aggregates removed.
+    filtered_stats : pd.DataFrame
+        Per-aggregate statistics with fiducial aggregates removed.
+    fiducial_mask : np.ndarray of bool
+        Boolean mask over ``per_aggregate_stats`` rows: True for fiducials.
+
+    Examples
+    --------
+    >>> # Remove fiducials with A_R > 0.5 or density > 60%
+    >>> filt_locs, filt_stats, mask = remove_fiducials(
+    ...     agg_locs, stats, n_frames=10000,
+    ...     A_R_threshold=0.5, density_threshold=0.6,
+    ... )
+    >>>
+    >>> # Remove fiducials with A_G above 0.3 AND A_R below 0.4
+    >>> filt_locs, filt_stats, mask = remove_fiducials(
+    ...     agg_locs, stats, n_frames=10000,
+    ...     A_R_threshold=(0.4, 'below'),
+    ...     A_G_threshold=(0.3, 'above'),
+    ...     density_threshold=0.6,
+    ...     require_all=True,
+    ... )
+    """
+    import pandas as pd
+
+    def _parse_threshold(threshold):
+        """Parse a threshold into (value, direction).
+
+        Accepts a float (defaults to 'above') or a (value, direction) tuple.
+        """
+        if isinstance(threshold, (list, tuple)):
+            if len(threshold) != 2:
+                raise ValueError(
+                    f"Threshold tuple must be (value, 'above'|'below'), "
+                    f"got length {len(threshold)}"
+                )
+            value, direction = threshold
+            direction = direction.lower()
+            if direction not in ("above", "below"):
+                raise ValueError(
+                    f"Threshold direction must be 'above' or 'below', "
+                    f"got '{direction}'"
+                )
+            return float(value), direction
+        return float(threshold), "above"
+
+    def _apply_threshold(values, value, direction):
+        """Return boolean mask: True where the criterion is met."""
+        if direction == "above":
+            return values >= value
+        else:
+            return values <= value
+
+    # Determine the aggregate ID column name (handle rename from notebook)
+    if "aggregate_id" in per_aggregate_stats.columns:
+        id_col = "aggregate_id"
+    elif "cluster_id" in per_aggregate_stats.columns:
+        id_col = "cluster_id"
+    else:
+        raise ValueError(
+            "per_aggregate_stats must contain 'aggregate_id' or 'cluster_id' column"
+        )
+
+    # Similarly for n_localisations
+    if "n_localisations" in per_aggregate_stats.columns:
+        nloc_col = "n_localisations"
+    elif "n_locs" in per_aggregate_stats.columns:
+        nloc_col = "n_locs"
+    else:
+        raise ValueError(
+            "per_aggregate_stats must contain 'n_localisations' column"
+        )
+
+    n_aggregates = len(per_aggregate_stats)
+
+    # Build individual criterion masks (True = flagged as fiducial)
+    criteria = []
+
+    # Density criterion
+    if density_threshold is not None:
+        density = per_aggregate_stats[nloc_col].values / n_frames
+        is_dense = density >= density_threshold
+        criteria.append(("density >= {:.2f}".format(density_threshold), is_dense))
+
+    # Spectral criteria
+    for col, threshold in [("A_R", A_R_threshold), ("A_G", A_G_threshold)]:
+        if threshold is not None:
+            if col not in per_aggregate_stats.columns:
+                raise ValueError(
+                    f"{col} threshold specified but '{col}' column not found in "
+                    "per_aggregate_stats. Ensure segment_locs_by_rendered_image "
+                    f"input data contains {col} values."
+                )
+            value, direction = _parse_threshold(threshold)
+            op = ">=" if direction == "above" else "<="
+            mask = _apply_threshold(per_aggregate_stats[col].values, value, direction)
+            criteria.append((f"{col} {op} {value}", mask))
+
+    if len(criteria) == 0:
+        raise ValueError(
+            "At least one criterion must be active. "
+            "Set A_R_threshold, A_G_threshold, and/or density_threshold."
+        )
+
+    # Combine criteria
+    masks = np.column_stack([m for _, m in criteria])
+    if require_all:
+        fiducial_mask = np.all(masks, axis=1)
+    else:
+        fiducial_mask = np.any(masks, axis=1)
+
+    n_fiducials = np.sum(fiducial_mask)
+
+    if verbose:
+        print(f"Fiducial removal summary:")
+        print(f"  Total aggregates: {n_aggregates}")
+        for name, m in criteria:
+            print(f"  Flagged by {name}: {np.sum(m)}")
+        combine_str = "ALL" if require_all else "ANY"
+        print(f"  Combined ({combine_str}): {n_fiducials} fiducials")
+        print(f"  Remaining: {n_aggregates - n_fiducials} aggregates")
+
+    # Filter out fiducial aggregates
+    fiducial_ids = set(per_aggregate_stats.loc[fiducial_mask, id_col].values)
+    keep_stats = ~fiducial_mask
+    filtered_stats = per_aggregate_stats[keep_stats].reset_index(drop=True)
+
+    # Determine the matching column in aggregate_locs
+    if id_col in aggregate_locs.columns:
+        locs_id_col = id_col
+    elif "aggregate_id" in aggregate_locs.columns:
+        locs_id_col = "aggregate_id"
+    elif "cluster_id" in aggregate_locs.columns:
+        locs_id_col = "cluster_id"
+    else:
+        raise ValueError(
+            "aggregate_locs must contain 'aggregate_id' or 'cluster_id' column"
+        )
+
+    keep_locs = ~aggregate_locs[locs_id_col].isin(fiducial_ids)
+    filtered_locs = aggregate_locs[keep_locs].reset_index(drop=True)
+
+    if verbose:
+        n_removed_locs = len(aggregate_locs) - len(filtered_locs)
+        print(f"  Localisations removed: {n_removed_locs} "
+              f"({100 * n_removed_locs / len(aggregate_locs):.1f}%)")
+
+    return filtered_locs, filtered_stats, fiducial_mask
