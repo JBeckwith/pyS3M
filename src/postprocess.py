@@ -2285,8 +2285,8 @@ def segment_locs_by_rendered_image(
             plotter = AnalysisPlotter()
 
             # Create a 3-panel figure
-            fig, axs = plotter.one_column_plot(
-                npanels=3, ratios=[1, 1, 1], width=8, height=12
+            fig, axs = plotter.two_column_plot(
+                nrows=3, ncols=1, height_ratios=[1, 1, 1]
             )
 
             # Panel 1: Rendered super-resolved image
@@ -2341,7 +2341,6 @@ def segment_locs_by_rendered_image(
                 fontsize=10
             )
 
-            plt.tight_layout()
             plotter.save_or_show(fig, show=True)
 
         except Exception as e:

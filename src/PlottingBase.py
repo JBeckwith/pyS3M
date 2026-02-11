@@ -1509,7 +1509,7 @@ class ImagePlotMixin:
         # Detect if image is RGB (shape: n_frames, H, W, 3)
         is_rgb = image.ndim == 4 and image.shape[-1] == 3
 
-        fig, ax = plt.subplots(figsize=(width, height))
+        fig, ax = plt.subplots(figsize=(width, height), layout=None)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
         if cbar and not is_rgb:
