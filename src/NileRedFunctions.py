@@ -441,6 +441,7 @@ class NileRed_Functions:
         total_photons: Optional[float] = None,
         background_photons: float = 40.0,
         apply_snr_inflation: bool = True,
+        wavelength_initial_guess: Optional[float] = None,
     ) -> Tuple[float, Dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
 
@@ -464,6 +465,8 @@ class NileRed_Functions:
             total_photons: Total photon count for SNR calculation (optional)
             background_photons: Background photon count (default: 40.0, distributed across RGB)
             apply_snr_inflation: Apply SNR-based error inflation (default: True)
+            wavelength_initial_guess: Custom initial guess for wavelength (nm).
+                If None, uses self.default_wavelength_center (617.6 nm).
 
         Returns:
             wavelength_center: Fitted central wavelength (nm)
@@ -509,8 +512,11 @@ class NileRed_Functions:
             "sigma_y": sigma_y_error,
         }
 
-        # Initial guess: use default central wavelength or midpoint of bounds
-        x0 = np.array([self.default_wavelength_center])
+        # Initial guess: use custom guess, default central wavelength, or midpoint of bounds
+        if wavelength_initial_guess is not None:
+            x0 = np.array([wavelength_initial_guess])
+        else:
+            x0 = np.array([self.default_wavelength_center])
         if x0[0] < wavelength_bounds[0] or x0[0] > wavelength_bounds[1]:
             x0 = np.array([(wavelength_bounds[0] + wavelength_bounds[1]) / 2])
 
@@ -851,6 +857,7 @@ class NileRed_Functions:
         output_path: Optional[str] = None,
         cpu_fraction: float = 0.9,
         verbose: bool = True,
+        aggregate_id_column: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Fit Nile Red wavelengths from localizations stored in HDF5 file.
@@ -859,6 +866,12 @@ class NileRed_Functions:
         (RGB intensities, PSF widths, and errors), fits the Nile Red wavelength
         for each localization using parallel processing, and returns/saves the
         updated DataFrame with wavelength columns added.
+
+        When aggregate_id_column is provided, uses a two-step fitting approach:
+        1. Compute weighted-average A_R, A_G, A_B, s_x, s_y per aggregate and
+           fit wavelength for each aggregate (higher SNR → more stable fits)
+        2. Use each aggregate's fitted wavelength as the initial guess when
+           fitting individual localisations within that aggregate
 
         Args:
             h5_path: Path to HDF5 file containing localization data
@@ -872,9 +885,14 @@ class NileRed_Functions:
             output_path: Optional path to save updated HDF5 file (if None, doesn't save)
             cpu_fraction: Fraction of CPUs to use for parallel fitting, default: 0.9
             verbose: Print progress messages, default: True
+            aggregate_id_column: Column name containing aggregate/punctum IDs (e.g. 'cluster_id').
+                When provided, enables two-step fitting with aggregate-level priors.
+                When None (default), all fits use the default initial guess.
 
         Returns:
-            pd.DataFrame: Updated DataFrame with 'wl_fit' and 'wl_fit_err' columns added
+            pd.DataFrame: Updated DataFrame with 'wl_fit' and 'wl_fit_err' columns added.
+                When aggregate_id_column is provided, also adds 'wl_fit_aggregate' column
+                containing the per-aggregate fitted wavelength.
 
         Required columns in HDF5 file:
             - A_R, A_G, A_B: RGB amplitudes (normalized)
@@ -905,12 +923,13 @@ class NileRed_Functions:
             ...     'wavelength': wavelength,
             ... }
             >>>
-            >>> # Fit wavelengths from HDF5 file
+            >>> # Fit wavelengths with aggregate priors
             >>> df_with_wavelengths = nrf.fit_wavelengths_from_h5(
-            ...     h5_path='results.h5',
+            ...     h5_path='results_aggregatelocs.h5',
             ...     filter_names=filters,
             ...     camera_parameters=camera_params,
-            ...     output_path='results_with_wavelengths.h5',
+            ...     output_path='results_aggregatelocs.h5',
+            ...     aggregate_id_column='cluster_id',
             ... )
         """
         import pandas as pd
@@ -1011,12 +1030,160 @@ class NileRed_Functions:
             fitted_background_photons = None
             use_snr = False
 
+        # --- Phase 1: Fit aggregate priors (if aggregate_id_column provided) ---
+        aggregate_wl_map = {}  # {aggregate_id: fitted_wavelength}
+
+        if aggregate_id_column is not None:
+            if aggregate_id_column not in df.columns:
+                raise ValueError(
+                    f"aggregate_id_column '{aggregate_id_column}' not found in DataFrame. "
+                    f"Available columns: {list(df.columns)}"
+                )
+
+            if verbose:
+                print(f"\n--- Phase 1: Fitting aggregate-level priors ---")
+                print(f"Grouping by '{aggregate_id_column}'...")
+
+            aggregate_ids = df[aggregate_id_column].unique()
+            aggregate_ids = aggregate_ids[~np.isnan(aggregate_ids)]
+            n_aggregates = len(aggregate_ids)
+
+            if verbose:
+                print(f"Found {n_aggregates} aggregates")
+
+            # Compute weighted averages per aggregate
+            agg_fit_args = []
+            agg_ids_ordered = []
+
+            for agg_id in aggregate_ids:
+                subset = df[df[aggregate_id_column] == agg_id]
+
+                # Weighted average: weight by 1/error (matching postprocess.py convention)
+                agg_R = np.average(subset["A_R"], weights=1.0 / subset["A_R_err"])
+                agg_G = np.average(subset["A_G"], weights=1.0 / subset["A_G_err"])
+                agg_B = np.average(subset["A_B"], weights=1.0 / subset["A_B_err"])
+                agg_sx = np.average(subset["s_x"], weights=1.0 / subset["s_x_err"]) * pixel_size
+                agg_sy = np.average(subset["s_y"], weights=1.0 / subset["s_y_err"]) * pixel_size
+
+                # Propagate errors: sigma_mean = 1 / sqrt(sum(1/sigma_i^2))
+                agg_R_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_R_err"] ** 2))
+                agg_G_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_G_err"] ** 2))
+                agg_B_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_B_err"] ** 2))
+                agg_sx_err = 1.0 / np.sqrt(np.sum(1.0 / subset["s_x_err"] ** 2)) * pixel_size
+                agg_sy_err = 1.0 / np.sqrt(np.sum(1.0 / subset["s_y_err"] ** 2)) * pixel_size
+
+                # Normalize RGB
+                rgb_total = agg_R + agg_G + agg_B
+                if rgb_total <= 0:
+                    continue
+
+                R_norm = agg_R / rgb_total
+                G_norm = agg_G / rgb_total
+                B_norm = agg_B / rgb_total
+
+                total_err = np.sqrt(agg_R_err ** 2 + agg_G_err ** 2 + agg_B_err ** 2)
+                R_norm_err = (
+                    R_norm * np.sqrt((agg_R_err / agg_R) ** 2 + (total_err / rgb_total) ** 2)
+                    if agg_R > 0 else 1e-3
+                )
+                G_norm_err = (
+                    G_norm * np.sqrt((agg_G_err / agg_G) ** 2 + (total_err / rgb_total) ** 2)
+                    if agg_G > 0 else 1e-3
+                )
+                B_norm_err = (
+                    B_norm * np.sqrt((agg_B_err / agg_B) ** 2 + (total_err / rgb_total) ** 2)
+                    if agg_B > 0 else 1e-3
+                )
+
+                # Sum photons across aggregate for SNR
+                agg_photons = subset["photons"].sum() if use_snr else None
+                agg_bg = subset["background_photons"].sum() if use_snr else None
+
+                args = (
+                    np.array([R_norm, G_norm, B_norm]),
+                    agg_sx,
+                    agg_sy,
+                    np.array([R_norm_err, G_norm_err, B_norm_err]),
+                    agg_sx_err,
+                    agg_sy_err,
+                    filter_spectra,
+                    wavelength_array,
+                    pixel_QYs,
+                    NA,
+                    agg_photons,
+                    agg_bg,
+                    wavelength_bounds,
+                    None,  # wavelength_initial_guess: use default for aggregates
+                )
+                agg_fit_args.append(args)
+                agg_ids_ordered.append(agg_id)
+
+            # Fit aggregates in parallel
+            if len(agg_fit_args) > 0:
+                n_cpus = multiprocessing.cpu_count()
+                n_workers = max(1, int(n_cpus * cpu_fraction))
+
+                if verbose:
+                    print(f"Fitting {len(agg_fit_args)} aggregates with {n_workers} workers...")
+                    import time
+                    agg_start_time = time.time()
+
+                from Multicolour_Simulation_Functions import (
+                    _fit_nile_red_wavelength_standalone,
+                )
+
+                with futures.ProcessPoolExecutor(n_workers) as executor:
+                    future_list = [
+                        executor.submit(_fit_nile_red_wavelength_standalone, *args)
+                        for args in agg_fit_args
+                    ]
+
+                    agg_completed = 0
+                    for idx, future in enumerate(future_list):
+                        try:
+                            wl, _ = future.result(timeout=30)
+                            if not np.isnan(wl):
+                                aggregate_wl_map[agg_ids_ordered[idx]] = wl
+                            agg_completed += 1
+
+                            if verbose and (agg_completed % 50 == 0 or agg_completed == len(agg_fit_args)):
+                                elapsed = time.time() - agg_start_time
+                                rate = agg_completed / elapsed if elapsed > 0 else 0
+                                print(
+                                    f"  Aggregate progress: {agg_completed}/{len(agg_fit_args)} "
+                                    f"({100*agg_completed/len(agg_fit_args):.1f}%) - {rate:.1f} fits/s",
+                                    end="\r",
+                                    flush=True,
+                                )
+                        except Exception as e:
+                            if verbose:
+                                print(f"\nWarning: Aggregate fit failed for ID {agg_ids_ordered[idx]}: {e}")
+
+                if verbose:
+                    elapsed = time.time() - agg_start_time
+                    n_agg_success = len(aggregate_wl_map)
+                    print(f"\n  Phase 1 complete: {n_agg_success}/{len(agg_fit_args)} aggregates "
+                          f"fitted in {elapsed:.1f} s")
+                    if n_agg_success > 0:
+                        agg_wls = np.array(list(aggregate_wl_map.values()))
+                        print(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
+                        print(f"  Aggregate mean wavelength: {np.mean(agg_wls):.1f} nm")
+
+            if verbose:
+                print(f"\n--- Phase 2: Fitting individual localisations with aggregate priors ---")
+
         # Prepare arguments for parallel processing
         if verbose:
             print(f"\nPreparing {n_locs} fitting tasks...")
 
         fit_args = []
         valid_indices = []
+
+        # Look up aggregate IDs for initial guesses
+        if aggregate_id_column is not None:
+            loc_agg_ids = df[aggregate_id_column].to_numpy()
+        else:
+            loc_agg_ids = None
 
         for j in range(n_locs):
             # Skip if RGB total is zero or negative
@@ -1051,6 +1218,11 @@ class NileRed_Functions:
                 else 1e-3
             )
 
+            # Look up aggregate prior initial guess
+            wl_guess = None
+            if loc_agg_ids is not None and not np.isnan(loc_agg_ids[j]):
+                wl_guess = aggregate_wl_map.get(loc_agg_ids[j], None)
+
             # Build argument tuple for standalone function
             args = (
                 np.array([R_norm, G_norm, B_norm]),
@@ -1066,6 +1238,7 @@ class NileRed_Functions:
                 fitted_photons[j] if use_snr else None,
                 fitted_background_photons[j] if use_snr else None,
                 wavelength_bounds,
+                wl_guess,
             )
 
             fit_args.append(args)
@@ -1073,6 +1246,12 @@ class NileRed_Functions:
 
         if verbose:
             print(f"Valid fitting tasks: {len(fit_args)}/{n_locs}")
+            if aggregate_id_column is not None:
+                n_with_prior = sum(
+                    1 for j in valid_indices
+                    if not np.isnan(loc_agg_ids[j]) and loc_agg_ids[j] in aggregate_wl_map
+                )
+                print(f"Localisations with aggregate prior: {n_with_prior}/{len(fit_args)}")
 
         # Parallel wavelength fitting
         wl_fits = np.full(n_locs, np.nan)
@@ -1133,6 +1312,15 @@ class NileRed_Functions:
         # Add wavelength columns to DataFrame
         df["wl_fit"] = wl_fits
         df["wl_fit_err"] = wl_fit_errs
+
+        # Add per-aggregate fitted wavelength column (if using aggregate priors)
+        if aggregate_id_column is not None and len(aggregate_wl_map) > 0:
+            wl_agg = np.full(n_locs, np.nan)
+            for j in range(n_locs):
+                agg_id = loc_agg_ids[j]
+                if not np.isnan(agg_id) and agg_id in aggregate_wl_map:
+                    wl_agg[j] = aggregate_wl_map[agg_id]
+            df["wl_fit_aggregate"] = wl_agg
 
         # Calculate success rate
         n_successful = np.sum(~np.isnan(wl_fits))

@@ -2279,6 +2279,7 @@ def _fit_nile_red_wavelength_standalone(
     total_photons: Optional[float] = None,
     background_photons: Optional[float] = None,
     wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+    wavelength_initial_guess: Optional[float] = None,
 ) -> Tuple[float, float]:
     """
     Standalone function for fitting Nile Red wavelength from a single localization.
@@ -2294,6 +2295,8 @@ def _fit_nile_red_wavelength_standalone(
         total_photons: Fitted total photon count (for SNR-based error inflation)
         background_photons: Fitted background photon count (for SNR-based error inflation)
         wavelength_bounds: Search range for wavelength (nm)
+        wavelength_initial_guess: Custom initial guess for wavelength (nm).
+            If None, uses default (617.6 nm).
 
     Returns:
         Tuple of (fitted_wavelength, wavelength_error)
@@ -2319,6 +2322,7 @@ def _fit_nile_red_wavelength_standalone(
             total_photons=total_photons,
             background_photons=background_photons,
             apply_snr_inflation=True if total_photons is not None else False,
+            wavelength_initial_guess=wavelength_initial_guess,
         )
         # TODO: Implement proper error estimation on wavelength
         return (wl, np.nan)
