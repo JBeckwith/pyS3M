@@ -3,12 +3,12 @@ Nile Red Spectral Model Functions
 
 Forward and inverse models for predicting Nile Red emission properties (RGB intensities
 and PSF widths) based on spectral parameters. Uses skew-Gaussian emission model fitted
-from experimental data to extract central emission wavelength from localization data.
+from experimental data to extract central emission wavelength from localisation data.
 
 Leverages SpectralFunctions for wavelength/energy conversions and spectral models,
 and PSFFunctions for wavelength-dependent PSF calculations.
 
-Author: Claude Code (Anthropic)
+Author: jsb92
 Date: October 7, 2025
 """
 
@@ -860,11 +860,11 @@ class NileRed_Functions:
         aggregate_id_column: Optional[str] = None,
     ) -> pd.DataFrame:
         """
-        Fit Nile Red wavelengths from localizations stored in HDF5 file.
+        Fit Nile Red wavelengths from localisations stored in HDF5 file.
 
-        Convenience function that loads an HDF5 file containing localization data
+        Convenience function that loads an HDF5 file containing localisation data
         (RGB intensities, PSF widths, and errors), fits the Nile Red wavelength
-        for each localization using parallel processing, and returns/saves the
+        for each localisation using parallel processing, and returns/saves the
         updated DataFrame with wavelength columns added.
 
         When aggregate_id_column is provided, uses a two-step fitting approach:
@@ -874,7 +874,7 @@ class NileRed_Functions:
            fitting individual localisations within that aggregate
 
         Args:
-            h5_path: Path to HDF5 file containing localization data
+            h5_path: Path to HDF5 file containing localisation data
             filter_names: List of filter/dichroic names used in optical path
             camera_parameters: Camera parameters dict containing:
                 - 'pixel_QYs': Pixel quantum yields vs wavelength (if 'wavelength' not provided)
@@ -956,7 +956,7 @@ class NileRed_Functions:
         n_locs = len(df)
 
         if verbose:
-            print(f"Loaded {n_locs} localizations")
+            print(f"Loaded {n_locs} localisations")
 
         # Check required columns
         required_cols = [
@@ -1167,7 +1167,7 @@ class NileRed_Functions:
                     if n_agg_success > 0:
                         agg_wls = np.array(list(aggregate_wl_map.values()))
                         print(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
-                        print(f"  Aggregate mean wavelength: {np.mean(agg_wls):.1f} nm")
+                        print(f"  Aggregate median wavelength: {np.median(agg_wls):.1f} nm")
 
             if verbose:
                 print(f"\n--- Phase 2: Fitting individual localisations with aggregate priors ---")
@@ -1332,7 +1332,7 @@ class NileRed_Functions:
             print(
                 f"  Wavelength range: {np.nanmin(wl_fits):.1f} - {np.nanmax(wl_fits):.1f} nm"
             )
-            print(f"  Mean wavelength: {np.nanmean(wl_fits):.1f} nm")
+            print(f"  Median wavelength: {np.nanmedian(wl_fits):.1f} nm")
             print(f"  Std wavelength: {np.nanstd(wl_fits):.1f} nm")
 
         # Save to output file if requested
