@@ -15,7 +15,7 @@ Date: October 7, 2025
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 import SpectralFunctions
 import PSFFunctions
 
@@ -425,6 +425,122 @@ class NileRed_Functions:
 
         return snr_array
 
+    @staticmethod
+    def _normalize_rgb_with_errors(
+        rgb: np.ndarray, rgb_err: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Normalize RGB values to unit sum and propagate errors via quadrature.
+
+        Args:
+            rgb: [R, G, B] intensities (unnormalized)
+            rgb_err: [R_err, G_err, B_err] errors on intensities
+
+        Returns:
+            rgb_norm: [R, G, B] normalized to unit sum
+            rgb_norm_err: propagated errors on normalized values
+        """
+        rgb_total = np.sum(rgb)
+        rgb_norm = rgb / rgb_total
+
+        total_err = np.linalg.norm(rgb_err)
+        rgb_norm_err = np.array([
+            (
+                rgb_norm[i] * np.sqrt(
+                    (rgb_err[i] / rgb[i]) ** 2 + (total_err / rgb_total) ** 2
+                )
+                if rgb[i] > 0
+                else 1e-3
+            )
+            for i in range(3)
+        ])
+
+        return rgb_norm, rgb_norm_err
+
+    @staticmethod
+    def _weighted_average_with_error(
+        values: np.ndarray, errors: np.ndarray
+    ) -> Tuple[float, float]:
+        """Compute inverse-error-weighted average and propagated error.
+
+        Args:
+            values: Array of measurements
+            errors: Array of measurement errors (must be > 0)
+
+        Returns:
+            weighted_avg: Weighted average of values
+            propagated_err: Propagated error = 1 / sqrt(sum(1/err^2))
+        """
+        weights = 1.0 / errors
+        weighted_avg = np.average(values, weights=weights)
+        propagated_err = 1.0 / np.sqrt(np.sum(1.0 / errors ** 2))
+        return weighted_avg, propagated_err
+
+    @staticmethod
+    def _parallel_fit_wavelengths(
+        fit_args: list,
+        n_workers: int,
+        verbose: bool = True,
+        label: str = "Fitting",
+        progress_interval: int = 100,
+    ) -> List[Tuple[float, float]]:
+        """Run wavelength fits in parallel with progress tracking.
+
+        Args:
+            fit_args: List of argument tuples for _fit_nile_red_wavelength_standalone
+            n_workers: Number of parallel workers
+            verbose: Print progress messages
+            label: Label for progress output
+            progress_interval: Print progress every N completions
+
+        Returns:
+            results: List of (wavelength, wavelength_error) tuples, one per input.
+                     Failed fits return (NaN, NaN).
+        """
+        import time
+        from concurrent import futures
+
+        n_total = len(fit_args)
+        results = [(np.nan, np.nan)] * n_total
+
+        if verbose:
+            print(f"{label}: {n_total} tasks with {n_workers} workers...")
+            start_time = time.time()
+
+        with futures.ProcessPoolExecutor(n_workers) as executor:
+            future_list = [
+                executor.submit(_fit_nile_red_wavelength_standalone, *args)
+                for args in fit_args
+            ]
+
+            completed = 0
+            for idx, future in enumerate(future_list):
+                try:
+                    wl, wl_err = future.result(timeout=30)
+                    results[idx] = (wl, wl_err)
+                    completed += 1
+
+                    if verbose and (
+                        completed % progress_interval == 0
+                        or completed == n_total
+                    ):
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        print(
+                            f"  {label} progress: {completed}/{n_total} "
+                            f"({100*completed/n_total:.1f}%) - {rate:.1f} fits/s",
+                            end="\r",
+                            flush=True,
+                        )
+                except Exception as e:
+                    if verbose:
+                        print(f"\nWarning: {label} fit failed for index {idx}: {e}")
+
+        if verbose:
+            elapsed = time.time() - start_time
+            print(f"\n  {label} complete: {completed}/{n_total} in {elapsed:.1f} s")
+
+        return results
+
     def fit_nile_red_wavelength(
         self,
         observed_rgb: np.ndarray,
@@ -686,8 +802,6 @@ class NileRed_Functions:
         # STAGE 1: Simulate and fit images for each wavelength
         wavelength_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
-            from tqdm.auto import tqdm  # Import here to avoid unbound error
-
             wavelength_iterator = tqdm(
                 wavelength_iterator,
                 total=n_wavelengths,
@@ -754,8 +868,6 @@ class NileRed_Functions:
 
         stats_iterator = enumerate(wavelengths_true)
         if use_tqdm and verbose:
-            from tqdm.auto import tqdm  # Import here to avoid unbound error
-
             stats_iterator = tqdm(
                 stats_iterator,
                 total=n_wavelengths,
@@ -935,7 +1047,6 @@ class NileRed_Functions:
         import pandas as pd
         import os
         import multiprocessing
-        from concurrent import futures
 
         if verbose:
             print(f"\n{'='*60}")
@@ -1032,6 +1143,8 @@ class NileRed_Functions:
 
         # --- Phase 1: Fit aggregate priors (if aggregate_id_column provided) ---
         aggregate_wl_map = {}  # {aggregate_id: fitted_wavelength}
+        n_cpus = multiprocessing.cpu_count()
+        n_workers = max(1, int(n_cpus * cpu_fraction))
 
         if aggregate_id_column is not None:
             if aggregate_id_column not in df.columns:
@@ -1051,128 +1164,69 @@ class NileRed_Functions:
             if verbose:
                 print(f"Found {n_aggregates} aggregates")
 
-            # Compute weighted averages per aggregate
+            # Compute weighted averages per aggregate and build fit args
             agg_fit_args = []
             agg_ids_ordered = []
 
             for agg_id in aggregate_ids:
                 subset = df[df[aggregate_id_column] == agg_id]
 
-                # Weighted average: weight by 1/error (matching postprocess.py convention)
-                agg_R = np.average(subset["A_R"], weights=1.0 / subset["A_R_err"])
-                agg_G = np.average(subset["A_G"], weights=1.0 / subset["A_G_err"])
-                agg_B = np.average(subset["A_B"], weights=1.0 / subset["A_B_err"])
-                agg_sx = np.average(subset["s_x"], weights=1.0 / subset["s_x_err"]) * pixel_size
-                agg_sy = np.average(subset["s_y"], weights=1.0 / subset["s_y_err"]) * pixel_size
+                # Weighted averages and propagated errors per channel
+                agg_R, agg_R_err = self._weighted_average_with_error(
+                    subset["A_R"].to_numpy(), subset["A_R_err"].to_numpy())
+                agg_G, agg_G_err = self._weighted_average_with_error(
+                    subset["A_G"].to_numpy(), subset["A_G_err"].to_numpy())
+                agg_B, agg_B_err = self._weighted_average_with_error(
+                    subset["A_B"].to_numpy(), subset["A_B_err"].to_numpy())
+                agg_sx, agg_sx_err = self._weighted_average_with_error(
+                    subset["s_x"].to_numpy(), subset["s_x_err"].to_numpy())
+                agg_sy, agg_sy_err = self._weighted_average_with_error(
+                    subset["s_y"].to_numpy(), subset["s_y_err"].to_numpy())
 
-                # Propagate errors: sigma_mean = 1 / sqrt(sum(1/sigma_i^2))
-                agg_R_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_R_err"] ** 2))
-                agg_G_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_G_err"] ** 2))
-                agg_B_err = 1.0 / np.sqrt(np.sum(1.0 / subset["A_B_err"] ** 2))
-                agg_sx_err = 1.0 / np.sqrt(np.sum(1.0 / subset["s_x_err"] ** 2)) * pixel_size
-                agg_sy_err = 1.0 / np.sqrt(np.sum(1.0 / subset["s_y_err"] ** 2)) * pixel_size
+                # Convert PSF widths from pixels to nm
+                agg_sx *= pixel_size
+                agg_sy *= pixel_size
+                agg_sx_err *= pixel_size
+                agg_sy_err *= pixel_size
 
-                # Normalize RGB
-                rgb_total = agg_R + agg_G + agg_B
-                if rgb_total <= 0:
+                # Normalize RGB with error propagation
+                agg_rgb = np.array([agg_R, agg_G, agg_B])
+                agg_rgb_err = np.array([agg_R_err, agg_G_err, agg_B_err])
+                if np.sum(agg_rgb) <= 0:
                     continue
-
-                R_norm = agg_R / rgb_total
-                G_norm = agg_G / rgb_total
-                B_norm = agg_B / rgb_total
-
-                total_err = np.sqrt(agg_R_err ** 2 + agg_G_err ** 2 + agg_B_err ** 2)
-                R_norm_err = (
-                    R_norm * np.sqrt((agg_R_err / agg_R) ** 2 + (total_err / rgb_total) ** 2)
-                    if agg_R > 0 else 1e-3
-                )
-                G_norm_err = (
-                    G_norm * np.sqrt((agg_G_err / agg_G) ** 2 + (total_err / rgb_total) ** 2)
-                    if agg_G > 0 else 1e-3
-                )
-                B_norm_err = (
-                    B_norm * np.sqrt((agg_B_err / agg_B) ** 2 + (total_err / rgb_total) ** 2)
-                    if agg_B > 0 else 1e-3
-                )
+                rgb_norm, rgb_norm_err = self._normalize_rgb_with_errors(agg_rgb, agg_rgb_err)
 
                 # Sum photons across aggregate for SNR
                 agg_photons = subset["photons"].sum() if use_snr else None
                 agg_bg = subset["background_photons"].sum() if use_snr else None
 
-                args = (
-                    np.array([R_norm, G_norm, B_norm]),
-                    agg_sx,
-                    agg_sy,
-                    np.array([R_norm_err, G_norm_err, B_norm_err]),
-                    agg_sx_err,
-                    agg_sy_err,
-                    filter_spectra,
-                    wavelength_array,
-                    pixel_QYs,
-                    NA,
-                    agg_photons,
-                    agg_bg,
-                    wavelength_bounds,
-                    None,  # wavelength_initial_guess: use default for aggregates
-                )
-                agg_fit_args.append(args)
+                agg_fit_args.append((
+                    rgb_norm, agg_sx, agg_sy, rgb_norm_err, agg_sx_err, agg_sy_err,
+                    filter_spectra, wavelength_array, pixel_QYs, NA,
+                    agg_photons, agg_bg, wavelength_bounds, None,
+                ))
                 agg_ids_ordered.append(agg_id)
 
             # Fit aggregates in parallel
             if len(agg_fit_args) > 0:
-                n_cpus = multiprocessing.cpu_count()
-                n_workers = max(1, int(n_cpus * cpu_fraction))
-
-                if verbose:
-                    print(f"Fitting {len(agg_fit_args)} aggregates with {n_workers} workers...")
-                    import time
-                    agg_start_time = time.time()
-
-                from Multicolour_Simulation_Functions import (
-                    _fit_nile_red_wavelength_standalone,
+                agg_results = self._parallel_fit_wavelengths(
+                    agg_fit_args, n_workers, verbose,
+                    label="Aggregate fitting", progress_interval=50,
                 )
 
-                with futures.ProcessPoolExecutor(n_workers) as executor:
-                    future_list = [
-                        executor.submit(_fit_nile_red_wavelength_standalone, *args)
-                        for args in agg_fit_args
-                    ]
+                for idx, (wl, _) in enumerate(agg_results):
+                    if not np.isnan(wl):
+                        aggregate_wl_map[agg_ids_ordered[idx]] = wl
 
-                    agg_completed = 0
-                    for idx, future in enumerate(future_list):
-                        try:
-                            wl, _ = future.result(timeout=30)
-                            if not np.isnan(wl):
-                                aggregate_wl_map[agg_ids_ordered[idx]] = wl
-                            agg_completed += 1
-
-                            if verbose and (agg_completed % 50 == 0 or agg_completed == len(agg_fit_args)):
-                                elapsed = time.time() - agg_start_time
-                                rate = agg_completed / elapsed if elapsed > 0 else 0
-                                print(
-                                    f"  Aggregate progress: {agg_completed}/{len(agg_fit_args)} "
-                                    f"({100*agg_completed/len(agg_fit_args):.1f}%) - {rate:.1f} fits/s",
-                                    end="\r",
-                                    flush=True,
-                                )
-                        except Exception as e:
-                            if verbose:
-                                print(f"\nWarning: Aggregate fit failed for ID {agg_ids_ordered[idx]}: {e}")
-
-                if verbose:
-                    elapsed = time.time() - agg_start_time
-                    n_agg_success = len(aggregate_wl_map)
-                    print(f"\n  Phase 1 complete: {n_agg_success}/{len(agg_fit_args)} aggregates "
-                          f"fitted in {elapsed:.1f} s")
-                    if n_agg_success > 0:
-                        agg_wls = np.array(list(aggregate_wl_map.values()))
-                        print(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
-                        print(f"  Aggregate median wavelength: {np.median(agg_wls):.1f} nm")
+                if verbose and len(aggregate_wl_map) > 0:
+                    agg_wls = np.array(list(aggregate_wl_map.values()))
+                    print(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
+                    print(f"  Aggregate median wavelength: {np.median(agg_wls):.1f} nm")
 
             if verbose:
                 print(f"\n--- Phase 2: Fitting individual localisations with aggregate priors ---")
 
-        # Prepare arguments for parallel processing
+        # --- Phase 2: Prepare arguments for per-localisation fitting ---
         if verbose:
             print(f"\nPreparing {n_locs} fitting tasks...")
 
@@ -1187,61 +1241,26 @@ class NileRed_Functions:
 
         for j in range(n_locs):
             # Skip if RGB total is zero or negative
-            rgb_total = R[j] + G[j] + B[j]
-            if rgb_total <= 0:
+            rgb_j = np.array([R[j], G[j], B[j]])
+            if np.sum(rgb_j) <= 0:
                 continue
 
-            # Note: RGB values should already be normalized in the HDF5 file
-            # but we reconstruct them here to ensure proper normalization
-            R_norm = R[j] / rgb_total
-            G_norm = G[j] / rgb_total
-            B_norm = B[j] / rgb_total
-
-            # Propagate errors (accounting for normalization)
-            total_err = np.sqrt(R_err[j] ** 2 + G_err[j] ** 2 + B_err[j] ** 2)
-            R_norm_err = (
-                R_norm
-                * np.sqrt((R_err[j] / R[j]) ** 2 + (total_err / rgb_total) ** 2)
-                if R[j] > 0
-                else 1e-3
-            )
-            G_norm_err = (
-                G_norm
-                * np.sqrt((G_err[j] / G[j]) ** 2 + (total_err / rgb_total) ** 2)
-                if G[j] > 0
-                else 1e-3
-            )
-            B_norm_err = (
-                B_norm
-                * np.sqrt((B_err[j] / B[j]) ** 2 + (total_err / rgb_total) ** 2)
-                if B[j] > 0
-                else 1e-3
-            )
+            rgb_err_j = np.array([R_err[j], G_err[j], B_err[j]])
+            rgb_norm, rgb_norm_err = self._normalize_rgb_with_errors(rgb_j, rgb_err_j)
 
             # Look up aggregate prior initial guess
             wl_guess = None
             if loc_agg_ids is not None and not np.isnan(loc_agg_ids[j]):
                 wl_guess = aggregate_wl_map.get(loc_agg_ids[j], None)
 
-            # Build argument tuple for standalone function
-            args = (
-                np.array([R_norm, G_norm, B_norm]),
-                sigma_x[j],
-                sigma_y[j],
-                np.array([R_norm_err, G_norm_err, B_norm_err]),
-                sigma_x_err[j],
-                sigma_y_err[j],
-                filter_spectra,
-                wavelength_array,
-                pixel_QYs,
-                NA,
+            fit_args.append((
+                rgb_norm, sigma_x[j], sigma_y[j],
+                rgb_norm_err, sigma_x_err[j], sigma_y_err[j],
+                filter_spectra, wavelength_array, pixel_QYs, NA,
                 fitted_photons[j] if use_snr else None,
                 fitted_background_photons[j] if use_snr else None,
-                wavelength_bounds,
-                wl_guess,
-            )
-
-            fit_args.append(args)
+                wavelength_bounds, wl_guess,
+            ))
             valid_indices.append(j)
 
         if verbose:
@@ -1258,56 +1277,14 @@ class NileRed_Functions:
         wl_fit_errs = np.full(n_locs, np.nan)
 
         if len(fit_args) > 0:
-            # Calculate number of workers
-            n_cpus = multiprocessing.cpu_count()
-            n_workers = max(1, int(n_cpus * cpu_fraction))
-
-            if verbose:
-                print(f"\nStarting parallel fitting with {n_workers} workers...")
-                import time
-
-                start_time = time.time()
-
-            # Import standalone function
-            from Multicolour_Simulation_Functions import (
-                _fit_nile_red_wavelength_standalone,
+            results = self._parallel_fit_wavelengths(
+                fit_args, n_workers, verbose,
+                label="Localisation fitting", progress_interval=100,
             )
 
-            with futures.ProcessPoolExecutor(n_workers) as executor:
-                # Submit all fitting tasks
-                future_list = [
-                    executor.submit(_fit_nile_red_wavelength_standalone, *args)
-                    for args in fit_args
-                ]
-
-                # Collect results with progress tracking
-                completed = 0
-                for idx, future in enumerate(future_list):
-                    try:
-                        wl, wl_err = future.result(timeout=30)
-                        wl_fits[valid_indices[idx]] = wl
-                        wl_fit_errs[valid_indices[idx]] = wl_err
-                        completed += 1
-
-                        if verbose and (completed % 100 == 0 or completed == len(fit_args)):
-                            elapsed = time.time() - start_time
-                            rate = completed / elapsed if elapsed > 0 else 0
-                            print(
-                                f"  Progress: {completed}/{len(fit_args)} ({100*completed/len(fit_args):.1f}%) - {rate:.1f} fits/s",
-                                end="\r",
-                                flush=True,
-                            )
-                    except Exception as e:
-                        if verbose:
-                            print(
-                                f"\nWarning: Fit failed for index {valid_indices[idx]}: {e}"
-                            )
-                        wl_fits[valid_indices[idx]] = np.nan
-                        wl_fit_errs[valid_indices[idx]] = np.nan
-
-            if verbose:
-                elapsed = time.time() - start_time
-                print(f"\n\nFitting complete: {elapsed:.1f} s ({len(fit_args)/elapsed:.1f} fits/s)")
+            for idx, (wl, wl_err) in enumerate(results):
+                wl_fits[valid_indices[idx]] = wl
+                wl_fit_errs[valid_indices[idx]] = wl_err
 
         # Add wavelength columns to DataFrame
         df["wl_fit"] = wl_fits
@@ -1349,3 +1326,424 @@ class NileRed_Functions:
             print(f"\n{'='*60}\n")
 
         return df
+
+    def fit_wavelengths_pixelated(
+        self,
+        h5_path: str,
+        filter_names: List[str],
+        camera_parameters: Dict,
+        pixel_size_nm: float = 50.0,
+        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+        NA: float = 1.49,
+        camera_pixel_size: float = 69.0,
+        min_localisations: int = 3,
+        output_path: Optional[str] = None,
+        cpu_fraction: float = 0.9,
+        verbose: bool = True,
+        aggregate_id_column: Optional[str] = None,
+        return_grid: bool = True,
+    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict]]:
+        """Fit Nile Red wavelengths on a spatial pixel grid.
+
+        Discretises localisations onto a regular grid of user-defined pixel size,
+        computes inverse-error-weighted averages of RGB intensities and PSF widths
+        per pixel, then fits a single wavelength per pixel. This produces a spatial
+        wavelength map with higher per-pixel precision (more photons) and far fewer
+        fits than per-localisation fitting.
+
+        Args:
+            h5_path: Path to HDF5 file containing localisation data.
+            filter_names: List of filter/dichroic names used in optical path.
+            camera_parameters: Camera parameters dict containing:
+                - 'pixel_QYs': Pixel quantum yields vs wavelength
+                - 'wavelength': Wavelength array (nm) - optional
+            pixel_size_nm: Grid pixel size in nm. Controls spatial resolution
+                vs averaging trade-off. Default: 50.0 nm.
+            wavelength_bounds: Search range for wavelength fitting (nm).
+            NA: Numerical aperture. Default: 1.49.
+            camera_pixel_size: Camera pixel size in nm. Default: 69.0.
+            min_localisations: Minimum localisations per pixel to attempt a fit.
+                Pixels with fewer localisations get NaN. Default: 3.
+            output_path: Optional path to save updated HDF5 file.
+            cpu_fraction: Fraction of CPUs to use for parallel fitting.
+            verbose: Print progress messages.
+            aggregate_id_column: Column name for aggregate/punctum IDs.
+                When provided, pixels are grouped within each aggregate so
+                overlapping structures are not mixed.
+            return_grid: If True, return (DataFrame, grid_info dict).
+                If False, return only the DataFrame.
+
+        Returns:
+            If return_grid is True:
+                Tuple of (DataFrame, grid_info) where grid_info contains:
+                - 'wl_grid': (ny, nx) wavelength array (nm), NaN where no fit
+                - 'n_locs_grid': (ny, nx) localisation count per pixel
+                - 'total_photons_grid': (ny, nx) summed photons per pixel
+                - 'mean_photons_grid': (ny, nx) mean photons per loc per pixel
+                - 'pixel_size_nm': grid pixel size
+                - 'origin_nm': (x_min, y_min) of grid origin in nm
+                - 'grid_shape': (ny, nx)
+                - 'n_pixels_fitted': number of pixels with successful fits
+                - 'n_pixels_skipped': pixels below min_localisations threshold
+            If return_grid is False:
+                DataFrame with added columns: 'wl_pixel', 'pixel_ix', 'pixel_iy'
+
+        Required columns in HDF5 file:
+            - xc, yc: Localisation positions (camera pixels)
+            - A_R, A_G, A_B: RGB amplitudes
+            - s_x, s_y: PSF widths (camera pixels)
+            - A_R_err, A_G_err, A_B_err: RGB amplitude errors
+            - s_x_err, s_y_err: PSF width errors (camera pixels)
+            - photons, background_photons: (optional) for SNR-based error inflation
+        """
+        import os
+        import multiprocessing
+
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Pixelated Nile Red Wavelength Fitting")
+            print(f"{'='*60}")
+            print(f"Input file: {h5_path}")
+            print(f"Grid pixel size: {pixel_size_nm} nm")
+            print(f"Min localisations per pixel: {min_localisations}")
+            print(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
+            print(f"{'='*60}\n")
+
+        # --- Load HDF5 ---
+        if not os.path.exists(h5_path):
+            raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
+
+        df = pd.read_hdf(h5_path, "data")
+        n_locs = len(df)
+
+        if verbose:
+            print(f"Loaded {n_locs} localisations")
+
+        # --- Check required columns ---
+        required_cols = [
+            "xc", "yc", "A_R", "A_G", "A_B", "s_x", "s_y",
+            "A_R_err", "A_G_err", "A_B_err", "s_x_err", "s_y_err",
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"HDF5 file missing required columns: {missing_cols}\n"
+                f"Available columns: {list(df.columns)}"
+            )
+
+        # --- Setup optical system ---
+        if "wavelength" in camera_parameters:
+            wavelength_array = camera_parameters["wavelength"]
+        else:
+            if verbose:
+                print("Warning: 'wavelength' not in camera_parameters, "
+                      "using default from getpixelefficiency()")
+            _, _, _, wavelength_array = self.spectral_funcs.getpixelefficiency()
+
+        pixel_QYs = camera_parameters["pixel_QYs"]
+
+        filter_spectra = self.spectral_funcs.get_dye_or_filter_data(
+            names=filter_names, wavelength=wavelength_array, dye_or_filter=False
+        )
+
+        if verbose:
+            print(f"Optical system configured with {len(filter_names)} filters")
+
+        # --- Check SNR columns ---
+        if "photons" in df.columns and "background_photons" in df.columns:
+            use_snr = True
+            if verbose:
+                print("Using photon counts for SNR-based error inflation")
+        else:
+            use_snr = False
+            if verbose:
+                print("Warning: 'photons' or 'background_photons' columns not found, "
+                      "skipping SNR error inflation")
+
+        # --- Step 1: Discretise onto grid ---
+        x_nm = df["xc"].to_numpy() * camera_pixel_size
+        y_nm = df["yc"].to_numpy() * camera_pixel_size
+
+        x_min = np.floor(np.min(x_nm) / pixel_size_nm) * pixel_size_nm
+        y_min = np.floor(np.min(y_nm) / pixel_size_nm) * pixel_size_nm
+
+        pixel_ix = np.floor((x_nm - x_min) / pixel_size_nm).astype(int)
+        pixel_iy = np.floor((y_nm - y_min) / pixel_size_nm).astype(int)
+
+        nx = pixel_ix.max() + 1
+        ny = pixel_iy.max() + 1
+
+        if verbose:
+            print(f"Grid dimensions: {nx} x {ny} pixels "
+                  f"({nx * pixel_size_nm:.0f} x {ny * pixel_size_nm:.0f} nm)")
+
+        # --- Step 2: Build pixel groups ---
+        # Pixel key includes aggregate ID when provided to avoid mixing structures
+        if aggregate_id_column is not None:
+            if aggregate_id_column not in df.columns:
+                raise ValueError(
+                    f"aggregate_id_column '{aggregate_id_column}' not found. "
+                    f"Available columns: {list(df.columns)}"
+                )
+            agg_ids = df[aggregate_id_column].to_numpy()
+            # Build composite key: (agg_id, ix, iy)
+            # Use a dict mapping composite key -> list of localisation indices
+            pixel_groups = {}
+            for j in range(n_locs):
+                if np.isnan(agg_ids[j]):
+                    continue
+                key = (agg_ids[j], pixel_ix[j], pixel_iy[j])
+                if key not in pixel_groups:
+                    pixel_groups[key] = []
+                pixel_groups[key].append(j)
+        else:
+            # Simple spatial grouping: key = (ix, iy)
+            pixel_groups = {}
+            for j in range(n_locs):
+                key = (pixel_ix[j], pixel_iy[j])
+                if key not in pixel_groups:
+                    pixel_groups[key] = []
+                pixel_groups[key].append(j)
+
+        n_total_pixels = len(pixel_groups)
+
+        # --- Step 3: Compute weighted averages per pixel and build fit args ---
+        A_R = df["A_R"].to_numpy()
+        A_G = df["A_G"].to_numpy()
+        A_B = df["A_B"].to_numpy()
+        s_x = df["s_x"].to_numpy()
+        s_y = df["s_y"].to_numpy()
+        A_R_err = df["A_R_err"].to_numpy()
+        A_G_err = df["A_G_err"].to_numpy()
+        A_B_err = df["A_B_err"].to_numpy()
+        s_x_err = df["s_x_err"].to_numpy()
+        s_y_err = df["s_y_err"].to_numpy()
+        photons = df["photons"].to_numpy() if use_snr else None
+        bg_photons = df["background_photons"].to_numpy() if use_snr else None
+
+        fit_args = []
+        pixel_keys_ordered = []
+        pixel_metadata = []  # (n_locs, total_photons, mean_photons) per pixel
+        n_skipped = 0
+
+        for key, indices in pixel_groups.items():
+            n_in_pixel = len(indices)
+            if n_in_pixel < min_localisations:
+                n_skipped += 1
+                continue
+
+            idx = np.array(indices)
+
+            # Weighted averages per channel
+            try:
+                avg_R, avg_R_err = self._weighted_average_with_error(
+                    A_R[idx], A_R_err[idx])
+                avg_G, avg_G_err = self._weighted_average_with_error(
+                    A_G[idx], A_G_err[idx])
+                avg_B, avg_B_err = self._weighted_average_with_error(
+                    A_B[idx], A_B_err[idx])
+                avg_sx, avg_sx_err = self._weighted_average_with_error(
+                    s_x[idx], s_x_err[idx])
+                avg_sy, avg_sy_err = self._weighted_average_with_error(
+                    s_y[idx], s_y_err[idx])
+            except (ZeroDivisionError, ValueError):
+                n_skipped += 1
+                continue
+
+            # Convert PSF widths from camera pixels to nm
+            avg_sx *= camera_pixel_size
+            avg_sy *= camera_pixel_size
+            avg_sx_err *= camera_pixel_size
+            avg_sy_err *= camera_pixel_size
+
+            # Normalize RGB with error propagation
+            rgb = np.array([avg_R, avg_G, avg_B])
+            rgb_err = np.array([avg_R_err, avg_G_err, avg_B_err])
+            if np.sum(rgb) <= 0:
+                n_skipped += 1
+                continue
+            rgb_norm, rgb_norm_err = self._normalize_rgb_with_errors(rgb, rgb_err)
+
+            # Photon sums for SNR
+            pix_photons = float(np.sum(photons[idx])) if photons is not None else None
+            pix_bg = float(np.sum(bg_photons[idx])) if bg_photons is not None else None
+
+            fit_args.append((
+                rgb_norm, avg_sx, avg_sy, rgb_norm_err, avg_sx_err, avg_sy_err,
+                filter_spectra, wavelength_array, pixel_QYs, NA,
+                pix_photons, pix_bg, wavelength_bounds, None,
+            ))
+            pixel_keys_ordered.append(key)
+            pixel_metadata.append((
+                n_in_pixel,
+                pix_photons if pix_photons is not None else np.nan,
+                (pix_photons / n_in_pixel) if pix_photons is not None else np.nan,
+            ))
+
+        n_to_fit = len(fit_args)
+
+        if verbose:
+            print(f"\nPixel groups: {n_total_pixels} total")
+            print(f"  Fitting: {n_to_fit} pixels (>= {min_localisations} localisations)")
+            print(f"  Skipped: {n_skipped} pixels (< {min_localisations} localisations)")
+            if n_to_fit > 0:
+                locs_per_pixel = [m[0] for m in pixel_metadata]
+                print(f"  Locs/pixel: median {np.median(locs_per_pixel):.0f}, "
+                      f"range [{np.min(locs_per_pixel)}-{np.max(locs_per_pixel)}]")
+
+        # --- Step 4: Parallel wavelength fitting ---
+        n_cpus = multiprocessing.cpu_count()
+        n_workers = max(1, int(n_cpus * cpu_fraction))
+
+        pixel_wl = {}  # key -> fitted wavelength
+
+        if n_to_fit > 0:
+            results = self._parallel_fit_wavelengths(
+                fit_args, n_workers, verbose,
+                label="Pixel fitting", progress_interval=50,
+            )
+
+            n_success = 0
+            for i, (wl, _) in enumerate(results):
+                if not np.isnan(wl):
+                    pixel_wl[pixel_keys_ordered[i]] = wl
+                    n_success += 1
+
+            if verbose:
+                print(f"\nFit results: {n_success}/{n_to_fit} pixels converged")
+                if n_success > 0:
+                    wls = np.array(list(pixel_wl.values()))
+                    print(f"  Wavelength range: {np.min(wls):.1f} - {np.max(wls):.1f} nm")
+                    print(f"  Median: {np.median(wls):.1f} nm, Std: {np.std(wls):.1f} nm")
+
+        # --- Step 5: Build output grids ---
+        wl_grid = np.full((ny, nx), np.nan)
+        n_locs_grid = np.zeros((ny, nx), dtype=int)
+        total_photons_grid = np.full((ny, nx), np.nan)
+        mean_photons_grid = np.full((ny, nx), np.nan)
+
+        for i, key in enumerate(pixel_keys_ordered):
+            # Extract grid coordinates from key
+            if aggregate_id_column is not None:
+                _, ix, iy = key
+            else:
+                ix, iy = key
+
+            n_loc, tot_ph, mean_ph = pixel_metadata[i]
+            n_locs_grid[iy, ix] += n_loc
+            # Accumulate photons (handles NaN from first write)
+            existing = total_photons_grid[iy, ix]
+            if np.isnan(existing):
+                total_photons_grid[iy, ix] = tot_ph
+            elif not np.isnan(tot_ph):
+                total_photons_grid[iy, ix] = existing + tot_ph
+            mean_photons_grid[iy, ix] = mean_ph
+
+            if key in pixel_wl:
+                wl_grid[iy, ix] = pixel_wl[key]
+
+        # --- Step 6: Assign pixel wavelength back to localisations ---
+        wl_pixel = np.full(n_locs, np.nan)
+        for key, indices in pixel_groups.items():
+            if key in pixel_wl:
+                for j in indices:
+                    wl_pixel[j] = pixel_wl[key]
+
+        df["wl_pixel"] = wl_pixel
+        df["pixel_ix"] = pixel_ix
+        df["pixel_iy"] = pixel_iy
+
+        n_assigned = np.sum(~np.isnan(wl_pixel))
+        if verbose:
+            print(f"\nLocalisations with pixel wavelength: "
+                  f"{n_assigned}/{n_locs} ({100*n_assigned/n_locs:.1f}%)")
+
+        # --- Save ---
+        if output_path is not None:
+            if verbose:
+                print(f"\nSaving results to: {output_path}")
+            df.to_hdf(output_path, key="data", mode="w", format="table")
+            if verbose:
+                print("Save complete!")
+
+        if verbose:
+            print(f"\n{'='*60}\n")
+
+        if return_grid:
+            grid_info = {
+                "wl_grid": wl_grid,
+                "n_locs_grid": n_locs_grid,
+                "total_photons_grid": total_photons_grid,
+                "mean_photons_grid": mean_photons_grid,
+                "pixel_size_nm": pixel_size_nm,
+                "origin_nm": (x_min, y_min),
+                "grid_shape": (ny, nx),
+                "n_pixels_fitted": len(pixel_wl),
+                "n_pixels_skipped": n_skipped,
+            }
+            return df, grid_info
+        else:
+            return df
+
+
+# Module-level standalone function for parallel Nile Red wavelength fitting (must be pickleable)
+def _fit_nile_red_wavelength_standalone(
+    rgb: np.ndarray,
+    sigma_x: float,
+    sigma_y: float,
+    rgb_err: np.ndarray,
+    sigma_x_err: float,
+    sigma_y_err: float,
+    filter_spectra: np.ndarray,
+    wavelength_array: np.ndarray,
+    pixel_QYs: np.ndarray,
+    NA: float,
+    total_photons: Optional[float] = None,
+    background_photons: Optional[float] = None,
+    wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+    wavelength_initial_guess: Optional[float] = None,
+) -> Tuple[float, float]:
+    """Standalone function for fitting Nile Red wavelength from a single localization.
+
+    Must be a module-level function (not a method) to be pickleable for multiprocessing.
+
+    Args:
+        rgb: Normalized [R, G, B] intensities
+        sigma_x, sigma_y: PSF widths in nm
+        rgb_err, sigma_x_err, sigma_y_err: Errors on measurements
+        filter_spectra, wavelength_array, pixel_QYs: Optical system parameters
+        NA: Numerical aperture
+        total_photons: Fitted total photon count (for SNR-based error inflation)
+        background_photons: Fitted background photon count (for SNR-based error inflation)
+        wavelength_bounds: Search range for wavelength (nm)
+        wavelength_initial_guess: Custom initial guess for wavelength (nm).
+            If None, uses default (617.6 nm).
+
+    Returns:
+        Tuple of (fitted_wavelength, wavelength_error)
+        Returns (NaN, NaN) if fit fails
+    """
+    try:
+        nrf = NileRed_Functions()
+
+        wl, _ = nrf.fit_nile_red_wavelength(
+            observed_rgb=rgb,
+            observed_sigma_x=sigma_x,
+            observed_sigma_y=sigma_y,
+            rgb_errors=rgb_err,
+            sigma_x_error=sigma_x_err,
+            sigma_y_error=sigma_y_err,
+            filter_spectra=filter_spectra,
+            wavelength_array=wavelength_array,
+            pixel_QYs=pixel_QYs,
+            NA=NA,
+            wavelength_bounds=wavelength_bounds,
+            total_photons=total_photons,
+            background_photons=background_photons,
+            apply_snr_inflation=True if total_photons is not None else False,
+            wavelength_initial_guess=wavelength_initial_guess,
+        )
+        # TODO: Implement proper error estimation on wavelength
+        return (wl, np.nan)
+    except Exception:
+        return (np.nan, np.nan)

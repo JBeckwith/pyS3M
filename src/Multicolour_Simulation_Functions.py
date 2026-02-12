@@ -904,59 +904,29 @@ class MultiC_Sim_Funcs_Refactored:
             # This mirrors real experimental analysis where we use fitted (not ground truth) values
             fitted_background_photons = fitted_bg_R + fitted_bg_G + fitted_bg_B
 
-            # Normalize RGB (fit_results already has normalized RGB from _fit_standard)
-            # But we need to propagate errors properly
+            # Normalize RGB and propagate errors, then build fit args
+            from NileRedFunctions import NileRed_Functions as _NRF
+
             rgb_total = R + G + B
 
-            # Prepare arguments for parallel processing
             fit_args = []
             valid_indices = []
             for j in range(len(R)):
                 if rgb_total[j] <= 0:
                     continue
 
-                R_norm = R[j] / rgb_total[j]
-                G_norm = G[j] / rgb_total[j]
-                B_norm = B[j] / rgb_total[j]
-
-                # Propagate errors
-                total_err = np.sqrt(R_err[j] ** 2 + G_err[j] ** 2 + B_err[j] ** 2)
-                R_norm_err = (
-                    R_norm
-                    * np.sqrt((R_err[j] / R[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
-                    if R[j] > 0
-                    else 1e-3
-                )
-                G_norm_err = (
-                    G_norm
-                    * np.sqrt((G_err[j] / G[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
-                    if G[j] > 0
-                    else 1e-3
-                )
-                B_norm_err = (
-                    B_norm
-                    * np.sqrt((B_err[j] / B[j]) ** 2 + (total_err / rgb_total[j]) ** 2)
-                    if B[j] > 0
-                    else 1e-3
+                rgb_norm, rgb_norm_err = _NRF._normalize_rgb_with_errors(
+                    np.array([R[j], G[j], B[j]]),
+                    np.array([R_err[j], G_err[j], B_err[j]]),
                 )
 
-                fit_args.append(
-                    (
-                        np.array([R_norm, G_norm, B_norm]),
-                        sigma_x[j],
-                        sigma_y[j],
-                        np.array([R_norm_err, G_norm_err, B_norm_err]),
-                        sigma_x_err[j],
-                        sigma_y_err[j],
-                        filter_spectra,
-                        wavelength_array,
-                        pixel_QYs,
-                        config.NA,
-                        fitted_photons[j],  # Pass fitted photon count
-                        fitted_background_photons[j],  # Pass fitted background photons
-                        (500.0, 750.0),  # wavelength_bounds - extended range for Nile Red
-                    )
-                )
+                fit_args.append((
+                    rgb_norm, sigma_x[j], sigma_y[j],
+                    rgb_norm_err, sigma_x_err[j], sigma_y_err[j],
+                    filter_spectra, wavelength_array, pixel_QYs, config.NA,
+                    fitted_photons[j], fitted_background_photons[j],
+                    (500.0, 750.0),
+                ))
                 valid_indices.append(j)
 
             # Parallel wavelength fitting using ProcessPoolExecutor
@@ -2264,70 +2234,8 @@ class MultiC_Sim_Funcs_Compatibility(MultiC_Sim_Funcs_Refactored):
 
 
 # Main class for external use - provides both new and legacy interfaces
-# Module-level standalone function for parallel Nile Red wavelength fitting (must be pickleable)
-def _fit_nile_red_wavelength_standalone(
-    rgb: np.ndarray,
-    sigma_x: float,
-    sigma_y: float,
-    rgb_err: np.ndarray,
-    sigma_x_err: float,
-    sigma_y_err: float,
-    filter_spectra: np.ndarray,
-    wavelength_array: np.ndarray,
-    pixel_QYs: np.ndarray,
-    NA: float,
-    total_photons: Optional[float] = None,
-    background_photons: Optional[float] = None,
-    wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
-    wavelength_initial_guess: Optional[float] = None,
-) -> Tuple[float, float]:
-    """
-    Standalone function for fitting Nile Red wavelength from a single localization.
-
-    Must be a module-level function (not a method) to be pickleable for multiprocessing.
-
-    Args:
-        rgb: Normalized [R, G, B] intensities
-        sigma_x, sigma_y: PSF widths in nm
-        rgb_err, sigma_x_err, sigma_y_err: Errors on measurements
-        filter_spectra, wavelength_array, pixel_QYs: Optical system parameters
-        NA: Numerical aperture
-        total_photons: Fitted total photon count (for SNR-based error inflation)
-        background_photons: Fitted background photon count (for SNR-based error inflation)
-        wavelength_bounds: Search range for wavelength (nm)
-        wavelength_initial_guess: Custom initial guess for wavelength (nm).
-            If None, uses default (617.6 nm).
-
-    Returns:
-        Tuple of (fitted_wavelength, wavelength_error)
-        Returns (NaN, NaN) if fit fails
-    """
-    try:
-        import NileRedFunctions
-
-        nrf = NileRedFunctions.NileRed_Functions()
-
-        wl, _ = nrf.fit_nile_red_wavelength(
-            observed_rgb=rgb,
-            observed_sigma_x=sigma_x,
-            observed_sigma_y=sigma_y,
-            rgb_errors=rgb_err,
-            sigma_x_error=sigma_x_err,
-            sigma_y_error=sigma_y_err,
-            filter_spectra=filter_spectra,
-            wavelength_array=wavelength_array,
-            pixel_QYs=pixel_QYs,
-            NA=NA,
-            wavelength_bounds=wavelength_bounds,
-            total_photons=total_photons,
-            background_photons=background_photons,
-            apply_snr_inflation=True if total_photons is not None else False,
-            wavelength_initial_guess=wavelength_initial_guess,
-        )
-        # TODO: Implement proper error estimation on wavelength
-        return (wl, np.nan)
-    except Exception as e:
-        return (np.nan, np.nan)
+# Import standalone function from NileRedFunctions (kept here for backward compatibility)
+from NileRedFunctions import _fit_nile_red_wavelength_standalone  # noqa: E402
 
 
 class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
