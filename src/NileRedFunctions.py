@@ -654,10 +654,24 @@ class NileRed_Functions:
 
         wavelength_center = result.x[0]
 
+        # Estimate wavelength error from Jacobian
+        # s2 = residual variance, cov = s2 * inv(J^T J)
+        J = result.jac          # (n_data, 1)
+        n_data = len(result.fun)
+        n_params = 1
+        dof = max(n_data - n_params, 1)
+        s2 = np.sum(result.fun**2) / dof
+        JtJ = float(np.squeeze(J.T @ J))
+        if JtJ > 0:
+            wavelength_error = np.sqrt(s2 / JtJ)
+        else:
+            wavelength_error = np.nan
+
         # Get predictions at best fit
         predictions = self.nile_red_forward_model(
             wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
         )
+        predictions["wavelength_error"] = wavelength_error
 
         return wavelength_center, predictions
 
@@ -1377,6 +1391,7 @@ class NileRed_Functions:
             If return_grid is True:
                 Tuple of (DataFrame, grid_info) where grid_info contains:
                 - 'wl_grid': (ny, nx) wavelength array (nm), NaN where no fit
+                - 'wl_err_grid': (ny, nx) wavelength error array (nm)
                 - 'n_locs_grid': (ny, nx) localisation count per pixel
                 - 'total_photons_grid': (ny, nx) summed photons per pixel
                 - 'mean_photons_grid': (ny, nx) mean photons per loc per pixel
@@ -1386,7 +1401,18 @@ class NileRed_Functions:
                 - 'n_pixels_fitted': number of pixels with successful fits
                 - 'n_pixels_skipped': pixels below min_localisations threshold
             If return_grid is False:
-                DataFrame with added columns: 'wl_pixel', 'pixel_ix', 'pixel_iy'
+                DataFrame with added columns:
+                - 'wl_pixel': fitted wavelength (nm) per localisation
+                - 'wl_pixel_err': wavelength error (nm) per localisation
+                - 'pixel_ix', 'pixel_iy': grid indices
+
+        Notes:
+            When ``aggregate_id_column`` is provided, an aggregate-level
+            wavelength fit is performed first using all localisations in each
+            aggregate. Pixels that fall below ``min_localisations`` (or whose
+            fit fails) are assigned the aggregate-level wavelength and error
+            instead of NaN, preventing gaps from arbitrary grid boundaries
+            splitting small aggregates.
 
         Required columns in HDF5 file:
             - xc, yc: Localisation positions (camera pixels)
@@ -1460,6 +1486,97 @@ class NileRed_Functions:
                 print("Warning: 'photons' or 'background_photons' columns not found, "
                       "skipping SNR error inflation")
 
+        # --- Aggregate-level fitting (fallback for sub-threshold pixels) ---
+        aggregate_wl_map = {}      # {agg_id: fitted_wavelength}
+        aggregate_wl_err_map = {}  # {agg_id: fitted_wavelength_error}
+
+        if aggregate_id_column is not None:
+            if aggregate_id_column not in df.columns:
+                raise ValueError(
+                    f"aggregate_id_column '{aggregate_id_column}' not found. "
+                    f"Available columns: {list(df.columns)}"
+                )
+
+            if verbose:
+                print(f"\n--- Fitting aggregate-level wavelengths ---")
+                print(f"Grouping by '{aggregate_id_column}'...")
+
+            agg_ids_unique = df[aggregate_id_column].unique()
+            agg_ids_unique = agg_ids_unique[~np.isnan(agg_ids_unique)]
+            n_aggregates = len(agg_ids_unique)
+
+            if verbose:
+                print(f"Found {n_aggregates} aggregates")
+
+            agg_fit_args = []
+            agg_ids_ordered = []
+
+            for agg_id in agg_ids_unique:
+                subset = df[df[aggregate_id_column] == agg_id]
+
+                try:
+                    agg_R, agg_R_err = self._weighted_average_with_error(
+                        subset["A_R"].to_numpy(), subset["A_R_err"].to_numpy())
+                    agg_G, agg_G_err = self._weighted_average_with_error(
+                        subset["A_G"].to_numpy(), subset["A_G_err"].to_numpy())
+                    agg_B, agg_B_err = self._weighted_average_with_error(
+                        subset["A_B"].to_numpy(), subset["A_B_err"].to_numpy())
+                    agg_sx, agg_sx_err = self._weighted_average_with_error(
+                        subset["s_x"].to_numpy(), subset["s_x_err"].to_numpy())
+                    agg_sy, agg_sy_err = self._weighted_average_with_error(
+                        subset["s_y"].to_numpy(), subset["s_y_err"].to_numpy())
+                except (ZeroDivisionError, ValueError):
+                    continue
+
+                # Convert PSF widths from camera pixels to nm
+                agg_sx *= camera_pixel_size
+                agg_sy *= camera_pixel_size
+                agg_sx_err *= camera_pixel_size
+                agg_sy_err *= camera_pixel_size
+
+                # Normalize RGB with error propagation
+                agg_rgb = np.array([agg_R, agg_G, agg_B])
+                agg_rgb_err = np.array([agg_R_err, agg_G_err, agg_B_err])
+                if np.sum(agg_rgb) <= 0:
+                    continue
+                rgb_norm, rgb_norm_err = self._normalize_rgb_with_errors(
+                    agg_rgb, agg_rgb_err)
+
+                # Sum photons across aggregate for SNR
+                agg_photons = float(subset["photons"].sum()) if use_snr else None
+                agg_bg = (float(subset["background_photons"].sum())
+                          if use_snr else None)
+
+                agg_fit_args.append((
+                    rgb_norm, agg_sx, agg_sy, rgb_norm_err, agg_sx_err,
+                    agg_sy_err, filter_spectra, wavelength_array, pixel_QYs,
+                    NA, agg_photons, agg_bg, wavelength_bounds, None,
+                ))
+                agg_ids_ordered.append(agg_id)
+
+            # Fit aggregates in parallel
+            if len(agg_fit_args) > 0:
+                n_cpus_agg = multiprocessing.cpu_count()
+                n_workers_agg = max(1, int(n_cpus_agg * cpu_fraction))
+
+                agg_results = self._parallel_fit_wavelengths(
+                    agg_fit_args, n_workers_agg, verbose,
+                    label="Aggregate fitting", progress_interval=50,
+                )
+
+                for idx, (wl, wl_err) in enumerate(agg_results):
+                    if not np.isnan(wl):
+                        aggregate_wl_map[agg_ids_ordered[idx]] = wl
+                        aggregate_wl_err_map[agg_ids_ordered[idx]] = wl_err
+
+                if verbose and len(aggregate_wl_map) > 0:
+                    agg_wls = np.array(list(aggregate_wl_map.values()))
+                    print(f"  Aggregate wavelength range: "
+                          f"{np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
+                    print(f"  Median: {np.median(agg_wls):.1f} nm")
+                    print(f"  Fitted: {len(aggregate_wl_map)}/{n_aggregates} "
+                          f"aggregates")
+
         # --- Step 1: Discretise onto grid ---
         x_nm = df["xc"].to_numpy() * camera_pixel_size
         y_nm = df["yc"].to_numpy() * camera_pixel_size
@@ -1480,11 +1597,6 @@ class NileRed_Functions:
         # --- Step 2: Build pixel groups ---
         # Pixel key includes aggregate ID when provided to avoid mixing structures
         if aggregate_id_column is not None:
-            if aggregate_id_column not in df.columns:
-                raise ValueError(
-                    f"aggregate_id_column '{aggregate_id_column}' not found. "
-                    f"Available columns: {list(df.columns)}"
-                )
             agg_ids = df[aggregate_id_column].to_numpy()
             # Build composite key: (agg_id, ix, iy)
             # Use a dict mapping composite key -> list of localisation indices
@@ -1595,7 +1707,8 @@ class NileRed_Functions:
         n_cpus = multiprocessing.cpu_count()
         n_workers = max(1, int(n_cpus * cpu_fraction))
 
-        pixel_wl = {}  # key -> fitted wavelength
+        pixel_wl = {}      # key -> fitted wavelength
+        pixel_wl_err = {}  # key -> fitted wavelength error
 
         if n_to_fit > 0:
             results = self._parallel_fit_wavelengths(
@@ -1604,9 +1717,10 @@ class NileRed_Functions:
             )
 
             n_success = 0
-            for i, (wl, _) in enumerate(results):
+            for i, (wl, wl_err) in enumerate(results):
                 if not np.isnan(wl):
                     pixel_wl[pixel_keys_ordered[i]] = wl
+                    pixel_wl_err[pixel_keys_ordered[i]] = wl_err
                     n_success += 1
 
             if verbose:
@@ -1618,6 +1732,7 @@ class NileRed_Functions:
 
         # --- Step 5: Build output grids ---
         wl_grid = np.full((ny, nx), np.nan)
+        wl_err_grid = np.full((ny, nx), np.nan)
         n_locs_grid = np.zeros((ny, nx), dtype=int)
         total_photons_grid = np.full((ny, nx), np.nan)
         mean_photons_grid = np.full((ny, nx), np.nan)
@@ -1641,15 +1756,44 @@ class NileRed_Functions:
 
             if key in pixel_wl:
                 wl_grid[iy, ix] = pixel_wl[key]
+                wl_err_grid[iy, ix] = pixel_wl_err.get(key, np.nan)
+
+        # Fill grid gaps with aggregate-level wavelengths
+        if aggregate_id_column is not None and len(aggregate_wl_map) > 0:
+            for key, indices in pixel_groups.items():
+                if key not in pixel_wl:
+                    agg_id, ix, iy = key
+                    if agg_id in aggregate_wl_map:
+                        wl_grid[iy, ix] = aggregate_wl_map[agg_id]
+                        wl_err_grid[iy, ix] = aggregate_wl_err_map.get(
+                            agg_id, np.nan)
+                        n_locs_grid[iy, ix] += len(indices)
 
         # --- Step 6: Assign pixel wavelength back to localisations ---
         wl_pixel = np.full(n_locs, np.nan)
+        wl_pixel_err = np.full(n_locs, np.nan)
+        n_from_pixel = 0
+        n_from_aggregate = 0
+
         for key, indices in pixel_groups.items():
             if key in pixel_wl:
+                # Pixel-level fit succeeded
                 for j in indices:
                     wl_pixel[j] = pixel_wl[key]
+                    wl_pixel_err[j] = pixel_wl_err.get(key, np.nan)
+                n_from_pixel += len(indices)
+            elif aggregate_id_column is not None:
+                # Fall back to aggregate-level fit
+                agg_id = key[0]  # key is (agg_id, ix, iy)
+                if agg_id in aggregate_wl_map:
+                    for j in indices:
+                        wl_pixel[j] = aggregate_wl_map[agg_id]
+                        wl_pixel_err[j] = aggregate_wl_err_map.get(
+                            agg_id, np.nan)
+                    n_from_aggregate += len(indices)
 
         df["wl_pixel"] = wl_pixel
+        df["wl_pixel_err"] = wl_pixel_err
         df["pixel_ix"] = pixel_ix
         df["pixel_iy"] = pixel_iy
 
@@ -1657,6 +1801,9 @@ class NileRed_Functions:
         if verbose:
             print(f"\nLocalisations with pixel wavelength: "
                   f"{n_assigned}/{n_locs} ({100*n_assigned/n_locs:.1f}%)")
+            if aggregate_id_column is not None:
+                print(f"  From pixel fits: {n_from_pixel}")
+                print(f"  From aggregate fallback: {n_from_aggregate}")
 
         # --- Save ---
         if output_path is not None:
@@ -1672,6 +1819,7 @@ class NileRed_Functions:
         if return_grid:
             grid_info = {
                 "wl_grid": wl_grid,
+                "wl_err_grid": wl_err_grid,
                 "n_locs_grid": n_locs_grid,
                 "total_photons_grid": total_photons_grid,
                 "mean_photons_grid": mean_photons_grid,
@@ -1726,7 +1874,7 @@ def _fit_nile_red_wavelength_standalone(
     try:
         nrf = NileRed_Functions()
 
-        wl, _ = nrf.fit_nile_red_wavelength(
+        wl, predictions = nrf.fit_nile_red_wavelength(
             observed_rgb=rgb,
             observed_sigma_x=sigma_x,
             observed_sigma_y=sigma_y,
@@ -1743,7 +1891,7 @@ def _fit_nile_red_wavelength_standalone(
             apply_snr_inflation=True if total_photons is not None else False,
             wavelength_initial_guess=wavelength_initial_guess,
         )
-        # TODO: Implement proper error estimation on wavelength
-        return (wl, np.nan)
+        wl_err = predictions.get("wavelength_error", np.nan)
+        return (wl, wl_err)
     except Exception:
         return (np.nan, np.nan)
