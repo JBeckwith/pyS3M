@@ -5,8 +5,8 @@ Handles files saved by acquisition software with naming convention:
     <prefix>_T{position}_C{channel}.tif
 
 Each input file is a z-stack. Output is one ImageJ-compatible hyperstack per
-position with shape (C, Z, Y, X), or a single file with all positions
-(T, C, Z, Y, X).
+position with shape (Z, C, Y, X), or a single file with all positions
+(T, Z, C, Y, X).
 
 Usage:
     python reassemble_tiff_channels.py /path/to/tiff/folder
@@ -117,8 +117,8 @@ def reassemble(
             stem = Path(output_path).with_suffix("")
 
         for t in positions:
-            # Shape: (C, Z, Y, X)
-            volume = np.zeros((n_channels, n_z, h, w), dtype=dtype)
+            # Shape: (Z, C, Y, X) — ImageJ requires TZCYX order
+            volume = np.zeros((n_z, n_channels, h, w), dtype=dtype)
 
             for ci, c in enumerate(channels):
                 if c not in groups[t]:
@@ -127,7 +127,7 @@ def reassemble(
                 stack = tifffile.imread(str(groups[t][c]))
                 if stack.ndim == 2:
                     stack = stack[np.newaxis, :, :]
-                volume[ci] = stack
+                volume[:, ci] = stack
 
             out_file = f"{stem}_T{t}.tif"
             tifffile.imwrite(
@@ -138,7 +138,7 @@ def reassemble(
                 metadata={
                     'spacing': z_spacing_um,
                     'unit': 'um',
-                    'axes': 'CZYX',
+                    'axes': 'ZCYX',
                 },
             )
             print(f"  Wrote T{t}: {out_file}  shape={volume.shape}")
@@ -146,11 +146,11 @@ def reassemble(
         print(f"\nDone. {n_positions} files written.")
 
     else:
-        # Single combined file: shape (T, C, Z, Y, X)
+        # Single combined file: shape (T, Z, C, Y, X) — ImageJ requires TZCYX order
         if output_path is None:
             output_path = str(input_dir / "reassembled.tif")
 
-        volume = np.zeros((n_positions, n_channels, n_z, h, w), dtype=dtype)
+        volume = np.zeros((n_positions, n_z, n_channels, h, w), dtype=dtype)
 
         for ti, t in enumerate(positions):
             for ci, c in enumerate(channels):
@@ -160,7 +160,7 @@ def reassemble(
                 stack = tifffile.imread(str(groups[t][c]))
                 if stack.ndim == 2:
                     stack = stack[np.newaxis, :, :]
-                volume[ti, ci] = stack
+                volume[ti, :, ci] = stack
 
         tifffile.imwrite(
             output_path,
@@ -170,12 +170,12 @@ def reassemble(
             metadata={
                 'spacing': z_spacing_um,
                 'unit': 'um',
-                'axes': 'TCZYX',
+                'axes': 'TZCYX',
             },
         )
         print(f"\nWrote: {output_path}")
-        print(f"Shape: {volume.shape} (T={n_positions}, C={n_channels}, "
-              f"Z={n_z}, Y={h}, X={w})")
+        print(f"Shape: {volume.shape} (T={n_positions}, Z={n_z}, "
+              f"C={n_channels}, Y={h}, X={w})")
 
     print("Done.")
 
