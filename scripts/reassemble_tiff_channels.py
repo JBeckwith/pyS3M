@@ -25,6 +25,7 @@ import numpy as np
 import tifffile
 
 
+
 def find_and_group_tiffs(input_dir: Path) -> dict:
     """Find TIFF files and group by (position, channel).
 

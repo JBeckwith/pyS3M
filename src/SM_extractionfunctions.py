@@ -434,6 +434,324 @@ class extract_SMs:
 
         return single_molecule_database, single_frame_database
 
+    # -----------------------------------------------------------------
+    # Spectral-assisted LAP linking
+    # -----------------------------------------------------------------
+
+    def spectral_lap_link(
+        self,
+        loc_data,
+        max_distance=1.0,
+        max_dark_time=1,
+        w_spatial=1.0,
+        w_spectral=0.5,
+        spectral_tol=0.15,
+        spectral_columns=("A_R", "A_G", "A_B"),
+        verbose=False,
+    ):
+        """Link localisations across frames using LAP with spectral cost.
+
+        Builds a cost matrix combining spatial distance and spectral (colour)
+        distance for each frame, then solves the Linear Assignment Problem
+        (Hungarian algorithm) for globally optimal frame-to-frame assignments.
+        Active tracks persist across dark frames up to ``max_dark_time``.
+
+        The LAP formulation and augmented cost matrix for birth/death follow
+        Jaqaman et al. (2008) Nat. Methods 5, 695-702. Spectral distance in
+        normalised colour space is added to the spatial cost, extending the
+        approach to multicolour single-molecule data. The cost function is:
+
+            cost = w_spatial * (d_spatial / max_distance)**2
+                 + w_spectral * (d_spectral / spectral_tol)**2
+
+        References:
+            Jaqaman, K. et al. (2008) Robust single-particle tracking in
+                live-cell time-lapse sequences. Nat. Methods 5, 695-702.
+            Crocker, J. C. & Grier, D. G. (1996) Methods of digital video
+                microscopy for colloidal studies. J. Colloid Interface Sci.
+                179, 298-310.
+            Chenouard, N. et al. (2014) Objective comparison of particle
+                tracking methods. Nat. Methods 11, 281-289.
+            Serge, A. et al. (2008) Dynamic multiple-target tracing to probe
+                spatiotemporal cartography of cell membranes. Nat. Methods
+                5, 687-694.
+
+        Args:
+            loc_data (pd.DataFrame): Localisations sorted by frame. Must
+                contain columns ``frame``, ``xc``, ``yc`` and the columns
+                listed in *spectral_columns*.
+            max_distance (float): Hard spatial cutoff in pixels. Pairs
+                further apart than this are never linked.
+            max_dark_time (int): Maximum frame gap allowed between
+                consecutive localisations in a track.
+            w_spatial (float): Weight for the spatial cost term.
+            w_spectral (float): Weight for the spectral cost term.
+            spectral_tol (float): Normalisation scale for spectral
+                distance (analogous to ``max_distance`` for spatial).
+            spectral_columns (tuple): Column names for the spectral
+                channels used in the cost function.
+            verbose (bool): Print progress every 500 frames.
+
+        Returns:
+            np.ndarray: Integer array of length ``len(loc_data)`` where
+            each element is a track ID (``>= 0``) or ``-1`` for
+            unlinked localisations. Compatible with
+            ``average_parameters()`` and ``link_loc_groups()``.
+        """
+        from scipy.optimize import linear_sum_assignment
+
+        frames_arr = loc_data["frame"].to_numpy()
+        xc = loc_data["xc"].to_numpy()
+        yc = loc_data["yc"].to_numpy()
+
+        # Build normalised spectral vectors
+        spec_cols = [loc_data[c].to_numpy() for c in spectral_columns]
+        spectra = np.column_stack(spec_cols)  # (N, n_channels)
+        spec_sum = spectra.sum(axis=1, keepdims=True)
+        spec_sum[spec_sum == 0] = 1.0  # avoid division by zero
+        spectra_norm = spectra / spec_sum
+
+        n_locs = len(loc_data)
+        link_group = np.full(n_locs, -1, dtype=np.int32)
+        unique_frames = np.unique(frames_arr)
+
+        # Cutoff cost for birth/death dummies (at threshold boundary)
+        cutoff = w_spatial + w_spectral
+
+        # Active tracks: list of dicts with track state
+        # Each: {'id': int, 'last_frame': int, 'last_x': float,
+        #        'last_y': float, 'last_spec': array}
+        active_tracks = []
+        next_track_id = 0
+
+        for fi, current_frame in enumerate(unique_frames):
+            if verbose and fi % 500 == 0 and fi > 0:
+                print(f"  Frame {fi}/{len(unique_frames)}, "
+                      f"{next_track_id} tracks so far")
+
+            # Indices of localisations in this frame
+            frame_mask = frames_arr == current_frame
+            cur_indices = np.where(frame_mask)[0]
+            n_cur = len(cur_indices)
+
+            if n_cur == 0:
+                continue
+
+            cur_x = xc[cur_indices]
+            cur_y = yc[cur_indices]
+            cur_spec = spectra_norm[cur_indices]
+
+            # Prune expired tracks
+            active_tracks = [
+                t for t in active_tracks
+                if t["last_frame"] >= current_frame - max_dark_time - 1
+            ]
+            n_active = len(active_tracks)
+
+            if n_active == 0:
+                # No active tracks — all current locs start new tracks
+                for j, idx in enumerate(cur_indices):
+                    link_group[idx] = next_track_id
+                    active_tracks.append({
+                        "id": next_track_id,
+                        "last_frame": current_frame,
+                        "last_x": cur_x[j],
+                        "last_y": cur_y[j],
+                        "last_spec": cur_spec[j],
+                    })
+                    next_track_id += 1
+                continue
+
+            # --- Build cost matrix (n_active x n_cur) ---
+            # Vectorised spatial distances
+            trk_x = np.array([t["last_x"] for t in active_tracks])
+            trk_y = np.array([t["last_y"] for t in active_tracks])
+            trk_spec = np.array([t["last_spec"] for t in active_tracks])
+
+            dx = trk_x[:, None] - cur_x[None, :]  # (n_active, n_cur)
+            dy = trk_y[:, None] - cur_y[None, :]
+            d_spatial = np.sqrt(dx**2 + dy**2)
+
+            # Spectral distance (Euclidean in normalised RGB space)
+            d_spectral = np.sqrt(
+                ((trk_spec[:, None, :] - cur_spec[None, :, :]) ** 2).sum(axis=2)
+            )
+
+            cost = (w_spatial * (d_spatial / max_distance) ** 2
+                    + w_spectral * (d_spectral / spectral_tol) ** 2)
+
+            # Hard spatial cutoff
+            cost[d_spatial > max_distance] = 1e9
+
+            # --- Augment for birth/death (Jaqaman 2008) ---
+            # Build (n_active + n_cur) x (n_active + n_cur) matrix
+            dim = n_active + n_cur
+            aug = np.full((dim, dim), 1e9)
+
+            # Upper-left: real assignment costs
+            aug[:n_active, :n_cur] = cost
+
+            # Upper-right: track death (diagonal, cost = cutoff)
+            for i in range(n_active):
+                aug[i, n_cur + i] = cutoff
+
+            # Lower-left: track birth (diagonal, cost = cutoff)
+            for j in range(n_cur):
+                aug[n_active + j, j] = cutoff
+
+            # Lower-right: dummy-to-dummy (zero cost, transpose of upper-left)
+            aug[n_active:, n_cur:] = 0.0
+
+            # --- Solve LAP ---
+            row_ind, col_ind = linear_sum_assignment(aug)
+
+            # Process assignments
+            assigned_cur = set()
+            matched_tracks = set()
+
+            for r, c in zip(row_ind, col_ind):
+                if r < n_active and c < n_cur:
+                    # Real assignment: track r -> current loc c
+                    if aug[r, c] < cutoff:
+                        trk = active_tracks[r]
+                        idx = cur_indices[c]
+                        link_group[idx] = trk["id"]
+                        trk["last_frame"] = current_frame
+                        trk["last_x"] = cur_x[c]
+                        trk["last_y"] = cur_y[c]
+                        trk["last_spec"] = cur_spec[c]
+                        assigned_cur.add(c)
+                        matched_tracks.add(r)
+
+            # Unassigned current locs → new tracks
+            for j in range(n_cur):
+                if j not in assigned_cur:
+                    idx = cur_indices[j]
+                    link_group[idx] = next_track_id
+                    active_tracks.append({
+                        "id": next_track_id,
+                        "last_frame": current_frame,
+                        "last_x": cur_x[j],
+                        "last_y": cur_y[j],
+                        "last_spec": cur_spec[j],
+                    })
+                    next_track_id += 1
+
+        if verbose:
+            n_tracks = len(np.unique(link_group[link_group >= 0]))
+            n_linked = np.sum(link_group >= 0)
+            print(f"  Linking complete: {n_tracks} tracks from "
+                  f"{n_linked}/{n_locs} localisations")
+
+        return link_group
+
+    def extract_single_molecules_spectral_lap(
+        self,
+        loc_data,
+        max_distance=1.0,
+        max_dark_time=1,
+        w_spatial=1.0,
+        w_spectral=0.5,
+        spectral_tol=0.15,
+        spectral_columns=("A_R", "A_G", "A_B"),
+        chi_val=None,
+        max_localisation_error=1.0,
+        max_colour_error=0.15,
+        min_sigma=(75.0 / 69),
+        max_sigma=(160.0 / 69),
+        max_sigma_error=(40.0 / 69),
+        min_photons=500,
+        max_photons=None,
+        verbose=False,
+    ):
+        """Extract single molecules using spectral-assisted LAP linking.
+
+        Same interface and output format as
+        ``extract_single_molecules_linked()`` but uses a Linear Assignment
+        Problem (Hungarian algorithm) with combined spatial + spectral cost
+        instead of greedy nearest-neighbour linking (Jaqaman et al. 2008,
+        Nat. Methods 5, 695-702). This produces globally optimal
+        frame-to-frame assignments and uses colour information to
+        disambiguate molecules that are spatially close.
+
+        Args:
+            loc_data (pd.DataFrame): Localisation data with columns
+                ``frame``, ``xc``, ``yc``, ``A_R``, ``A_G``, ``A_B``, etc.
+            max_distance (float): Maximum linking distance in pixels.
+            max_dark_time (int): Maximum frame gap for linking.
+            w_spatial (float): Weight for spatial cost term.
+            w_spectral (float): Weight for spectral cost term.
+            spectral_tol (float): Spectral distance tolerance.
+            spectral_columns (tuple): Column names for spectral channels.
+            chi_val, max_localisation_error, max_colour_error, min_sigma,
+            max_sigma, max_sigma_error, min_photons, max_photons:
+                Quality filter parameters (see ``filter_quality_localisations``).
+            verbose (bool): Print progress messages.
+
+        Returns:
+            tuple: ``(single_molecule_database, single_frame_database)``
+                as pandas DataFrames, same format as
+                ``extract_single_molecules_linked()``.
+        """
+        loc_data = self.filter_quality_localisations(
+            loc_data=loc_data,
+            chi_val=chi_val,
+            max_localisation_error=max_localisation_error,
+            min_photons=min_photons,
+            max_photons=max_photons,
+            max_colour_error=max_colour_error,
+            min_sigma=min_sigma,
+            max_sigma=max_sigma,
+            max_sigma_error=max_sigma_error,
+        )
+
+        loc_data_sorted = loc_data.sort_values("frame").copy()
+
+        if verbose:
+            print(f"Spectral LAP linking: {len(loc_data_sorted)} localisations, "
+                  f"max_distance={max_distance}, max_dark_time={max_dark_time}")
+
+        link_groups = self.spectral_lap_link(
+            loc_data_sorted,
+            max_distance=max_distance,
+            max_dark_time=max_dark_time,
+            w_spatial=w_spatial,
+            w_spectral=w_spectral,
+            spectral_tol=spectral_tol,
+            spectral_columns=spectral_columns,
+            verbose=verbose,
+        )
+
+        # Filter out unlinked localisations
+        linked_mask = link_groups >= 0
+        loc_data_linked = loc_data_sorted[linked_mask].copy()
+        link_groups_linked = link_groups[linked_mask]
+
+        # Re-number groups contiguously from 0
+        unique_ids = np.unique(link_groups_linked)
+        id_map = {old: new for new, old in enumerate(unique_ids)}
+        link_groups_linked = np.array(
+            [id_map[g] for g in link_groups_linked], dtype=np.int32
+        )
+
+        loc_data_linked["molecular_index"] = link_groups_linked
+
+        # Aggregate into single molecule database
+        single_molecule_database = self.average_parameters(
+            loc_data_linked, link_groups_linked
+        )
+        single_molecule_database["molecular_index"] = np.arange(
+            len(single_molecule_database)
+        )
+
+        if verbose:
+            n_tracks = len(single_molecule_database)
+            n_locs_linked = len(loc_data_linked)
+            print(f"Result: {n_tracks} molecules from "
+                  f"{n_locs_linked} linked localisations")
+
+        return single_molecule_database, loc_data_linked
+
     def _extract_fov_name(self, filepath):
         """
         Extract FOV identifier from filename.

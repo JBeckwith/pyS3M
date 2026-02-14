@@ -681,6 +681,26 @@ class IO_Functions:
 
             return images
 
+    def read_hyperstack(self, file_path, dtype="float32"):
+        """Read an ImageJ hyperstack TIFF preserving TZCYX dimensions.
+
+        Unlike read_tiff (which disables ImageJ metadata parsing), this reads
+        with ImageJ metadata so the returned array keeps its hyperstack shape
+        (e.g. T, Z, C, Y, X).
+
+        Args:
+            file_path (str): Path to the TIFF file.
+            dtype (str): Output dtype (default: "float32").
+
+        Returns:
+            numpy.ndarray: Array with shape matching the ImageJ hyperstack axes.
+            str or None: Axes string (e.g. 'TZCYX') if available.
+        """
+        with tifffile.TiffFile(file_path) as tif:
+            data = tif.asarray()
+            axes = tif.series[0].axes if tif.series else None
+            return data.astype(dtype), axes
+
     def read_tiff(self, file_path, frame=None, dtype="float32", memmap=True):
         """
         Read a TIFF file using the tifffile library with memory mapping support.
