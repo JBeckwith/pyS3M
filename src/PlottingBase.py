@@ -938,24 +938,22 @@ class BasePlotter(ABC):
 
     def colour_image_plot(
         self,
-        ax: matplotlib.axes.Axes,
-        image: np.ndarray,
+        axs,
+        data: np.ndarray,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
         c_min: float = 0.0,
         c_max: float = 1.0,
         cmap: str = "jet",
-        colorbar: bool = True,
-        colorbar_label: str = "",
-        title: str = "",
-        aspect: str = "equal",
-        interpolation: str = "nearest",
-        origin: str = "lower",
-        scalebar: bool = False,
+        cbar: str = "on",
+        cbarlabel: str = "",
+        label: str = "",
+        labelcolor: str = "white",
         pixelsize: float = 69.0,
+        sbar: str = "on",
         scalebarsize: float = 10000.0,
         scalebarlabel: str = "10 μm",
-        scalebar_color: str = "white",
-        show_axes: bool = False,
-    ) -> Tuple[matplotlib.axes.Axes, matplotlib.image.AxesImage]:
+    ):
         """Plot a pre-rendered RGB image with a colorbar reflecting the colour parameter.
 
         Designed for images produced by ``render.render()`` with
@@ -966,60 +964,59 @@ class BasePlotter(ABC):
         during rendering so that it accurately reflects the colour mapping.
 
         Args:
-            ax: Axes object to plot on.
-            image: RGB image array of shape ``(H, W, 3)`` with values in
-                ``[0, 1]``.
+            axs: Axes object to plot on.
+            data: RGB image array of shape ``(H, W, 3)``.
+            vmin: Minimum display value. If None, uses 1st percentile.
+            vmax: Maximum display value. If None, uses 99th percentile.
             c_min: Minimum value of the colour parameter used in rendering.
             c_max: Maximum value of the colour parameter used in rendering.
             cmap: Matplotlib colormap name used in rendering.
-            colorbar: Whether to add a colorbar (default True).
-            colorbar_label: Label for the colorbar (e.g. ``"A_R"``).
-            title: Plot title.
-            aspect: Aspect ratio.
-            interpolation: Interpolation method.
-            origin: Image origin.
-            scalebar: Whether to add a scale bar.
-            pixelsize: Pixel size in nm (for scalebar calculation).
-            scalebarsize: Scale bar length in nm.
+            cbar: Whether to show colorbar (``"on"`` or ``"off"``).
+            cbarlabel: Colorbar label (e.g. ``"A_R"``).
+            label: Text label to draw on the image.
+            labelcolor: Colour for the text label.
+            pixelsize: Pixel size in nm.
+            sbar: Whether to show scale bar (``"on"`` or ``"off"``).
+            scalebarsize: Scale bar size in nm.
             scalebarlabel: Scale bar label text.
-            scalebar_color: Scale bar colour.
-            show_axes: Whether to show axes ticks and labels.
 
         Returns:
-            Tuple of ``(axes, AxesImage)``.
+            Modified axes object.
         """
-        image_display = np.clip(image, 0, 1)
+        if vmin is None:
+            vmin = np.percentile(data, 1)
+        if vmax is None:
+            vmax = np.percentile(data, 99)
 
-        im = ax.imshow(
-            image_display,
-            aspect=aspect,
-            interpolation=interpolation,
-            origin=origin,
-        )
+        axs.imshow(data, origin="lower", vmin=vmin, vmax=vmax)
+        axs.axis("off")
 
-        if not show_axes:
-            ax.axis("off")
+        if label:
+            axs.text(
+                0.05, 0.95, label,
+                transform=axs.transAxes,
+                fontsize=self.config.axis_labelsize,
+                color=labelcolor,
+                verticalalignment="top",
+            )
 
-        if title:
-            ax.set_title(title, fontsize=self.config.axis_labelsize)
-
-        if colorbar:
+        if cbar == "on":
             norm = matplotlib.colors.Normalize(vmin=c_min, vmax=c_max)
             sm = matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
-            self.add_colorbar(sm, ax, label=colorbar_label)
+            self.add_colorbar(sm, axs, label=cbarlabel)
 
-        if scalebar:
+        if sbar == "on":
             self.add_scalebar(
-                ax,
+                axs,
                 pixelsize=pixelsize,
                 length_nm=scalebarsize,
                 location="lower right",
-                color=scalebar_color,
+                color="white",
                 label=scalebarlabel,
             )
 
-        return ax, im
+        return axs
 
     def contour_plot(
         self,
