@@ -22,7 +22,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add src to path for imports
-sys.path.append("../src")
+sys.path.append("../../src")
 
 try:
     from interactive_threshold_tuner import InteractiveThresholdTuner

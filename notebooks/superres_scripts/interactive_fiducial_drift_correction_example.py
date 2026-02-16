@@ -34,7 +34,7 @@ from typing import Tuple, Dict, Any, List, Optional
 from dataclasses import dataclass
 
 # Add src to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 # Try to enable interactive plotting
 try:

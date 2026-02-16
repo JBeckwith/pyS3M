@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 from typing import Tuple, Dict, Any, List, Optional
 
 # Add src to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 try:
     import DriftCorrectionFunctions as DCF

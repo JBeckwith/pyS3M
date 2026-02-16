@@ -32,7 +32,7 @@ from typing import Dict, List, Tuple, Optional, Union
 import json
 
 # Add src to path for imports
-sys.path.append("../src")
+sys.path.append("../../src")
 
 # Global flag for display mode
 INTERACTIVE_DISPLAY = False

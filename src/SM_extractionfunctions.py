@@ -654,6 +654,7 @@ class extract_SMs:
         w_spectral=0.5,
         spectral_tol=0.15,
         spectral_columns=("A_R", "A_G", "A_B"),
+        min_frames=3,
         chi_val=None,
         max_localisation_error=1.0,
         max_colour_error=0.15,
@@ -683,6 +684,8 @@ class extract_SMs:
             w_spectral (float): Weight for spectral cost term.
             spectral_tol (float): Spectral distance tolerance.
             spectral_columns (tuple): Column names for spectral channels.
+            min_frames (int): Minimum number of localisations per track.
+                Tracks shorter than this are discarded.
             chi_val, max_localisation_error, max_colour_error, min_sigma,
             max_sigma, max_sigma_error, min_photons, max_photons:
                 Quality filter parameters (see ``filter_quality_localisations``).
@@ -744,11 +747,26 @@ class extract_SMs:
             len(single_molecule_database)
         )
 
+        # Remove short tracks
+        if min_frames > 1:
+            keep_mask = single_molecule_database["frames"] >= min_frames
+            removed_ids = set(
+                single_molecule_database.loc[~keep_mask, "molecular_index"]
+            )
+            single_molecule_database = single_molecule_database[keep_mask].reset_index(drop=True)
+            single_molecule_database["molecular_index"] = np.arange(
+                len(single_molecule_database)
+            )
+            loc_data_linked = loc_data_linked[
+                ~loc_data_linked["molecular_index"].isin(removed_ids)
+            ].copy()
+
         if verbose:
             n_tracks = len(single_molecule_database)
             n_locs_linked = len(loc_data_linked)
             print(f"Result: {n_tracks} molecules from "
-                  f"{n_locs_linked} linked localisations")
+                  f"{n_locs_linked} linked localisations "
+                  f"(min_frames={min_frames})")
 
         return single_molecule_database, loc_data_linked
 
