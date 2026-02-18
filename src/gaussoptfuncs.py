@@ -468,3 +468,20 @@ def initial_guess(smoothed_data, raw_data, masks):
     return (x_ig, y_ig, sigma_y, sigma_x,
             np.sqrt(np.abs(bB)), np.sqrt(np.abs(bG)), np.sqrt(np.abs(bR)),
             np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)))
+
+
+@jit(nopython=True)
+def compute_A_median(smoothed_data):
+    """Compute median-subtracted amplitude: sum(smoothed - median(smoothed)).
+    Returns ~0 for symmetric noise, >0 for real spots."""
+    flat = smoothed_data.ravel().copy()
+    flat.sort()
+    n = len(flat)
+    if n % 2 == 0:
+        median_val = (flat[n // 2 - 1] + flat[n // 2]) / 2.0
+    else:
+        median_val = flat[n // 2]
+    A = 0.0
+    for i in range(n):
+        A += flat[i] - median_val
+    return A

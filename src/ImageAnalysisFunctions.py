@@ -62,6 +62,11 @@ class FittingConstants:
     DEFAULT_FTOL = 1e-2
     DEFAULT_XTOL = 1e-2
 
+    # Two-stage rejection thresholds
+    MEDIAN_GATE_THRESHOLD = 2.0    # pe — Stage 1: reject if A_median < this
+    MIN_PHOTON_THRESHOLD = 50.0    # pe — Stage 2: reject if total fitted pe < this
+    MAX_CHI_SQUARED = 3.0          # Stage 2: reject if reduced chi2 > this
+
     # Parallel processing limits
     MAX_WORKERS = 60  # Python crashes when using >64 cores
     WORKER_RATIO = 0.9
@@ -320,6 +325,15 @@ class FittingResultProcessor:
             if len(pfit_processed) >= 6:
                 pfit_processed[4:6] = np.square(pfit_processed[4:6])
 
+        # Stage 2: Post-fit rejection — reject low-photon or poor-quality fits
+        if strategy == FittingStrategy.STANDARD:
+            total_pe = pfit_processed[7] + pfit_processed[8] + pfit_processed[9]  # A_B + A_G + A_R
+            if total_pe < FittingConstants.MIN_PHOTON_THRESHOLD or chisqr > FittingConstants.MAX_CHI_SQUARED:
+                return (
+                    np.full(len(pfit_processed), np.nan),
+                    np.full(len(pfit_processed), np.nan),
+                )
+
         # Append chi-squared
         pfit_final = np.append(pfit_processed, chisqr)
 
@@ -386,6 +400,12 @@ class StandardFittingProcessor(FittingProcessor):
         """
         if masks is None:
             raise FittingValidationError("Standard fitting requires masks")
+
+        # Stage 1: Median pre-filter — reject obvious noise without fitting
+        A_median = gaussoptfuncs.compute_A_median(smoothed_punctum)
+        if A_median < FittingConstants.MEDIAN_GATE_THRESHOLD:
+            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
+            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
         # Get initial guess from smoothed and raw data
         initial_guess = self._generate_initial_guess(smoothed_punctum, punctum, masks)
