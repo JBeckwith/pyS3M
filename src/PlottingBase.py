@@ -1757,7 +1757,7 @@ class ImagePlotMixin:
         scalebarlabel: str = "300 nm",
         marker_color = "white",
         marker_size: float = 150,
-        bayer_fontsize: float = 15,
+        bayer_fontsize: float = 20,
         dpi: int = 400,
     ) -> None:
         """Create a multipanel animated GIF with Bayer pattern and camera image panels.
@@ -1882,16 +1882,20 @@ class ImagePlotMixin:
         # disposal=2 ("restore to background before next frame") the player
         # composites each new frame onto the previous one, leaving ghost
         # scatter dots in transparent regions of earlier frames.
+        import io
         from PIL import Image
 
         duration_ms = int(round(1000 / fps))
         pil_frames = []
         for k in range(n_frames):
             animate(k)
-            fig.canvas.draw()
-            w, h = fig.canvas.get_width_height()
-            buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)
-            pil_frames.append(Image.fromarray(buf, "RGBA"))
+            buf = io.BytesIO()
+            fig.savefig(buf, format="rgba", dpi=dpi)
+            buf.seek(0)
+            w = int(round(fig.get_figwidth() * dpi))
+            h = int(round(fig.get_figheight() * dpi))
+            data = np.frombuffer(buf.read(), dtype=np.uint8).reshape(h, w, 4)
+            pil_frames.append(Image.fromarray(data, "RGBA"))
 
         plt.close(fig)
 
