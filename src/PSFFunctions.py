@@ -289,7 +289,7 @@ class PSF_Functions:
                 n_photons_hitting_detector[i, j] = np.random.poisson(lparam[i, j])
         return n_photons_hitting_detector
 
-    def gen_spatial_PSF(self, x, sigma_x, sigma_y, x0, y0, n_photons, relative_QE):
+    def gen_spatial_PSF(self, x, y, sigma_x, sigma_y, x0, y0, n_photons, relative_QE):
         """
         simulates spatial PSF with relative QE
         as well as spot locations and photon numbers
@@ -300,23 +300,32 @@ class PSF_Functions:
         Enderlein, J.; Pressé, S. Rev. Mod. Phys. 96, 025003 (2024).
 
         Args:
-            x (1d array): x coordinate locations, in same unit as sigma_psf (typically micron)
-            y (1d array): y coordinate locations, in same unit as sigma_psf (typically micron)
+            x (1d array): x coordinate locations (pixels), length = image width
+            y (1d array): y coordinate locations (pixels), length = image height
             sigma_x (float): width of 2d gaussian in pixels
             sigma_y (float): width of 2d gaussian in pixels
             x0 (float or 1d array): origin position of 2d gaussian in x, in pixels
             y0 (float or 1d array): origin position of 2d gaussian in y, in pixels
             n_photons (int/np.1darray): n_photons per localisation. Given to poisson rng
-            relative_QE (numpy.2darray): 2D image matrix of relative QE per pixel
+            relative_QE (numpy.2darray): 2D image matrix of relative QE per pixel, shape (len(x), len(y))
 
         Returns:
-            photon_spatial_pdf (numpy.2darray): 2D spatial PSF
+            photon_spatial_pdf (numpy.2darray): 2D spatial PSF, shape (len(x), len(y))
         """
-
-        photon_spatial_pdf = np.multiply(
-            relative_QE,
-            self.gaussian2d_PSF(x, sigma_x, sigma_y, x0, y0, n_photons),
-        )  # make initial image shape
+        norm_x = 0.3989422804014327 / sigma_x  # 1/sqrt(2*pi)
+        norm_y = 0.3989422804014327 / sigma_y
+        PSF_g2d = np.zeros((len(x), len(y)), dtype=np.float32)
+        for i in range(len(x0)):
+            xg = norm_x * np.exp(-0.5 * ((x - x0[i]) / sigma_x) ** 2)
+            yg = norm_y * np.exp(-0.5 * ((y - y0[i]) / sigma_y) ** 2)
+            temp = np.outer(xg, yg).astype(np.float32)
+            total = np.nansum(temp)
+            if total > 0:
+                temp *= n_photons[i] / total
+            else:
+                temp.fill(0)
+            PSF_g2d += temp
+        photon_spatial_pdf = np.multiply(relative_QE, PSF_g2d)
         return photon_spatial_pdf
 
     def gen_photoelectrons(self, n_photons_hitting_detector, abs_QE):

@@ -1425,6 +1425,7 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Use pixel coordinates (not nm) for PSF generation
         x = np.arange(w, dtype=np.float32)
+        y = np.arange(h, dtype=np.float32)
         masks = camera_calibration["masks"]
 
         # OPTIMIZATION: Pre-compute mask stack for vectorized operations
@@ -1563,6 +1564,7 @@ class MultiC_Sim_Funcs_Refactored:
 
                         photon_spatial_pdf = self.psf.gen_spatial_PSF(
                             x,
+                            y,
                             sigma_x,
                             sigma_y,
                             x0_pixels,
@@ -1700,6 +1702,7 @@ class MultiC_Sim_Funcs_Refactored:
     
                         photon_spatial_pdf = self.psf.gen_spatial_PSF(
                             x,
+                            y,
                             sigma_x,
                             sigma_y,
                             x0_pixels,
@@ -1707,7 +1710,7 @@ class MultiC_Sim_Funcs_Refactored:
                             n_photons_array,
                             relative_QE,
                         )
-    
+
                         # Generate photons hitting detector (includes background)
                         n_photons_total = self.psf.gen_photons_hitting_detector(
                             photon_spatial_pdf, background_photons_matrix_frame[:, :, j]
