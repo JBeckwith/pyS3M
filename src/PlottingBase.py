@@ -43,7 +43,7 @@ def plot_bayer_pattern(
     marker_pos: tuple = None,
     marker_color: str = "white",
     marker_size: float = 8,
-    fontsize: float = 7,
+    fontsize: float = 9,
 ):
     """Draw a Bayer pattern grid on the given axes.
 
@@ -80,10 +80,11 @@ def plot_bayer_pattern(
     ax.set_ylim(size, 0)  # inverted — row 0 at top (image convention)
     ax.set_aspect("equal")
 
-    # Grid lines drawn manually: reliable even after ax.axis('off')
+    # Grid lines drawn as bounded line segments with clip_on=False so that lines
+    # at the axis boundaries (i=0 and i=size) are not half-clipped by the viewport.
     for i in range(size + 1):
-        ax.axvline(i, color="white", linewidth=0.5, zorder=1)
-        ax.axhline(i, color="white", linewidth=0.5, zorder=1)
+        ax.plot([i, i], [0, size], color="white", linewidth=0.5, zorder=1, clip_on=False)
+        ax.plot([0, size], [i, i], color="white", linewidth=0.5, zorder=1, clip_on=False)
 
     # Letter labels centred in each pixel cell
     for row in range(size):
@@ -1754,9 +1755,9 @@ class ImagePlotMixin:
         pixelsize: float = 69,
         scalebarsize: float = 300,
         scalebarlabel: str = "300 nm",
-        marker_color: str = "white",
+        marker_color = "white",
         marker_size: float = 150,
-        bayer_fontsize: float = 7,
+        bayer_fontsize: float = 9,
         dpi: int = 400,
     ) -> None:
         """Create a multipanel animated GIF with Bayer pattern and camera image panels.
@@ -1792,7 +1793,9 @@ class ImagePlotMixin:
             pixelsize: Camera pixel size in nm (used for scale bars).
             scalebarsize: Image-panel scale bar length in nm.
             scalebarlabel: Image-panel scale bar label.
-            marker_color: Colour of the molecule position marker.
+            marker_color: Colour of the molecule position marker.  Either a single
+                colour string (applied to all pattern panels) or a list of colours,
+                one per column (e.g. ``["cornflowerblue", "orange", "red"]``).
             marker_size: Size of the molecule position marker (matplotlib ``s``).
             bayer_fontsize: Font size for B / G / R labels in the pattern panel.
             dpi: Output GIF resolution.
@@ -1820,6 +1823,11 @@ class ImagePlotMixin:
                 ptype = plot_types[i, j]
 
                 if ptype == "pattern":
+                    # Resolve per-column marker colour
+                    if isinstance(marker_color, (list, tuple, np.ndarray)):
+                        col_color = marker_color[j % len(marker_color)]
+                    else:
+                        col_color = marker_color
                     plot_bayer_pattern(
                         axs[i, j],
                         pattern=pattern,
@@ -1830,7 +1838,7 @@ class ImagePlotMixin:
                         axs[i, j].scatter(
                             xpositions[0], ypositions[0],
                             edgecolor=None,
-                            facecolor=marker_color,
+                            facecolor=col_color,
                             s=marker_size,
                             zorder=np.inf,
                         )
@@ -1911,7 +1919,7 @@ class ImagePlotMixin:
         ani = FuncAnimation(
             fig, animate,
             interval=1000 / fps,
-            blit=True,
+            blit=False,
             repeat=True,
             frames=n_frames,
         )
