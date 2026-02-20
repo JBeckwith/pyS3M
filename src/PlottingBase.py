@@ -95,7 +95,7 @@ def plot_bayer_pattern(
                 color="white",
                 ha="center", va="center",
                 fontsize=fontsize,
-                fontfamily="sans-serif",
+                fontfamily="Helvetica",
                 fontweight="bold",
                 zorder=2,
             )
