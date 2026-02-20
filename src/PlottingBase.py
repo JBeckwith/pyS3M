@@ -1800,7 +1800,6 @@ class ImagePlotMixin:
             bayer_fontsize: Font size for B / G / R labels in the pattern panel.
             dpi: Output GIF resolution.
         """
-        from matplotlib.animation import FuncAnimation, PillowWriter
         from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
         from matplotlib.font_manager import FontProperties
 
@@ -1878,20 +1877,41 @@ class ImagePlotMixin:
 
             return []
 
-        ani = FuncAnimation(
-            fig, animate,
-            interval=1000 / fps,
-            blit=False,
-            repeat=True,
-            frames=n_frames,
-        )
-        ani.save(
-            filename,
-            dpi=dpi,
-            writer=PillowWriter(fps=fps),
-            savefig_kwargs={"transparent": True},
-        )
+        # Render frames manually and save with PIL disposal=2.
+        # PillowWriter does not expose the GIF disposal parameter; without
+        # disposal=2 ("restore to background before next frame") the player
+        # composites each new frame onto the previous one, leaving ghost
+        # scatter dots in transparent regions of earlier frames.
+        from PIL import Image
+
+        duration_ms = int(round(1000 / fps))
+        pil_frames = []
+        for k in range(n_frames):
+            animate(k)
+            fig.canvas.draw()
+            w, h = fig.canvas.get_width_height()
+            buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)
+            pil_frames.append(Image.fromarray(buf, "RGBA"))
+
         plt.close(fig)
+
+        # Quantise to palette mode.  Build a global palette from the first
+        # frame so colours are consistent across all frames.
+        first_p = pil_frames[0].quantize(colors=255, dither=0)
+        gif_frames = [first_p] + [
+            f.quantize(colors=255, palette=first_p, dither=0)
+            for f in pil_frames[1:]
+        ]
+
+        gif_frames[0].save(
+            filename,
+            save_all=True,
+            append_images=gif_frames[1:],
+            loop=0,
+            duration=duration_ms,
+            disposal=2,
+            optimize=False,
+        )
 
 
 class TernaryPlotMixin:
