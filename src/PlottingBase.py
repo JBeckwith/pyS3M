@@ -1895,33 +1895,25 @@ class ImagePlotMixin:
 
         plt.close(fig)
 
-        # Quantise RGBA frames to palette mode preserving transparency.
-        # PIL's quantize(palette=...) only accepts RGB/L, so we must:
-        #   1. Extract the alpha masks before conversion.
-        #   2. Composite RGBA over black to get RGB (transparent → black).
-        #   3. Build a global palette (255 colours) from the first RGB frame
-        #      so colours are consistent across all frames.
-        #   4. Quantise every frame to that palette.
-        #   5. Restore transparency by mapping formerly-transparent pixels to
-        #      palette index 255, then save with transparency=255, disposal=2.
-        alpha_masks = [np.array(f)[:, :, 3] for f in pil_frames]
+        # Convert RGBA → RGB (composite transparent regions over black) then
+        # quantise to a single global palette so colours are consistent across
+        # frames.  Images produced by quantize() carry all the internal PIL
+        # metadata required for multi-frame GIF writing; images built with
+        # Image.fromarray() do not, which causes only the first frame to land
+        # in the output file.
+        def _to_rgb(rgba_img):
+            bg = Image.new("RGB", rgba_img.size, (0, 0, 0))
+            bg.paste(rgba_img.convert("RGB"), mask=rgba_img.split()[3])
+            return bg
 
-        def _composite_over_black(rgba_img):
-            rgb = Image.new("RGB", rgba_img.size, (0, 0, 0))
-            rgb.paste(rgba_img.convert("RGB"), mask=rgba_img.split()[3])
-            return rgb
+        rgb_frames = [_to_rgb(f) for f in pil_frames]
 
-        rgb_frames = [_composite_over_black(f) for f in pil_frames]
-        first_p = rgb_frames[0].quantize(colors=255, dither=0)
-        palette = list(first_p.getpalette())
-
-        gif_frames = []
-        for rgb_img, alpha in zip(rgb_frames, alpha_masks):
-            p_arr = np.array(rgb_img.quantize(colors=255, palette=first_p, dither=0))
-            p_arr[alpha < 128] = 255  # palette index 255 → transparent
-            img = Image.fromarray(p_arr, mode="P")
-            img.putpalette(palette)
-            gif_frames.append(img)
+        # Build a global 256-colour palette from the first frame.
+        first_p = rgb_frames[0].quantize(colors=256)
+        gif_frames = [first_p] + [
+            f.quantize(colors=256, palette=first_p)
+            for f in rgb_frames[1:]
+        ]
 
         gif_frames[0].save(
             filename,
@@ -1930,7 +1922,6 @@ class ImagePlotMixin:
             loop=0,
             duration=duration_ms,
             disposal=2,
-            transparency=255,
             optimize=False,
         )
 
