@@ -34,6 +34,84 @@ except ImportError:
         ImportWarning
     )
 
+def plot_bayer_pattern(
+    ax,
+    pattern: str = "BGGR",
+    size: int = 8,
+    vline: float = None,
+    hline: float = None,
+    marker_pos: tuple = None,
+    marker_color: str = "white",
+    marker_size: float = 8,
+    fontsize: float = 7,
+):
+    """Draw a Bayer pattern grid on the given axes.
+
+    White B/G/R letter labels centred in each pixel square on a black background.
+    Matches the default mosaic layout from ``MaskFunctions.get_masks()``.
+
+    Args:
+        ax: Matplotlib axes to draw on.
+        pattern: 4-character Bayer pattern string (row-major, top-down).
+            ``pattern[0]`` = top-left cell, ``pattern[1]`` = top-right,
+            ``pattern[2]`` = bottom-left, ``pattern[3]`` = bottom-right.
+            Supported values: ``"BGGR"`` (default), ``"GBRG"``, ``"RGGB"``, ``"GRBG"``.
+        size: Number of pixels shown along each axis (grid is size × size).
+        vline: x-coordinate for a white dashed vertical reference line.
+        hline: y-coordinate for a white dashed horizontal reference line.
+        marker_pos: ``(x, y)`` in pixel coordinates — draws a scatter marker
+            indicating the molecule's current position in the pattern.
+        marker_color: Marker colour string.
+        marker_size: Marker size (matplotlib ``s`` parameter).
+        fontsize: Font size for the B / G / R labels.
+
+    Returns:
+        The modified axes object.
+    """
+    tile = {
+        (0, 0): pattern[0],
+        (0, 1): pattern[1],
+        (1, 0): pattern[2],
+        (1, 1): pattern[3],
+    }
+
+    ax.set_facecolor("black")
+    ax.set_xlim(0, size)
+    ax.set_ylim(size, 0)  # inverted — row 0 at top (image convention)
+    ax.set_aspect("equal")
+
+    # Grid lines drawn manually: reliable even after ax.axis('off')
+    for i in range(size + 1):
+        ax.axvline(i, color="white", linewidth=0.5, zorder=1)
+        ax.axhline(i, color="white", linewidth=0.5, zorder=1)
+
+    # Letter labels centred in each pixel cell
+    for row in range(size):
+        for col in range(size):
+            ax.text(
+                col + 0.5, row + 0.5,
+                tile[(row % 2, col % 2)],
+                color="white",
+                ha="center", va="center",
+                fontsize=fontsize,
+                fontfamily="sans-serif",
+                fontweight="bold",
+                zorder=2,
+            )
+
+    if vline is not None:
+        ax.axvline(vline, color="white", linestyle="--", linewidth=1, zorder=3)
+    if hline is not None:
+        ax.axhline(hline, color="white", linestyle="--", linewidth=1, zorder=3)
+
+    if marker_pos is not None:
+        ax.scatter(marker_pos[0], marker_pos[1],
+                   color=marker_color, s=marker_size, zorder=5)
+
+    ax.axis("off")
+    return ax
+
+
 class PublicationConstants:
     """Constants for publication-quality plots following journal standards.
 
@@ -1649,6 +1727,193 @@ class ImagePlotMixin:
         interval = 1000 / fps  # Convert fps to interval in ms
         ani = FuncAnimation(
             fig, animate, interval=interval, blit=True, repeat=True, frames=n_frames
+        )
+        ani.save(
+            filename,
+            dpi=dpi,
+            writer=PillowWriter(fps=fps),
+            savefig_kwargs={"transparent": True},
+        )
+        plt.close(fig)
+
+    def make_animated_gif_multipanel(
+        self,
+        fig,
+        axs: np.ndarray,
+        plot_types: np.ndarray,
+        xpositions: np.ndarray,
+        ypositions: np.ndarray,
+        images_for_figures: np.ndarray,
+        n_pixels: int = 8,
+        n_frames: int = None,
+        filename: str = "output.gif",
+        fps: int = 24,
+        pattern: str = "BGGR",
+        vmin: float = 0.1,
+        vmax: float = 99.9,
+        pixelsize: float = 69,
+        scalebarsize: float = 300,
+        scalebarlabel: str = "300 nm",
+        marker_color: str = "white",
+        marker_size: float = 150,
+        bayer_fontsize: float = 7,
+        dpi: int = 400,
+    ) -> None:
+        """Create a multipanel animated GIF with Bayer pattern and camera image panels.
+
+        Produces a looping GIF showing a molecule moving through a Bayer pattern grid
+        alongside the corresponding camera image for each dye channel.  Designed to
+        work on dark/transparent backgrounds.
+
+        Args:
+            fig: Matplotlib figure containing the axes.
+            axs: 2-D array of axes with shape ``(nrows, ncols)``.
+            plot_types: String array matching ``axs`` shape.  Each entry is one of:
+                ``"pattern"`` — draw Bayer grid + moving molecule marker;
+                ``"image"`` — show camera image for the corresponding dye;
+                ``"off"`` — hide this axes.
+            xpositions: Molecule x position per frame in **pixel** coordinates,
+                shape ``(n_frames,)``.
+            ypositions: Molecule y position per frame in **pixel** coordinates,
+                shape ``(n_frames,)``.
+            images_for_figures: Camera image stack, shape
+                ``(n_dyes, n_frames, H, W)``.  Column index in ``plot_types``
+                maps directly to dye index (``j`` → ``images_for_figures[j]``).
+            n_pixels: Size of the Bayer pattern grid shown (grid spans 0 to
+                ``n_pixels``).
+            n_frames: Number of frames to animate.  Defaults to
+                ``images_for_figures.shape[1]``.
+            filename: Output ``.gif`` path.
+            fps: Frames per second.
+            pattern: 4-character Bayer pattern string (row-major, top-down).
+                Defaults to ``"BGGR"`` matching ``MaskFunctions.get_masks()``.
+            vmin: Lower percentile clip for image display.
+            vmax: Upper percentile clip for image display.
+            pixelsize: Camera pixel size in nm (used for scale bars).
+            scalebarsize: Image-panel scale bar length in nm.
+            scalebarlabel: Image-panel scale bar label.
+            marker_color: Colour of the molecule position marker.
+            marker_size: Size of the molecule position marker (matplotlib ``s``).
+            bayer_fontsize: Font size for B / G / R labels in the pattern panel.
+            dpi: Output GIF resolution.
+        """
+        from matplotlib.animation import FuncAnimation, PillowWriter
+        from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+        from matplotlib.font_manager import FontProperties
+
+        if n_frames is None:
+            n_frames = images_for_figures.shape[1]
+
+        fp = FontProperties()
+        fp.set_size(8)
+
+        # Per-dye percentile clip (computed once across all frames)
+        img_vmin = np.percentile(images_for_figures, vmin)
+        img_vmax = np.percentile(images_for_figures, vmax)
+
+        scat = []   # one scatter artist per "pattern" column
+        im   = []   # one imshow artist per "image" column
+
+        # ── initialise each panel ────────────────────────────────────────
+        for i in range(axs.shape[0]):
+            for j in range(axs.shape[1]):
+                ptype = plot_types[i, j]
+
+                if ptype == "pattern":
+                    plot_bayer_pattern(
+                        axs[i, j],
+                        pattern=pattern,
+                        size=n_pixels,
+                        fontsize=bayer_fontsize,
+                    )
+                    scat.append(
+                        axs[i, j].scatter(
+                            xpositions[0], ypositions[0],
+                            edgecolor=None,
+                            facecolor=marker_color,
+                            s=marker_size,
+                            zorder=np.inf,
+                        )
+                    )
+                    pixvals = 100 / pixelsize
+                    axs[i, j].add_artist(AnchoredSizeBar(
+                        axs[i, j].transData,
+                        pixvals, "100 nm", "lower center",
+                        pad=0.5, color="white", frameon=False,
+                        size_vertical=0.3 / n_pixels,
+                        fontproperties=fp,
+                    ))
+                    axs[i, j].axis("off")
+
+                elif ptype == "image":
+                    im.append(axs[i, j].imshow(
+                        images_for_figures[j, 0, :, :],
+                        cmap="gist_gray",
+                        vmin=img_vmin,
+                        vmax=img_vmax,
+                    ))
+                    pixvals = scalebarsize / pixelsize
+                    axs[i, j].add_artist(AnchoredSizeBar(
+                        axs[i, j].transData,
+                        pixvals, scalebarlabel, "lower center",
+                        pad=0.5, color="white", frameon=False,
+                        size_vertical=0.5 / images_for_figures.shape[2],
+                        fontproperties=fp,
+                    ))
+                    axs[i, j].axis("off")
+
+                else:  # "off"
+                    axs[i, j].axis("off")
+
+        # ── per-frame update ─────────────────────────────────────────────
+        scat_idx = 0
+        im_idx   = 0
+
+        def animate(k):
+            nonlocal scat_idx, im_idx
+            scat_idx = 0
+            im_idx   = 0
+            artists  = []
+
+            for i in range(axs.shape[0]):
+                for j in range(axs.shape[1]):
+                    ptype = plot_types[i, j]
+
+                    if ptype == "pattern":
+                        scat[scat_idx].set_offsets(
+                            [[xpositions[k], ypositions[k]]]
+                        )
+                        artists.append(scat[scat_idx])
+                        scat_idx += 1
+
+                    elif ptype == "image":
+                        axs[i, j].clear()
+                        im[im_idx] = axs[i, j].imshow(
+                            images_for_figures[j, k, :, :],
+                            cmap="gist_gray",
+                            vmin=img_vmin,
+                            vmax=img_vmax,
+                        )
+                        pixvals = scalebarsize / pixelsize
+                        axs[i, j].add_artist(AnchoredSizeBar(
+                            axs[i, j].transData,
+                            pixvals, scalebarlabel, "lower center",
+                            pad=0.5, color="white", frameon=False,
+                            size_vertical=0.5 / images_for_figures.shape[2],
+                            fontproperties=fp,
+                        ))
+                        axs[i, j].axis("off")
+                        artists.append(im[im_idx])
+                        im_idx += 1
+
+            return artists
+
+        ani = FuncAnimation(
+            fig, animate,
+            interval=1000 / fps,
+            blit=True,
+            repeat=True,
+            frames=n_frames,
         )
         ani.save(
             filename,
