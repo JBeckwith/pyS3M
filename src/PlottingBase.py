@@ -1757,7 +1757,7 @@ class ImagePlotMixin:
         scalebarlabel: str = "300 nm",
         marker_color = "white",
         marker_size: float = 150,
-        bayer_fontsize: float = 9,
+        bayer_fontsize: float = 15,
         dpi: int = 400,
     ) -> None:
         """Create a multipanel animated GIF with Bayer pattern and camera image panels.
@@ -1814,89 +1814,50 @@ class ImagePlotMixin:
         img_vmin = np.percentile(images_for_figures, vmin)
         img_vmax = np.percentile(images_for_figures, vmax)
 
-        scat = []   # one scatter artist per "pattern" column
-        im   = []   # one imshow artist per "image" column
-
-        # ── initialise each panel ────────────────────────────────────────
-        for i in range(axs.shape[0]):
-            for j in range(axs.shape[1]):
-                ptype = plot_types[i, j]
-
-                if ptype == "pattern":
-                    # Resolve per-column marker colour
-                    if isinstance(marker_color, (list, tuple, np.ndarray)):
-                        col_color = marker_color[j % len(marker_color)]
-                    else:
-                        col_color = marker_color
-                    plot_bayer_pattern(
-                        axs[i, j],
-                        pattern=pattern,
-                        size=n_pixels,
-                        fontsize=bayer_fontsize,
-                    )
-                    scat.append(
-                        axs[i, j].scatter(
-                            xpositions[0], ypositions[0],
-                            edgecolor=None,
-                            facecolor=col_color,
-                            s=marker_size,
-                            zorder=np.inf,
-                        )
-                    )
-                    pixvals = 100 / pixelsize
-                    axs[i, j].add_artist(AnchoredSizeBar(
-                        axs[i, j].transData,
-                        pixvals, "100 nm", "lower center",
-                        pad=0.5, color="white", frameon=False,
-                        size_vertical=0.3 / n_pixels,
-                        fontproperties=fp,
-                    ))
-                    axs[i, j].axis("off")
-
-                elif ptype == "image":
-                    im.append(axs[i, j].imshow(
-                        images_for_figures[j, 0, :, :],
-                        cmap="gist_gray",
-                        vmin=img_vmin,
-                        vmax=img_vmax,
-                    ))
-                    pixvals = scalebarsize / pixelsize
-                    axs[i, j].add_artist(AnchoredSizeBar(
-                        axs[i, j].transData,
-                        pixvals, scalebarlabel, "lower center",
-                        pad=0.5, color="white", frameon=False,
-                        size_vertical=0.5 / images_for_figures.shape[2],
-                        fontproperties=fp,
-                    ))
-                    axs[i, j].axis("off")
-
-                else:  # "off"
-                    axs[i, j].axis("off")
-
-        # ── per-frame update ─────────────────────────────────────────────
-        scat_idx = 0
-        im_idx   = 0
+        # ── per-frame render: clear and redraw every panel each frame ───────
+        # This guarantees exactly one scatter point per pattern panel per frame.
+        # y-positions are flipped (n_pixels - y) to match the image display
+        # convention (origin='lower' in imshow has y=0 at bottom, while
+        # plot_bayer_pattern uses set_ylim(size, 0) with y=0 at top).
 
         def animate(k):
-            nonlocal scat_idx, im_idx
-            scat_idx = 0
-            im_idx   = 0
-            artists  = []
-
             for i in range(axs.shape[0]):
                 for j in range(axs.shape[1]):
                     ptype = plot_types[i, j]
 
                     if ptype == "pattern":
-                        scat[scat_idx].set_offsets(
-                            [[xpositions[k], ypositions[k]]]
+                        col_color = (
+                            marker_color[j % len(marker_color)]
+                            if isinstance(marker_color, (list, tuple, np.ndarray))
+                            else marker_color
                         )
-                        artists.append(scat[scat_idx])
-                        scat_idx += 1
+                        axs[i, j].clear()
+                        plot_bayer_pattern(
+                            axs[i, j],
+                            pattern=pattern,
+                            size=n_pixels,
+                            fontsize=bayer_fontsize,
+                        )
+                        axs[i, j].scatter(
+                            xpositions[k],
+                            n_pixels - ypositions[k],
+                            edgecolor=None,
+                            facecolor=col_color,
+                            s=marker_size,
+                            zorder=np.inf,
+                        )
+                        pixvals = 100 / pixelsize
+                        axs[i, j].add_artist(AnchoredSizeBar(
+                            axs[i, j].transData,
+                            pixvals, "100 nm", "lower center",
+                            pad=0.5, color="white", frameon=False,
+                            size_vertical=0.3 / n_pixels,
+                            fontproperties=fp,
+                        ))
 
                     elif ptype == "image":
                         axs[i, j].clear()
-                        im[im_idx] = axs[i, j].imshow(
+                        axs[i, j].imshow(
                             images_for_figures[j, k, :, :],
                             cmap="gist_gray",
                             vmin=img_vmin,
@@ -1911,10 +1872,11 @@ class ImagePlotMixin:
                             fontproperties=fp,
                         ))
                         axs[i, j].axis("off")
-                        artists.append(im[im_idx])
-                        im_idx += 1
 
-            return artists
+                    else:
+                        axs[i, j].axis("off")
+
+            return []
 
         ani = FuncAnimation(
             fig, animate,
