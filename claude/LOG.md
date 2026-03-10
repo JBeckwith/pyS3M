@@ -6,6 +6,51 @@
 
 ---
 
+## Session: March 10, 2026 — Covariance-Based Amplitude SNR Filter ✅
+
+### Summary
+
+Replaced the three hard-coded fitting rejection gates with a single principled
+Wald t-statistic (z_amplitude). Validated threshold on simulated Bayer data before
+implementing. Also fixed several bugs in the pipeline found during QDot data processing.
+
+### Validation (notebooks/testing_notebooks/test_covariance_snr.ipynb)
+
+Simulated 500 ROIs per photon level (50–10000 pe) using `gen_camera_image_stack`.
+Fed WLS fitter directly (no gates), computed z_amplitude from chi_sqr-scaled pcov.
+
+| Threshold | Noise FPR | TPR 200 pe | TPR 2000 pe |
+|-----------|-----------|------------|-------------|
+| z ≥ 2.0   | 0.004     | 0.688      | 0.970       |
+| z ≥ 3.0   | 0.000     | 0.604      | 0.954       |
+| pe ≥ 50   | 0.018     | 0.994      | 1.000       |
+| chi ≤ 3.0 | 1.000     | 1.000      | 1.000       |
+
+chi_sqr ≤ 3 confirmed broken (passes 100% of noise). z ≥ 2.0 adopted as threshold.
+
+### Implementation (commit 6e8e49f)
+
+**`src/ImageAnalysisFunctions.py`:**
+- `FittingConstants`: replaced `MEDIAN_GATE_THRESHOLD`, `MIN_PHOTON_THRESHOLD`, `MAX_CHI_SQUARED` with `AMPLITUDE_SNR_THRESHOLD = 2.0`
+- Added `FittingResultProcessor._compute_amplitude_snr(pfit, pcov)` static method
+- `process_fit_results`: removed `skip_chisqr` param; Stage 2 now uses z_amplitude gate (runs before squaring so uses sqrt-space pfit[7:10])
+- `StandardFittingProcessor.fit_single_punctum`: replaced median gate with `np.max(smoothed) <= 0` positivity check
+- Removed `skip_chisqr` from entire call chain: `FittingProcessor` ABC, `fit_single_punctum`, `_perform_wls_fit`, `fit_puncta_method`, `fit_puncta_parallel_method`, `_fit_puncta_method_standalone`
+
+**`src/SR_Functions.py`:**
+- Removed `skip_chisqr=(actual_frames_summed > 1)` from `example_spots_singleframe`
+- Removed `skip_chisqr=(n_frames_sum > 1)` from `fit_FRET_data`
+- Removed `skip_chisqr=False` from `fit_QD_data`
+
+### Other fixes in this session
+
+- **fit_QD_data** (`SR_Functions.py`): new function fitting all frames × all detected spots without change-point detection
+- **smoothing_function.args mutation bug** (`IOFunctions.py`, `Multicolour_Simulation_Functions.py`, `SR_Functions.py`): `dict(smoothing_function.args)` copy prevents mutation of shared namespace
+- **IndexError in extract_single_molecules_DBSCAN** (`SM_extractionfunctions.py`): added `_load_localisation_files` helper; called at top of both DBSCAN and HDBSCAN extraction functions
+- **eps=0.0 in DBSCAN** (`ImageAnalysisFunctions.py:189`): `calculate_errors` now returns `np.nan` (not `0.0`) for non-positive pcov diagonals
+
+---
+
 ## Session: February 26, 2026 — Precision Metric Fix + Absolute QY Function ✅
 
 ### Summary

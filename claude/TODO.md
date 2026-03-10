@@ -8,30 +8,6 @@
 
 ## Active Projects
 
-### Priority 1: Covariance-Based Amplitude SNR Filter 🔴 DO FIRST
-
-**Status:** 📋 PLANNED
-**Plan:** `claude/covariance_snr_filter.md`
-
-Replace all three hard-coded fitting gates (`MEDIAN_GATE_THRESHOLD`, `MIN_PHOTON_THRESHOLD`,
-`MAX_CHI_SQUARED`) with a single Wald amplitude SNR check derived from the covariance matrix:
-
-```
-z_amplitude = sum(|sqrt(A_c)|) / sqrt(sum(var(sqrt(A_c))))  ≥  AMPLITUDE_SNR_THRESHOLD (3.0)
-```
-
-This is scale-invariant (works for single frames AND summed frames), physically meaningful,
-and eliminates the need for the current `skip_chisqr` workaround.
-
-**Steps (see plan for detail):**
-- [ ] Add `_compute_amplitude_snr()` + `AMPLITUDE_SNR_THRESHOLD` to `ImageAnalysisFunctions.py`
-- [ ] Replace Stage 2 gate in `process_fit_results` with SNR check
-- [ ] Remove Stage 1 `compute_A_median` gate; replace with simple `max(smoothed) <= 0` check
-- [ ] Remove `skip_chisqr` parameter chain from both `ImageAnalysisFunctions.py` and `SR_Functions.py`
-- [ ] Validate on single-frame + summed-frame data
-
----
-
 ### Priority 1: Nile Red / Alpha-Synuclein Analysis (ACTIVE)
 
 **Status:** 🔨 IN PROGRESS
