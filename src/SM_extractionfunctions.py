@@ -5159,12 +5159,11 @@ class extract_SMs:
         tif_path = tif_files[fov_index]
         print(f"Loading FOV {fov_index}: {os.path.basename(tif_path)}")
 
-        # Load and project
+        # Load and project to 2D (handles T,H,W or T,C,H,W etc.)
         stack = tifffile.imread(tif_path).astype(np.float32).squeeze()
-        if stack.ndim == 2:
-            projected = stack
-        else:
-            projected = stack.max(axis=0) if projection == 'max' else stack.mean(axis=0)
+        projected = stack
+        while projected.ndim > 2:
+            projected = projected.max(axis=0) if projection == 'max' else projected.mean(axis=0)
 
         # Crop centre: midpoint of the two molecule positions (camera pixels)
         cx = int(round(0.5 * (pair_row['xc_0'] + pair_row['xc_1'])))
