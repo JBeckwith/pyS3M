@@ -1173,6 +1173,112 @@ def localisation_precision(photons, s, bg, em):
         return np.sqrt(v)
 
 
+def frc_resolution(
+    xc,
+    yc,
+    pixel_size: float,
+    oversampling: int = 10,
+    threshold: str = "1/7",
+):
+    """Estimate image resolution via Fourier Ring Correlation (1FRC).
+
+    Renders localisation coordinates into a 2D histogram at the requested
+    oversampling, then applies the 1FRC method (binomial splitting of a single
+    image) to estimate the achieved resolution.
+
+    Requires the ``frc`` package (pip install frc).
+
+    Parameters
+    ----------
+    xc : array-like
+        x-coordinates of localisations in camera pixels.
+    yc : array-like
+        y-coordinates of localisations in camera pixels.
+    pixel_size : float
+        Camera pixel size in nm.  Rendered pixel size = pixel_size / oversampling.
+    oversampling : int
+        Super-resolution oversampling factor (default 10, giving 10× finer
+        pixel grid than the camera).
+    threshold : str
+        FRC threshold criterion.  ``'1/7'`` (default) is the standard SMLM
+        resolution criterion.  ``'half_bit'`` is the 1/2-bit information curve.
+
+    Returns
+    -------
+    resolution_nm : float
+        Estimated resolution in nm (1 / spatial-frequency at threshold crossing).
+    frc_curve : np.ndarray
+        FRC correlation values for each Fourier ring.
+    xs_nm : np.ndarray
+        Spatial frequency axis in 1/nm corresponding to frc_curve.
+    threshold_fn : callable
+        Threshold function used (for plotting).
+
+    Raises
+    ------
+    ImportError
+        If the ``frc`` package is not installed.
+    frc.NoIntersectionException
+        If the FRC curve never crosses the threshold (image too noisy or
+        oversampled).
+
+    Notes
+    -----
+    The 1FRC method uses binomial splitting to generate two independent
+    Poisson-distributed half-images from a single dataset, making it
+    suitable for SMLM where collecting two independent acquisitions is
+    impractical.  See Koho et al. (2019) Nat Commun for details.
+    """
+    try:
+        import frc as frc_pkg
+    except ImportError:
+        raise ImportError(
+            "frc package is required for FRC analysis. Install with: pip install frc"
+        )
+
+    xc = np.asarray(xc, dtype=float)
+    yc = np.asarray(yc, dtype=float)
+
+    rendered_pixel_nm = pixel_size / oversampling
+
+    # Convert coordinates to nm and render 2D histogram
+    xc_nm = xc * pixel_size
+    yc_nm = yc * pixel_size
+
+    x_min, x_max = xc_nm.min(), xc_nm.max()
+    y_min, y_max = yc_nm.min(), yc_nm.max()
+
+    n_px_x = max(int(np.ceil((x_max - x_min) / rendered_pixel_nm)), 2)
+    n_px_y = max(int(np.ceil((y_max - y_min) / rendered_pixel_nm)), 2)
+
+    img, _, _ = np.histogram2d(
+        xc_nm, yc_nm,
+        bins=[n_px_x, n_px_y],
+        range=[[x_min, x_max], [y_min, y_max]],
+    )
+
+    # FRC requires a square image; pad to the larger dimension
+    img = frc_pkg.util.square_image(img, add_padding=True)
+    img_size = img.shape[0]
+
+    # Tukey windowing reduces FFT edge artifacts
+    img = frc_pkg.util.apply_tukey(img)
+
+    # Compute 1FRC curve (binomial split of single image)
+    frc_curve = frc_pkg.one_frc(img)
+
+    # Spatial frequency axis: ring i → frequency i / (img_size * pixel_size_nm)
+    n_rings = len(frc_curve)
+    xs_nm = np.arange(n_rings) / (img_size * rendered_pixel_nm)
+
+    # Find threshold crossing; returns 1/intersection_x in nm
+    resolution_nm, _, threshold_fn = frc_pkg.frc_res(
+        xs_nm, frc_curve, img_size, threshold=threshold
+    )
+
+    return resolution_nm, frc_curve, xs_nm, threshold_fn
+
+
 def n_segments(info, segmentation):
     n_frames = info[0]["Frames"]
     return int(np.round(n_frames / segmentation))
