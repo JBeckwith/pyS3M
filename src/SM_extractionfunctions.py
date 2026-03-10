@@ -806,32 +806,16 @@ class extract_SMs:
         """
         Extract FOV identifier from filename.
 
-        Looks for 'Pos' followed by digits in the filename.
+        Returns the full filename (without directory) to ensure uniqueness
+        across datasets where a short suffix like 'Pos0' may repeat.
 
         Args:
             filepath (str): Full path to localization file
 
         Returns:
-            str: FOV name (e.g., "Pos0", "Pos15") or None if pattern not found
-
-        Examples:
-            >>> _extract_fov_name("/path/to/Pos15_undrifted_locs.h5")
-            "Pos15"
-            >>> _extract_fov_name("/path/to/Pos0_data.h5")
-            "Pos0"
-            >>> _extract_fov_name("/path/to/nopattern.h5")
-            None
+            str: Filename portion of filepath (e.g., "Pos15_undrifted_locs.h5")
         """
-        # Extract filename from path
-        filename = os.path.basename(filepath)
-
-        # Search for Pos followed by digits
-        match = re.search(r"Pos\d+", filename)
-
-        if match:
-            return match.group(0)
-        else:
-            return None
+        return os.path.basename(filepath)
 
     def extract_single_molecules_batch(
         self,
