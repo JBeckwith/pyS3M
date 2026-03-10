@@ -5176,10 +5176,10 @@ class extract_SMs:
 
         # Molecule positions relative to crop origin
         pair_info = pair_row.to_frame().T.copy().reset_index(drop=True)
-        pair_info['xc_0_crop'] = pair_row['xc_0'] - x0
-        pair_info['yc_0_crop'] = pair_row['yc_0'] - y0
-        pair_info['xc_1_crop'] = pair_row['xc_1'] - x0
-        pair_info['yc_1_crop'] = pair_row['yc_1'] - y0
+        pair_info['xc_0'] = pair_row['xc_0'] - x0
+        pair_info['yc_0'] = pair_row['yc_0'] - y0
+        pair_info['xc_1'] = pair_row['xc_1'] - x0
+        pair_info['yc_1'] = pair_row['yc_1'] - y0
         pair_info['crop_x0_px'] = x0
         pair_info['crop_y0_px'] = y0
 
