@@ -795,6 +795,7 @@ class SuperRes_Functions:
             list(np.zeros(len(puncta_tofit), dtype=int)),
             FittingStrategy.STANDARD,
             masks=masks_tofit,
+            skip_chisqr=(actual_frames_summed > 1),
         )
 
         columns = [
@@ -1297,7 +1298,7 @@ class SuperRes_Functions:
             if len(puncta_tofit) == 0:
                 continue
 
-            # Fit all ROIs
+            # Fit all ROIs (skip chi-sqr gate: summed frames inflate chi-sqr at high SNR)
             fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
                 puncta_tofit,
                 smoothed_puncta_tofit,
@@ -1306,6 +1307,7 @@ class SuperRes_Functions:
                 list(range(len(puncta_tofit))),
                 FittingStrategy.STANDARD,
                 masks=masks_tofit,
+                skip_chisqr=(n_frames_sum > 1),
             )
 
             # Build result DataFrame

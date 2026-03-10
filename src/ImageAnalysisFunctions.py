@@ -255,6 +255,7 @@ class FittingResultProcessor:
         relative_coords: List[float],
         strategy: FittingStrategy,
         chisqr: float = 1.0,
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Process raw fitting results into standardized format.
 
@@ -328,7 +329,8 @@ class FittingResultProcessor:
         # Stage 2: Post-fit rejection — reject low-photon or poor-quality fits
         if strategy == FittingStrategy.STANDARD:
             total_pe = pfit_processed[7] + pfit_processed[8] + pfit_processed[9]  # A_B + A_G + A_R
-            if total_pe < FittingConstants.MIN_PHOTON_THRESHOLD or chisqr > FittingConstants.MAX_CHI_SQUARED:
+            chisqr_fail = (not skip_chisqr) and (chisqr > FittingConstants.MAX_CHI_SQUARED)
+            if total_pe < FittingConstants.MIN_PHOTON_THRESHOLD or chisqr_fail:
                 return (
                     np.full(len(pfit_processed), np.nan),
                     np.full(len(pfit_processed), np.nan),
@@ -354,6 +356,7 @@ class FittingProcessor(ABC):
         weights: np.ndarray,
         relative_coords: List[float],
         masks: Optional[np.ndarray] = None,
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Fit a single punctum with this strategy.
 
@@ -363,6 +366,7 @@ class FittingProcessor(ABC):
             weights: 2D array containing fitting weights.
             relative_coords: Relative coordinate offsets.
             masks: Optional 3D array containing colour masks.
+            skip_chisqr: If True, bypass chi-squared quality gate.
 
         Returns:
             Tuple of (fit_parameters, parameter_errors).
@@ -380,6 +384,7 @@ class StandardFittingProcessor(FittingProcessor):
         weights: np.ndarray,
         relative_coords: List[float],
         masks: Optional[np.ndarray] = None,
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Fit single punctum using standard colour fitting.
 
@@ -391,6 +396,8 @@ class StandardFittingProcessor(FittingProcessor):
             weights: 2D array containing fitting weights.
             relative_coords: Relative coordinate offsets.
             masks: 3D array containing colour masks (required).
+            skip_chisqr: If True, bypass the chi-squared quality gate (default False).
+                         Use when fitting summed frames where high SNR inflates chi-sqr.
 
         Returns:
             Tuple of (fit_parameters, parameter_errors).
@@ -412,7 +419,8 @@ class StandardFittingProcessor(FittingProcessor):
 
         # Perform weighted least squares fit
         return self._perform_wls_fit(
-            punctum, initial_guess, masks, weights, relative_coords
+            punctum, initial_guess, masks, weights, relative_coords,
+            skip_chisqr=skip_chisqr,
         )
 
     def _generate_initial_guess(
@@ -439,6 +447,7 @@ class StandardFittingProcessor(FittingProcessor):
         masks: np.ndarray,
         weights: np.ndarray,
         relative_coords: List[float],
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Perform weighted least squares fitting.
 
@@ -483,7 +492,8 @@ class StandardFittingProcessor(FittingProcessor):
             )
 
             return FittingResultProcessor.process_fit_results(
-                pfit, pcov, size, relative_coords, FittingStrategy.STANDARD, chisqr
+                pfit, pcov, size, relative_coords, FittingStrategy.STANDARD, chisqr,
+                skip_chisqr=skip_chisqr,
             )
 
         except Exception as e:
@@ -1050,6 +1060,7 @@ class Image_Analysis_Functions:
         planes: List[int],
         strategy: FittingStrategy,
         masks: Optional[List[np.ndarray]] = None,
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Fit puncta using specified strategy.
 
@@ -1133,6 +1144,7 @@ class Image_Analysis_Functions:
                     weights=weights[i],
                     relative_coords=relative_coords[i],
                     masks=punctum_masks,
+                    skip_chisqr=skip_chisqr,
                 )
 
                 # Store results (fit_params includes chi-squared at the end)
@@ -1180,6 +1192,7 @@ class Image_Analysis_Functions:
         strategy: FittingStrategy,
         masks: Optional[List[np.ndarray]] = None,
         asynch: bool = False,
+        skip_chisqr: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Fit puncta in parallel using specified strategy.
 
@@ -1247,6 +1260,7 @@ class Image_Analysis_Functions:
                         task_planes,
                         strategy,
                         task_masks,
+                        skip_chisqr,
                     )
                 )
 
@@ -1309,6 +1323,7 @@ def _fit_puncta_method_standalone(
     planes: List[int],
     strategy: FittingStrategy,
     masks: Optional[List[np.ndarray]] = None,
+    skip_chisqr: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Standalone version of fit_puncta_method for multiprocessing.
 
@@ -1335,6 +1350,7 @@ def _fit_puncta_method_standalone(
             planes=planes,
             strategy=strategy,
             masks=masks,
+            skip_chisqr=skip_chisqr,
         )
     except Exception:
         # Return empty arrays if fitting fails to prevent crash
