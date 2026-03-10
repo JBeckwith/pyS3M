@@ -6,6 +6,65 @@
 
 ---
 
+## Session: March 10, 2026 — claude/ Directory Cleanup ✅
+
+### Summary
+
+Deleted 33 stale `.md` files from `claude/` that were more than 2 months old and whose
+content was already fully documented in this LOG. Files were untracked (claude/ is
+gitignored) so no git history was lost.
+
+### Files Deleted
+
+| File | Reason for deletion |
+|------|---------------------|
+| `bootstrap_parallelization_summary.md` | Covered by Nov 27 Bootstrap Parallelization session |
+| `bootstrap_sampling_optimization.md` | Covered by Nov 27 Bootstrap Parallelization session |
+| `bootstrap_sampling_speedup.md` | Covered by Nov 25 Simulation Speedup session |
+| `simulation_speedup.md` | Covered by Nov 25 Simulation Speedup session (marked complete in LOG) |
+| `simulation_bottleneck_analysis.md` | Covered by Nov 27 session (bottleneck analysis complete) |
+| `simulation_bottleneck_analysis_updated.md` | Covered by Nov 27 session |
+| `psf_vectorization_analysis.md` | Covered by Nov 25 vectorization session |
+| `vectorization_implementation_plan.md` | Covered by Nov 25 vectorization session (all phases complete) |
+| `vectorization_implementation_summary.md` | Covered by Nov 25 vectorization session |
+| `optimization_opportunities.md` | Content migrated verbatim to TODO.md § 2.1 as pending tasks |
+| `photoelectron_bug_fix.md` | Covered by Nov 21 Critical Photoelectron Bug Fix session |
+| `photoelectron_calculation_bug_analysis.md` | Covered by Nov 21 session |
+| `photoelectron_fix_summary.md` | Covered by Nov 25 Photoelectron Generation Fix session |
+| `camera_simulator_plotting_additions.md` | Covered by Nov 24 Camera Simulator Plotting session |
+| `improved_color_rendering.md` | Covered by Nov 24 session |
+| `kde_contour_implementation.md` | Covered by Nov 21 KDE Contour Implementation session |
+| `ternary_overlap_plots.md` | Covered by Nov 7 and Nov 21 ternary plot sessions |
+| `notebook_cells_simple.md` | Covered by Nov 24 session (referenced as implementation notes) |
+| `session_summary_2025-11-24.md` | Content fully duplicates Nov 24 LOG session |
+| `session_summary_2025_11_27.md` | Content fully duplicates Nov 27 LOG session |
+| `robust_tiff_reader_fix.md` | Covered by Nov 24 TIFF Error Recovery session |
+| `bacterial_analysis_plan.md` | Covered by Nov 18 Bacterial Analysis Pipeline Completion session |
+| `diffusion_simulation_upgrade.md` | Covered by Nov 15 + Dec 8 diffusion simulation sessions |
+| `spot_detection_quality_metrics.md` | Covered by Dec 13-15 Quality Metrics sessions |
+| `spot_quality_integration_complete.md` | Covered by Dec 13-15 Quality Metrics sessions |
+| `spot_quality_integration_plan.md` | Covered by Dec 13-15 Quality Metrics sessions |
+| `spot_quality_progress_summary.md` | Covered by Dec 13-15 Quality Metrics sessions |
+| `bayer_spot_detection_implementation.md` | Covered by Dec 19 Bayer-Specific Spot Detection session |
+| `SuperRes_Unmixing_Iterative.md` | Covered by Nov 15 Hierarchical Spatial-Spectral Unmixing session |
+| `SuperRes_Unmixing_Iterative_Improvements.md` | Covered by Nov 15 session (referenced directly in LOG) |
+| `plotting_publication_standards_plan.md` | Covered by Nov 28 Publication-Quality Plotting Migration session |
+| `spatial_spectral_improvement.md` | Covered by Nov 15 spatial-spectral refinement session |
+| `Notebook_Plotting_Uses.md` | Covered by Nov 28 plotting migration session |
+
+### Files Kept (still needed)
+
+- `implement_track_assignment.md` — referenced in TODO.md Step 6a as comprehensive analysis
+- `spot_detection_analysis.md` — referenced in TODO.md Priority 2 as active analysis
+- `spot_detection_analysis_bayeradaptation.md` — referenced in TODO.md Priority 2 Bayer section
+- `MICROSCOPIC_FRAMEWORK_SUMMARY.md` — referenced in TODO.md "See" note
+- `diffusion_binding_sim.md` — referenced in TODO.md Files section
+- `Plotting_Architecture_Analysis.md` — referenced in TODO.md active plotting task
+- `PlottingBaseMigration.md` — referenced by active plotting architecture task
+- `future_diffusionreaction.md` — future NSM implementation plan, not yet done; referenced in LOG next steps
+
+---
+
 ## Session: March 10, 2026 — Covariance-Based Amplitude SNR Filter ✅
 
 ### Summary
