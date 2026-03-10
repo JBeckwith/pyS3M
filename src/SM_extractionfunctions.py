@@ -5116,8 +5116,8 @@ class extract_SMs:
     ):
         """Load the raw TIFF for the FOV in pair_row and return a crop around the two molecules.
 
-        The TIFF file is located by searching data_folder for files whose name
-        contains the fov_name (e.g. 'Pos5').  A max- or mean-projection across
+        The TIFF file is located by sorting all TIFFs in data_folder and picking
+        the one at position fov_index.  A max- or mean-projection across
         all frames is computed before cropping, so both molecules are visible
         even if they blink on different frames.
 
@@ -5139,21 +5139,25 @@ class extract_SMs:
         import tifffile
         import glob
 
-        fov_col = 'fov_name' if 'fov_name' in pair_row.index else 'fov_index'
-        fov_name = str(pair_row[fov_col])
+        fov_index = int(pair_row['fov_index'])
 
-        # Find TIFF file whose name contains the FOV name
-        tif_pattern = os.path.join(data_folder, f"*{fov_name}*.tif*")
-        tif_files = [f for f in glob.glob(tif_pattern) if not f.endswith('.h5')]
+        # Collect and sort all TIFFs in the folder, then pick the Nth one.
+        tif_files = sorted(
+            f for f in glob.glob(os.path.join(data_folder, "*.tif*"))
+            if not f.endswith('.h5')
+        )
 
         if len(tif_files) == 0:
             raise FileNotFoundError(
-                f"No TIFF found matching '{tif_pattern}'. "
-                "Check data_folder or fov_name in pair_row."
+                f"No TIFF files found in '{data_folder}'."
             )
-        if len(tif_files) > 1:
-            print(f"Multiple TIFFs found; using {os.path.basename(tif_files[0])}")
-        tif_path = tif_files[0]
+        if fov_index >= len(tif_files):
+            raise IndexError(
+                f"fov_index={fov_index} but only {len(tif_files)} TIFFs found in "
+                f"'{data_folder}'."
+            )
+        tif_path = tif_files[fov_index]
+        print(f"Loading FOV {fov_index}: {os.path.basename(tif_path)}")
 
         # Load and project
         stack = tifffile.imread(tif_path).astype(np.float32).squeeze()
