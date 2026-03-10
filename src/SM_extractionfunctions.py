@@ -4957,40 +4957,41 @@ class extract_SMs:
 
     def find_exemplar_dye_pair(
         self,
-        sm_db,
+        sf_db,
         mean_0,
         mean_1,
         spectral_tol: float = 0.05,
-        max_spatial_dist_nm: float = None,
+        min_spatial_dist_nm: float = 500.0,
+        max_spatial_dist_nm: float | None = None,
         pixel_size: float = 69.0,
         n_top: int = 10,
     ):
-        """Find the closest spatial pair of single molecules that best represent two dye classes.
+        """Find a co-localised pair of single-frame localisations representing two dye classes.
 
-        For each class, candidates are molecules whose (A_R, A_G) lies within
-        `spectral_tol` of the class mean (Euclidean distance in spectral space).
-        All cross-class pairs within the same FOV are then ranked by spatial
-        separation so that the closest well-matched pair can be used as an
-        exemplar figure.
+        Searches the **single-frame** database so that both localisations must
+        appear in the same frame of the same FOV — i.e. they are simultaneously
+        visible.  Candidates in each class are those whose (A_R, A_G) lies within
+        `spectral_tol` of the class mean.  Pairs are ranked by spatial separation
+        so the result can be used directly as an exemplar figure.
 
         Args:
-            sm_db: Single-molecule DataFrame as returned by analyse_multi_fov_dataset
-                   or extract_single_molecules_DBSCAN.  Must contain columns:
-                   xc, yc, A_R, A_G, fov_index, molecular_index.
+            sf_db: Single-frame DataFrame as returned by extract_single_molecules_*.
+                   Must contain: xc, yc, A_R, A_G, frame, fov_index, molecular_index.
             mean_0: (A_R, A_G) mean for class 0 (e.g. from GMM fixed_means[0]).
             mean_1: (A_R, A_G) mean for class 1 (e.g. from GMM fixed_means[1]).
             spectral_tol: Maximum Euclidean distance in (A_R, A_G) space for a
-                          molecule to be accepted as a candidate for a class.
+                          localisation to be accepted as a candidate for a class.
                           Start with 0.05; relax if no pairs found.
-            max_spatial_dist_nm: If set, only pairs closer than this (nm) are
-                                 returned.  None means no spatial limit.
+            min_spatial_dist_nm: Minimum separation (nm) — excludes pairs that are
+                                 too close to resolve in the raw image (default 500).
+            max_spatial_dist_nm: Maximum separation (nm).  None means no upper limit.
             pixel_size: Camera pixel size in nm (default 69.0 nm for Ximea).
             n_top: Number of best pairs to return (ranked by spatial_dist_nm).
 
         Returns:
             pd.DataFrame with one row per candidate pair, sorted by
             spatial_dist_nm (closest first), containing:
-              fov_index, mol_0_idx, mol_1_idx,
+              fov_index, frame, mol_0_idx, mol_1_idx,
               xc_0, yc_0, A_R_0, A_G_0, spec_dist_0,
               xc_1, yc_1, A_R_1, A_G_1, spec_dist_1,
               spatial_dist_nm, spectral_score
@@ -5002,16 +5003,16 @@ class extract_SMs:
         mean_0 = np.asarray(mean_0, dtype=float)
         mean_1 = np.asarray(mean_1, dtype=float)
 
-        ar = sm_db['A_R'].to_numpy()
-        ag = sm_db['A_G'].to_numpy()
+        ar = sf_db['A_R'].to_numpy()
+        ag = sf_db['A_G'].to_numpy()
 
         spec_dist_0 = np.sqrt((ar - mean_0[0])**2 + (ag - mean_0[1])**2)
         spec_dist_1 = np.sqrt((ar - mean_1[0])**2 + (ag - mean_1[1])**2)
 
-        cands_0 = sm_db[spec_dist_0 <= spectral_tol].copy()
+        cands_0 = sf_db[spec_dist_0 <= spectral_tol].copy()
         cands_0['spec_dist'] = spec_dist_0[spec_dist_0 <= spectral_tol]
 
-        cands_1 = sm_db[spec_dist_1 <= spectral_tol].copy()
+        cands_1 = sf_db[spec_dist_1 <= spectral_tol].copy()
         cands_1['spec_dist'] = spec_dist_1[spec_dist_1 <= spectral_tol]
 
         if len(cands_0) == 0 or len(cands_1) == 0:
@@ -5022,35 +5023,40 @@ class extract_SMs:
             )
             return None
 
-        fov_col = 'fov_index' if 'fov_index' in sm_db.columns else 'fov_name'
-        common_fovs = np.intersect1d(
-            cands_0[fov_col].unique(), cands_1[fov_col].unique()
+        fov_col = 'fov_index' if 'fov_index' in sf_db.columns else 'fov_name'
+
+        # Group by (fov, frame) so both localisations must be in the same frame.
+        common_groups = set(
+            map(tuple, cands_0[[fov_col, 'frame']].drop_duplicates().values)
+        ) & set(
+            map(tuple, cands_1[[fov_col, 'frame']].drop_duplicates().values)
         )
 
-        if len(common_fovs) == 0:
-            print("No FOV contains candidates from both classes.")
+        if len(common_groups) == 0:
+            print("No (FOV, frame) group contains candidates from both classes.")
             return None
 
         all_pairs = []
-        for fov in common_fovs:
-            f0 = cands_0[cands_0[fov_col] == fov]
-            f1 = cands_1[cands_1[fov_col] == fov]
+        for fov, frame in common_groups:
+            f0 = cands_0[(cands_0[fov_col] == fov) & (cands_0['frame'] == frame)]
+            f1 = cands_1[(cands_1[fov_col] == fov) & (cands_1['frame'] == frame)]
 
             xy_0 = f0[['xc', 'yc']].to_numpy() * pixel_size  # nm
             xy_1 = f1[['xc', 'yc']].to_numpy() * pixel_size
 
             dists_nm = cdist(xy_0, xy_1)  # (n0, n1)
 
-            i_idx, j_idx = np.meshgrid(
+            i_flat, j_flat = np.meshgrid(
                 np.arange(len(f0)), np.arange(len(f1)), indexing='ij'
             )
-            i_flat = i_idx.ravel()
-            j_flat = j_idx.ravel()
+            i_flat = i_flat.ravel()
+            j_flat = j_flat.ravel()
             d_flat = dists_nm.ravel()
 
+            keep = d_flat >= min_spatial_dist_nm
             if max_spatial_dist_nm is not None:
-                keep = d_flat <= max_spatial_dist_nm
-                i_flat, j_flat, d_flat = i_flat[keep], j_flat[keep], d_flat[keep]
+                keep &= d_flat <= max_spatial_dist_nm
+            i_flat, j_flat, d_flat = i_flat[keep], j_flat[keep], d_flat[keep]
 
             if len(d_flat) == 0:
                 continue
@@ -5062,28 +5068,27 @@ class extract_SMs:
             sd1 = mol1['spec_dist'].to_numpy()
 
             pairs = pd.DataFrame({
-                fov_col:          fov,
-                'mol_0_idx':      mol0['molecular_index'].to_numpy(),
-                'xc_0':           mol0['xc'].to_numpy(),
-                'yc_0':           mol0['yc'].to_numpy(),
-                'A_R_0':          mol0['A_R'].to_numpy(),
-                'A_G_0':          mol0['A_G'].to_numpy(),
-                'spec_dist_0':    sd0,
-                'mol_1_idx':      mol1['molecular_index'].to_numpy(),
-                'xc_1':           mol1['xc'].to_numpy(),
-                'yc_1':           mol1['yc'].to_numpy(),
-                'A_R_1':          mol1['A_R'].to_numpy(),
-                'A_G_1':          mol1['A_G'].to_numpy(),
-                'spec_dist_1':    sd1,
+                fov_col:           fov,
+                'frame':           frame,
+                'mol_0_idx':       mol0['molecular_index'].to_numpy(),
+                'xc_0':            mol0['xc'].to_numpy(),
+                'yc_0':            mol0['yc'].to_numpy(),
+                'A_R_0':           mol0['A_R'].to_numpy(),
+                'A_G_0':           mol0['A_G'].to_numpy(),
+                'spec_dist_0':     sd0,
+                'mol_1_idx':       mol1['molecular_index'].to_numpy(),
+                'xc_1':            mol1['xc'].to_numpy(),
+                'yc_1':            mol1['yc'].to_numpy(),
+                'A_R_1':           mol1['A_R'].to_numpy(),
+                'A_G_1':           mol1['A_G'].to_numpy(),
+                'spec_dist_1':     sd1,
                 'spatial_dist_nm': d_flat,
-                # Combined score: spatial distance (nm) + 1000 * summed spectral error
-                # The 1000 factor converts nm to a comparable scale with spectral (0-1)
-                'spectral_score': sd0 + sd1,
+                'spectral_score':  sd0 + sd1,
             })
             all_pairs.append(pairs)
 
         if not all_pairs:
-            print("No pairs found within max_spatial_dist_nm constraint.")
+            print("No pairs found within spatial distance constraints.")
             return None
 
         result = pd.concat(all_pairs, ignore_index=True)
@@ -5100,7 +5105,7 @@ class extract_SMs:
             f"Found {len(result)} candidate pairs from {len(common_fovs)} FOV(s)."
         )
         print(
-            f"Best pair: FOV={result.iloc[0][fov_col]}, "
+            f"Best pair: FOV={result.iloc[0][fov_col]}, frame={result.iloc[0]['frame']}, "
             f"dist={result.iloc[0]['spatial_dist_nm']:.0f} nm, "
             f"mol_0 A_R={result.iloc[0]['A_R_0']:.3f} A_G={result.iloc[0]['A_G_0']:.3f}, "
             f"mol_1 A_R={result.iloc[0]['A_R_1']:.3f} A_G={result.iloc[0]['A_G_1']:.3f}"
@@ -5112,34 +5117,32 @@ class extract_SMs:
         pair_row,
         data_folder: str,
         crop_size_px: int = 30,
-        projection: str = "max",
     ):
-        """Load the raw TIFF for the FOV in pair_row and return a crop around the two molecules.
+        """Load the raw TIFF for the FOV in pair_row and return a single-frame crop.
 
-        The TIFF file is located by sorting all TIFFs in data_folder and picking
-        the one at position fov_index.  A max- or mean-projection across
-        all frames is computed before cropping, so both molecules are visible
-        even if they blink on different frames.
+        The TIFF is located by sorting all TIFFs in data_folder and picking the
+        one at position fov_index.  The specific frame stored in pair_row['frame']
+        is extracted directly — no projection — so the crop shows exactly what the
+        camera captured when both molecules were localised.
 
         Args:
-            pair_row: A single row (pd.Series) from the find_exemplar_dye_pair
-                      result — typically result.iloc[0] for the best pair.
+            pair_row: A single row (pd.Series) from find_exemplar_dye_pair,
+                      typically result.iloc[0] for the best pair.
             data_folder: Directory containing the raw TIFF files.
             crop_size_px: Half-width of the square crop in camera pixels.
                           The returned image is (2*crop_size_px) × (2*crop_size_px).
-            projection: 'max' (default) or 'mean' — how to collapse the frame axis.
 
         Returns:
-            crop: 2D np.ndarray — the projected, cropped raw image.
-            pair_info: pd.DataFrame (single row) — the input pair_row with four
-                       additional columns: xc_0_crop, yc_0_crop, xc_1_crop,
-                       yc_1_crop giving molecule positions relative to the crop
-                       origin (for overlay annotation).
+            crop: 2D np.ndarray — the raw single-frame crop.
+            pair_info: pd.DataFrame (single row) — the input pair_row with extra
+                       columns: xc_0_crop, yc_0_crop, xc_1_crop, yc_1_crop
+                       giving molecule positions relative to the crop origin.
         """
         import tifffile
         import glob
 
         fov_index = int(pair_row['fov_index'])
+        frame_index = int(pair_row['frame'])
 
         # Collect and sort all TIFFs in the folder, then pick the Nth one.
         tif_files = sorted(
@@ -5148,22 +5151,26 @@ class extract_SMs:
         )
 
         if len(tif_files) == 0:
-            raise FileNotFoundError(
-                f"No TIFF files found in '{data_folder}'."
-            )
+            raise FileNotFoundError(f"No TIFF files found in '{data_folder}'.")
         if fov_index >= len(tif_files):
             raise IndexError(
                 f"fov_index={fov_index} but only {len(tif_files)} TIFFs found in "
                 f"'{data_folder}'."
             )
         tif_path = tif_files[fov_index]
-        print(f"Loading FOV {fov_index}: {os.path.basename(tif_path)}")
+        print(f"Loading FOV {fov_index}, frame {frame_index}: {os.path.basename(tif_path)}")
 
-        # Load and project to 2D (handles T,H,W or T,C,H,W etc.)
+        # Load stack and extract the specific frame.
+        # squeeze() removes any singleton channel/z axes; then index along axis 0.
         stack = tifffile.imread(tif_path).astype(np.float32).squeeze()
-        projected = stack
-        while projected.ndim > 2:
-            projected = projected.max(axis=0) if projection == 'max' else projected.mean(axis=0)
+        if stack.ndim == 2:
+            # Single-frame TIFF — use as-is regardless of frame_index
+            projected = stack
+        else:
+            projected = stack[frame_index]
+            # If the stack had shape (T, C, H, W), we still have (C, H, W) — collapse.
+            while projected.ndim > 2:
+                projected = projected.max(axis=0)
 
         # Crop centre: midpoint of the two molecule positions (camera pixels)
         cx = int(round(0.5 * (pair_row['xc_0'] + pair_row['xc_1'])))
