@@ -1,8 +1,87 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** February 20, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - Bayer pattern GIF multipanel, wipe GIF temporal averaging, simulation parameters
+**Last Updated:** February 26, 2026
+**Status:** 🟢 **ACTIVE DEVELOPMENT** - Localisation precision metric fixes, absolute QY function
+
+---
+
+## Session: February 26, 2026 — Precision Metric Fix + Absolute QY Function ✅
+
+### Summary
+
+Identified and corrected a systematic bias in the localisation precision metric used across three simulation analysis notebooks and in `_compute_fit_statistics`. Added a new `get_absolute_pixel_QYs()` function to `SpectralFunctions.py` that returns the true fraction of emitted photons detected per channel, accounting for the full optical chain.
+
+### Key Changes
+
+#### 1. New function: `get_absolute_pixel_QYs()` (`src/SpectralFunctions.py`)
+
+Added after `get_pixel_fractions_dye_and_filters`. Returns the absolute per-channel detection efficiency — the fraction of *all emitted photons* that become photoelectrons in each channel — accounting for filter transmission, objective transmission, and camera QE:
+
+```
+QY_abs_c = ∫ spectrum_norm(λ) · T_filter(λ) · T_obj(λ) · QE_c(λ) dλ
+```
+
+**Distinct from `get_pixel_fractions_dye_and_filters(normalized=False)`**, which normalises by the filtered spectrum (giving fraction of filter-passed photons). This new function normalises by the raw emission spectrum.
+
+Returns: `(average_wavelengths, abs_QYs_per_channel, total_abs_QYs)` — shape `(n_dyes,)`, `(n_dyes, n_channels)`, `(n_dyes,)`.
+
+Example values for ATTO 565 with standard filter set + objective:
+- Filter only: total system QY = 0.551 (vs 0.895 from old `normalized=False`)
+- Filter + objective: total system QY = 0.456
+
+#### 2. Precision metric bug fix (`src/Multicolour_Simulation_Functions.py`, `_compute_fit_statistics`)
+
+**Root cause:** `np.sqrt(np.square(x)) = np.abs(x)`, so the original code computed:
+- `fit_RMSE_mean` = `mean(|Δx|)` = MAE ≈ 0.798 σ (not RMSE)
+- `fit_std` = `std(|Δx|)` ≈ 0.603 σ (half-normal distribution, biased)
+
+**Fix:** Use signed errors throughout:
+- `fit_RMSE_mean` = `sqrt(mean(Δx²))` — true RMSE
+- `fit_std` = `std(Δx)` — true 1D localisation precision
+
+Applied to `xc` and `yc` branches; other parameters unchanged.
+
+#### 3. Precision metric fix — three notebooks
+
+All three XR-database-building cells were using `std(√(Δx²+Δy²))` (std of 2D Euclidean distance, ≈ 0.655 σ, Rayleigh-distributed) instead of the correct combined 1D precision.
+
+**Corrected formula in all three:**
+```python
+error_x = results["xc"].to_numpy()[filt] - x0y0[filt, 0]
+error_y = results["yc"].to_numpy()[filt] - x0y0[filt, 1]
+sigma_xy = np.sqrt((np.nanstd(error_x)**2 + np.nanstd(error_y)**2) / 2) * pixel_size
+```
+
+**Additional bugs fixed in `Pixelsize_Test.ipynb`:**
+- Filename filter `str(int(ps))+'_pixelsize'` didn't match actual filenames → `f'pixelsize_{pixel_size}nm_'`
+- Ground truth divided by hardcoded `69` → divided by loop variable `pixel_size`
+- `pd.read_hdf(os.path.join(save_folder_refactored, ...))` → `pd.read_hdf(dye_file_raw[0])` (path already absolute)
+- Position filter `xc > 14` hardcoded → `xc > image_dims` (recomputed per pixel_size)
+- Missing `from scipy.spatial.distance import cdist`
+
+**Additional bugs fixed in `Pixelsize_FineGrid.ipynb`:**
+- Ground truth divided by hardcoded `69` → divided by `pixel_size`
+- `pd.read_hdf(os.path.join(save_folder, dye_file_raw[0]))` → `pd.read_hdf(dye_file_raw[0])`
+
+In both notebooks, `filter` renamed to `filt` to avoid shadowing the Python built-in.
+
+### Bias summary (all metrics relative to true 1D precision σ)
+
+| Metric | Formula | Value |
+|---|---|---|
+| Old notebook | `std(√(Δx²+Δy²))` | ≈ 0.655 σ |
+| Old `_compute_fit_statistics` `fit_std` | `std(\|Δx\|)` per axis | ≈ 0.603 σ |
+| **Corrected (notebooks)** | `√((var(Δx)+var(Δy))/2)` | **= σ** |
+| **Corrected (`fit_std`)** | `std(Δx)` per axis | **= σ** |
+
+### Files Modified
+
+- `src/SpectralFunctions.py` — `get_absolute_pixel_QYs()` added (~70 lines)
+- `src/Multicolour_Simulation_Functions.py` — `_compute_fit_statistics`: signed errors for xc/yc
+- `notebooks/figures/Figure1_3camerapatterns.ipynb` — XR cell: signed error metric
+- `notebooks/simulation/Pixelsize_Test.ipynb` — XR cell: signed error metric + 5 bug fixes
+- `notebooks/simulation/Pixelsize_FineGrid.ipynb` — XR cell: signed error metric + 2 bug fixes
 
 ---
 

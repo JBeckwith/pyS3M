@@ -21,7 +21,7 @@ import IOFunctions
 import HelperFunctions
 import MaskFunctions
 import ImageAnalysisFunctions
-from ImageAnalysisFunctions import FittingStrategy
+from ImageAnalysisFunctions import FittingStrategy, FittingConstants
 import SpotDetectionFunctions
 from PlottingBase import PublicationPlotter
 import sCMOSFunctions
@@ -796,6 +796,7 @@ class SuperRes_Functions:
             FittingStrategy.STANDARD,
             masks=masks_tofit,
         )
+
         columns = [
             "xc",
             "yc",

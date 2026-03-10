@@ -944,6 +944,121 @@ class Spectral_Funcs:
 
         return np.squeeze(average_wavelengths), np.squeeze(pixel_efficiencies)
 
+    def get_absolute_pixel_QYs(
+        self,
+        dyes: List[str],
+        filters: Optional[List[str]],
+        wavelength: np.ndarray,
+        pixel_QYs: np.ndarray,
+        include_objective: bool = True,
+        objective_filename: str = SpectralConstants.DEFAULT_OBJECTIVE_FILE,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Calculate absolute per-channel detection efficiencies for dyes.
+
+        Returns the fraction of *all emitted photons* that are ultimately
+        detected as photoelectrons in each pixel channel, accounting for
+        the full optical chain:
+
+            QY_abs_c = ∫ spectrum_norm(λ) · T_filter(λ) · T_obj(λ) · QE_c(λ) dλ
+
+        where spectrum_norm is normalised to unit integral over all emitted
+        wavelengths (not over the filter passband).
+
+        This differs from get_pixel_fractions_dye_and_filters(normalized=False),
+        which normalises by the *filtered* spectrum and therefore gives the
+        fraction of filter-passed photons per channel, not the fraction of
+        all emitted photons.
+
+        Args:
+            dyes: List of dye names to analyse.
+            filters: List of filter names to apply (None for no filtering).
+            wavelength: Wavelength array shared by pixel_QYs and spectra.
+            pixel_QYs: Per-channel quantum efficiencies, shape
+                (n_channels, n_wavelengths).  Convention: [B, G, R] ordering.
+            include_objective: If True (default), multiply by the objective
+                transmission curve from objective_filename.
+            objective_filename: Path to objective transmission CSV.
+                Defaults to SpectralConstants.DEFAULT_OBJECTIVE_FILE.
+
+        Returns:
+            Tuple of three arrays:
+                - average_wavelengths: Emission-weighted mean wavelength for
+                  each dye, shape (n_dyes,).
+                - abs_QYs_per_channel: Absolute detection efficiency per
+                  channel, shape (n_dyes, n_channels).  Each value is the
+                  expected fraction of emitted photons detected in that
+                  channel.
+                - total_abs_QYs: Sum of abs_QYs_per_channel across channels,
+                  shape (n_dyes,).  This is the overall system detection
+                  efficiency (photoelectrons per emitted photon).
+
+        Example:
+            >>> sf = Spectral_Funcs()
+            >>> R, G, B, wl = sf.getpixelefficiency()
+            >>> pixel_QYs = np.vstack([B, G, R])
+            >>> avg_wl, qy_per_ch, total_qy = sf.get_absolute_pixel_QYs(
+            ...     dyes=["ATTO 565"],
+            ...     filters=["semrock-nf03-405-488-561-635e"],
+            ...     wavelength=wl,
+            ...     pixel_QYs=pixel_QYs,
+            ... )
+            >>> print(f"Total system QY: {total_qy[0]:.4f}")
+            >>> print(f"B/G/R channel QYs: {qy_per_ch[0]}")
+        """
+        # --- filter transmission (unity if no filters) ---
+        if filters is None:
+            filter_transmission = np.ones_like(wavelength, dtype=float)
+        else:
+            filter_spectra = self.get_spectral_data(
+                filters, wavelength, SpectralDataType.FILTER
+            )
+            filter_transmission = np.prod(filter_spectra, axis=0)
+
+        # --- objective transmission (unity if not requested) ---
+        if include_objective:
+            obj_transmission = self.getobjectiveefficiency(
+                wavelength, filename=objective_filename
+            )
+        else:
+            obj_transmission = np.ones_like(wavelength, dtype=float)
+
+        # combined optical system transmission (filter × objective)
+        system_transmission = filter_transmission * obj_transmission
+
+        # --- dye emission spectra ---
+        dye_spectra = self.get_spectral_data(dyes, wavelength, SpectralDataType.DYE)
+
+        # normalise each dye spectrum to unit integral over *all* emitted
+        # wavelengths (before any filtering)
+        total_emission = np.sum(dye_spectra, axis=1, keepdims=True)
+        total_emission = np.where(total_emission > 0, total_emission, 1.0)
+        dye_norm = dye_spectra / total_emission  # shape: (n_dyes, n_wavelengths)
+
+        # emission-weighted average wavelengths
+        average_wavelengths = np.trapz(
+            y=(wavelength * dye_norm).T, x=wavelength, axis=0
+        )
+
+        # apply system transmission to the normalised spectra
+        # shape: (n_dyes, n_wavelengths)
+        dye_at_detector = dye_norm * system_transmission
+
+        # absolute QY per channel:
+        #   QY_abs_c = ∫ dye_at_detector(λ) · QE_c(λ) dλ
+        # dye_at_detector: (n_dyes, n_wavelengths)
+        # pixel_QYs:       (n_channels, n_wavelengths)
+        # result:          (n_dyes, n_channels)
+        abs_QYs_per_channel = np.dot(dye_at_detector, pixel_QYs.T)
+
+        # total system efficiency (sum over channels)
+        total_abs_QYs = np.sum(abs_QYs_per_channel, axis=-1)
+
+        return (
+            np.squeeze(average_wavelengths),
+            np.squeeze(abs_QYs_per_channel),
+            np.squeeze(total_abs_QYs),
+        )
+
     def get_spectral_data(
         self,
         names: Union[str, List[str]],

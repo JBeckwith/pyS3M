@@ -1270,7 +1270,14 @@ class MultiC_Sim_Funcs_Refactored:
         config: SimulationConfig,
         analysis_save_params: List[str],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute RMSE and standard deviation statistics for fit results."""
+        """Compute RMSE and standard deviation statistics for fit results.
+
+        For xc and yc, fit_RMSE_mean is the true RMSE of the signed localisation
+        error (sqrt of mean squared error), and fit_std is the standard deviation
+        of the signed error.  Both use the signed difference (fitted - truth), not
+        the absolute value, so they are unbiased estimators of the localisation
+        precision sigma.
+        """
         x0, y0 = setup_data["x0"], setup_data["y0"]
         expected_parameters = setup_data["expected_parameters"]
         dye_fit_expectation = setup_data["dye_fit_expectation"]
@@ -1280,35 +1287,13 @@ class MultiC_Sim_Funcs_Refactored:
 
         for loc, param in enumerate(analysis_save_params[:-1]):
             if param == "xc":
-                fit_RMSE_mean[loc] = config.pixel_size * np.nanmean(
-                    np.sqrt(
-                        np.square(
-                            fit_results[param].to_numpy() - (x0 / config.pixel_size)
-                        )
-                    )
-                )
-                fit_std[loc] = config.pixel_size * np.nanstd(
-                    np.sqrt(
-                        np.square(
-                            fit_results[param].to_numpy() - (x0 / config.pixel_size)
-                        )
-                    )
-                )
+                error_x = fit_results[param].to_numpy() - (x0 / config.pixel_size)
+                fit_RMSE_mean[loc] = config.pixel_size * np.sqrt(np.nanmean(np.square(error_x)))
+                fit_std[loc] = config.pixel_size * np.nanstd(error_x)
             elif param == "yc":
-                fit_RMSE_mean[loc] = config.pixel_size * np.nanmean(
-                    np.sqrt(
-                        np.square(
-                            fit_results[param].to_numpy() - (y0 / config.pixel_size)
-                        )
-                    )
-                )
-                fit_std[loc] = config.pixel_size * np.nanstd(
-                    np.sqrt(
-                        np.square(
-                            fit_results[param].to_numpy() - (y0 / config.pixel_size)
-                        )
-                    )
-                )
+                error_y = fit_results[param].to_numpy() - (y0 / config.pixel_size)
+                fit_RMSE_mean[loc] = config.pixel_size * np.sqrt(np.nanmean(np.square(error_y)))
+                fit_std[loc] = config.pixel_size * np.nanstd(error_y)
             elif param == "chi_sqr":
                 colour_loc = np.expand_dims(dye_fit_expectation, 0)
                 colour = np.vstack(

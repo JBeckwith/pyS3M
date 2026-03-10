@@ -1,8 +1,8 @@
 """
-    picasso.localise
+    localise
     ~~~~~~~~~~~~~~~~
 
-    Identify and localise fluorescent single molecules in a frame sequence
+    Identify and localise single puncta in a frame sequence
 
     :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2016-2018
     Updated by jsb92, 2025/08/18

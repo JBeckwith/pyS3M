@@ -661,7 +661,7 @@ class NileRed_Functions:
         n_params = 1
         dof = max(n_data - n_params, 1)
         s2 = np.sum(result.fun**2) / dof
-        JtJ = float(np.squeeze(J.T @ J))
+        JtJ = float(J.T @ J)
         if JtJ > 0:
             wavelength_error = np.sqrt(s2 / JtJ)
         else:

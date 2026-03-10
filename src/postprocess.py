@@ -1,11 +1,11 @@
 """
-    gui/postprocess
+    postprocess
     ~~~~~~~~~~~~~~~~~~~~
 
     Data analysis of localisation lists
 
-    :authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
-    :copyright: Copyright (c) 2015-2018 Jungmann Lab, MPI Biochemistry
+    :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
+    updated jsb92 2026/02/21
 """
 
 import os
