@@ -5099,3 +5099,81 @@ class extract_SMs:
             f"mol_1 A_R={result.iloc[0]['A_R_1']:.3f} A_G={result.iloc[0]['A_G_1']:.3f}"
         )
         return result
+
+    def get_exemplar_crop(
+        self,
+        pair_row,
+        data_folder: str,
+        crop_size_px: int = 30,
+        projection: str = "max",
+    ):
+        """Load the raw TIFF for the FOV in pair_row and return a crop around the two molecules.
+
+        The TIFF file is located by searching data_folder for files whose name
+        contains the fov_name (e.g. 'Pos5').  A max- or mean-projection across
+        all frames is computed before cropping, so both molecules are visible
+        even if they blink on different frames.
+
+        Args:
+            pair_row: A single row (pd.Series) from the find_exemplar_dye_pair
+                      result — typically result.iloc[0] for the best pair.
+            data_folder: Directory containing the raw TIFF files.
+            crop_size_px: Half-width of the square crop in camera pixels.
+                          The returned image is (2*crop_size_px) × (2*crop_size_px).
+            projection: 'max' (default) or 'mean' — how to collapse the frame axis.
+
+        Returns:
+            crop: 2D np.ndarray — the projected, cropped raw image.
+            pair_info: pd.DataFrame (single row) — the input pair_row with four
+                       additional columns: xc_0_crop, yc_0_crop, xc_1_crop,
+                       yc_1_crop giving molecule positions relative to the crop
+                       origin (for overlay annotation).
+        """
+        import tifffile
+        import glob
+
+        fov_col = 'fov_name' if 'fov_name' in pair_row.index else 'fov_index'
+        fov_name = str(pair_row[fov_col])
+
+        # Find TIFF file whose name contains the FOV name
+        tif_pattern = os.path.join(data_folder, f"*{fov_name}*.tif*")
+        tif_files = [f for f in glob.glob(tif_pattern) if not f.endswith('.h5')]
+
+        if len(tif_files) == 0:
+            raise FileNotFoundError(
+                f"No TIFF found matching '{tif_pattern}'. "
+                "Check data_folder or fov_name in pair_row."
+            )
+        if len(tif_files) > 1:
+            print(f"Multiple TIFFs found; using {os.path.basename(tif_files[0])}")
+        tif_path = tif_files[0]
+
+        # Load and project
+        stack = tifffile.imread(tif_path).astype(np.float32).squeeze()
+        if stack.ndim == 2:
+            projected = stack
+        else:
+            projected = stack.max(axis=0) if projection == 'max' else stack.mean(axis=0)
+
+        # Crop centre: midpoint of the two molecule positions (camera pixels)
+        cx = int(round(0.5 * (pair_row['xc_0'] + pair_row['xc_1'])))
+        cy = int(round(0.5 * (pair_row['yc_0'] + pair_row['yc_1'])))
+
+        H, W = projected.shape
+        x0 = max(cx - crop_size_px, 0)
+        x1 = min(cx + crop_size_px, W)
+        y0 = max(cy - crop_size_px, 0)
+        y1 = min(cy + crop_size_px, H)
+
+        crop = projected[y0:y1, x0:x1]
+
+        # Molecule positions relative to crop origin
+        pair_info = pair_row.to_frame().T.copy().reset_index(drop=True)
+        pair_info['xc_0_crop'] = pair_row['xc_0'] - x0
+        pair_info['yc_0_crop'] = pair_row['yc_0'] - y0
+        pair_info['xc_1_crop'] = pair_row['xc_1'] - x0
+        pair_info['yc_1_crop'] = pair_row['yc_1'] - y0
+        pair_info['crop_x0_px'] = x0
+        pair_info['crop_y0_px'] = y0
+
+        return crop, pair_info
