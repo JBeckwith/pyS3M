@@ -362,6 +362,14 @@ class extract_SMs:
         loc_precision = 0.5 * (
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
         )
+        if loc_precision <= 0:
+            raise ValueError(
+                f"loc_precision = {loc_precision:.6f} (computed from mean xc_err / yc_err). "
+                "Error columns are zero or NaN — this usually means chi_sqr was very small "
+                "(bright spots cause pcov * chisqr → 0) or errors were not saved. "
+                "Check that ImageAnalysisFunctions.calculate_errors returns non-zero values "
+                "for your data, or pass epsilon_multiplier with an explicit eps value."
+            )
         hdb = DBSCAN(
             min_samples=min_cluster_size,
             eps=loc_precision * epsilon_multiplier,

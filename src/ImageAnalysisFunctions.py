@@ -186,7 +186,11 @@ class FittingResultProcessor:
         try:
             # Vectorized error calculation - more efficient than loops
             diagonal = np.diag(pcov)
-            errors = np.where(diagonal >= 0, np.sqrt(np.abs(diagonal)), 0.0)
+            # Use NaN (not 0) for non-positive diagonals so that downstream filters
+            # (xc_err < threshold) reject these fits rather than treating them as
+            # perfectly precise.  0.0 was the old value and caused eps=0 in DBSCAN
+            # when chi_sqr is very small (bright spots → pcov*chisqr→0).
+            errors = np.where(diagonal > 0, np.sqrt(diagonal), np.nan)
             error_list = errors.tolist()
 
             # Ensure we return the correct number of errors
