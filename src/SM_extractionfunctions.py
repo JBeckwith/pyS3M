@@ -5087,6 +5087,13 @@ class extract_SMs:
             return None
 
         result = pd.concat(all_pairs, ignore_index=True)
+        # A molecule within spectral_tol of both means would appear in both cands_0 and
+        # cands_1, producing a self-pair.  Remove any row where mol_0 == mol_1.
+        result = result[result['mol_0_idx'] != result['mol_1_idx']]
+        if len(result) == 0:
+            print("All pairs were self-pairs (same molecule in both classes). "
+                  "Try reducing spectral_tol.")
+            return None
         result = result.sort_values('spatial_dist_nm').head(n_top).reset_index(drop=True)
 
         print(
