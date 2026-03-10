@@ -5138,7 +5138,6 @@ class extract_SMs:
                        columns: xc_0_crop, yc_0_crop, xc_1_crop, yc_1_crop
                        giving molecule positions relative to the crop origin.
         """
-        import tifffile
         import glob
 
         fov_index = int(pair_row['fov_index'])
@@ -5160,17 +5159,8 @@ class extract_SMs:
         tif_path = tif_files[fov_index]
         print(f"Loading FOV {fov_index}, frame {frame_index}: {os.path.basename(tif_path)}")
 
-        # Load stack and extract the specific frame.
-        # squeeze() removes any singleton channel/z axes; then index along axis 0.
-        stack = tifffile.imread(tif_path).astype(np.float32).squeeze()
-        if stack.ndim == 2:
-            # Single-frame TIFF — use as-is regardless of frame_index
-            projected = stack
-        else:
-            projected = stack[frame_index]
-            # If the stack had shape (T, C, H, W), we still have (C, H, W) — collapse.
-            while projected.ndim > 2:
-                projected = projected.max(axis=0)
+        # Load a single frame directly via IO.read_tiff
+        projected = self.io.read_tiff(tif_path, frame=frame_index)
 
         # Crop centre: midpoint of the two molecule positions (camera pixels)
         cx = int(round(0.5 * (pair_row['xc_0'] + pair_row['xc_1'])))
