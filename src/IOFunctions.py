@@ -962,7 +962,7 @@ class IO_Functions:
 
         smoothed_data = data.copy()
 
-        smoothing_args = smoothing_function.args
+        smoothing_args = dict(smoothing_function.args)  # copy — do not mutate the original
         smoothing_args[smoothing_function.data_arg] = smoothed_data
         smoothed_data = smoothing_function.smoothing_function(**smoothing_args)
 

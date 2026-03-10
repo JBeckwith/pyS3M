@@ -1782,7 +1782,7 @@ class MultiC_Sim_Funcs_Refactored:
             bayer_image = bayer_image.astype(np.uint8)
 
         # Apply smoothing
-        smoothing_args = smoothing_function.args
+        smoothing_args = dict(smoothing_function.args)  # copy — do not mutate the original
         smoothing_args[smoothing_function.data_arg] = bayer_image
         smoothed_image = smoothing_function.smoothing_function(**smoothing_args)
 

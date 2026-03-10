@@ -1258,11 +1258,10 @@ class SuperRes_Functions:
                     raw_data, gain_map=gain_map_crop, offset_map=offset_map_crop, rqe=rqe_crop
                 )
 
-                # Apply smoothing
-                smoothed = smoothing_function.smoothing_function(
-                    **{smoothing_function.data_arg: photoelectrons},
-                    **smoothing_function.args
-                )
+                # Apply smoothing (copy args to avoid mutating the shared namespace)
+                _smargs = dict(smoothing_function.args)
+                _smargs[smoothing_function.data_arg] = photoelectrons
+                smoothed = smoothing_function.smoothing_function(**_smargs)
 
                 # Compute weights
                 weights_data = 1.0 / (read_noise_crop**2 + np.maximum(photoelectrons, 0) / gain_map_crop)
@@ -1536,11 +1535,10 @@ class SuperRes_Functions:
                     raw_data, gain_map=gain_map_crop, offset_map=offset_map_crop, rqe=rqe_crop
                 )
 
-                # Apply smoothing
-                smoothed = smoothing_function.smoothing_function(
-                    **{smoothing_function.data_arg: photoelectrons},
-                    **smoothing_function.args
-                )
+                # Apply smoothing (copy args to avoid mutating the shared namespace)
+                _smargs = dict(smoothing_function.args)
+                _smargs[smoothing_function.data_arg] = photoelectrons
+                smoothed = smoothing_function.smoothing_function(**_smargs)
 
                 # Compute weights
                 weights_data = 1.0 / (read_noise_crop**2 + np.maximum(photoelectrons, 0) / gain_map_crop)
