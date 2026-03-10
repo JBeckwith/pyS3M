@@ -5102,7 +5102,7 @@ class extract_SMs:
         result = result.sort_values('spatial_dist_nm').head(n_top).reset_index(drop=True)
 
         print(
-            f"Found {len(result)} candidate pairs from {len(common_fovs)} FOV(s)."
+            f"Found {len(result)} candidate pairs from {len(common_groups)} (FOV, frame) group(s)."
         )
         print(
             f"Best pair: FOV={result.iloc[0][fov_col]}, frame={result.iloc[0]['frame']}, "
