@@ -4954,3 +4954,148 @@ class extract_SMs:
             print(f"Saved spatial distribution to: {spatial_path}")
         else:
             plt.show()
+
+    def find_exemplar_dye_pair(
+        self,
+        sm_db,
+        mean_0,
+        mean_1,
+        spectral_tol: float = 0.05,
+        max_spatial_dist_nm: float = None,
+        pixel_size: float = 69.0,
+        n_top: int = 10,
+    ):
+        """Find the closest spatial pair of single molecules that best represent two dye classes.
+
+        For each class, candidates are molecules whose (A_R, A_G) lies within
+        `spectral_tol` of the class mean (Euclidean distance in spectral space).
+        All cross-class pairs within the same FOV are then ranked by spatial
+        separation so that the closest well-matched pair can be used as an
+        exemplar figure.
+
+        Args:
+            sm_db: Single-molecule DataFrame as returned by analyse_multi_fov_dataset
+                   or extract_single_molecules_DBSCAN.  Must contain columns:
+                   xc, yc, A_R, A_G, fov_index, molecular_index.
+            mean_0: (A_R, A_G) mean for class 0 (e.g. from GMM fixed_means[0]).
+            mean_1: (A_R, A_G) mean for class 1 (e.g. from GMM fixed_means[1]).
+            spectral_tol: Maximum Euclidean distance in (A_R, A_G) space for a
+                          molecule to be accepted as a candidate for a class.
+                          Start with 0.05; relax if no pairs found.
+            max_spatial_dist_nm: If set, only pairs closer than this (nm) are
+                                 returned.  None means no spatial limit.
+            pixel_size: Camera pixel size in nm (default 69.0 nm for Ximea).
+            n_top: Number of best pairs to return (ranked by spatial_dist_nm).
+
+        Returns:
+            pd.DataFrame with one row per candidate pair, sorted by
+            spatial_dist_nm (closest first), containing:
+              fov_index, mol_0_idx, mol_1_idx,
+              xc_0, yc_0, A_R_0, A_G_0, spec_dist_0,
+              xc_1, yc_1, A_R_1, A_G_1, spec_dist_1,
+              spatial_dist_nm, spectral_score
+            Returns None if no pairs satisfy the constraints.
+        """
+        import pandas as pd
+        from scipy.spatial.distance import cdist
+
+        mean_0 = np.asarray(mean_0, dtype=float)
+        mean_1 = np.asarray(mean_1, dtype=float)
+
+        ar = sm_db['A_R'].to_numpy()
+        ag = sm_db['A_G'].to_numpy()
+
+        spec_dist_0 = np.sqrt((ar - mean_0[0])**2 + (ag - mean_0[1])**2)
+        spec_dist_1 = np.sqrt((ar - mean_1[0])**2 + (ag - mean_1[1])**2)
+
+        cands_0 = sm_db[spec_dist_0 <= spectral_tol].copy()
+        cands_0['spec_dist'] = spec_dist_0[spec_dist_0 <= spectral_tol]
+
+        cands_1 = sm_db[spec_dist_1 <= spectral_tol].copy()
+        cands_1['spec_dist'] = spec_dist_1[spec_dist_1 <= spectral_tol]
+
+        if len(cands_0) == 0 or len(cands_1) == 0:
+            print(
+                f"No candidates found within spectral_tol={spectral_tol:.3f}. "
+                f"Class 0: {len(cands_0)} candidates, Class 1: {len(cands_1)} candidates. "
+                "Try increasing spectral_tol."
+            )
+            return None
+
+        fov_col = 'fov_index' if 'fov_index' in sm_db.columns else 'fov_name'
+        common_fovs = np.intersect1d(
+            cands_0[fov_col].unique(), cands_1[fov_col].unique()
+        )
+
+        if len(common_fovs) == 0:
+            print("No FOV contains candidates from both classes.")
+            return None
+
+        all_pairs = []
+        for fov in common_fovs:
+            f0 = cands_0[cands_0[fov_col] == fov]
+            f1 = cands_1[cands_1[fov_col] == fov]
+
+            xy_0 = f0[['xc', 'yc']].to_numpy() * pixel_size  # nm
+            xy_1 = f1[['xc', 'yc']].to_numpy() * pixel_size
+
+            dists_nm = cdist(xy_0, xy_1)  # (n0, n1)
+
+            i_idx, j_idx = np.meshgrid(
+                np.arange(len(f0)), np.arange(len(f1)), indexing='ij'
+            )
+            i_flat = i_idx.ravel()
+            j_flat = j_idx.ravel()
+            d_flat = dists_nm.ravel()
+
+            if max_spatial_dist_nm is not None:
+                keep = d_flat <= max_spatial_dist_nm
+                i_flat, j_flat, d_flat = i_flat[keep], j_flat[keep], d_flat[keep]
+
+            if len(d_flat) == 0:
+                continue
+
+            mol0 = f0.iloc[i_flat]
+            mol1 = f1.iloc[j_flat]
+
+            sd0 = mol0['spec_dist'].to_numpy()
+            sd1 = mol1['spec_dist'].to_numpy()
+
+            pairs = pd.DataFrame({
+                fov_col:          fov,
+                'mol_0_idx':      mol0['molecular_index'].to_numpy(),
+                'xc_0':           mol0['xc'].to_numpy(),
+                'yc_0':           mol0['yc'].to_numpy(),
+                'A_R_0':          mol0['A_R'].to_numpy(),
+                'A_G_0':          mol0['A_G'].to_numpy(),
+                'spec_dist_0':    sd0,
+                'mol_1_idx':      mol1['molecular_index'].to_numpy(),
+                'xc_1':           mol1['xc'].to_numpy(),
+                'yc_1':           mol1['yc'].to_numpy(),
+                'A_R_1':          mol1['A_R'].to_numpy(),
+                'A_G_1':          mol1['A_G'].to_numpy(),
+                'spec_dist_1':    sd1,
+                'spatial_dist_nm': d_flat,
+                # Combined score: spatial distance (nm) + 1000 * summed spectral error
+                # The 1000 factor converts nm to a comparable scale with spectral (0-1)
+                'spectral_score': sd0 + sd1,
+            })
+            all_pairs.append(pairs)
+
+        if not all_pairs:
+            print("No pairs found within max_spatial_dist_nm constraint.")
+            return None
+
+        result = pd.concat(all_pairs, ignore_index=True)
+        result = result.sort_values('spatial_dist_nm').head(n_top).reset_index(drop=True)
+
+        print(
+            f"Found {len(result)} candidate pairs from {len(common_fovs)} FOV(s)."
+        )
+        print(
+            f"Best pair: FOV={result.iloc[0][fov_col]}, "
+            f"dist={result.iloc[0]['spatial_dist_nm']:.0f} nm, "
+            f"mol_0 A_R={result.iloc[0]['A_R_0']:.3f} A_G={result.iloc[0]['A_G_0']:.3f}, "
+            f"mol_1 A_R={result.iloc[0]['A_R_1']:.3f} A_G={result.iloc[0]['A_G_1']:.3f}"
+        )
+        return result
