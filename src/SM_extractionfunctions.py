@@ -4963,6 +4963,7 @@ class extract_SMs:
         spectral_tol: float = 0.05,
         min_spatial_dist_nm: float = 500.0,
         max_spatial_dist_nm: float | None = None,
+        min_photons: float = 2000.0,
         pixel_size: float = 69.0,
         n_top: int = 10,
     ):
@@ -4976,7 +4977,7 @@ class extract_SMs:
 
         Args:
             sf_db: Single-frame DataFrame as returned by extract_single_molecules_*.
-                   Must contain: xc, yc, A_R, A_G, frame, fov_index, molecular_index.
+                   Must contain: xc, yc, A_R, A_G, photons, frame, fov_index, molecular_index.
             mean_0: (A_R, A_G) mean for class 0 (e.g. from GMM fixed_means[0]).
             mean_1: (A_R, A_G) mean for class 1 (e.g. from GMM fixed_means[1]).
             spectral_tol: Maximum Euclidean distance in (A_R, A_G) space for a
@@ -4985,6 +4986,8 @@ class extract_SMs:
             min_spatial_dist_nm: Minimum separation (nm) — excludes pairs that are
                                  too close to resolve in the raw image (default 500).
             max_spatial_dist_nm: Maximum separation (nm).  None means no upper limit.
+            min_photons: Minimum photon count for a localisation to be considered
+                         (default 2000).
             pixel_size: Camera pixel size in nm (default 69.0 nm for Ximea).
             n_top: Number of best pairs to return (ranked by spatial_dist_nm).
 
@@ -5002,6 +5005,8 @@ class extract_SMs:
 
         mean_0 = np.asarray(mean_0, dtype=float)
         mean_1 = np.asarray(mean_1, dtype=float)
+
+        sf_db = sf_db[sf_db['photons'] >= min_photons]
 
         ar = sf_db['A_R'].to_numpy()
         ag = sf_db['A_G'].to_numpy()
