@@ -1346,6 +1346,276 @@ class SuperRes_Functions:
 
         return
 
+    def fit_QD_data(
+        self,
+        image_folder: str,
+        smoothing_function,
+        gain_map: np.ndarray,
+        offset_map: np.ndarray,
+        rqe: np.ndarray,
+        read_noise: np.ndarray,
+        variance: np.ndarray,
+        # Spot detection parameters
+        n_frames_sum: int = 50,
+        pfa: float = 1e-3,
+        mf_factor: float = 3.0,
+        local_factor: float = 3.0,
+        sigma: float = 1.5,
+        fraction_true: float = 0.2,
+        # Fitting parameters
+        ROI_size: int = 16,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float = 0.069,
+        image_type: str = ".tif",
+        use_variance_aware_demosaic: bool = True,
+        chunk_size: int = 500,
+    ) -> None:
+        """QDot analysis pipeline: detect spots on summed frames, fit every frame.
+
+        Unlike fit_FRET_data, no change-point detection is applied.  Every frame
+        is fitted at every detected spot location so that the full photon-count
+        time series is available for downstream blinking / spectral analysis.
+
+        Processes each image file independently:
+        1. Sum first n_frames_sum frames for improved SNR spot detection
+        2. Detect spots on summed (demosaiced) image
+        3. Fit ALL frames at ALL detected spot locations (in memory-bounded chunks)
+        4. Save results to HDF5 database (one per input file, chunks appended)
+
+        Args:
+            image_folder: Path to folder containing image files
+            smoothing_function: Function namespace with smoothing parameters
+            gain_map: 2D gain calibration map
+            offset_map: 2D offset calibration map
+            rqe: 2D relative quantum efficiency map
+            read_noise: 2D read noise map
+            variance: 2D variance map
+            n_frames_sum: Number of frames to sum for spot detection (default: 50)
+            pfa: Probability of false alarm for detection (default: 1e-3)
+            mf_factor: Matched filter factor (default: 3.0)
+            local_factor: Local threshold factor (default: 3.0)
+            sigma: Gaussian sigma for detection (default: 1.5)
+            fraction_true: Expected fraction of true spots (default: 0.2)
+            ROI_size: Size of ROI for fitting (default: 16)
+            peak_wavelength: PSF peak wavelength in um (default: 0.638)
+            NA: Numerical aperture (default: 1.49)
+            pixel_size: Pixel size in um (default: 0.069)
+            image_type: Image file extension (default: ".tif")
+            use_variance_aware_demosaic: Use variance-aware demosaicing (default: True)
+            chunk_size: Number of frames to load and fit at once (default: 500)
+
+        Saves:
+            For each input file, saves {filename}.h5 with columns:
+            puncta_id, frame, xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr
+        """
+        from tqdm import tqdm
+
+        # Find image files
+        image_files = self.helper.file_search(image_folder, image_type, "")
+        if not image_files:
+            raise ValueError(f"No {image_type} files found in {image_folder}")
+
+        # Load ROI from metadata
+        start_x, start_y, width, height = self.helper.load_metadata_roi(
+            image_folder, self.io, use_fallback=True
+        )
+
+        # Get first file to determine dimensions if needed
+        first_frame = self.io.read_tiff(image_files[0], dtype="float32", frame=0)
+        full_height, full_width = first_frame.shape
+
+        if width is None or height is None:
+            height, width = full_height, full_width
+
+        # Create masks for ROI
+        masks_stacked = self.mask.get_stacked_masks(
+            start_x, start_y, width, height, self.mosaic_unit
+        )
+
+        # Crop calibration maps to ROI
+        cropped_maps = self.helper.crop_calibration_maps(
+            {
+                "gain_map": gain_map,
+                "offset_map": offset_map,
+                "read_noise": read_noise,
+                "rqe": rqe,
+                "variance": variance,
+            },
+            start_x,
+            start_y,
+            width,
+            height,
+        )
+        gain_map_crop = cropped_maps["gain_map"]
+        offset_map_crop = cropped_maps["offset_map"]
+        read_noise_crop = cropped_maps["read_noise"]
+        rqe_crop = cropped_maps["rqe"]
+        variance_crop = cropped_maps["variance"]
+
+        result_columns = [
+            "xc", "yc", "s_x", "s_y",
+            "bg_B", "bg_G", "bg_R",
+            "A_B", "A_G", "A_R",
+            "chi_sqr",
+        ]
+        error_columns = [f"{col}_err" for col in result_columns[:-1]]
+
+        # Process each file independently
+        for FOVn, file in enumerate(image_files):
+            print(f"\nProcessing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+
+            fit_savename = file.split(".")[0] + ".h5"
+            total_frames = self.io.get_num_pages_in_TIF(file)
+
+            # PHASE 1: Spot detection on summed frames
+            actual_frames_to_sum = min(n_frames_sum, total_frames)
+            frames_to_load = list(range(actual_frames_to_sum))
+            raw_stack = self.io.read_tiff(file, dtype="float32", frame=frames_to_load)
+            if raw_stack.ndim == 2:
+                raw_stack = raw_stack[np.newaxis, :, :]
+            summed_data = np.sum(raw_stack, axis=0)
+            del raw_stack
+
+            variance_summed = variance_crop * actual_frames_to_sum
+            offset_summed = offset_map_crop * actual_frames_to_sum
+
+            image_to_analyse = self._demosaic_image(
+                summed_data,
+                use_variance_aware=use_variance_aware_demosaic,
+                gain_map=gain_map_crop,
+                offset_map=offset_summed,
+                variance=variance_summed,
+            )
+
+            detected_puncta = self.spot_detection.detect_puncta_in_image(
+                image_to_analyse,
+                pfa=pfa,
+                variance=variance_summed,
+                wavelength=peak_wavelength,
+                pixel_size=pixel_size,
+                NA=NA,
+                mf_factor=mf_factor,
+                local_factor=local_factor,
+                sigma=sigma,
+                fraction_true=fraction_true,
+            )
+
+            n_detected = len(detected_puncta)
+
+            del summed_data, image_to_analyse, variance_summed, offset_summed
+            gc.collect()
+
+            if n_detected == 0:
+                print(f"  No spots detected, skipping")
+                continue
+
+            print(f"  {n_detected} spots detected; fitting all {total_frames} frames")
+
+            # Pre-compute ROI bounds for all detected spots
+            puncta_bounds = {}
+            for puncta_idx in range(n_detected):
+                ycentre = int(detected_puncta[puncta_idx, 0])
+                xcentre = int(detected_puncta[puncta_idx, 1])
+                bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
+                puncta_bounds[puncta_idx] = bounds
+
+            # PHASE 2: Fit every frame at every detected spot location
+            first_save = True
+            for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="Fitting frames"):
+                chunk_end = min(chunk_start + chunk_size, total_frames)
+                chunk_frames = list(range(chunk_start, chunk_end))
+
+                # Load chunk
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
+
+                # Convert to photoelectrons
+                photoelectrons = self.io.convert_to_photoelectrons(
+                    raw_data, gain_map=gain_map_crop, offset_map=offset_map_crop, rqe=rqe_crop
+                )
+
+                # Apply smoothing
+                smoothed = smoothing_function.smoothing_function(
+                    **{smoothing_function.data_arg: photoelectrons},
+                    **smoothing_function.args
+                )
+
+                # Compute weights
+                weights_data = 1.0 / (read_noise_crop**2 + np.maximum(photoelectrons, 0) / gain_map_crop)
+
+                # Build ROI lists for this chunk
+                puncta_tofit = []
+                smoothed_puncta_tofit = []
+                masks_tofit = []
+                weights_tofit = []
+                relative_coords = []
+                puncta_ids = []
+                frame_indices = []
+
+                for local_idx, frame in enumerate(chunk_frames):
+                    for puncta_idx in range(n_detected):
+                        bounds = puncta_bounds[puncta_idx]
+                        if bounds is None:
+                            continue
+                        xmin, xmax, ymin, ymax = bounds
+
+                        puncta_tofit.append(photoelectrons[local_idx, ymin:ymax, xmin:xmax].copy())
+                        smoothed_puncta_tofit.append(smoothed[local_idx, ymin:ymax, xmin:xmax].copy())
+                        masks_tofit.append(masks_stacked[ymin:ymax, xmin:xmax, :].copy())
+                        weights_tofit.append(weights_data[local_idx, ymin:ymax, xmin:xmax].copy())
+                        relative_coords.append((xmin, ymin))
+                        puncta_ids.append(puncta_idx)
+                        frame_indices.append(frame)
+
+                del raw_data, photoelectrons, smoothed, weights_data
+                gc.collect()
+
+                if len(puncta_tofit) == 0:
+                    continue
+
+                # Fit (skip chi-sqr gate: individual frames are not summed, but the
+                # detection used summed frames so skip_chisqr matches n_frames_sum logic)
+                fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
+                    puncta_tofit,
+                    smoothed_puncta_tofit,
+                    weights_tofit,
+                    relative_coords,
+                    list(range(len(puncta_tofit))),
+                    FittingStrategy.STANDARD,
+                    masks=masks_tofit,
+                    skip_chisqr=False,
+                )
+
+                # Build result DataFrame
+                fit_df = pd.DataFrame(fit_results, columns=result_columns + ["_dummy"])
+                fit_df = fit_df.drop(columns=["_dummy"])
+
+                if fit_errors is not None and len(fit_errors) > 0:
+                    err_df = pd.DataFrame(fit_errors, columns=error_columns)
+                    fit_df = pd.concat([fit_df, err_df], axis=1)
+
+                fit_df["puncta_id"] = puncta_ids
+                fit_df["frame"] = frame_indices
+
+                # Filter results
+                fit_df = self._filter_fit_results(fit_df, width, height)
+
+                # Append to HDF5 (first chunk creates the file, subsequent chunks append)
+                self.io._write_h5_database(fit_df, fit_savename, append=(not first_save))
+                first_save = False
+
+                del (
+                    puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit,
+                    relative_coords, puncta_ids, frame_indices, fit_df
+                )
+                gc.collect()
+
+            print(f"  Saved fits to {os.path.basename(fit_savename)}")
+
+        return
+
     def _extract_roi_traces_single_file(
         self,
         file: str,
