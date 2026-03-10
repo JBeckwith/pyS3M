@@ -62,6 +62,26 @@ class extract_SMs:
             io_functions if io_functions is not None else IOFunctions.IO_Functions()
         )
 
+    def _load_localisation_files(self, loc_data):
+        """Load localisations from HDF5 file paths if needed.
+
+        Args:
+            loc_data: Either a pd.DataFrame (returned as-is) or a list/array of
+                      HDF5 file paths (concatenated and returned as pd.DataFrame).
+
+        Returns:
+            pd.DataFrame of localisation data.
+        """
+        if isinstance(loc_data, pd.DataFrame):
+            return loc_data
+        # Treat as iterable of file paths
+        dfs = []
+        for f in loc_data:
+            dfs.append(pd.read_hdf(str(f), key="data"))
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
     def filter_quality_localisations(
         self,
         loc_data,
@@ -236,6 +256,8 @@ class extract_SMs:
 
         molecular_index_offset = 0
 
+        loc_data = self._load_localisation_files(loc_data)
+
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
@@ -314,6 +336,8 @@ class extract_SMs:
         """
 
         molecular_index_offset = 0
+
+        loc_data = self._load_localisation_files(loc_data)
 
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
