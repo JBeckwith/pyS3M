@@ -65,6 +65,45 @@ gitignored) so no git history was lost.
 
 ---
 
+## Session: March 11, 2026 (Part 2) — FRC / FIRE Implementation ✅
+
+### Summary
+
+Ported the Nieuwenhuizen et al. 2013 MATLAB FIRE distribution to Python. Single-image FRC is fully implemented and tested. 3D FPC and 2D FLC anisotropy deferred.
+
+### Files
+
+- **`src/FRCFunctions.py`** (new, commit d6d4327)
+- **`unit_tests/test_FRCFunctions.py`** (new, 21 tests all passing)
+- **`claude/FRC_implementation.md`** (plan file, untracked)
+
+### Implementation
+
+| Function | Replaces | Notes |
+|---|---|---|
+| `_radial_sum(image)` | DIPimage `radialsum()` | `np.bincount` on rounded radii |
+| `_tukey_window(ny, nx)` | MATLAB `frc.m` mask | nfac=8, outer 12.5% tapered |
+| `_intersect(x, a, b)` | `isect.m` | linear interp + dedup via `np.unique` |
+| `bin_localisations(pos, nx, ny, zoom)` | `binlocalizations.m` + `cHistRecon` | `np.histogram2d` |
+| `frc(im1, im2)` | `frc.m` | Tukey → `fftshift(fft2)` → radial sums |
+| `frc_to_resolution(curve, sz)` | `frctoresolution.m` | Savitzky-Golay smooth, 1/7 threshold, quadratic uncertainty |
+| `fire(positions, ...)` | `postoresolution.m` | accepts DataFrame or array; temporal block split |
+
+### Validation
+
+Run on `example_Fig2a.dat` (146,762 STORM localisations, pixel_size=106.7 nm, zoom=10, reps=20):
+- **FIRE = 56.7 ± 0.5 nm** — stable across repeats
+- FRC curve starts at 1, decreases correctly, crosses 1/7 as expected
+- All 146,762 localisations binned correctly
+
+### Additional fixes (same session)
+
+- **`src/LinkingFunctions.py`** (commit 33af09d): pass-through for unrecognised numeric columns — `spot_*` columns (spot_snr, spot_background, etc.) were silently dropped; now averaged across the link group
+- **`src/FiducialDetection.py`** (commits 836a843, 5ee9d58): `remove_puncta_locs` — use `['field']` indexing (not attribute) to support both recarrays and plain structured ndarrays after `np.concatenate`
+- **`src/DriftPlotting.py`** (commits 9151474, 5ee9d58): fix x/y inversion in `plot_puncta_selection_results` (region_centres are (y,x) tuples); reduce height 8→5 in both `plot_puncta_selection_results` and `create_separate_plots`; remove duplicate fallback plot in `create_separate_plots`
+
+---
+
 ## Session: March 11, 2026 — Exemplar Dye Pair, fov_name Fix, Read-Noise Notebook ✅
 
 ### Summary
