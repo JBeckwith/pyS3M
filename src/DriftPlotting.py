@@ -1083,58 +1083,43 @@ class DriftPlotter(AnalysisPlotter):
         output_figure_path: Optional[str],
         title: str,
     ) -> None:
-        """Create separate detailed plots for density detection analysis."""
-        plotter_class = _ensure_plotter()
-        if plotter_class is None:
-            print("⚠️ PublicationPlotter not available, skipping separate plots")
-            return
-
+        """Create visualization of density detection results (4-panel figure)."""
         try:
-            plotter = plotter_class(poster=False)
+            import matplotlib.pyplot as plt
 
-            # Create a basic visualization using PlottingBase
-            fig, axes = plotter.two_column_plot(nrows=2, ncols=2, height=8)
-            axes = axes.flatten()  # Flatten to access as axes[0], axes[1], etc.
+            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=5)
+            axes = axes.flatten()
 
-            # Plot 1: Smoothed image
-            im1 = axes[0].imshow(smoothed_image, cmap="hot", origin="lower")
-            axes[0].set_title("Smoothed Image")
-            axes[0].set_xlabel("X (pixels)")
-            axes[0].set_ylabel("Y (pixels)")
+            # Panel 0: Smoothed image
+            axes[0].imshow(smoothed_image, cmap="hot", origin="lower")
+            self.setup_axis(axes[0], xlabel="X (pixels)", ylabel="Y (pixels)",
+                            title="Smoothed Image", grid=False)
 
-            # Plot 2: Binary mask
+            # Panel 1: Binary mask
             axes[1].imshow(binary_mask, cmap="gray", origin="lower")
-            axes[1].set_title("Binary Mask")
-            axes[1].set_xlabel("X (pixels)")
-            axes[1].set_ylabel("Y (pixels)")
+            self.setup_axis(axes[1], xlabel="X (pixels)", ylabel="Y (pixels)",
+                            title="Binary Mask", grid=False)
 
-            # Plot 3: Histogram
+            # Panel 2: Intensity histogram with threshold
             if len(hist) > 0 and len(bin_edges) > 0:
                 bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
                 axes[2].plot(bin_centres, hist)
-                axes[2].axvline(
-                    threshold,
-                    color="red",
-                    linestyle="--",
-                    label=f"Threshold: {threshold:.2f}",
-                )
-                axes[2].set_xlabel("Intensity")
-                axes[2].set_ylabel("Count")
-                axes[2].set_title("Intensity Histogram")
-                axes[2].legend()
+                axes[2].axvline(threshold, color="red", linestyle="--",
+                                label=f"Threshold: {threshold:.2f}")
+                axes[2].legend(fontsize=7)
+            self.setup_axis(axes[2], xlabel="Intensity", ylabel="Count",
+                            title="Intensity Histogram", grid=True)
 
-            # Plot 4: Detected regions overlay
+            # Panel 3: Detected regions overlay
+            # region_centres are (y, x) tuples; imshow scatter uses (x, y)
             axes[3].imshow(smoothed_image, cmap="hot", origin="lower", alpha=0.7)
             for i, (cy, cx) in enumerate(region_centres):
-                axes[3].plot(
-                    cx, cy, "wo", markersize=8, markeredgecolor="red", markeredgewidth=2
-                )
-                axes[3].text(
-                    cx, cy, str(i), color="white", ha="center", va="center", fontsize=8
-                )
-            axes[3].set_title(f"{title} - {len(region_centres)} Regions")
-            axes[3].set_xlabel("X (pixels)")
-            axes[3].set_ylabel("Y (pixels)")
+                axes[3].plot(cx, cy, "wo", markersize=8,
+                             markeredgecolor="red", markeredgewidth=2)
+                axes[3].text(cx, cy, str(i), color="white",
+                             ha="center", va="center", fontsize=8)
+            self.setup_axis(axes[3], xlabel="X (pixels)", ylabel="Y (pixels)",
+                            title=f"{title} – {len(region_centres)} regions", grid=False)
 
             plt.tight_layout()
 
@@ -1145,40 +1130,12 @@ class DriftPlotter(AnalysisPlotter):
                     else output_figure_path
                 )
                 filename = f"{base_path}_density_detection.png"
-                plt.savefig(filename, dpi=300, bbox_inches="tight")
-                print(f"✅ Density detection plots saved to: {filename}")
+                self.save_or_show(fig, save_path=filename, show=False, dpi=150)
+                print(f"Density detection plot saved to: {filename}")
             else:
-                plt.show()
+                self.save_or_show(fig, save_path=None, show=True, dpi=150)
 
         except Exception as e:
-            print(f"⚠️ Error creating separate plots: {e}")
-            # Fallback to basic matplotlib if PlottingBase fails
-            try:
-                import matplotlib.pyplot as plt
-
-                # Use publication standards even in fallback
-                fig, axes = plt.subplots(2, 2, figsize=(6.69, 8), dpi=600)
-                axes = axes.flatten()
-
-                # Simple fallback visualization
-                axes[0].imshow(smoothed_image, cmap="hot")
-                axes[0].set_title("Smoothed Image")
-
-                axes[1].imshow(binary_mask, cmap="gray")
-                axes[1].set_title("Binary Mask")
-
-                if len(hist) > 0:
-                    axes[2].plot(hist)
-                    axes[2].set_title("Histogram")
-
-                axes[3].imshow(smoothed_image, cmap="hot", alpha=0.7)
-                for cx, cy in region_centres:
-                    axes[3].plot(cy, cx, "wo", markersize=6)
-                axes[3].set_title(f"{len(region_centres)} Regions Detected")
-
-                plt.tight_layout()
-                if output_figure_path:
-                    plt.savefig(output_figure_path, dpi=300, bbox_inches="tight")
-                plt.show()
-            except Exception as fallback_error:
-                print(f"⚠️ Fallback plotting also failed: {fallback_error}")
+            print(f"⚠️ Error creating density detection plots: {e}")
+            import traceback
+            traceback.print_exc()
