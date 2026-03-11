@@ -9,12 +9,15 @@ Repeated detections of the same emitter (blinking) that appear at the same
 position within ``r_max`` pixels and within ``max_dark_time`` dark frames are
 collapsed into a single improved localisation:
 
-* position (xc, yc)     — inverse-variance weighted mean  (1/σ² weights)
-* errors  (xc_err, ...) — combined as 1/√(Σ 1/σ²)
-* photons               — summed
-* bg_B, bg_G, bg_R      — summed  (total background accumulated)
-* A_B, A_G, A_R         — averaged (spectral fractions stay normalised)
-* s_x, s_y, chi_sqr     — averaged
+* position (xc, yc)          — inverse-variance weighted mean  (1/σ² weights)
+* errors  (xc_err, yc_err)   — combined as 1/√(Σ 1/σ²)
+* photons                    — summed
+* bg_B, bg_G, bg_R           — summed  (total background accumulated)
+* A_B, A_G, A_R, s_x, s_y   — inverse-variance weighted mean using paired _err columns;
+                               falls back to simple mean if _err absent
+* A_B_err, A_G_err, A_R_err,
+  s_x_err, s_y_err           — combined as 1/√(Σ 1/σ²)
+* chi_sqr                    — simple mean
 
 :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
                    (from Picasso / Eva_Wong_Code linking_functions.py)
@@ -235,19 +238,36 @@ def link_localisations(
     columns["xc_err"] = np.sqrt(1.0 / sum_wx).astype(np.float32)
     columns["yc_err"] = np.sqrt(1.0 / sum_wy).astype(np.float32)
 
-    # Summed columns
+    # Summed columns (accumulated over the on-time)
     for col in ("photons", "bg_B", "bg_G", "bg_R"):
         if col in df.columns:
             columns[col] = _link_group_sum(
                 df[col].to_numpy(dtype=np.float32), link_group, n, n_groups
             )
 
-    # Averaged columns
-    for col in ("s_x", "s_y", "A_B", "A_G", "A_R", "chi_sqr"):
-        if col in df.columns:
-            columns[col] = _link_group_mean(
-                df[col].to_numpy(dtype=np.float32), link_group, n, n_groups, n_
-            )
+    # Inverse-variance weighted average for columns that have a paired _err.
+    # A more precise single-frame detection gets a higher weight.
+    # Falls back to a simple mean when the error column is absent.
+    for col in ("A_B", "A_G", "A_R", "s_x", "s_y"):
+        err_col = f"{col}_err"
+        if col not in df.columns:
+            continue
+        vals = df[col].to_numpy(dtype=np.float32)
+        if err_col in df.columns:
+            errs = np.abs(df[err_col].to_numpy(dtype=np.float32))
+            med_err = float(np.nanmedian(errs[errs > 0])) if (errs > 0).any() else 1.0
+            errs = np.where(errs > 0, errs, med_err).astype(np.float32)
+            w = (1.0 / errs ** 2).astype(np.float32)
+            columns[col], sum_w = _link_group_weighted_mean(vals, w, link_group, n, n_groups, n_)
+            columns[err_col] = np.sqrt(1.0 / sum_w).astype(np.float32)
+        else:
+            columns[col] = _link_group_mean(vals, link_group, n, n_groups, n_)
+
+    # chi_sqr: simple mean (no error column for this one)
+    if "chi_sqr" in df.columns:
+        columns["chi_sqr"] = _link_group_mean(
+            df["chi_sqr"].to_numpy(dtype=np.float32), link_group, n, n_groups, n_
+        )
 
     columns["len"] = (last_frame - first_frame + 1).astype(np.uint32)
     columns["n"] = n_
