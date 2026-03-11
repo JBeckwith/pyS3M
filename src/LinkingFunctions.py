@@ -269,6 +269,24 @@ def link_localisations(
             df["chi_sqr"].to_numpy(dtype=np.float32), link_group, n, n_groups, n_
         )
 
+    # Pass-through: any remaining numeric columns not yet handled are averaged
+    # across the linked group so no data is silently discarded.
+    handled = {
+        "frame", "xc", "yc", "xc_err", "yc_err",
+        "photons", "bg_B", "bg_G", "bg_R",
+        "A_B", "A_G", "A_R", "A_B_err", "A_G_err", "A_R_err",
+        "s_x", "s_y", "s_x_err", "s_y_err",
+        "chi_sqr",
+    }
+    for col in df.columns:
+        if col in handled or col in columns:
+            continue
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        columns[col] = _link_group_mean(
+            df[col].to_numpy(dtype=np.float32), link_group, n, n_groups, n_
+        )
+
     columns["len"] = (last_frame - first_frame + 1).astype(np.uint32)
     columns["n"] = n_
 
