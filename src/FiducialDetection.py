@@ -425,18 +425,19 @@ class FiducialDetector:
         all_puncta = np.concatenate(selected_puncta)
 
         # Build a set of (frame, xc, yc) keys from puncta for O(1) lookup.
+        # Use ['field'] indexing: works for both recarrays and plain structured arrays.
         puncta_keys = set(
             zip(
-                all_puncta.frame.tolist(),
-                all_puncta.xc.tolist(),
-                all_puncta.yc.tolist(),
+                all_puncta['frame'].tolist(),
+                all_puncta['xc'].tolist(),
+                all_puncta['yc'].tolist(),
             )
         )
 
         keep = np.array(
             [
                 (int(f), float(x), float(y)) not in puncta_keys
-                for f, x, y in zip(locs.frame, locs.xc, locs.yc)
+                for f, x, y in zip(locs['frame'], locs['xc'], locs['yc'])
             ],
             dtype=bool,
         )
