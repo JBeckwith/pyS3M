@@ -396,6 +396,59 @@ class FiducialDetector:
 
         return selected_puncta, metadata
 
+    def remove_puncta_locs(
+        self,
+        locs: np.recarray,
+        selected_puncta: List[np.recarray],
+    ) -> np.recarray:
+        """Remove fiducial / puncta localisations from a localisation array.
+
+        Takes the ``selected_puncta`` list returned by
+        :meth:`select_puncta_from_regions` and removes every localisation that
+        belongs to any of those regions from ``locs``, returning the remainder.
+
+        Matching is performed by exact equality on ``(frame, xc, yc)`` — this
+        is safe because the localisations in ``selected_puncta`` are direct
+        copies of rows in ``locs`` with no arithmetic transformation.
+
+        Args:
+            locs: Full localisation recarray (all molecules).
+            selected_puncta: List of recarrays as returned by
+                ``select_puncta_from_regions``.  May be empty.
+
+        Returns:
+            Localisation recarray with all puncta rows removed.
+        """
+        if not selected_puncta:
+            return locs
+
+        all_puncta = np.concatenate(selected_puncta)
+
+        # Build a set of (frame, xc, yc) keys from puncta for O(1) lookup.
+        puncta_keys = set(
+            zip(
+                all_puncta.frame.tolist(),
+                all_puncta.xc.tolist(),
+                all_puncta.yc.tolist(),
+            )
+        )
+
+        keep = np.array(
+            [
+                (int(f), float(x), float(y)) not in puncta_keys
+                for f, x, y in zip(locs.frame, locs.xc, locs.yc)
+            ],
+            dtype=bool,
+        )
+
+        n_removed = int((~keep).sum())
+        print(
+            f"remove_puncta_locs: removed {n_removed:,} localisations "
+            f"({n_removed / max(len(locs), 1) * 100:.1f}% of {len(locs):,} total)"
+        )
+
+        return locs[keep]
+
     def identify_real_fiducials_with_clustering(
         self,
         selected_puncta: List[np.recarray],

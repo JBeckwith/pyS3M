@@ -527,7 +527,7 @@ class DriftPlotter(AnalysisPlotter):
             import matplotlib.pyplot as plt
 
             # Create comprehensive figure
-            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
+            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=5)
             axes = axes.flatten()
 
             # Plot 1: All localisations with intelligent downsampling
@@ -558,12 +558,12 @@ class DriftPlotter(AnalysisPlotter):
                     rasterized=True,
                 )
 
-            # Plot region centres
+            # Plot region centres (region_centres stored as (y, x) tuples)
             if region_centres:
                 centres = np.array(region_centres)
                 ax.scatter(
-                    centres[:, 0],
                     centres[:, 1],
+                    centres[:, 0],
                     s=100,
                     c="red",
                     marker="x",
@@ -617,7 +617,7 @@ class DriftPlotter(AnalysisPlotter):
             if region_centres:
                 centres = np.array(region_centres)
                 ax.scatter(
-                    centres[:, 0], centres[:, 1], s=50, c="red", marker="o", alpha=0.7
+                    centres[:, 1], centres[:, 0], s=50, c="red", marker="o", alpha=0.7
                 )
             self.setup_axis(
                 ax,
