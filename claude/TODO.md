@@ -1,12 +1,25 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-10
+**Last Updated:** 2026-03-11
 
 **Note:** For completed work, see LOG.md
 
 ---
 
 ## Active Projects
+
+### Priority 1: Figure 1 — Maximum Read Noise (ACTIVE)
+
+**Status:** 🔨 IN PROGRESS — notebook written, running
+**Notebook:** `notebooks/figures/Figure1_maximum_readnoise.ipynb`
+
+Sweeps read noise 0.01–10 RMS e⁻ (25 log-spaced points), 1000-photon ATTO 565, 12×12 Bayer grid, 10,000 bootstraps per point. Plots fit yield / σ_xy / colour std vs read noise to identify the maximum tolerable read noise for Bayer-SMLM.
+
+**Remaining:**
+- [ ] Run the simulation (currently slow — 25 × 10k bootstraps)
+- [ ] Check plots and tune axis limits / add Cramér–Rao bound reference line if useful
+
+---
 
 ### Priority 1: Nile Red / Alpha-Synuclein Analysis (ACTIVE)
 

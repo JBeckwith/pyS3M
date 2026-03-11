@@ -65,6 +65,56 @@ gitignored) so no git history was lost.
 
 ---
 
+## Session: March 11, 2026 — Exemplar Dye Pair, fov_name Fix, Read-Noise Notebook ✅
+
+### Summary
+
+Added `find_exemplar_dye_pair` and `get_exemplar_crop` to `SM_extractionfunctions.py` for locating and cropping exemplar co-localised single-frame localisations. Fixed several bugs found during notebook testing. Fixed `fov_name` non-uniqueness. Added `Figure1_maximum_readnoise.ipynb` sweeping read noise for Bayer-SMLM fitting.
+
+### 1. Exemplar dye pair functions (`src/SM_extractionfunctions.py`, commits 90799c9–7d46a56)
+
+**`find_exemplar_dye_pair(sf_db, mean_0, mean_1, ...)`**
+- Operates on **single-frame database** (not molecule database) — pairs must be in same frame
+- Groups by `(fov_index, frame)` so both localisations are simultaneously visible
+- Filters by `spectral_tol` (Euclidean distance in A_R, A_G space from each class mean)
+- Filters by `min_photons=2000` (bright localisations only)
+- Filters by `min_spatial_dist_nm=500` (must be resolvable) and optional `max_spatial_dist_nm`
+- Self-pair guard: drops rows where `mol_0_idx == mol_1_idx`
+- Returns DataFrame sorted by `spatial_dist_nm`, includes `frame` column
+
+**`get_exemplar_crop(pair_row, data_folder, crop_size_px=30)`**
+- Finds TIFF by sorting all `*.tif*` in `data_folder` and indexing by `fov_index`
+- Loads specific frame via `self.io.read_tiff(path, frame=frame_index)` — no projection
+- Returns `(crop, pair_info)` where `pair_info['xc_0']`, `yc_0`, `xc_1`, `yc_1` are already crop-relative
+
+**Bugs fixed during testing:**
+- Self-pairs (same molecule matched to itself via both means) — fixed with `mol_0_idx != mol_1_idx` guard
+- TIFF not found — switched from `*{fov_name}*.tif*` glob to sorted index lookup
+- `H, W = projected.shape` error — old projection loop replaced with `self.io.read_tiff(frame=N)` directly
+- `common_fovs` NameError — stale variable name from refactor, replaced with `common_groups`
+- `FittingStrategy` wrong module — must import from `Multicolour_Simulation_Functions` not `ImageAnalysisFunctions`
+
+**Notebook example cells added** (`notebooks/dye_discrimination/Dye_Mixture_AnalysisATTO520Rho6G.ipynb`):
+- `find_exemplar_dye_pair` cell using `sf_db`
+- `get_exemplar_crop` cell loading single frame
+- Quick matplotlib overlay visualisation cell
+
+### 2. fov_name uniqueness fix (`src/SM_extractionfunctions.py`, commit 52ee188)
+
+`_extract_fov_name` previously extracted only the `PosN` fragment (via regex), which is non-unique across datasets. Now returns `os.path.basename(filepath)` — the full filename — guaranteeing uniqueness.
+
+### 3. Figure1_maximum_readnoise.ipynb (`notebooks/figures/`, commits 9757146, a89db41)
+
+New figure notebook sweeping read noise 0.01–10 RMS e⁻ (25 log-spaced points) for a 1000-photon ATTO 565 molecule on a 12×12 Bayer grid, 10,000 bootstraps per point.
+
+- Loops over `read_noise_space`, builds `CameraParameters` with `readnoise=rn`, `variance=rn²` for each
+- Calls `test_simulation_method` with `n_photon_space=[1000]` and a per-noise `starting_flag`
+- Loads raw HDF5 results, computes **fit yield** (fraction non-NaN), **σ_xy**, **colour std**
+- Three-panel plot: fit yield / σ_xy / colour std vs read noise (log-x)
+- `FittingStrategy` import corrected: must come from `Multicolour_Simulation_Functions`
+
+---
+
 ## Session: March 10, 2026 — Covariance-Based Amplitude SNR Filter ✅
 
 ### Summary
