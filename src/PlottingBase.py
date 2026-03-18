@@ -936,7 +936,7 @@ class BasePlotter(ABC):
         colorbar: bool = False,
         colorbar_label: str = "",
         aspect: str = "equal",
-        interpolation: str = "nearest",
+        interpolation: Optional[str] = None,
         origin: str = "lower",
         scalebar: bool = False,
         pixelsize: float = 69.0,
@@ -1445,9 +1445,11 @@ class ImagePlotMixin:
     ):
         """Create multichannel overlay plot of rendered super-resolution images.
 
-        Overlays multiple grayscale images with different colormaps and transparency
-        to visualize multi-color SMLM data. Uses additive blending on a dark background for
-        publication-quality multi-channel visualization.
+        Overlays multiple grayscale images with different colormaps using additive RGB
+        blending on a dark background, matching the behaviour of fluorescence microscopy
+        software (Fiji/ImageJ merge channels). Each channel's RGB contribution is summed
+        pixel-wise and clipped to [0, 1], so isolated signals appear at full colormap
+        brightness and overlapping signals saturate toward white.
 
         Args:
             axs: Axes object to plot on.
@@ -1455,9 +1457,10 @@ class ImagePlotMixin:
             cmaps: List of colormap names for each channel. Defaults to ['cyan', 'yellow']
                 for 2 channels. Recommended bright colors for dark backgrounds:
                 'cyan', 'yellow', 'orange', 'pink', 'coral', 'salmon', 'lime', 'hotpink'.
+                Full matplotlib colormap names (e.g. 'hot') are also accepted.
                 Avoid: 'red', 'blue', 'magenta' (too dark, use brighter alternatives).
-            alphas: List of transparency values (0-1) for each channel. Defaults to 0.7
-                for all channels.
+            alphas: Deprecated. Has no effect and will be removed in a future version.
+                Use brightness_boost to scale individual channels.
             vmins: List of minimum intensity values for each channel. If None, uses
                 1st percentile for each image.
             vmaxs: List of maximum intensity values for each channel. If None, uses
@@ -1527,16 +1530,14 @@ class ImagePlotMixin:
         elif len(cmaps) != n_channels:
             raise ValueError(f"Expected {n_channels} colormaps, got {len(cmaps)}")
 
-        # Set default alphas
-        if alphas is None:
-            alphas = [0.7] * n_channels
-        elif len(alphas) != n_channels:
-            raise ValueError(f"Expected {n_channels} alpha values, got {len(alphas)}")
-
-        # Validate alpha values
-        for alpha in alphas:
-            if not 0 <= alpha <= 1:
-                raise ValueError(f"Alpha values must be in [0, 1], got {alpha}")
+        # alphas is deprecated — warn if caller passed anything
+        if alphas is not None:
+            warnings.warn(
+                "The 'alphas' parameter is deprecated and has no effect. "
+                "Use 'brightness_boost' to scale individual channels.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # Set default brightness boost
         if brightness_boost is None:
@@ -1566,32 +1567,30 @@ class ImagePlotMixin:
         axs.set_yticks([])
         axs.set_aspect('equal')
 
-        # Create colormaps and overlay images
+        # Build additive RGB composite and hidden per-channel artists for colorbars
+        composite = np.zeros((*images[0].shape, 3), dtype=np.float32)
         image_artists = []
-        for i, (image, cmap_name, alpha, vmin, vmax, boost) in enumerate(
-            zip(images, cmaps, alphas, vmins, vmaxs, brightness_boost)
+        for image, cmap_name, vmin, vmax, boost in zip(
+            images, cmaps, vmins, vmaxs, brightness_boost
         ):
-            # Create dark-to-color colormap
             cmap = self._create_dark_to_color_cmap(cmap_name)
 
-            # Normalize image to [0, 1]
-            img_norm = (image - vmin) / (vmax - vmin)
-            img_norm = np.clip(img_norm, 0, 1)
+            img_norm = np.clip((image - vmin) / (vmax - vmin), 0, 1)
+            img_norm = np.clip(img_norm * boost, 0, 1)
 
-            # Apply brightness boost
-            if boost != 1.0:
-                img_norm = img_norm * boost
-                img_norm = np.clip(img_norm, 0, 1)
+            # Accumulate RGB contribution additively (ignore alpha channel of cmap output)
+            composite += cmap(img_norm)[:, :, :3]
 
-            # Plot channel
-            im = axs.imshow(
-                img_norm,
-                cmap=cmap,
-                alpha=alpha,
-                origin='lower',
-                interpolation=None,
-            )
+            # Hidden imshow used only for colorbar attachment
+            im = axs.imshow(img_norm, cmap=cmap, origin='lower', visible=False)
             image_artists.append(im)
+
+        # Display the additive composite at full opacity
+        axs.imshow(
+            np.clip(composite, 0, 1),
+            origin='lower',
+            interpolation=None,
+        )
 
         # Add colorbars if requested
         if cbar == "on":
