@@ -1327,11 +1327,14 @@ class ImagePlotMixin:
         """Create colormap from black to specified color for dark background overlays.
 
         Args:
-            color_name: Color name or any matplotlib-compatible color string.
+            color_name: Color name, matplotlib-compatible color string, or the name of
+                an existing matplotlib colormap. Single-colour names produce a black→colour
+                ramp; colormap names (e.g. 'hot', 'inferno', 'viridis') are returned as-is.
                 Recommended bright colors for dark backgrounds:
                 - 'cyan' - Excellent visibility
                 - 'yellow' - Excellent visibility
                 - 'orange' - Good red alternative
+                - 'hot' - Black→red→yellow→white; good warm alternative
                 - 'pink' - Bright red/magenta alternative
                 - 'coral', 'salmon', 'tomato' - Various red/orange shades
                 - 'lime' - Brighter green
@@ -1367,14 +1370,18 @@ class ImagePlotMixin:
         if color_name in color_dict:
             rgb = color_dict[color_name]
         else:
-            # Try to parse as matplotlib color
-            rgb = matplotlib.colors.to_rgb(color_name)
+            # Try to parse as a matplotlib single colour first
+            try:
+                rgb = matplotlib.colors.to_rgb(color_name)
+            except ValueError:
+                # Not a colour — treat as an existing matplotlib colormap name
+                # (e.g. 'hot', 'inferno', 'viridis') and return it directly
+                return matplotlib.colormaps.get_cmap(color_name)
 
         # Create colormap: black (0,0,0) -> target color
         colors = [(0, 0, 0), rgb]
-        n_bins = 256
         cmap = LinearSegmentedColormap.from_list(
-            f'black_to_{color_name}', colors, N=n_bins
+            f'black_to_{color_name}', colors, N=256
         )
 
         return cmap
