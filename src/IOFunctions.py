@@ -769,6 +769,8 @@ class IO_Functions:
                             ),
                             dtype=dtype,
                         )
+        except IndexError:
+            raise  # out-of-range frame is an intentional EOF signal — don't recover
         except Exception as e:
             # Fallback to non-memmap if memory mapping fails
             print(
@@ -816,6 +818,8 @@ class IO_Functions:
                             ),
                             dtype=dtype,
                         )
+                    except IndexError:
+                        raise  # out-of-range frame is an intentional EOF signal — don't recover
                     except Exception as e2:
                         print(f"Standard loading of frame {frame} failed: {e2}")
                         print("Attempting frame-by-frame recovery...")
