@@ -74,8 +74,8 @@ class FittingConstants:
     PARAM_DIMENSIONS = {
         FittingStrategy.STANDARD: {"fit": 12, "error": 10},
         FittingStrategy.NOCOLOUR: {"fit": 8, "error": 6},
-        FittingStrategy.JUSTCOLOUR: {"fit": 10, "error": 8},
-        FittingStrategy.RAWCOLOUR: {"fit": 10, "error": 8},
+        FittingStrategy.JUSTCOLOUR: {"fit": 4, "error": 2},
+        FittingStrategy.RAWCOLOUR: {"fit": 8, "error": 6},
         FittingStrategy.POSTHENCOLOUR: {"fit": 10, "error": 8},
     }
 
@@ -318,19 +318,22 @@ class FittingResultProcessor:
             # For other strategies, use as-is for now
             pfit_processed = pfit.copy()
 
-        if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
-            return (
-                np.full(len(pfit_processed), np.nan),
-                np.full(len(pfit_processed), np.nan),
-            )
+        # Position gate only applies to strategies where first params are x, y, sx, sy
+        position_strategies = {FittingStrategy.STANDARD, FittingStrategy.NOCOLOUR}
+        if strategy in position_strategies:
+            if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
+                return (
+                    np.full(len(pfit_processed), np.nan),
+                    np.full(len(pfit_processed), np.nan),
+                )
 
-        # Add relative coordinates to position parameters (first two elements)
-        if (
-            relative_coords is not None
-            and hasattr(relative_coords, "__len__")
-            and len(relative_coords) >= 2
-        ):
-            pfit_processed[:2] += relative_coords[:2]
+            # Add relative coordinates to position parameters (first two elements)
+            if (
+                relative_coords is not None
+                and hasattr(relative_coords, "__len__")
+                and len(relative_coords) >= 2
+            ):
+                pfit_processed[:2] += relative_coords[:2]
 
         # Stage 2: Amplitude SNR gate (Wald t-statistic, replaces MIN_PHOTON + MAX_CHI_SQUARED)
         # Uses sqrt-space pfit[7:10] and chi_sqr-scaled pcov — must run BEFORE squaring.
@@ -350,6 +353,12 @@ class FittingResultProcessor:
         elif strategy == FittingStrategy.NOCOLOUR:
             if len(pfit_processed) >= 6:
                 pfit_processed[4:6] = np.square(pfit_processed[4:6])
+        elif strategy == FittingStrategy.JUSTCOLOUR:
+            # params[0]=sqrt(A), params[1]=sqrt(b) — square both
+            pfit_processed[0:2] = np.square(pfit_processed[0:2])
+        elif strategy == FittingStrategy.RAWCOLOUR:
+            # params[0:3]=sqrt(bg_B/G/R), params[3:6]=sqrt(A_B/G/R) — square all
+            pfit_processed[0:6] = np.square(pfit_processed[0:6])
 
         # Append chi-squared
         pfit_final = np.append(pfit_processed, chisqr)
@@ -679,23 +688,18 @@ class JustColourFittingProcessor(FittingProcessor):
     def _generate_initial_guess(
         self, smoothed_punctum: np.ndarray, masks: np.ndarray
     ) -> np.ndarray:
-        """Generate initial guess for just-colour fitting."""
-        # 10-parameter guess for just-colour
-        centre = np.array(smoothed_punctum.shape) // 2
-        max_val = np.max(smoothed_punctum)
+        """Generate initial guess for just-colour fitting.
 
+        Position and shape are fixed via locparams; only amplitude and
+        background are free parameters (in sqrt-space, as the model uses
+        params[0]**2 and params[1]**2).
+        """
+        max_val = np.max(smoothed_punctum)
+        min_val = np.min(smoothed_punctum)
         return np.array(
             [
-                centre[1],
-                centre[0],  # x, y
-                1.0,
-                1.0,  # sigmas
-                max_val * 0.4,
-                max_val * 0.6,  # A_G, A_R ratios
-                np.min(smoothed_punctum),
-                np.min(smoothed_punctum),  # backgrounds
-                0.0,
-                0.0,  # theta, offset
+                np.sqrt(np.abs(max_val)),   # params[0] = sqrt(A)
+                np.sqrt(np.abs(min_val)),   # params[1] = sqrt(b)
             ]
         )
 
@@ -771,22 +775,24 @@ class RawColourFittingProcessor(FittingProcessor):
     def _generate_initial_guess(
         self, smoothed_punctum: np.ndarray, masks: np.ndarray
     ) -> np.ndarray:
-        """Generate initial guess for raw-colour fitting."""
-        centre = np.array(smoothed_punctum.shape) // 2
-        max_val = np.max(smoothed_punctum)
+        """Generate initial guess for raw-colour fitting.
 
+        Position and shape are fixed via locparams; only per-channel
+        backgrounds and amplitudes are free (in sqrt-space).  Layout must
+        match the negative-index access in WLS_rawcolour_model_nobounds:
+          params[-6+i] -> bg_B, bg_G, bg_R  (indices 0, 1, 2)
+          params[-3+i] -> A_B,  A_G,  A_R   (indices 3, 4, 5)
+        """
+        max_val = np.max(smoothed_punctum)
+        min_val = np.min(smoothed_punctum)
         return np.array(
             [
-                centre[1],
-                centre[0],  # x, y
-                1.0,
-                1.0,  # sigmas
-                max_val * 0.3,
-                max_val * 0.4,
-                max_val * 0.3,  # Raw colour amplitudes
-                np.min(smoothed_punctum),  # background
-                0.0,
-                0.0,  # theta, offset
+                np.sqrt(np.abs(min_val)),        # params[0] = sqrt(bg_B)
+                np.sqrt(np.abs(min_val)),        # params[1] = sqrt(bg_G)
+                np.sqrt(np.abs(min_val)),        # params[2] = sqrt(bg_R)
+                np.sqrt(np.abs(max_val * 0.33)), # params[3] = sqrt(A_B)
+                np.sqrt(np.abs(max_val * 0.33)), # params[4] = sqrt(A_G)
+                np.sqrt(np.abs(max_val * 0.33)), # params[5] = sqrt(A_R)
             ]
         )
 

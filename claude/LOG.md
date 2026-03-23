@@ -1,8 +1,119 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** February 26, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - Localisation precision metric fixes, absolute QY function
+**Last Updated:** March 21, 2026
+**Status:** 🟢 **ACTIVE DEVELOPMENT** - Nile Red analysis / paper writing
+
+---
+
+## Session: March 21, 2026 — Nile Red Methods Writing + Demosaic Comparison Notebook ✅
+
+### Summary
+
+Writing session focused on the Nile Red / alpha-synuclein analysis. Derived a full
+LaTeX write-up of the skew-Gaussian spectral model, wrote an example methods paragraph
+for the Nile Red wavelength-extraction pipeline (covering both the asyn and S. aureus
+datasets), and created a new SI notebook for a head-to-head comparison of direct Bayer
+fitting vs. the three demosaicing strategies.
+
+### Key Outputs
+
+#### LaTeX model (provided in-session, not saved to file)
+Full derivation of the skew-Gaussian emission model used to fit Nile Red:
+- Equations 16–18 from Beckwith et al. (2020) *Int. Rev. Phys. Chem.* 39, 135–216
+- Dipole-moment / Jacobian transform to wavelength domain: Angulo et al. (2006)
+  *Spectrochim. Acta A* 65, 727–731
+- Fitted parameters: σ = 0.1630 eV, α = −1.565 (left-skewed)
+- Free parameter: λ₀ (central emission wavelength, initial guess 617.6 nm)
+
+#### Methods paragraph (provided in-session, not saved to file)
+Covers full pipeline: matched-filter spot detection (pfa), Bayer PSF fit (A_R/A_G/A_B,
+σ_x/σ_y), quality filtering, SR rendering (8× oversampling), image-based aggregate
+segmentation (rendered image → percentile/Li threshold → connected components),
+fiducial removal (spectral + temporal density criteria), and the forward–inverse
+wavelength model (χ² over {A_R, A_G, A_B, σ_x, σ_y}, TRF optimiser).
+Note: fiducial-removal and wavelength-fitting steps are specific to the asyn experiment;
+S. aureus notebook stops at structural SR imaging.
+
+#### New notebook: `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb`
+Head-to-head comparison of four fitting strategies on Bayer camera:
+
+| Strategy | Flag prefix |
+|---|---|
+| `STANDARD` | `standard_` |
+| `DEMOSAIC` | `demosaic_` |
+| `DEMOSAIC_FAST` | `demosaic_fast_` |
+| `DEMOSAIC_IG` | `demosaic_ig_` |
+
+Key design choices:
+- `subtractx0y0=True` — ground truth subtracted internally, so `std(xc)` = precision
+  for all strategies without needing a shared ground-truth file
+- `overwrite=False` — safe to interrupt and resume
+- Same dyes, photon range, and optical filters as `Figure1_3camerapatterns.ipynb`
+- Three output figures: dye-averaged, per-dye breakdown, ratio relative to direct fit
+- All demosaic calls use `bayer_demosaic_stack` default strategy = `'bilinear'`
+  (confirmed: `Multicolour_Simulation_Functions.py` passes no `strategy` kwarg,
+  so `sCMOSFunctions.bayer_demosaic_stack` defaults to bilinear throughout)
+
+### Files Created/Modified
+- `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` (new)
+
+---
+
+## Session: March 19, 2026 — Three-Way FRET Simulation Notebooks ✅
+
+### Summary
+
+Two-session build of exhaustive three-way FRET simulation notebooks from scratch.
+Both `_no488.ipynb` (515 + 561 nm lasers, 515 LP filter set) and `_with488.ipynb`
+(488 + 515 + 561 nm, 488 LP filter set) are functional and ready to run.
+
+### Key Design Decisions
+
+- **Auto-triad generation**: flat dye list → every valid donor (≥2 red-shifted neighbours) →
+  all C(n_acceptors, 2) pairs. Exhaustive, no manual curation needed.
+- **Per-laser row expansion**: results table has one row per (triad × viable laser line).
+  A laser is "viable" if donor absorbs ≥ 40 % of peak (`DONOR_EXC_THRESHOLD`).
+  A row is `laser_practical=False` if either acceptor exceeds 15 % direct excitation
+  (`ACC_DIRECT_EXC_LIMIT`). All rows shown in table; only `practical AND laser_practical`
+  rows are candidates for "best".
+- **AB→EX fallback**: `_get_absorption_data()` tries `AB` spectrum first, falls back to
+  normalised `EX` scaled by `ext_coeff`. Same logic in `get_FRET_pair` for overlap integral.
+- **Ternary convention**: locked to `PlottingFunctions.ternary_scatter_plot` convention —
+  `ax.scatter(R, G, B)` → top=R, left=G, right=B. `dye_rgb()` returns `[B, G, R]`
+  (index 0=B, 1=G, 2=R), so limiting points use `ax.scatter(P[2], P[1], P[0])`.
+
+### Files
+
+- **`notebooks/fret/3way_FRET_simulation_no488.ipynb`** — 515 + 561 nm, Nile Red filter set
+- **`notebooks/fret/3way_FRET_simulation_with488.ipynb`** — 488 + 515 + 561 nm, 488 LP filter set
+- Output dir: `/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Data/Simulation/20260319_3WayFRET/`
+
+### Notebook Structure (both files)
+
+| Cell | Content |
+|------|---------|
+| cell-01-imports | imports, `pixel_QYs = np.vstack([B, G, R])`, filter set, I0, N_MIN, constants |
+| cell-02-helpers | `_ternary_axis_setup`, `get_FRET_pair`, `forster_radius_nm`, `dye_rgb`, `triad_photons`, `triad_rgb_norm`, `triad_metrics` |
+| (sanity check) | prints [B, G, R] for spot-check dyes; confirms red dyes → large R |
+| cell-03-candidates | dye list, laser config, `_get_absorption_data`, exhaustive donor loop, per-laser row expansion |
+| cell-04-table | styled DataFrame sorted by `[laser_practical, practical, area]` descending |
+| cell-05-photons | distance sweep for best triad; log-scale photon count vs r/R₀ |
+| cell-06-ternary | 2D (r1,r2) grid scatter coloured by log₁₀(N_total); limiting points + triangle |
+| cell-07-all-ternary | saves one PNG per unique triad to OUT_DIR |
+| (last cell) | `results_df.to_csv(OUT_DIR / 'Summary_Table.csv')` |
+
+### Bugs Fixed This Session
+
+- **`os.path.join` NameError**: last cell used `os` without importing; replaced with `OUT_DIR / 'Summary_Table.csv'`.
+- **`_ternary_axis_setup` scope**: was defined only in cell-06, so cell-07 would fail if run standalone; moved to cell-02-helpers.
+- **Ternary data convention**: multiple iterations resolved; final state matches `PlottingFunctions.ternary_scatter_plot` exactly (top=R).
+
+### Next Steps
+
+- Run both notebooks; check that physically red/NIR dyes appear near the R (top) vertex.
+- Review summary table to pick best practical triad for each filter configuration.
+- If best triad has R₀(A1,A2) > 3 nm, consider coupled-rate simulation for A1→A2 cross-FRET.
 
 ---
 

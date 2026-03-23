@@ -1062,7 +1062,7 @@ class MultiC_Sim_Funcs_Refactored:
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
-            relative_coords,
+            locparams,
             planes,
             IAF_FittingStrategy.RAWCOLOUR,
             masks=masks_tofit,
@@ -1107,6 +1107,7 @@ class MultiC_Sim_Funcs_Refactored:
         # Note: This method doesn't return error columns in fit_results_colour,
         # so no error normalization needed here
 
+        fit_results_colour = fit_results_colour.drop(columns=["chi_sqr", "frame"], errors="ignore")
         return pd.concat([fit_results, fit_results_colour], axis=1)
 
     def _fit_demosaic_fast(
@@ -1197,7 +1198,7 @@ class MultiC_Sim_Funcs_Refactored:
             puncta_tofit,
             smoothed_puncta_tofit,
             weights_tofit,
-            relative_coords,
+            locparams,
             planes,
             IAF_FittingStrategy.JUSTCOLOUR,
             masks=masks_tofit,
@@ -1211,6 +1212,7 @@ class MultiC_Sim_Funcs_Refactored:
             fit_results_colour, config.n_bootstrap
         )
 
+        fit_results_colour = fit_results_colour.drop(columns=["chi_sqr", "frame"], errors="ignore")
         return pd.concat([fit_results, fit_results_colour], axis=1)
 
     def _fit_demosaic(

@@ -1,12 +1,23 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-21
 
 **Note:** For completed work, see LOG.md
 
 ---
 
 ## Active Projects
+
+### Priority 1: Three-Way FRET Simulation (ACTIVE)
+
+**Status:** 🔨 IN PROGRESS — notebooks ready to run
+**Notebooks:** `notebooks/fret/3way_FRET_simulation_no488.ipynb`, `..._with488.ipynb`
+
+- [ ] Run both notebooks end-to-end; verify ternary plots are physically sensible (red/NIR dyes near R vertex)
+- [ ] Review summary table — identify best practical triad per filter set
+- [ ] If best triad has R₀(A1,A2) > 3 nm, consider coupled-rate A1→A2 cross-FRET extension
+
+---
 
 ### Priority 1: Figure 1 — Maximum Read Noise (ACTIVE)
 
@@ -25,6 +36,9 @@ Sweeps read noise 0.01–10 RMS e⁻ (25 log-spaced points), 1000-photon ATTO 56
 
 **Status:** 🔨 IN PROGRESS
 **Notebook:** `notebooks/asyn_aggregates/asyn_NR_Analysis.ipynb`
+
+**Remaining:**
+- [ ] Run `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` — head-to-head comparison of direct Bayer fit vs. three demosaicing strategies (DEMOSAIC, DEMOSAIC_FAST, DEMOSAIC_IG); results save to `…/Simulation/Demosaic_vs_DirectFit/`
 
 ---
 
