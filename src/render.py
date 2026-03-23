@@ -555,13 +555,14 @@ def render_gaussian_colour(
     normalised_density = np.clip(
         (image_total - min_density) / (max_density - min_density), 0, 1
     )
+    # Suppress isolated noise below the density floor before colour mapping
+    normalised_density[normalised_density < densitymin] = 0.0
 
     normalised_wl = np.clip((image_spectral - c_min) / (c_max - c_min), 0, 1)
     rgb = cmap(normalised_wl)[..., :3]
-    rgb[normalised_density < densitymin] = 0
     if colors:
         hsv = colors.rgb_to_hsv(rgb)
-        hsv[..., 1] = normalised_density
+        hsv[..., 2] = normalised_density  # brightness = density: fades to black
         image_colour_gaussian = colors.hsv_to_rgb(hsv)
     else:
         # Fallback when matplotlib.colors not available
