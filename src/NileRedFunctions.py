@@ -654,6 +654,22 @@ class NileRed_Functions:
 
         wavelength_center = result.x[0]
 
+        # Convert the energy-space location parameter to the mean wavelength of
+        # the emission spectrum in wavelength space:
+        #   <λ> = ∫ I(λ) λ dλ / ∫ I(λ) dλ
+        # This corrects for the systematic blue shift introduced by (a) the
+        # Jacobian of the λ↔E transformation and (b) the negative skewness,
+        # both of which push the true spectral centre of mass to longer
+        # wavelengths than the energy-space location parameter.
+        spectrum = self.generate_nile_red_spectrum(
+            wavelength_center, wavelength_array, normalize=True
+        )
+        denom = np.trapz(spectrum, wavelength_array)
+        if denom > 0:
+            wavelength_mean = np.trapz(spectrum * wavelength_array, wavelength_array) / denom
+        else:
+            wavelength_mean = wavelength_center
+
         # Estimate wavelength error from Jacobian
         # s2 = residual variance, cov = s2 * inv(J^T J)
         J = result.jac          # (n_data, 1)
@@ -667,13 +683,14 @@ class NileRed_Functions:
         else:
             wavelength_error = np.nan
 
-        # Get predictions at best fit
+        # Get predictions at best fit (forward model still uses the optimised
+        # energy-space parameter, not the derived mean wavelength)
         predictions = self.nile_red_forward_model(
             wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
         )
         predictions["wavelength_error"] = wavelength_error
 
-        return wavelength_center, predictions
+        return wavelength_mean, predictions
 
     def simulate_wavelength_precision(
         self,
