@@ -62,25 +62,32 @@ class extract_SMs:
             io_functions if io_functions is not None else IOFunctions.IO_Functions()
         )
 
-    def _load_localisation_files(self, loc_data):
+    def _load_localisation_files(self, loc_data, start_frame=0):
         """Load localisations from HDF5 file paths if needed.
 
         Args:
             loc_data: Either a pd.DataFrame (returned as-is) or a list/array of
                       HDF5 file paths (concatenated and returned as pd.DataFrame).
+            start_frame (int): Discard all localisations with frame < start_frame.
+                               Default 0 (keep all).
 
         Returns:
             pd.DataFrame of localisation data.
         """
         if isinstance(loc_data, pd.DataFrame):
-            return loc_data
-        # Treat as iterable of file paths
-        dfs = []
-        for f in loc_data:
-            dfs.append(pd.read_hdf(str(f), key="data"))
-        if not dfs:
-            return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+            df = loc_data
+        else:
+            # Treat as iterable of file paths
+            dfs = []
+            for f in loc_data:
+                dfs.append(pd.read_hdf(str(f), key="data"))
+            if not dfs:
+                return pd.DataFrame()
+            df = pd.concat(dfs, ignore_index=True)
+
+        if start_frame > 0:
+            df = df[df["frame"] >= start_frame].reset_index(drop=True)
+        return df
 
     def filter_quality_localisations(
         self,
@@ -241,6 +248,7 @@ class extract_SMs:
         max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
+        start_frame=0,
     ):
         """
         Extract single molecules from multiple localization files by clustering.
@@ -256,7 +264,7 @@ class extract_SMs:
 
         molecular_index_offset = 0
 
-        loc_data = self._load_localisation_files(loc_data)
+        loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
 
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
@@ -319,6 +327,7 @@ class extract_SMs:
         min_photons=500,
         max_photons=None,
         epsilon_multiplier=1.0,
+        start_frame=0,
     ):
         """
         Extract single molecules from multiple localization files by clustering.
@@ -337,7 +346,7 @@ class extract_SMs:
 
         molecular_index_offset = 0
 
-        loc_data = self._load_localisation_files(loc_data)
+        loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
 
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
@@ -406,6 +415,7 @@ class extract_SMs:
         max_sigma_error=(40./69),
         min_photons=500,
         max_photons=None,
+        start_frame=0,
     ):
         """
         Extract single molecules from multiple localization files using temporal linking.
@@ -428,8 +438,10 @@ class extract_SMs:
         """
         molecular_index_offset = 0
 
+        loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
+
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error, 
+            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
             min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
         )
@@ -833,6 +845,7 @@ class extract_SMs:
         max_distance=0.5,
         max_frames=10,
         epsilon_multiplier=1.0,
+        start_frame=0,
         verbose=True,
     ):
         """
@@ -886,6 +899,8 @@ class extract_SMs:
 
             # Load localization data
             loc_data = pd.read_hdf(loc_file)
+            if start_frame > 0:
+                loc_data = loc_data[loc_data["frame"] >= start_frame].reset_index(drop=True)
 
             if verbose:
                 print(f" {len(loc_data)} localizations...", end="", flush=True)
