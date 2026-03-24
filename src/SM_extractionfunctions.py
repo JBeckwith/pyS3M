@@ -133,7 +133,8 @@ class extract_SMs:
         # Add photons column using centralized method and apply photon count filters
         if "photons" not in filtered_data.columns:
             filtered_data = self.io._add_photon_columns(filtered_data, normalise=True)
-        filtered_data = filtered_data[filtered_data["photons"] < max_photons]
+        if max_photons is not None:
+            filtered_data = filtered_data[filtered_data["photons"] < max_photons]
         filtered_data = filtered_data[filtered_data["photons"] > min_photons]
 
         return filtered_data.reset_index(drop=True)
