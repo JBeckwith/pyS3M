@@ -1457,6 +1457,7 @@ class NileRed_Functions:
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
         df = pd.read_hdf(h5_path, "data")
+        df = df.loc[:, ~df.columns.duplicated()]
         n_locs = len(df)
 
         if verbose:
