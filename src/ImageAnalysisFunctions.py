@@ -49,6 +49,7 @@ class FittingStrategy(Enum):
     """
 
     STANDARD = "standard"  # Full colour fitting with all channels
+    STANDARD_IG = "standard_ig"  # Full fit on raw Bayer, seeded from demosaiced fit
     NOCOLOUR = "nocolour"  # No colour information, intensity only
     JUSTCOLOUR = "justcolour"  # Colour channels only, no intensity
     RAWCOLOUR = "rawcolour"  # Raw colour data without processing
@@ -73,6 +74,7 @@ class FittingConstants:
     # Array dimensions for different strategies
     PARAM_DIMENSIONS = {
         FittingStrategy.STANDARD: {"fit": 12, "error": 10},
+        FittingStrategy.STANDARD_IG: {"fit": 12, "error": 10},
         FittingStrategy.NOCOLOUR: {"fit": 8, "error": 6},
         FittingStrategy.JUSTCOLOUR: {"fit": 4, "error": 2},
         FittingStrategy.RAWCOLOUR: {"fit": 8, "error": 6},
@@ -527,6 +529,53 @@ class StandardFittingProcessor(FittingProcessor):
             )
             dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
             return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+
+
+class StandardIGFittingProcessor(StandardFittingProcessor):
+    """Full STANDARD fit on raw Bayer data, seeded from a prior demosaiced fit.
+
+    The six-element ``relative_coords`` tuple carries
+    ``(xc, yc, s_x, s_y, b, A)`` from a NOCOLOUR fit on the demosaiced image.
+    These replace the image-derived initial guess so the optimiser starts from
+    an accurate position rather than the centre-of-mass estimate, improving
+    both colour accuracy and localisation precision.
+
+    WLS_model_nobounds parameter layout:
+        [x, y, sigma_y, sigma_x, sqrt(bg_B), sqrt(bg_G), sqrt(bg_R),
+         sqrt(A_B), sqrt(A_G), sqrt(A_R)]
+    Note sigma_y precedes sigma_x — opposite of the NOCOLOUR convention —
+    so the seed swaps them at indices 2/3.
+    """
+
+    def fit_single_punctum(
+        self,
+        punctum: np.ndarray,
+        smoothed_punctum: np.ndarray,
+        weights: np.ndarray,
+        relative_coords,          # (xc, yc, s_x, s_y, b, A) from demosaiced fit
+        masks: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if masks is None:
+            raise FittingValidationError("Standard-IG fitting requires masks")
+
+        if np.max(smoothed_punctum) <= 0:
+            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
+            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+
+        xc, yc, s_x, s_y, b, A = (float(v) for v in relative_coords)
+        b_ch = max(b / 3.0, 1e-6)
+        A_ch = max(A / 3.0, 1e-6)
+
+        # sigma_y at index 2, sigma_x at index 3 (WLS_model_nobounds convention)
+        initial_guess = np.array([
+            xc, yc,
+            s_y, s_x,
+            np.sqrt(b_ch), np.sqrt(b_ch), np.sqrt(b_ch),
+            np.sqrt(A_ch), np.sqrt(A_ch), np.sqrt(A_ch),
+        ])
+
+        # relative_coords=(0,0): xc/yc in the seed are already local ROI coords
+        return self._perform_wls_fit(punctum, initial_guess, masks, weights, (0.0, 0.0))
 
 
 class NoColourFittingProcessor(FittingProcessor):
@@ -1047,6 +1096,7 @@ class Image_Analysis_Functions:
         # Initialize strategy processors
         self.processors = {
             FittingStrategy.STANDARD: StandardFittingProcessor(),
+            FittingStrategy.STANDARD_IG: StandardIGFittingProcessor(),
             FittingStrategy.NOCOLOUR: NoColourFittingProcessor(),
             FittingStrategy.JUSTCOLOUR: JustColourFittingProcessor(),
             FittingStrategy.RAWCOLOUR: RawColourFittingProcessor(),

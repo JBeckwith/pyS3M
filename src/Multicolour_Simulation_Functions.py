@@ -41,6 +41,7 @@ class FittingStrategy(Enum):
     DEMOSAIC = "demosaic"
     DEMOSAIC_FAST = "demosaic_fast"
     DEMOSAIC_IG = "demosaic_ig"
+    STANDARD_IG = "standard_ig"  # Full STANDARD fit on raw Bayer, seeded from demosaiced fit
 
 
 @dataclass
@@ -544,7 +545,7 @@ class MultiC_Sim_Funcs_Refactored:
         )
 
         # Handle different demosaic strategies
-        if strategy == FittingStrategy.DEMOSAIC_IG:
+        if strategy in (FittingStrategy.DEMOSAIC_IG, FittingStrategy.STANDARD_IG):
             _, grayscale_photoelectron_data = self.scmos.bayer_demosaic_stack(
                 photoelectron_data, True
             )
@@ -672,7 +673,7 @@ class MultiC_Sim_Funcs_Refactored:
             return self._fit_standard(
                 photoelectron_data, smoothed_data, weights_map, camera_params, config
             )
-        elif strategy == FittingStrategy.DEMOSAIC_IG:
+        elif strategy in (FittingStrategy.DEMOSAIC_IG, FittingStrategy.STANDARD_IG):
             return self._fit_demosaic_ig(
                 photoelectron_data,
                 smoothed_data,
@@ -1050,6 +1051,8 @@ class MultiC_Sim_Funcs_Refactored:
                     fit_results["yc"][frame],
                     fit_results["s_x"][frame],
                     fit_results["s_y"][frame],
+                    fit_results["b"][frame],
+                    fit_results["A"][frame],
                 )
             )
             masks_tofit.append(masks_3d)
@@ -1064,19 +1067,15 @@ class MultiC_Sim_Funcs_Refactored:
             weights_tofit,
             locparams,
             planes,
-            IAF_FittingStrategy.RAWCOLOUR,
+            IAF_FittingStrategy.STANDARD_IG,
             masks=masks_tofit,
         )
 
         colour_columns = [
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "A_B",
-            "A_G",
-            "A_R",
-            "chi_sqr",
-            "frame",
+            "xc", "yc", "s_x", "s_y",
+            "bg_B", "bg_G", "bg_R",
+            "A_B", "A_G", "A_R",
+            "chi_sqr", "frame",
         ]
         fit_results_colour = pd.DataFrame(
             fit_results_colour, columns=colour_columns
@@ -1103,12 +1102,7 @@ class MultiC_Sim_Funcs_Refactored:
                 fit_results_colour[param] / fit_results_colour["background_photons"]
             )
 
-        # CRITICAL FIX: Normalize errors too! (_fit_demosaic_ig doesn't have error columns, so skip)
-        # Note: This method doesn't return error columns in fit_results_colour,
-        # so no error normalization needed here
-
-        fit_results_colour = fit_results_colour.drop(columns=["chi_sqr", "frame"], errors="ignore")
-        return pd.concat([fit_results, fit_results_colour], axis=1)
+        return fit_results_colour
 
     def _fit_demosaic_fast(
         self,
