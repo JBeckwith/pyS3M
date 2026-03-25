@@ -142,11 +142,13 @@ def _segment(signal, left, right, cp_set, win_size, threshold_fn):
                       segment of length n.
     """
     n = right - left
-    if n <= win_size:
+    if n < 2 * win_size:
         return
     local_cp, lm = _lr_test(signal[left:right])
-    if lm > threshold_fn(n):
-        global_cp = left + local_cp + 1
+    global_cp = left + local_cp + 1
+    if (lm > threshold_fn(n)
+            and (global_cp - left) >= win_size
+            and (right - global_cp) >= win_size):
         cp_set.add(global_cp)
         _segment(signal, left,      global_cp, cp_set, win_size, threshold_fn)
         _segment(signal, global_cp, right,     cp_set, win_size, threshold_fn)

@@ -817,18 +817,23 @@ class extract_SMs:
 
     def _extract_fov_name(self, filepath):
         """
-        Extract FOV identifier from filename.
+        Extract FOV identifier from filename, stripping all known suffixes.
 
-        Returns the full filename (without directory) to ensure uniqueness
-        across datasets where a short suffix like 'Pos0' may repeat.
+        Returns the full filename (without directory or extension) to ensure
+        uniqueness across datasets where a short suffix like 'Pos0' may repeat.
 
         Args:
             filepath (str): Full path to localization file
 
         Returns:
-            str: Filename portion of filepath (e.g., "Pos15_undrifted_locs.h5")
+            str: Filename without extension (e.g., "Pos15_undrifted_locs")
         """
-        return os.path.basename(filepath)
+        from pathlib import Path as _Path
+        _known = {'.h5', '.hdf5', '.tif', '.tiff', '.ome', '.txt', '.csv', '.json'}
+        p = _Path(filepath)
+        while p.suffix.lower() in _known:
+            p = p.with_suffix('')
+        return p.name
 
     def extract_single_molecules_batch(
         self,
