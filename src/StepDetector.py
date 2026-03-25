@@ -127,10 +127,94 @@ def _lr_test(data: np.ndarray):
 
 
 # ---------------------------------------------------------------------------
+# Gaussian LR test (vectorised) — ported from findcp.m (Jiang 2007-2008)
+# ---------------------------------------------------------------------------
+
+def _lr_test_gaussian(data: np.ndarray):
+    """Log-likelihood ratio test for a variance-change model (Gaussian noise).
+
+    Tests whether splitting the segment at any interior point gives a
+    statistically significant improvement.  The statistic is:
+
+        LRT(k) = |√( N·log σ²_whole − k·log σ²_left − (N−k)·log σ²_right )|
+
+    where all variances use ddof=1.  Valid split points require ≥ 2 samples
+    on each side so that the sample variance is defined.
+
+    Args:
+        data: 1D array of signal values.
+
+    Returns:
+        best_local (int): 0-based index of the best split point within data.
+        lm (float): Maximum LRT score (0 if no valid split).
+    """
+    n = len(data)
+    if n < 4:
+        return 0, 0.0
+
+    # Precompute cumulative sums for fast mean/variance via ddof=1
+    S  = np.cumsum(data)
+    SS = np.cumsum(data ** 2)
+
+    wvar = np.var(data, ddof=1)
+    if wvar <= 0:
+        return 0, 0.0
+
+    wlog = n * np.log(wvar)
+
+    # k: number of points in left segment, ranges 2 … n-2
+    k = np.arange(2, n - 1)
+    sk  = S[k - 1]
+    ssk = SS[k - 1]
+
+    # Unbiased sample variance via Welford / algebraic identity
+    # var = (Σx² - (Σx)²/k) / (k-1)
+    lvar = (ssk - sk ** 2 / k) / (k - 1)
+    rn   = n - k
+    rsk  = S[-1] - sk
+    rssk = SS[-1] - ssk
+    rvar = (rssk - rsk ** 2 / rn) / (rn - 1)
+
+    valid = (lvar > 0) & (rvar > 0)
+    L = np.zeros(len(k))
+    kv, lv, rv = k[valid], lvar[valid], rvar[valid]
+    L[valid] = np.abs(np.sqrt(np.maximum(
+        wlog - kv * np.log(lv) - (n - kv) * np.log(rv), 0.0
+    )))
+
+    best = int(np.argmax(L))
+    return best + 1, float(L[best])   # +1 because k starts at 2 (offset from index 0)
+
+
+def _gaussian_threshold(n: int, alpha: float = 0.05) -> float:
+    """Gumbel extreme-value threshold for the Gaussian LRT.
+
+    Direct port of ``CriVal(N, alpha)`` from findcp.m (Jiang 2007-2008).
+
+    Args:
+        n:     Segment length.
+        alpha: False-positive rate. Default 0.05.
+
+    Returns:
+        Critical value; accept a split iff max_k LRT_k > threshold.
+    """
+    if n < 4:
+        return np.inf
+    # findcp.m calls CriVal(N, 1-alpha) — i.e. the argument is a confidence
+    # level, not a tail probability.  We follow the same convention here.
+    p  = 1.0 - alpha
+    yd = -np.log(-0.5 * np.log(p))
+    x  = np.log(n)
+    a  = np.sqrt(2.0 * np.log(x))
+    b  = 2.0 * np.log(x) + np.log(np.log(x))
+    return (yd + b) / a
+
+
+# ---------------------------------------------------------------------------
 # Recursive binary segmentation
 # ---------------------------------------------------------------------------
 
-def _segment(signal, left, right, cp_set, win_size, threshold_fn):
+def _segment(signal, left, right, cp_set, win_size, threshold_fn, lr_fn):
     """Recursive binary segmentation.
 
     Splits [left, right) if the best LR split exceeds the Vostrikova
@@ -140,18 +224,19 @@ def _segment(signal, left, right, cp_set, win_size, threshold_fn):
     Args:
         threshold_fn: callable(n) -> float giving the LLR threshold for a
                       segment of length n.
+        lr_fn:        callable(data) -> (best_local, lm) — the LR test to use.
     """
     n = right - left
     if n < 2 * win_size:
         return
-    local_cp, lm = _lr_test(signal[left:right])
+    local_cp, lm = lr_fn(signal[left:right])
     global_cp = left + local_cp + 1
     if (lm > threshold_fn(n)
             and (global_cp - left) >= win_size
             and (right - global_cp) >= win_size):
         cp_set.add(global_cp)
-        _segment(signal, left,      global_cp, cp_set, win_size, threshold_fn)
-        _segment(signal, global_cp, right,     cp_set, win_size, threshold_fn)
+        _segment(signal, left,      global_cp, cp_set, win_size, threshold_fn, lr_fn)
+        _segment(signal, global_cp, right,     cp_set, win_size, threshold_fn, lr_fn)
 
 
 # ---------------------------------------------------------------------------
@@ -201,30 +286,49 @@ class StepDetector:
     sorted list of change-point indices ending with len(signal).
 
     Args:
-        win_size: Minimum segment length to attempt a split (default 10).
-        alpha:    False-positive rate per segment under H₀ (default 0.05).
-                  Decrease to be more conservative (fewer detections);
-                  increase to be more sensitive (more detections).
-        d:        Dimensionality of the signal (1 for scalar intensity traces).
-        backend:  'binseg' (default) — recursive binary segmentation, no
-                  extra dependencies.
-                  'pelt' — globally optimal PELT with Poisson cost;
-                  requires the ruptures package.
+        win_size:  Minimum segment length to attempt a split (default 10).
+        alpha:     False-positive rate per segment under H₀ (default 0.05).
+                   Decrease to be more conservative (fewer detections);
+                   increase to be more sensitive (more detections).
+        d:         Dimensionality of the signal (1 for scalar intensity
+                   traces). Only used by the Poisson estimator.
+        backend:   'binseg' (default) — recursive binary segmentation, no
+                   extra dependencies.
+                   'pelt' — globally optimal PELT with Poisson cost;
+                   requires the ruptures package.
+        estimator: 'poisson' (default) — Watkins & Yang (2005) LR based on
+                   Poisson photon-counting statistics; Vostrikova threshold.
+                   'gaussian' — Gaussian variance-change LR from findcp.m
+                   (Jiang 2007-2008); Gumbel extreme-value threshold.
+                   Use 'gaussian' when background-subtracted traces have
+                   both positive and negative values, or when signal-to-noise
+                   is dominated by read noise rather than shot noise.
     """
 
     def __init__(self, win_size: int = 10, alpha: float = 0.05,
-                 d: int = 1, backend: str = "binseg"):
-        self.win_size = win_size
-        self.alpha    = alpha
-        self.d        = d
-        self.backend  = backend
+                 d: int = 1, backend: str = "binseg",
+                 estimator: str = "poisson"):
+        self.win_size  = win_size
+        self.alpha     = alpha
+        self.d         = d
+        self.backend   = backend
+        self.estimator = estimator.lower()
         self._cache: dict = {}
 
     def _threshold(self, n: int) -> float:
-        """Cached Vostrikova threshold for segment length n."""
+        """Cached threshold for segment length n (dispatches on estimator)."""
         if n not in self._cache:
-            self._cache[n] = _vost_threshold(n, self.alpha, self.d)
+            if self.estimator == "gaussian":
+                self._cache[n] = _gaussian_threshold(n, self.alpha)
+            else:
+                self._cache[n] = _vost_threshold(n, self.alpha, self.d)
         return self._cache[n]
+
+    def _lr_fn(self):
+        """Return the appropriate LR test function for the current estimator."""
+        if self.estimator == "gaussian":
+            return _lr_test_gaussian
+        return _lr_test
 
     def detect(self, signal) -> list:
         """Detect change points in a 1D signal.
@@ -243,7 +347,8 @@ class StepDetector:
     def _detect_binseg(self, signal) -> list:
         n      = len(signal)
         cp_set = set()
-        _segment(signal, 0, n, cp_set, self.win_size, self._threshold)
+        _segment(signal, 0, n, cp_set, self.win_size, self._threshold,
+                 self._lr_fn())
         return sorted(cp_set) + [n]
 
     def _detect_pelt(self, signal) -> list:
