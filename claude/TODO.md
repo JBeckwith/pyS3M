@@ -1,46 +1,12 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-21
+**Last Updated:** 2026-03-30
 
 **Note:** For completed work, see LOG.md
 
 ---
 
 ## Active Projects
-
-### Priority 1: Three-Way FRET Simulation (ACTIVE)
-
-**Status:** 🔨 IN PROGRESS — notebooks ready to run
-**Notebooks:** `notebooks/fret/3way_FRET_simulation_no488.ipynb`, `..._with488.ipynb`
-
-- [ ] Run both notebooks end-to-end; verify ternary plots are physically sensible (red/NIR dyes near R vertex)
-- [ ] Review summary table — identify best practical triad per filter set
-- [ ] If best triad has R₀(A1,A2) > 3 nm, consider coupled-rate A1→A2 cross-FRET extension
-
----
-
-### Priority 1: Figure 1 — Maximum Read Noise (ACTIVE)
-
-**Status:** 🔨 IN PROGRESS — notebook written, running
-**Notebook:** `notebooks/figures/Figure1_maximum_readnoise.ipynb`
-
-Sweeps read noise 0.01–10 RMS e⁻ (25 log-spaced points), 1000-photon ATTO 565, 12×12 Bayer grid, 10,000 bootstraps per point. Plots fit yield / σ_xy / colour std vs read noise to identify the maximum tolerable read noise for Bayer-SMLM.
-
-**Remaining:**
-- [ ] Run the simulation (currently slow — 25 × 10k bootstraps)
-- [ ] Check plots and tune axis limits / add Cramér–Rao bound reference line if useful
-
----
-
-### Priority 1: Nile Red / Alpha-Synuclein Analysis (ACTIVE)
-
-**Status:** 🔨 IN PROGRESS
-**Notebook:** `notebooks/asyn_aggregates/asyn_NR_Analysis.ipynb`
-
-**Remaining:**
-- [ ] Run `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` — head-to-head comparison of direct Bayer fit vs. three demosaicing strategies (DEMOSAIC, DEMOSAIC_FAST, DEMOSAIC_IG); results save to `…/Simulation/Demosaic_vs_DirectFit/`
-
----
 
 ### Priority 1: FRET Post-Hoc Analysis (ACTIVE)
 
@@ -189,6 +155,25 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 ---
 
 ## Pending Tasks
+
+### Priority 1: Switch All Analyses to STANDARD_ITER
+
+**Status:** 📋 PENDING — awaiting `Demosaicing_vs_Fullfit.ipynb` benchmark results
+**Depends on:** STANDARD_ITER simulation run completing and showing improvement over STANDARD
+
+Once the `Direct fit (ITER)` results are confirmed to improve G-channel colour precision
+and/or position precision vs `Direct fit` at high photon counts, consider switching
+every analysis that currently uses `FittingStrategy.STANDARD` to `FittingStrategy.STANDARD_ITER`:
+
+- [ ] `SR_Functions.py` default fitting strategy
+- [ ] `Multicolour_Simulation_Functions._fit_standard` call sites (or retire in favour of `_fit_standard_iter`)
+- [ ] Any existing analysis notebooks that call `test_simulation_method` with `FittingStrategy.STANDARD`
+- [ ] Re-run Figure 1 (`Figure1_maximum_readnoise.ipynb`) with STANDARD_ITER to check if the read-noise performance envelope changes
+
+Note: STANDARD_ITER is ~3× slower than STANDARD (three LM calls per spot). Confirm
+this is acceptable for real-data throughput before switching production pipelines.
+
+---
 
 ### Priority 2: Spot Detection Validation & Documentation
 

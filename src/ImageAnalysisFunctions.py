@@ -50,6 +50,7 @@ class FittingStrategy(Enum):
 
     STANDARD = "standard"  # Full colour fitting with all channels
     STANDARD_IG = "standard_ig"  # Full fit on raw Bayer, seeded from demosaiced fit
+    STANDARD_ITER = "standard_iter"  # STANDARD with 2 IRLS model-weight iterations
     NOCOLOUR = "nocolour"  # No colour information, intensity only
     JUSTCOLOUR = "justcolour"  # Colour channels only, no intensity
     RAWCOLOUR = "rawcolour"  # Raw colour data without processing
@@ -75,6 +76,7 @@ class FittingConstants:
     PARAM_DIMENSIONS = {
         FittingStrategy.STANDARD: {"fit": 12, "error": 10},
         FittingStrategy.STANDARD_IG: {"fit": 12, "error": 10},
+        FittingStrategy.STANDARD_ITER: {"fit": 12, "error": 10},
         FittingStrategy.NOCOLOUR: {"fit": 8, "error": 6},
         FittingStrategy.JUSTCOLOUR: {"fit": 4, "error": 2},
         FittingStrategy.RAWCOLOUR: {"fit": 8, "error": 6},
@@ -135,6 +137,7 @@ class FittingParameters:
         # Check masks requirement for colour strategies
         colour_strategies = {
             FittingStrategy.STANDARD,
+            FittingStrategy.STANDARD_ITER,
             FittingStrategy.JUSTCOLOUR,
             FittingStrategy.RAWCOLOUR,
             FittingStrategy.POSTHENCOLOUR,
@@ -300,7 +303,9 @@ class FittingResultProcessor:
         # For STANDARD: pfit has [x, y, sy, sx, bg_B, bg_G, bg_R, A_B, A_G, A_R] (10 parameters from gaussoptfuncs)
         # But output needs [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R] (sx/sy order corrected)
 
-        if strategy == FittingStrategy.STANDARD:
+        _standard_like = {FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER}
+
+        if strategy in _standard_like:
             # Reorder sx/sy and keep everything else: [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R]
             pfit_processed = np.array(
                 [
@@ -321,7 +326,7 @@ class FittingResultProcessor:
             pfit_processed = pfit.copy()
 
         # Position gate only applies to strategies where first params are x, y, sx, sy
-        position_strategies = {FittingStrategy.STANDARD, FittingStrategy.NOCOLOUR}
+        position_strategies = {FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.NOCOLOUR}
         if strategy in position_strategies:
             if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
                 return (
@@ -340,7 +345,7 @@ class FittingResultProcessor:
         # Stage 2: Amplitude SNR gate (Wald t-statistic, replaces MIN_PHOTON + MAX_CHI_SQUARED)
         # Uses sqrt-space pfit[7:10] and chi_sqr-scaled pcov — must run BEFORE squaring.
         # High chi_sqr inflates pcov → reduces z (automatically conservative for poor fits).
-        if strategy == FittingStrategy.STANDARD:
+        if strategy in _standard_like:
             amplitude_snr = FittingResultProcessor._compute_amplitude_snr(pfit, pcov)
             if amplitude_snr < FittingConstants.AMPLITUDE_SNR_THRESHOLD:
                 return (
@@ -350,7 +355,7 @@ class FittingResultProcessor:
 
         # Square amplitude and background parameters for storage
         # leastsq returns optimised square-root values, but we store squared values as photon counts
-        if strategy == FittingStrategy.STANDARD:
+        if strategy in _standard_like:
             pfit_processed[4:10] = np.square(pfit_processed[4:10])
         elif strategy == FittingStrategy.NOCOLOUR:
             if len(pfit_processed) >= 6:
@@ -576,6 +581,124 @@ class StandardIGFittingProcessor(StandardFittingProcessor):
 
         # relative_coords=(0,0): xc/yc in the seed are already local ROI coords
         return self._perform_wls_fit(punctum, initial_guess, masks, weights, (0.0, 0.0))
+
+
+class StandardIterFittingProcessor(StandardFittingProcessor):
+    """STANDARD fitting with two IRLS model-weight update iterations.
+
+    Workflow:
+    - Stage 1: Fit with smoothing-based weights (same as STANDARD — basin finding).
+    - Stage 2: Recompute weights from Stage 1 model, refit from warm start.
+    - Stage 3: Recompute weights from Stage 2 model, refit from warm start.
+
+    The model-based weight formula matches production IOFunctions.generate_weights:
+        w = 1 / (max(model_pe, 0) + 1 + readnoise_e²)
+
+    The smoothing-based Stage 1 weights over-estimate variance at PSF flank pixels
+    (Gaussian smoothing spreads signal outward), causing chi² < 1 at high photon
+    counts and a systematic upward bias in fitted sigma.  Replacing them with
+    model-derived weights removes this bias and converges chi² closer to 1.
+
+    Args:
+        readnoise: Camera read noise in electrons (default 1.5 e-).
+    """
+
+    def __init__(self, readnoise: float = 1.5):
+        self.readnoise = readnoise
+
+    def _model_based_weights(
+        self, pfit: np.ndarray, masks: np.ndarray, size: int
+    ) -> np.ndarray:
+        """Compute per-pixel weights from the current model estimate."""
+        x_arr = np.arange(size, dtype=np.float32)
+        buf = np.zeros((size, size), dtype=np.float32)
+        model = gaussoptfuncs.WLS_model_nobounds(
+            pfit.astype(np.float32), masks, x_arr, buf
+        )
+        e = np.maximum(model, 0).astype(np.float32) + 1.0 + float(self.readnoise) ** 2
+        return (1.0 / e).astype(np.float32)
+
+    def _leastsq_step(
+        self,
+        x0: np.ndarray,
+        data: np.ndarray,
+        masks: np.ndarray,
+        weights: np.ndarray,
+        size: int,
+    ):
+        """Single Levenberg-Marquardt step; returns (pfit, pcov, ok)."""
+        pfit, pcov, _, _, ok = leastsq(
+            gaussoptfuncs.WLS_chi_nobounds,
+            x0=x0,
+            args=(data, masks, weights, size, size * size),
+            full_output=True,
+            ftol=FittingConstants.DEFAULT_FTOL,
+            xtol=FittingConstants.DEFAULT_XTOL,
+        )
+        return pfit, pcov, ok
+
+    def fit_single_punctum(
+        self,
+        punctum: np.ndarray,
+        smoothed_punctum: np.ndarray,
+        weights: np.ndarray,
+        relative_coords,
+        masks: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if masks is None:
+            raise FittingValidationError("Standard-ITER fitting requires masks")
+
+        dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD_ITER]
+        nan_result = (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+
+        if np.max(smoothed_punctum) <= 0:
+            return nan_result
+
+        size = int(punctum.shape[0])
+        ravelsize = size * size
+
+        try:
+            ig = self._generate_initial_guess(smoothed_punctum, punctum, masks)
+
+            # Stage 1: smoothing weights (passed in from SR_Functions / simulation)
+            pfit1, _, ok1 = self._leastsq_step(ig, punctum, masks, weights, size)
+            if ok1 not in (1, 2, 3, 4):
+                return nan_result
+
+            # Stage 2: model weights from Stage 1 fit
+            w2 = self._model_based_weights(pfit1, masks, size)
+            pfit2, _, ok2 = self._leastsq_step(pfit1, punctum, masks, w2, size)
+            if ok2 not in (1, 2, 3, 4):
+                return nan_result
+
+            # Stage 3: model weights from Stage 2 fit (final)
+            w3 = self._model_based_weights(pfit2, masks, size)
+            pfit3, pcov3, ok3 = self._leastsq_step(pfit2, punctum, masks, w3, size)
+            if ok3 not in (1, 2, 3, 4):
+                return nan_result
+
+            # Chi² and covariance from Stage 3 weights
+            residuals = gaussoptfuncs.WLS_chi_nobounds(
+                pfit3.astype(np.float32), punctum, masks, w3, size, ravelsize
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, ravelsize, len(ig)
+            )
+            pcov3 = FittingResultProcessor.process_covariance(
+                pcov3, chisqr, ravelsize, len(ig)
+            )
+
+            return FittingResultProcessor.process_fit_results(
+                pfit3, pcov3, size, relative_coords, FittingStrategy.STANDARD_ITER, chisqr
+            )
+
+        except Exception as e:
+            import traceback
+            logging.warning(f"STANDARD_ITER fitting failed: {e}")
+            logging.warning(
+                f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}"
+            )
+            return nan_result
 
 
 class NoColourFittingProcessor(FittingProcessor):
@@ -1085,18 +1208,21 @@ class Image_Analysis_Functions:
         ```
     """
 
-    def __init__(self, helper_functions=None):
+    def __init__(self, helper_functions=None, readnoise: float = 1.5):
         """Initialize the Image_Analysis_Functions class.
 
         Sets up strategy processors and loads required dependencies.
 
         Args:
             helper_functions: Helper functions instance (default: creates new instance)
+            readnoise: Camera read noise in electrons, used by STANDARD_ITER for
+                model-based weight updates (default 1.5 e-).
         """
         # Initialize strategy processors
         self.processors = {
             FittingStrategy.STANDARD: StandardFittingProcessor(),
             FittingStrategy.STANDARD_IG: StandardIGFittingProcessor(),
+            FittingStrategy.STANDARD_ITER: StandardIterFittingProcessor(readnoise=readnoise),
             FittingStrategy.NOCOLOUR: NoColourFittingProcessor(),
             FittingStrategy.JUSTCOLOUR: JustColourFittingProcessor(),
             FittingStrategy.RAWCOLOUR: RawColourFittingProcessor(),

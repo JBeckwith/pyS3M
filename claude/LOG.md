@@ -1,8 +1,128 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** March 21, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - Nile Red analysis / paper writing
+**Last Updated:** March 30, 2026
+**Status:** 🟢 **ACTIVE DEVELOPMENT** - FRET post-hoc analysis / diffusion-binding simulation
+
+---
+
+## March 30, 2026 — Tasks Completed ✅
+
+### Three-Way FRET Simulation ✅
+- Both notebooks (`3way_FRET_simulation_no488.ipynb`, `..._with488.ipynb`) run end-to-end
+- Ternary plots verified as physically sensible
+- Summary table reviewed; best practical triad per filter set identified
+
+### Figure 1 — Maximum Read Noise ✅
+- Simulation complete: 25 log-spaced read noise points × 10k bootstraps
+- Plots checked; fit yield / σ_xy / colour std vs read noise finalised
+- Notebook: `notebooks/figures/Figure1_maximum_readnoise.ipynb`
+
+### Nile Red / Alpha-Synuclein Analysis ✅
+- `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` run
+- Head-to-head comparison complete: direct Bayer fit vs DEMOSAIC / DEMOSAIC_FAST / DEMOSAIC_IG
+- Results saved to `…/Simulation/Demosaic_vs_DirectFit/`
+
+---
+
+## Session: March 30, 2026 — IRLS Diagnostics + STANDARD_ITER Implementation ✅
+
+### Summary
+
+Investigated the root cause of precision levelling off at high photon counts for the
+STANDARD (direct Bayer fit) strategy. Diagnosed unit-mismatch and weighting-bias
+issues in an IRLS Monte Carlo test, confirmed the production weight formula, and
+implemented a new `STANDARD_ITER` fitting strategy using two model-weight update
+iterations (IRLS) on top of the existing standard fitter.
+
+### Root Cause Analysis
+
+**Why STANDARD precision levels off at high photons:**
+- At high photon counts the G-channel dominates; small systematic errors in how
+  G-pixel variance is modelled accumulate and limit achievable precision.
+- The production weight formula `w = 1/(max(signal_pe,0) + 1 + readnoise²)` uses
+  initial smoothing weights that can mis-represent the true error landscape when
+  the PSF model is far from truth on the first LM call.
+- IRLS (updating weights from the model fit rather than raw data) corrects this.
+
+### Diagnostics: `Debug_Sigma.ipynb` IRLS Monte Carlo
+
+Added a Monte Carlo test cell (`0yozyghafm1f`) and visualisation cell (`at0qud51f2`)
+to `notebooks/figures/SI/Debug_Sigma.ipynb`:
+
+**Three stages tested:**
+- S1: smoothing weights (Gaussian blur) — initial basin finder
+- S2: model-based weights after S1 (one IRLS iteration)
+- S3: model-based weights after S2 (second IRLS iteration)
+
+**Errors diagnosed and fixed:**
+1. **Dict passed to numba JIT** — `get_masks()` returns a Python dict; numba
+   `WLS_model_nobounds` needs `float32 (H,W,3)` ndarray.
+   Fix: `np.dstack([_mask_dict[k] for k in _mask_dict.keys()]).astype(np.float32)`
+2. **Float32 used as boolean index** — `initial_guess` fancy-indexing requires bool.
+   Fix: created `masks_bool = masks_f32.astype(bool)` alongside `masks_f32`.
+3. **Unit mismatch (gain=2 in electron-space simulation)** — caused chi² ~1.5 in S2.
+   Fix: set `gain_val = 1.0`; simulation is already in photoelectron space; gain is
+   consumed upstream in the ADU→pe conversion and must not appear again in the
+   weight formula.
+4. **Data-based weights inflate chi²** — using raw data for weights correlates weight
+   with residual (downward Poisson fluctuations → high weight + large residual).
+   Removed S2b (data-weight variant); confirmed model-based weights (S2a/S3) correct.
+
+**Confirmed production weight formula:**
+- `w = 1/(max(signal_pe,0) + 1 + readnoise²)` — all in photoelectron space, no gain
+- Verified in `IOFunctions.generate_weights` and `_compute_error_maps`
+- `Demosaicing_vs_Fullfit.ipynb` already used the correct formula
+
+**Observed chi² behaviour:**
+- S2 / S3 converge to ~0.9 (slightly below 1). Cause: the `+1` regulariser
+  overestimates background pixel variance, biasing chi² downward. Minor and acceptable.
+- S3 gives a small improvement over S2 (e.g., 1.628 → 1.620 at high photons under
+  the old gain=2 formula; ~0.9 after fix). Confirms a second iteration adds value.
+
+### New Strategy: `STANDARD_ITER`
+
+Three-stage IRLS variant of the standard direct Bayer fitter:
+1. Stage 1 — smoothing weights (basin finding, identical to STANDARD)
+2. Stage 2 — model-based weights computed from Stage-1 fit; warm-start LM
+3. Stage 3 — model-based weights computed from Stage-2 fit; warm-start LM (final)
+Chi² reported from Stage-3 weights.
+
+**Files modified:**
+
+#### `src/ImageAnalysisFunctions.py`
+- Added `STANDARD_ITER = "standard_iter"` to `FittingStrategy` enum
+- Added `STANDARD_ITER` to `PARAM_DIMENSIONS`: `{"fit": 12, "error": 10}`
+- Added `STANDARD_ITER` to `colour_strategies` set in `_validate_parameters`
+- Updated `process_fit_results`: all STANDARD-like branches now use
+  `_standard_like = {FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER}`
+- Added `StandardIterFittingProcessor(StandardFittingProcessor)` class:
+  - `_model_based_weights(pfit, masks, size)` — calls `WLS_model_nobounds`,
+    returns `1/(max(model,0) + 1 + readnoise²)` as float32
+  - `_leastsq_step(x0, data, masks, weights, size)` — thin wrapper on `leastsq`
+  - `fit_single_punctum(...)` — 3-stage IRLS loop
+- Updated `FittingAnalyzer.__init__` to accept `readnoise: float = 1.5` and
+  register `StandardIterFittingProcessor(readnoise=readnoise)`
+
+#### `src/Multicolour_Simulation_Functions.py`
+- Added `STANDARD_ITER = "standard_iter"` to local `FittingStrategy` enum
+- Added `_fit_standard_iter` method (mirrors `_fit_standard`; propagates
+  camera `readnoise` to the processor before fitting)
+- Added dispatch in `_perform_fitting`:
+  `elif strategy == FittingStrategy.STANDARD_ITER: return self._fit_standard_iter(...)`
+- Updated `analysis_save_params` and ground-truth branches to include
+  `FittingStrategy.STANDARD_ITER` alongside `FittingStrategy.STANDARD`
+
+#### `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb`
+- Simulation run cell: added `(FittingStrategy.STANDARD_ITER, "standard_iter_")`
+  to strategies list
+- Results loading cell:
+  - `strategy_labels = ["Direct fit", "Direct fit (ITER)", "Demosaic (fast)"]`
+  - `strategy_flags  = ["standard_", "standard_iter_", "demosaic_fast_"]`
+
+### Performance Note
+`STANDARD_ITER` is ~3× slower than `STANDARD` (three LM calls per spot vs one).
+Benchmark and decision to switch all analyses pending notebook run.
 
 ---
 

@@ -47,7 +47,7 @@ def LRtest(datain):
 
 """
 Find change points
-Yan Jiang 09/09/07
+Yan Jiang 09/09/07Im
 Algorithm based on Watkins and Yang, J. Phys. Chem. B, Vol. 109, No. 1,
 617-628(2005) and Boudjellaba et al, Commun. Statist. - Theory Meth., 30(3),407-434(2001)
 Edited on 10/22/07 by Yan to include comments and make the change points storing vector and the name of several variables more reasonable.

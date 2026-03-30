@@ -38,6 +38,7 @@ class FittingStrategy(Enum):
     """
 
     STANDARD = "standard"
+    STANDARD_ITER = "standard_iter"  # STANDARD with 2 IRLS model-weight iterations
     DEMOSAIC = "demosaic"
     DEMOSAIC_FAST = "demosaic_fast"
     DEMOSAIC_IG = "demosaic_ig"
@@ -673,6 +674,10 @@ class MultiC_Sim_Funcs_Refactored:
             return self._fit_standard(
                 photoelectron_data, smoothed_data, weights_map, camera_params, config
             )
+        elif strategy == FittingStrategy.STANDARD_ITER:
+            return self._fit_standard_iter(
+                photoelectron_data, smoothed_data, weights_map, camera_params, config
+            )
         elif strategy in (FittingStrategy.DEMOSAIC_IG, FittingStrategy.STANDARD_IG):
             return self._fit_demosaic_ig(
                 photoelectron_data,
@@ -826,6 +831,91 @@ class MultiC_Sim_Funcs_Refactored:
             fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
 
         # Normalize background errors by total background photons (same denominator)
+        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
+            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
+
+        return fit_results
+
+    def _fit_standard_iter(
+        self,
+        photoelectron_data: np.ndarray,
+        smoothed_data: np.ndarray,
+        weights_map: np.ndarray,
+        camera_params: CameraParameters,
+        config: SimulationConfig,
+    ) -> pd.DataFrame:
+        """STANDARD_ITER fitting: two IRLS model-weight update iterations.
+
+        Identical to _fit_standard but uses STANDARD_ITER strategy, which performs
+        two additional Levenberg-Marquardt passes with model-derived weights after
+        the initial smoothing-weight fit.  The camera readnoise is propagated to the
+        processor so that model weights use the correct variance formula.
+        """
+        # Propagate camera readnoise to the STANDARD_ITER processor
+        readnoise_scalar = float(np.median(camera_params.readnoise))
+        self.image_analysis.processors[IAF_FittingStrategy.STANDARD_ITER].readnoise = readnoise_scalar
+
+        masks_3d = np.dstack(
+            [camera_params.masks[x] for x in camera_params.masks.keys()]
+        )
+
+        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        relative_coords, planes = [], []
+
+        for frame in range(config.n_bootstrap):
+            puncta_tofit.append(photoelectron_data[frame, :, :])
+            smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
+            masks_tofit.append(masks_3d)
+            weights_tofit.append(weights_map[frame, :, :])
+            relative_coords.append((0, 0))
+            planes.append(frame)
+
+        del photoelectron_data, smoothed_data, weights_map
+        gc.collect()
+
+        fit_results, fit_errors = self.image_analysis.fit_puncta_parallel_method(
+            puncta_tofit,
+            smoothed_puncta_tofit,
+            weights_tofit,
+            relative_coords,
+            planes,
+            IAF_FittingStrategy.STANDARD_ITER,
+            masks=masks_tofit,
+        )
+
+        columns = [
+            "xc", "yc", "s_x", "s_y",
+            "bg_B", "bg_G", "bg_R",
+            "A_B", "A_G", "A_R",
+            "chi_sqr", "frame",
+        ]
+        error_columns = [
+            "xc_err", "yc_err", "s_x_err", "s_y_err",
+            "bg_B_err", "bg_G_err", "bg_R_err",
+            "A_B_err", "A_G_err", "A_R_err",
+        ]
+
+        fit_results = pd.DataFrame(fit_results, columns=columns).sort_values(by=["frame"])
+        fit_errors_df = pd.DataFrame(fit_errors, columns=error_columns)
+        fit_results = pd.concat([fit_results.reset_index(drop=True), fit_errors_df], axis=1)
+
+        # Sqrt transformation error correction (same as _fit_standard)
+        for param, param_err in [("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
+                                  ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err")]:
+            mask = fit_results[param] > 0
+            fit_results.loc[mask, param_err] = (
+                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
+            )
+
+        fit_results["photons"] = fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
+        fit_results["background_photons"] = fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
+
+        for cparam in ["A_R", "A_G", "A_B"]:
+            fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
+        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
+            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["photons"]
+        for cparam in ["bg_R", "bg_G", "bg_B"]:
+            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
         for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
             fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
 
@@ -1873,7 +1963,7 @@ class MultiC_Sim_Funcs_Refactored:
         x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
 
         # Define analysis parameters based on strategy
-        if strategy == FittingStrategy.STANDARD:
+        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
             analysis_save_params = [
                 "xc",
                 "yc",
@@ -1921,7 +2011,7 @@ class MultiC_Sim_Funcs_Refactored:
         # Save ground truth positions for standard method
         # CRITICAL: Always save ground truth to ensure it matches the x0, y0 positions used in simulation
         # The x0, y0 are randomly generated each time this function runs, so the file must be updated
-        if strategy == FittingStrategy.STANDARD:
+        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
             X0Y0 = {"x0": x0, "y0": y0}
             groundtruth_path = os.path.join(
                 save_folder,
