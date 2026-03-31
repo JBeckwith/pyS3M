@@ -1,7 +1,7 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** March 30, 2026
+**Last Updated:** March 31, 2026
 **Status:** 🟢 **ACTIVE DEVELOPMENT** - FRET post-hoc analysis / diffusion-binding simulation
 
 ---
@@ -22,6 +22,104 @@
 - `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` run
 - Head-to-head comparison complete: direct Bayer fit vs DEMOSAIC / DEMOSAIC_FAST / DEMOSAIC_IG
 - Results saved to `…/Simulation/Demosaic_vs_DirectFit/`
+
+---
+
+## Session: March 31, 2026 — Elliptical Gaussian Fitting + Aggregate Analysis Improvements ✅
+
+### Summary
+
+Two main work streams: (1) added a full elliptical Gaussian fitting path for
+single-molecule tracking data (motion blur), implemented minimally without touching
+the existing SMLM pipeline; (2) improved the α-synuclein aggregate shape analysis
+with precision-corrected covariance, convex hull area, photon-weighted wavelength
+stats, and correct eccentricity gating.
+
+Also added a visualisation cell to `Debug_Sigma.ipynb` for the S1 vs S4 big Monte
+Carlo, and documented the validated STANDARD_DATA strategy in TODO.md.
+
+---
+
+### 1. Elliptical Gaussian Fitting (tracking data)
+
+**Motivation:** Tracking localisations can have motion blur producing elongated PSFs
+that a circular Gaussian mischaracterises. An 11-parameter rotated elliptical model
+is now available behind a `use_elliptical=True` flag without disturbing `fit_SM_data`.
+
+#### `src/gaussoptfuncs.py` — 6 new Numba JIT functions appended
+- `gaussian_unscaled_model_elliptical(array_tofill, x, size, x0, y0, sigma_x, sigma_y, theta)`
+  — 1/(2π σx σy) normalised elliptical Gaussian; rotation via ir/jr projection
+- `WLS_model_elliptical_nobounds(params, masks, x, gauss_2d)` — 11-param model
+  (sqrt-space bg/amplitudes); channels filled via mask lookup
+- `WLS_chi_elliptical_nobounds(params, data, masks, weights, size, ravelsize)` — residual vector for `leastsq`
+- `_initial_theta(smoothed_data, x0, y0, size)` — inertia tensor → principal axis angle
+- `initial_guess_elliptical(smoothed_data, raw_data, masks)` — returns 11-tuple including θ
+- Verified: at θ=0, elliptical model is **bit-for-bit identical** to separable model
+
+#### `src/Constants.py` — `ResultColumns` extended
+- `ELLIPTICAL_FIT_PARAMS`: 13 columns (adds `theta` after `s_y`)
+- `ELLIPTICAL_FIT_ERRORS`: 11 columns (adds `theta_err`)
+- `get_elliptical_columns()` classmethod
+
+#### `src/ImageAnalysisFunctions.py` — 6 changes
+- `FittingStrategy.ELLIPTICAL = "elliptical"` added to enum
+- `PARAM_DIMENSIONS[ELLIPTICAL] = {"fit": 13, "error": 11}`
+- `ELLIPTICAL` added to `colour_strategies` set
+- `_compute_amplitude_snr_elliptical` — SNR gate at pfit[8:11] / pcov[8:11] (shifted +1 vs STANDARD)
+- `process_fit_results` ELLIPTICAL branch: reorders pfit, squares bg+amplitude indices [5:11], position gate on first 4 params
+- `EllipticalFittingProcessor` class added and registered in processor dict
+
+#### `src/SR_Functions.py` — new `fit_tracking_data` method
+- Mirrors `fit_SM_data` but parameterised on strategy
+- `use_elliptical=True` (default) → `FittingStrategy.ELLIPTICAL` + `get_elliptical_columns()`
+- `use_elliptical=False` → `FittingStrategy.STANDARD` + `get_all_columns()`
+- `fit_SM_data` left **completely untouched**
+
+---
+
+### 2. α-Synuclein Aggregate Analysis (`20260211_asyn_NR_PostAnalysis.ipynb`)
+
+**Problems addressed:**
+- Eccentricity piled up at 1.0 for n=2 clusters (rank-1 covariance → λ_min=0)
+- No photon-weighted wavelength stats
+- No parameter-free area estimate
+
+**Changes to `compute_aggregate_ellipticity`:**
+
+- **`min_locs_for_shape=10`**: shape metrics (eccentricity, covariance ellipse) only
+  computed for clusters with ≥10 localisations; eliminates artefactual ecc=1 from n=2
+- **Precision-corrected covariance**: `Σ_corr = Σ_raw − diag(⟨σx²⟩, ⟨σy²⟩)` in nm²;
+  diagonal clamped ≥ 0; eigenvalues ≥ 0
+- **`area_ellipse_nm2`**: π × major_corr × minor_corr (2σ semi-axes)
+- **`aspect_ratio`**: major/minor from corrected covariance
+- **`_convex_hull_area_nm2`**: `scipy.spatial.ConvexHull`; `hull.volume` = area in 2D;
+  NaN for n<3 or collinear
+- **`area_hull_nm2`**: convex hull area column added
+- **Photon-weighted mean_wl / std_wl**: `w = (A_R+A_G+A_B) / Σ(A_R+A_G+A_B)` per loc
+
+**Three area estimates now available** (lookup table cell `pol9ybychjg` updated):
+- `area_nm2` — image thresholding artefact (rendering-parameter-dependent)
+- `area_hull_nm2` — convex hull (parameter-free lower bound)
+- `area_ellipse_nm2` — precision-corrected ellipse (physically meaningful; NaN if unresolved)
+
+**Clarified:** clustering uses `segment_locs_by_rendered_image` (SR image thresholding), **not DBSCAN**.
+
+---
+
+### 3. S4 Visualisation (`Debug_Sigma.ipynb`)
+
+Added cell `ehmpwwk5aen` after the big Monte Carlo cell: 2×3 log-log plot of
+std(aG), std(σx), median χ², std(aR), std(aB), corr(σx, aG) vs photons for S1 and S4.
+Includes `loglog_slope()` helper splitting lo/hi photon regimes to detect levelling-off
+and a printed summary table of slope estimates.
+
+---
+
+### 4. TODO.md — STANDARD_DATA strategy documented
+
+Replaced "Switch All Analyses to STANDARD_ITER" with a full specification of the
+3-stage STANDARD_DATA strategy (smooth → model-weights → raw data weights) validated
+in the Monte Carlo. Implementation deferred.
 
 ---
 

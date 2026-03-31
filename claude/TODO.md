@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-31
+**Last Updated:** 2026-03-31 (end of session)
 
 **Note:** For completed work, see LOG.md
 
