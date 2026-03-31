@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-30
+**Last Updated:** 2026-03-31
 
 **Note:** For completed work, see LOG.md
 
@@ -156,22 +156,26 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 
 ## Pending Tasks
 
-### Priority 1: Switch All Analyses to STANDARD_ITER
+### Priority 1: Implement STANDARD_DATA Strategy (smooth → model → raw data weights)
 
-**Status:** 📋 PENDING — awaiting `Demosaicing_vs_Fullfit.ipynb` benchmark results
-**Depends on:** STANDARD_ITER simulation run completing and showing improvement over STANDARD
+**Status:** 📋 PENDING — strategy validated in `Debug_Sigma.ipynb` big Monte Carlo (2026-03-31)
+**Validated:** S4 (smooth → model-weights → raw data weights, warm-started from S2) improves
+G-channel amplitude precision log-log slope and brings median χ² closer to 1 vs STANDARD_ITER.
 
-Once the `Direct fit (ITER)` results are confirmed to improve G-channel colour precision
-and/or position precision vs `Direct fit` at high photon counts, consider switching
-every analysis that currently uses `FittingStrategy.STANDARD` to `FittingStrategy.STANDARD_ITER`:
+**Strategy:** Replace the current STANDARD_ITER (smooth → model → model²) with a new
+`STANDARD_DATA` (or `S4`) strategy:
+1. **Stage 1:** Fit with smoothed-image weights (existing S1)
+2. **Stage 2:** Fit with model-based weights from S1 pfit (warm start to correct amplitude bias)
+3. **Stage 3 (final):** Fit with raw data weights `w = 1/(max(data,0)+1+rn²)`, warm-started from S2 pfit
 
-- [ ] `SR_Functions.py` default fitting strategy
-- [ ] `Multicolour_Simulation_Functions._fit_standard` call sites (or retire in favour of `_fit_standard_iter`)
-- [ ] Any existing analysis notebooks that call `test_simulation_method` with `FittingStrategy.STANDARD`
-- [ ] Re-run Figure 1 (`Figure1_maximum_readnoise.ipynb`) with STANDARD_ITER to check if the read-noise performance envelope changes
+The data weights are unbiased in expectation: `E[1/(data+1+rn²)] ≈ 1/(true+1+rn²)`, breaking the
+double-inflation coupling that plagues pure model weights.
 
-Note: STANDARD_ITER is ~3× slower than STANDARD (three LM calls per spot). Confirm
-this is acceptable for real-data throughput before switching production pipelines.
+**Implementation sites:**
+- [ ] `src/ImageAnalysisFunctions.py` — add `_fit_standard_data` method and `FittingStrategy.STANDARD_DATA` enum value
+- [ ] `src/Multicolour_Simulation_Functions.py` — add corresponding simulation path
+- [ ] Benchmark in `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb`
+- [ ] If confirmed better than STANDARD_ITER: switch `SR_Functions.py` default and all analysis notebooks
 
 ---
 

@@ -107,6 +107,38 @@ class ResultColumns:
         "A_R_err",
     ]
 
+    # Elliptical fit parameter columns (adds theta to STANDARD layout)
+    ELLIPTICAL_FIT_PARAMS = [
+        "xc",     # X center coordinate
+        "yc",     # Y center coordinate
+        "s_x",    # X sigma (width, rotated)
+        "s_y",    # Y sigma (width, rotated)
+        "theta",  # Rotation angle (radians)
+        "bg_B",   # Background (Blue channel)
+        "bg_G",   # Background (Green channel)
+        "bg_R",   # Background (Red channel)
+        "A_B",    # Amplitude (Blue channel)
+        "A_G",    # Amplitude (Green channel)
+        "A_R",    # Amplitude (Red channel)
+        "chi_sqr",  # Chi-squared goodness of fit
+        "frame",    # Frame number
+    ]
+
+    # Elliptical fit error columns
+    ELLIPTICAL_FIT_ERRORS = [
+        "xc_err",
+        "yc_err",
+        "s_x_err",
+        "s_y_err",
+        "theta_err",
+        "bg_B_err",
+        "bg_G_err",
+        "bg_R_err",
+        "A_B_err",
+        "A_G_err",
+        "A_R_err",
+    ]
+
     @classmethod
     def get_all_columns(cls):
         """Get all column names (parameters + errors).
@@ -115,3 +147,12 @@ class ResultColumns:
             list: Combined list of all parameter and error column names
         """
         return cls.STANDARD_FIT_PARAMS + cls.STANDARD_FIT_ERRORS
+
+    @classmethod
+    def get_elliptical_columns(cls):
+        """Get all column names for elliptical fitting (parameters + errors).
+
+        Returns:
+            list: Combined list of elliptical parameter and error column names
+        """
+        return cls.ELLIPTICAL_FIT_PARAMS + cls.ELLIPTICAL_FIT_ERRORS

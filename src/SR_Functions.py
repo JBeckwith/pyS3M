@@ -1924,6 +1924,246 @@ class SuperRes_Functions:
             gc.collect()
         return
 
+    def fit_tracking_data(
+        self,
+        image_folder,
+        smoothing_function,
+        gain_map,
+        offset_map,
+        rqe,
+        read_noise,
+        variance,
+        pfa=1e-3,
+        ROI_size=16,
+        peak_wavelength=0.638,
+        NA=1.49,
+        pixel_size=0.069,
+        sigma: float = 1.5,
+        fraction_true: float = 0.2,
+        image_type=".tif",
+        use_variance_aware_demosaic: bool = True,
+        use_elliptical: bool = True,
+    ):
+        """Single-molecule tracking data fitting function.
+
+        Identical pipeline to fit_SM_data but fits each localisation with an
+        11-parameter rotated elliptical Gaussian model (when use_elliptical=True)
+        to account for motion-blur-induced PSF elongation in tracking data.
+
+        The fitted angle ``theta`` (radians) reports the orientation of the major
+        axis of the PSF; its magnitude reflects the instantaneous direction of
+        motion during the camera exposure.
+
+        Args:
+            image_folder (str): Path to folder containing image files.
+            smoothing_function (callable): Function to smooth data.
+            gain_map (np.ndarray): 2D gain map.
+            offset_map (np.ndarray): 2D offset map.
+            rqe (np.ndarray): 2D relative quantum efficiency map.
+            read_noise (np.ndarray): 2D read noise map.
+            variance (np.ndarray): 2D variance map.
+            pfa (float): Probability of false alarm for spot detection (default 1e-3).
+            ROI_size (int): ROI size in pixels (default 16).
+            peak_wavelength (float): Peak emission wavelength in µm (default 0.638).
+            NA (float): Numerical aperture (default 1.49).
+            pixel_size (float): Pixel size in µm (default 0.069).
+            sigma (float): Spot detection sigma parameter (default 1.5).
+            fraction_true (float): Expected fraction of true spots (default 0.2).
+            image_type (str): Image file extension (default ".tif").
+            use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default True).
+            use_elliptical (bool): Use rotated elliptical Gaussian model (default True).
+                Set to False to fall back to the isotropic STANDARD strategy.
+
+        Returns:
+            None. Results written to HDF5 file alongside each input TIFF.
+            Output columns when use_elliptical=True:
+                xc, yc, s_x, s_y, theta, bg_B, bg_G, bg_R, A_B, A_G, A_R,
+                chi_sqr, frame  [+ per-parameter errors]
+        """
+        from ImageAnalysisFunctions import FittingStrategy
+
+        if use_elliptical:
+            strategy = FittingStrategy.ELLIPTICAL
+            result_params = ResultColumns.get_elliptical_columns()
+        else:
+            strategy = FittingStrategy.STANDARD
+            result_params = ResultColumns.get_all_columns()
+
+        image_files = self.helper.file_search(image_folder, image_type, "")
+        start_x, start_y, width, height = self.helper.load_metadata_roi(
+            image_folder, self.io, use_fallback=False
+        )
+
+        masks = self.mask.get_stacked_masks(
+            start_x, start_y, width, height, self.mosaic_unit
+        )
+        cropped_maps = self.helper.crop_calibration_maps(
+            {
+                "gain_map": gain_map,
+                "offset_map": offset_map,
+                "read_noise": read_noise,
+                "rqe": rqe,
+                "variance": variance,
+            },
+            start_x,
+            start_y,
+            width,
+            height,
+        )
+        gain_map = cropped_maps["gain_map"]
+        offset_map = cropped_maps["offset_map"]
+        read_noise = cropped_maps["read_noise"]
+        rqe = cropped_maps["rqe"]
+        variance = cropped_maps["variance"]
+
+        for FOVn, file in enumerate(image_files):
+            fit_savename = file.split(".")[0] + ".h5"
+
+            total_frames = self.io.get_num_pages_in_TIF(file)
+
+            chunk_size = 1000
+            all_puncta_tofit = []
+            all_smoothed_puncta_tofit = []
+            all_masks_tofit = []
+            all_weights_tofit = []
+            all_relative_coords = []
+            all_planes = []
+            all_quality_metrics = []
+
+            print(
+                f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames "
+                f"in chunks of {chunk_size} (strategy: {strategy.value})"
+            )
+
+            for chunk_start in range(0, total_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, total_frames)
+                chunk_frames = list(range(chunk_start, chunk_end))
+
+                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+
+                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
+
+                if raw_data.ndim == 2:
+                    raw_data = raw_data[np.newaxis, :, :]
+
+                image_to_analyse = self._demosaic_image(
+                    raw_data,
+                    use_variance_aware=use_variance_aware_demosaic,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    variance=variance,
+                )
+
+                detected_puncta, quality_metrics = (
+                    self.spot_detection.detect_puncta_in_stack_parallel(
+                        image_to_analyse,
+                        pfa=pfa,
+                        variance=variance,
+                        wavelength=peak_wavelength,
+                        pixel_size=pixel_size,
+                        NA=NA,
+                        sigma=sigma,
+                        fraction_true=fraction_true,
+                        return_quality=True,
+                    )
+                )
+
+                (
+                    chunk_puncta,
+                    chunk_smoothed,
+                    chunk_masks,
+                    chunk_weights,
+                    chunk_coords,
+                    chunk_planes,
+                    filtered_quality_metrics,
+                ) = self._process_detected_puncta_batch(
+                    raw_data,
+                    detected_puncta,
+                    width,
+                    height,
+                    ROI_size,
+                    smoothing_function,
+                    read_noise,
+                    masks,
+                    gain_map=gain_map,
+                    offset_map=offset_map,
+                    rqe=rqe,
+                    frame_offset=chunk_start,
+                    is_multi_frame=True,
+                    quality_metrics=quality_metrics,
+                )
+
+                all_puncta_tofit.extend(chunk_puncta)
+                all_smoothed_puncta_tofit.extend(chunk_smoothed)
+                all_masks_tofit.extend(chunk_masks)
+                all_weights_tofit.extend(chunk_weights)
+                all_relative_coords.extend(chunk_coords)
+                all_planes.extend(chunk_planes)
+                if filtered_quality_metrics is not None:
+                    all_quality_metrics.append(filtered_quality_metrics)
+
+                del raw_data, detected_puncta, quality_metrics, image_to_analyse
+                if "buffer_data" in locals() and buffer_data is not None:
+                    del buffer_data
+                gc.collect()
+
+            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+
+            combined_quality_metrics = {}
+            if len(all_quality_metrics) > 0:
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in quality_dict.keys():
+                            combined_quality_metrics[key] = []
+                        break
+                for quality_dict in all_quality_metrics:
+                    if len(quality_dict) > 0:
+                        for key in combined_quality_metrics.keys():
+                            if key in quality_dict:
+                                combined_quality_metrics[key].append(quality_dict[key])
+                for key in combined_quality_metrics.keys():
+                    if len(combined_quality_metrics[key]) > 0:
+                        combined_quality_metrics[key] = np.concatenate(
+                            combined_quality_metrics[key]
+                        )
+
+            fit_results_array, fit_errors_array = (
+                self.image_analysis.fit_puncta_parallel_method(
+                    all_puncta_tofit,
+                    all_smoothed_puncta_tofit,
+                    all_weights_tofit,
+                    all_relative_coords,
+                    all_planes,
+                    strategy,
+                    masks=all_masks_tofit,
+                )
+            )
+
+            fit_results = self._postprocess_fit_results(
+                fit_results_array,
+                fit_errors_array,
+                result_params,
+                all_planes,
+                width,
+                height,
+                quality_metrics=combined_quality_metrics,
+            )
+
+            self.io._write_h5_database(fit_results, fit_savename, append=False)
+            del (
+                fit_results_array,
+                fit_results,
+                fit_errors_array,
+                all_puncta_tofit,
+                all_smoothed_puncta_tofit,
+                all_masks_tofit,
+                all_weights_tofit,
+                all_relative_coords,
+                all_planes,
+            )
+            gc.collect()
+        return
+
     def _load_frames_for_ever_window(
         self,
         image_files: list,

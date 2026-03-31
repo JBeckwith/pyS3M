@@ -51,6 +51,7 @@ class FittingStrategy(Enum):
     STANDARD = "standard"  # Full colour fitting with all channels
     STANDARD_IG = "standard_ig"  # Full fit on raw Bayer, seeded from demosaiced fit
     STANDARD_ITER = "standard_iter"  # STANDARD with 2 IRLS model-weight iterations
+    ELLIPTICAL = "elliptical"  # Rotated elliptical Gaussian (11 params; for tracking)
     NOCOLOUR = "nocolour"  # No colour information, intensity only
     JUSTCOLOUR = "justcolour"  # Colour channels only, no intensity
     RAWCOLOUR = "rawcolour"  # Raw colour data without processing
@@ -77,6 +78,7 @@ class FittingConstants:
         FittingStrategy.STANDARD: {"fit": 12, "error": 10},
         FittingStrategy.STANDARD_IG: {"fit": 12, "error": 10},
         FittingStrategy.STANDARD_ITER: {"fit": 12, "error": 10},
+        FittingStrategy.ELLIPTICAL: {"fit": 13, "error": 11},
         FittingStrategy.NOCOLOUR: {"fit": 8, "error": 6},
         FittingStrategy.JUSTCOLOUR: {"fit": 4, "error": 2},
         FittingStrategy.RAWCOLOUR: {"fit": 8, "error": 6},
@@ -138,6 +140,7 @@ class FittingParameters:
         colour_strategies = {
             FittingStrategy.STANDARD,
             FittingStrategy.STANDARD_ITER,
+            FittingStrategy.ELLIPTICAL,
             FittingStrategy.JUSTCOLOUR,
             FittingStrategy.RAWCOLOUR,
             FittingStrategy.POSTHENCOLOUR,
@@ -272,6 +275,20 @@ class FittingResultProcessor:
         return float(np.sum(np.abs(pfit[7:10])) / np.sqrt(np.sum(variances)))
 
     @staticmethod
+    def _compute_amplitude_snr_elliptical(pfit: np.ndarray, pcov: np.ndarray) -> float:
+        """Wald amplitude SNR for the elliptical model (amplitudes at indices 8–10).
+
+        Same logic as _compute_amplitude_snr but offset by 1 due to the extra
+        theta parameter at index 4 in the 11-parameter elliptical vector.
+        """
+        if not isinstance(pcov, np.ndarray):
+            return 0.0
+        variances = np.diag(pcov)[8:11]
+        if np.any(variances <= 0):
+            return 0.0
+        return float(np.sum(np.abs(pfit[8:11])) / np.sqrt(np.sum(variances)))
+
+    @staticmethod
     def process_fit_results(
         pfit: np.ndarray,
         pcov: np.ndarray,
@@ -321,12 +338,33 @@ class FittingResultProcessor:
                     pfit[9],  # A_B, A_G, A_R
                 ]
             )
+        elif strategy == FittingStrategy.ELLIPTICAL:
+            # pfit: [x0, y0, sigma_x, sigma_y, theta, √bg_B, √bg_G, √bg_R, √A_B, √A_G, √A_R]
+            # output: [xc, yc, s_x, s_y, theta, bg_B, bg_G, bg_R, A_B, A_G, A_R]
+            pfit_processed = np.array(
+                [
+                    pfit[0],
+                    pfit[1],
+                    pfit[3],
+                    pfit[2],   # x, y, s_x (col sigma), s_y (row sigma)
+                    pfit[4],   # theta
+                    pfit[5],
+                    pfit[6],
+                    pfit[7],   # bg_B, bg_G, bg_R
+                    pfit[8],
+                    pfit[9],
+                    pfit[10],  # A_B, A_G, A_R
+                ]
+            )
         else:
             # For other strategies, use as-is for now
             pfit_processed = pfit.copy()
 
         # Position gate only applies to strategies where first params are x, y, sx, sy
-        position_strategies = {FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.NOCOLOUR}
+        position_strategies = {
+            FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER,
+            FittingStrategy.ELLIPTICAL, FittingStrategy.NOCOLOUR,
+        }
         if strategy in position_strategies:
             if np.any(pfit_processed[:4] < 0) | np.any(pfit_processed[:4] > size):
                 return (
@@ -352,11 +390,22 @@ class FittingResultProcessor:
                     np.full(len(pfit_processed), np.nan),
                     np.full(len(pfit_processed), np.nan),
                 )
+        elif strategy == FittingStrategy.ELLIPTICAL:
+            # Amplitudes are at indices 8:11 in the 11-param elliptical vector
+            amplitude_snr = FittingResultProcessor._compute_amplitude_snr_elliptical(pfit, pcov)
+            if amplitude_snr < FittingConstants.AMPLITUDE_SNR_THRESHOLD:
+                return (
+                    np.full(len(pfit_processed), np.nan),
+                    np.full(len(pfit_processed), np.nan),
+                )
 
         # Square amplitude and background parameters for storage
         # leastsq returns optimised square-root values, but we store squared values as photon counts
         if strategy in _standard_like:
             pfit_processed[4:10] = np.square(pfit_processed[4:10])
+        elif strategy == FittingStrategy.ELLIPTICAL:
+            # theta is at index 4 — do NOT square it; bg/A are at indices 5:11
+            pfit_processed[5:11] = np.square(pfit_processed[5:11])
         elif strategy == FittingStrategy.NOCOLOUR:
             if len(pfit_processed) >= 6:
                 pfit_processed[4:6] = np.square(pfit_processed[4:6])
@@ -699,6 +748,89 @@ class StandardIterFittingProcessor(StandardFittingProcessor):
                 f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}"
             )
             return nan_result
+
+
+class EllipticalFittingProcessor(FittingProcessor):
+    """Processor for rotated elliptical Gaussian fitting.
+
+    Uses an 11-parameter model:
+        [x0, y0, sigma_x, sigma_y, theta,
+         sqrt(bg_B), sqrt(bg_G), sqrt(bg_R),
+         sqrt(A_B),  sqrt(A_G),  sqrt(A_R)]
+
+    Designed for tracking data where motion blur elongates the PSF.
+    The rotation angle theta (radians) is estimated from image second moments
+    and freely optimised by the fitter.
+    """
+
+    def fit_single_punctum(
+        self,
+        punctum: np.ndarray,
+        smoothed_punctum: np.ndarray,
+        weights: np.ndarray,
+        relative_coords: List[float],
+        masks: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if masks is None:
+            raise FittingValidationError("Elliptical fitting requires masks")
+
+        if np.max(smoothed_punctum) <= 0:
+            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.ELLIPTICAL]
+            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+
+        ig = gaussoptfuncs.initial_guess_elliptical(
+            smoothed_punctum, punctum, masks
+        )
+        return self._perform_elliptical_fit(
+            punctum, ig, masks, weights, relative_coords
+        )
+
+    def _perform_elliptical_fit(
+        self,
+        data: np.ndarray,
+        initial_guess: np.ndarray,
+        masks: np.ndarray,
+        weights: np.ndarray,
+        relative_coords: List[float],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        size = int(data.shape[0])
+        ravelsize = size * size
+        dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.ELLIPTICAL]
+
+        try:
+            pfit, pcov, _, _, success = leastsq(
+                gaussoptfuncs.WLS_chi_elliptical_nobounds,
+                x0=initial_guess,
+                args=(data, masks, weights, size, ravelsize),
+                full_output=True,
+                ftol=FittingConstants.DEFAULT_FTOL,
+                xtol=FittingConstants.DEFAULT_XTOL,
+            )
+
+            if success not in np.array([1, 2, 3, 4]):
+                return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+
+            residuals = gaussoptfuncs.WLS_chi_elliptical_nobounds(
+                pfit, data, masks, weights, size, ravelsize
+            )
+            chisqr = FittingResultProcessor.calculate_reduced_chisquared(
+                residuals, ravelsize, len(initial_guess)
+            )
+            pcov = FittingResultProcessor.process_covariance(
+                pcov, chisqr, ravelsize, len(initial_guess)
+            )
+
+            return FittingResultProcessor.process_fit_results(
+                pfit, pcov, size, relative_coords, FittingStrategy.ELLIPTICAL, chisqr
+            )
+
+        except Exception as e:
+            import traceback
+            logging.warning(f"Elliptical fitting failed: {e}")
+            logging.warning(
+                f"Full traceback:\n{''.join(traceback.format_tb(e.__traceback__))}"
+            )
+            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
 
 
 class NoColourFittingProcessor(FittingProcessor):
@@ -1223,6 +1355,7 @@ class Image_Analysis_Functions:
             FittingStrategy.STANDARD: StandardFittingProcessor(),
             FittingStrategy.STANDARD_IG: StandardIGFittingProcessor(),
             FittingStrategy.STANDARD_ITER: StandardIterFittingProcessor(readnoise=readnoise),
+            FittingStrategy.ELLIPTICAL: EllipticalFittingProcessor(),
             FittingStrategy.NOCOLOUR: NoColourFittingProcessor(),
             FittingStrategy.JUSTCOLOUR: JustColourFittingProcessor(),
             FittingStrategy.RAWCOLOUR: RawColourFittingProcessor(),

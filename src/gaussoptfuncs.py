@@ -470,6 +470,171 @@ def initial_guess(smoothed_data, raw_data, masks):
             np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)))
 
 
+@jit(nopython=True, nogil=True)
+def gaussian_unscaled_model_elliptical(
+    array_tofill: np.ndarray,
+    x: np.ndarray,
+    size: int,
+    x0: float,
+    y0: float,
+    sigma_x: float,
+    sigma_y: float,
+    theta: float,
+) -> np.ndarray:
+    """2D rotated elliptical Gaussian.
+
+    Same coordinate convention as gaussian_unscaled_model: x0 is the row-centre,
+    y0 is the column-centre, sigma_x is the half-width along the rotated row axis,
+    sigma_y is the half-width along the rotated column axis, and theta (radians)
+    rotates the ellipse axes relative to the row/column frame.
+
+    Normalisation matches the separable case: integrates to 1 over the plane.
+    """
+    norm = 0.15915494309189535 / (sigma_x * sigma_y)  # 1 / (2π σ_x σ_y)
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
+    for i in range(size):
+        di = x[i] - x0
+        for j in range(size):
+            dj = x[j] - y0
+            ir = di * cos_t + dj * sin_t
+            jr = -di * sin_t + dj * cos_t
+            array_tofill[i, j] = norm * np.exp(
+                -0.5 * ((ir / sigma_x) ** 2 + (jr / sigma_y) ** 2)
+            )
+    return array_tofill
+
+
+@jit(nopython=True, nogil=True)
+def WLS_model_elliptical_nobounds(
+    params,
+    masks,
+    x,
+    gauss_2d,
+):
+    """11-parameter elliptical Gaussian model with Bayer colour masks.
+
+    params layout:
+        [0]  x0         row centre
+        [1]  y0         column centre
+        [2]  sigma_x    half-width along rotated row axis
+        [3]  sigma_y    half-width along rotated column axis
+        [4]  theta      rotation angle (radians)
+        [5]  √bg_B      sqrt(background Blue)
+        [6]  √bg_G      sqrt(background Green)
+        [7]  √bg_R      sqrt(background Red)
+        [8]  √A_B       sqrt(amplitude Blue)
+        [9]  √A_G       sqrt(amplitude Green)
+        [10] √A_R       sqrt(amplitude Red)
+    """
+    len_x = len(x)
+
+    amp_lookup = np.array(
+        [params[8] * params[8], params[9] * params[9], params[10] * params[10]]
+    )
+    bg_lookup = np.array(
+        [params[5] * params[5], params[6] * params[6], params[7] * params[7]]
+    )
+
+    gauss_2d = gaussian_unscaled_model_elliptical(
+        gauss_2d, x, len_x,
+        params[0], params[1], params[2], params[3], params[4],
+    )
+
+    for channel in range(3):
+        for i in range(len_x):
+            for j in range(len_x):
+                if masks[j, i, channel]:
+                    gauss_2d[j, i] = (
+                        amp_lookup[channel] * gauss_2d[j, i] + bg_lookup[channel]
+                    )
+    return gauss_2d
+
+
+@jit(nopython=True, nogil=True)
+def WLS_chi_elliptical_nobounds(params, data, masks, weights, size, ravelsize):
+    """Chi residual vector for the 11-parameter elliptical Gaussian model.
+
+    Args:
+        params: 11-element parameter vector (see WLS_model_elliptical_nobounds).
+        data: (size × size) observed image.
+        masks: (size × size × 3) Bayer colour masks.
+        weights: (size × size) per-pixel weights.
+        size: Image dimension.
+        ravelsize: size × size (pre-computed).
+
+    Returns:
+        Flattened sqrt(weights × (data − model)²) — used directly by leastsq.
+    """
+    x = np.arange(size, dtype=np.float32)
+    gauss_2d = np.zeros((size, size), dtype=np.float32)
+    chi = np.zeros((size, size), dtype=np.float32)
+    gauss_2d[:, :] = WLS_model_elliptical_nobounds(params, masks, x, gauss_2d)
+    chi[:, :] = np.multiply(weights, np.square(np.subtract(data, gauss_2d)))
+    return np.sqrt(chi.ravel())
+
+
+@jit(nopython=True)
+def _initial_theta(smoothed_data, x0, y0, size):
+    """Estimate rotation angle from image second moments (principal axis).
+
+    Uses the inertia tensor of the smoothed intensity distribution.
+    Returns theta in radians, in the range (-π/2, π/2).
+    """
+    I_rr = 0.0  # row variance
+    I_cc = 0.0  # column variance
+    I_rc = 0.0  # cross moment
+    A = 0.0
+    for i in range(size):
+        di = i - x0
+        for j in range(size):
+            v = smoothed_data[i, j]
+            if v > 0.0:
+                dj = j - y0
+                I_rr += v * di * di
+                I_cc += v * dj * dj
+                I_rc += v * di * dj
+                A += v
+    if A > 0.0:
+        I_rr /= A
+        I_cc /= A
+        I_rc /= A
+    # Principal axis angle: 0.5 * atan2(2*I_rc, I_rr - I_cc)
+    theta = 0.5 * np.arctan2(2.0 * I_rc, I_rr - I_cc)
+    return theta
+
+
+@jit(nopython=True)
+def initial_guess_elliptical(smoothed_data, raw_data, masks):
+    """Initial parameter guess for elliptical Gaussian fitting.
+
+    Extends initial_guess with a moment-based estimate of the rotation angle.
+
+    Returns:
+        11-element array:
+        [x0, y0, sigma_x, sigma_y, theta,
+         √bg_B, √bg_G, √bg_R, √A_B, √A_G, √A_R]
+    """
+    BG_matrix = np.zeros(masks.shape[-1])
+    flattened_rawdata = raw_data.ravel()
+    for i in np.arange(masks.shape[-1]):
+        pixels = masks[:, :, i].ravel()
+        BG_matrix[i] = np.min(np.abs(flattened_rawdata[pixels]))
+    bB, bG, bR = BG_matrix
+    ig_data = np.abs(smoothed_data)
+    bs_data = ig_data - np.abs(np.min(ig_data))
+    size = bs_data.shape[0]
+    A, x_ig, y_ig = _sum_and_centre_of_mass(bs_data, size)
+    sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
+    theta = _initial_theta(bs_data, x_ig, y_ig, size)
+    A_ig = A / 3.0
+    return (
+        x_ig, y_ig, sigma_y, sigma_x, theta,
+        np.sqrt(np.abs(bB)), np.sqrt(np.abs(bG)), np.sqrt(np.abs(bR)),
+        np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)),
+    )
+
+
 @jit(nopython=True)
 def compute_A_median(smoothed_data):
     """Compute median-subtracted amplitude: sum(smoothed - median(smoothed)).
