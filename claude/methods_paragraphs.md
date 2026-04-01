@@ -30,14 +30,15 @@ Stage drift was corrected using the Adaptive Intersection Maximisation (AIM)
 algorithm\cite{maDriftfree2024Sci.Adv.} The temporal segmentation was chosen
 to match the localisation density of each dataset (typically 10--50\,frames).
 The intersection distance and search-region radius were fixed at 20\,nm
-and 60\,nm respectively across all datasets. Drift-corrected localisations were grouped into
-single-molecule identities by Hierarchical Density-Based Spatial Clustering
-of Applications with Noise (HDBSCAN)\cite{mcinnesHdbscan2017JOSS} applied to
-the two-dimensional localisation coordinates. The minimum cluster size was set
-to 10\,localisations, and the cluster-selection distance $\varepsilon$ was set
-to the mean per-axis localisation precision of the dataset, calculated from the
-fitted position uncertainties. Localisations assigned noise labels ($-1$) were
-discarded. Per-molecule average position, colour fractions, PSF width, and
-photon count were computed as photon-weighted means over all member
-localisations.
+and 60\,nm respectively across all datasets. In the case of super-resolution
+experiments (\textit{i.e.} all data presented in Fig.\,\ref{fig:Single-Resolution_Applications}),
+repeated localisations of the same emitter were consolidated into a single
+position estimate by Hierarchical Density-Based Spatial Clustering of
+Applications with Noise (HDBSCAN)\cite{mcinnesHdbscan2017JOSS} applied to the
+two-dimensional localisation coordinates, with cluster-selection distance
+$\varepsilon$ set to the mean per-axis localisation precision of the dataset
+and a minimum cluster size of 10\,localisations; localisations assigned noise
+labels ($-1$) were discarded. Photon-weighted means of the position, colour
+fractions, PSF width, and photon count were taken as the representative
+single-molecule observables.
 ```
