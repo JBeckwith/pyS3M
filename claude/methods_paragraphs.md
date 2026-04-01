@@ -56,33 +56,51 @@ were taken as the representative single-molecule observables.
 ## FRET post-hoc change-point analysis
 
 ```latex
-\subsection*{FRET post-hoc change-point analysis}
+\subsection*{FRET single-molecule analysis}
 
-Per-punctum spectral fraction time series $(A_\mathrm{R}(t), A_\mathrm{G}(t))$
-were extracted from the localisation database produced by \texttt{fit\_SM\_data}.
+Holliday junction FRET data were processed using a dedicated pipeline that
+separates spot detection, photobleaching identification, and spectral fitting.
+Candidate puncta were identified on the variance-aware demosaiced sum of the
+first 50\,frames of each acquisition; summing increases the signal-to-noise
+ratio for detection whilst the variance map is scaled accordingly
+($\sigma^2_\mathrm{sum} = N\,\sigma^2_\mathrm{single}$), preserving the
+statistical validity of the CA-CFAR threshold. A $12 \times 12$\,pixel ROI
+was extracted for each detected punctum.
+
+Before fitting the PSF in every frame, the photobleaching transition was
+located using the PELT change-point algorithm\cite{truongSelective2020SignalProcessing}
+applied to the one-dimensional total-intensity trace (sum of photoelectrons
+within the ROI) across the full acquisition. The noise level $\hat{\sigma}$
+was estimated from the last 100\,frames of each trace, which correspond to
+the post-bleach background; the penalty was set to $\beta = n\,\hat{\sigma}^2$,
+where $n$ is the trace length, and a minimum segment length of 5\,frames was
+imposed. Puncta for which no change point was detected (i.e.\ no bleaching
+step) were discarded. The Gaussian PSF model was then fitted independently at
+every frame from the start of the acquisition up to the identified bleaching
+transition, yielding per-frame position, PSF width, photon count, and spectral
+fractions $(A_\mathrm{R}, A_\mathrm{G}, A_\mathrm{B})$.
+
 Localisations in which all three colour fractions lay within 0.01 of the
-fitter's initial value of $\nicefrac{1}{3}$ were discarded as unconverged fits.
-The FRET ratio at each frame was computed as $A_\mathrm{R}/A_\mathrm{G}$; no
-additional spectral correction was applied beyond the per-pixel quantum
-efficiency weighting implicit in the fitting model.
+fitter's initial value of $\nicefrac{1}{3}$ were subsequently discarded as
+unconverged fits. The FRET ratio at each frame was computed as
+$A_\mathrm{R}/A_\mathrm{G}$; no additional spectral correction was applied
+beyond the per-pixel quantum efficiency weighting implicit in the fitting model.
 
-Change points in the FRET state were detected jointly on the two-dimensional
-signal $[A_\mathrm{R}(t),\, A_\mathrm{G}(t)]$ using the Pruned Exact Linear
-Time (PELT) algorithm\cite{truongSelective2020SignalProcessing} as implemented
-in the \texttt{ruptures} package. Joint detection on both channels
-simultaneously exploits the constraint $A_\mathrm{R} + A_\mathrm{G} +
-A_\mathrm{B} = 1$, under which a FRET transition shifts $A_\mathrm{R}$ and
-$A_\mathrm{G}$ in anti-correlated directions; a change point that moves both
-channels coherently is detected with greater sensitivity than one identified
-from either channel alone. An $\ell_2$ cost function was used. The penalty
-was set to $\beta = \log(n)\,d\,\hat{\sigma}^2$, where $n$ is the number of
-frames in the punctum trace, $d = 2$ is the signal dimension, and
-$\hat{\sigma}^2$ is the mean per-channel variance estimated from the trace
-itself. This Bayesian Information Criterion (BIC) scaling avoids the
-over-penalisation that arises when applying a penalty calibrated for photon
-counts to the bounded spectral fractions, whose variance is typically orders
-of magnitude smaller. A minimum segment length of 25\,frames was imposed to
-suppress spurious detections from shot noise. Puncta for which no change
-point was found were excluded from further analysis; all detection was
-performed in parallel across puncta.
+FRET state transitions were then identified by a second application of PELT,
+now operating jointly on the two-dimensional signal
+$[A_\mathrm{R}(t),\, A_\mathrm{G}(t)]$. Joint detection exploits the
+constraint $A_\mathrm{R} + A_\mathrm{G} + A_\mathrm{B} = 1$, under which a
+FRET transition shifts $A_\mathrm{R}$ and $A_\mathrm{G}$ in anti-correlated
+directions; a coherent change in both channels is detected with greater
+sensitivity than either channel alone. An $\ell_2$ cost function was used.
+The penalty was set to $\beta = \log(n)\,d\,\hat{\sigma}^2$, where $n$ is
+the number of pre-bleach frames, $d = 2$ is the signal dimension, and
+$\hat{\sigma}^2$ is the mean per-channel variance of the trace. This
+Bayesian Information Criterion (BIC) scaling is necessary because spectral
+fractions are bounded on $[0,\,1]$ and their variance is orders of magnitude
+smaller than that of photon-count traces; applying an unscaled penalty would
+suppress all but the largest transitions. A minimum segment length of
+25\,frames was imposed. Puncta for which no FRET transition was detected were
+excluded from further analysis; all change-point searches were parallelised
+across puncta.
 ```
