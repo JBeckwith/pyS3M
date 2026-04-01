@@ -798,13 +798,19 @@ class extract_SMs:
             removed_ids = set(
                 single_molecule_database.loc[~keep_mask, "molecular_index"]
             )
+            # Build old→new index mapping BEFORE renumbering sm
+            kept_old_ids = single_molecule_database.loc[keep_mask, "molecular_index"].values
+            old_to_new = {int(old): new for new, old in enumerate(kept_old_ids)}
+
             single_molecule_database = single_molecule_database[keep_mask].reset_index(drop=True)
             single_molecule_database["molecular_index"] = np.arange(
                 len(single_molecule_database)
             )
+            # Filter sf and remap its molecular_index to match renumbered sm
             loc_data_linked = loc_data_linked[
                 ~loc_data_linked["molecular_index"].isin(removed_ids)
             ].copy()
+            loc_data_linked["molecular_index"] = loc_data_linked["molecular_index"].map(old_to_new)
 
         if verbose:
             n_tracks = len(single_molecule_database)
