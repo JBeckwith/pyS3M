@@ -50,3 +50,39 @@ to the mean per-axis localisation precision and a minimum cluster size of
 and photon-weighted means of the position, colour fractions, and PSF width
 were taken as the representative single-molecule observables.
 ```
+
+---
+
+## FRET post-hoc change-point analysis
+
+```latex
+\subsection*{FRET post-hoc change-point analysis}
+
+Per-punctum spectral fraction time series $(A_\mathrm{R}(t), A_\mathrm{G}(t))$
+were extracted from the localisation database produced by \texttt{fit\_SM\_data}.
+Localisations in which all three colour fractions lay within 0.01 of the
+fitter's initial value of $\nicefrac{1}{3}$ were discarded as unconverged fits.
+The FRET ratio at each frame was computed as $A_\mathrm{R}/A_\mathrm{G}$; no
+additional spectral correction was applied beyond the per-pixel quantum
+efficiency weighting implicit in the fitting model.
+
+Change points in the FRET state were detected jointly on the two-dimensional
+signal $[A_\mathrm{R}(t),\, A_\mathrm{G}(t)]$ using the Pruned Exact Linear
+Time (PELT) algorithm\cite{truongSelective2020SignalProcessing} as implemented
+in the \texttt{ruptures} package. Joint detection on both channels
+simultaneously exploits the constraint $A_\mathrm{R} + A_\mathrm{G} +
+A_\mathrm{B} = 1$, under which a FRET transition shifts $A_\mathrm{R}$ and
+$A_\mathrm{G}$ in anti-correlated directions; a change point that moves both
+channels coherently is detected with greater sensitivity than one identified
+from either channel alone. An $\ell_2$ cost function was used. The penalty
+was set to $\beta = \log(n)\,d\,\hat{\sigma}^2$, where $n$ is the number of
+frames in the punctum trace, $d = 2$ is the signal dimension, and
+$\hat{\sigma}^2$ is the mean per-channel variance estimated from the trace
+itself. This Bayesian Information Criterion (BIC) scaling avoids the
+over-penalisation that arises when applying a penalty calibrated for photon
+counts to the bounded spectral fractions, whose variance is typically orders
+of magnitude smaller. A minimum segment length of 25\,frames was imposed to
+suppress spurious detections from shot noise. Puncta for which no change
+point was found were excluded from further analysis; all detection was
+performed in parallel across puncta.
+```
