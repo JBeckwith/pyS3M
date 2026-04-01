@@ -27,9 +27,10 @@ $\delta x, \delta y < 1$\,pixel, and the total detected photon count exceeded
 $500$\,photons.
 
 Stage drift was corrected using the Adaptive Intersection Maximisation (AIM)
-algorithm\cite{maDriftfree2024Sci.Adv.} with a temporal segmentation of 100
-frames. The intersection distance and search-region radius were set to 20\,nm
-and 60\,nm respectively. Drift-corrected localisations were grouped into
+algorithm\cite{maDriftfree2024Sci.Adv.} The temporal segmentation was chosen
+to match the localisation density of each dataset (typically 10--50\,frames).
+The intersection distance and search-region radius were fixed at 20\,nm
+and 60\,nm respectively across all datasets. Drift-corrected localisations were grouped into
 single-molecule identities by Hierarchical Density-Based Spatial Clustering
 of Applications with Noise (HDBSCAN)\cite{mcinnesHdbscan2017JOSS} applied to
 the two-dimensional localisation coordinates. The minimum cluster size was set
