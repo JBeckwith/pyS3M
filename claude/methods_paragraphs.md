@@ -30,21 +30,23 @@ Stage drift was corrected using the Adaptive Intersection Maximisation (AIM)
 algorithm\cite{maDriftfree2024Sci.Adv.} The temporal segmentation was chosen
 to match the localisation density of each dataset (typically 10--50\,frames).
 The intersection distance and search-region radius were fixed at 20\,nm
-and 60\,nm respectively across all datasets. Repeated detections of the same
-blinking emitter were then linked across frames: localisations separated by
-less than the mean per-axis localisation precision in the image plane and by
-no more than two consecutive dark frames were consolidated into a single
-event, with photon counts summed and spectral fractions, PSF widths, and
-$\chi^2_\nu$ averaged over contributing frames; events whose first or last
-frame coincided with the start or end of the acquisition were discarded as
-their on-times were indeterminate. For super-resolution experiments
+and 60\,nm respectively across all datasets. For super-resolution experiments
 (\textit{i.e.} all data presented in Fig.\,\ref{fig:Single-Resolution_Applications}),
-linked events arising from the same physical emitter were further consolidated
-into a single localisation by Hierarchical Density-Based Spatial Clustering of
-Applications with Noise (HDBSCAN)\cite{mcinnesHdbscan2017JOSS} applied to the
-two-dimensional event coordinates, with cluster-selection distance $\varepsilon$
-set to the mean per-axis localisation precision and a minimum cluster size of
-10\,events; events assigned noise labels ($-1$) were discarded, and
-photon-weighted means of the position, colour fractions, and PSF width were
-taken as the representative single-molecule observables.
+repeated detections of the same blinking emitter were linked across frames:
+localisations separated by less than the mean per-axis localisation precision
+in the image plane and by no more than two consecutive dark frames were
+consolidated into a single event, with photon counts summed and spectral
+fractions, PSF widths, and $\chi^2_\nu$ averaged over contributing frames;
+events whose first or last frame coincided with the start or end of the
+acquisition were discarded as their on-times were indeterminate. For
+single-molecule experiments (\textit{i.e.} all data presented in
+Fig.\,\ref{fig:Single-Molecule_Applications}), localisations from the same
+physical emitter were grouped into single-molecule identities by Hierarchical
+Density-Based Spatial Clustering of Applications with Noise
+(HDBSCAN)\cite{mcinnesHdbscan2017JOSS} applied to the two-dimensional
+localisation coordinates, with cluster-selection distance $\varepsilon$ set
+to the mean per-axis localisation precision and a minimum cluster size of
+10\,localisations; localisations assigned noise labels ($-1$) were discarded,
+and photon-weighted means of the position, colour fractions, and PSF width
+were taken as the representative single-molecule observables.
 ```
