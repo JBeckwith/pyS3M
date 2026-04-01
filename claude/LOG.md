@@ -6,6 +6,64 @@
 
 ---
 
+## Session: March 31, 2026 — Dan Tracking Notebook (multi-FOV pipeline) ✅
+
+### Summary
+
+Built a full multi-FOV single-molecule tracking analysis pipeline in
+`notebooks/tracking/20260331_Dan_Track_Analysis.ipynb`, processing all
+localisation files in a folder, then performing colour clustering and
+per-molecule CVE diffusion estimation.
+
+### Changes to `20260331_Dan_Track_Analysis.ipynb`
+
+**Section 1 — Multi-FOV linking loop** (replaced single-file cells `b2`, `d0/d1`)
+- Loop over all `localisation_files`; `fov_name = full path` (avoids ambiguity since
+  basenames repeat across subdirectories)
+- `running_idx_offset` ensures `molecular_index` is globally unique across FOVs
+  (computed from `sm['molecular_index'].max() + 1` after each FOV)
+- `frames > 3` filter applied per FOV before offset; sf filtered by `isin` to match
+- `fov_name` column added to both `sm_db` and `sf_db`
+- Save cell updated to report per-FOV counts via `sm_db['fov_name'].nunique()`
+
+**Section 9 — Colour clustering** (new cells after h2)
+- KMeans(k=3) on normalised (A_R, A_G, A_B) per molecule
+- Clusters ordered by mean A_R: 0=AF488 (blue), 1=AF555 (green), 2=JF646 (red)
+- `colour_cluster` added to both `sm_db` and `sf_db` (via molecular_index map)
+- Sanity-check scatter: A_R vs A_G coloured by cluster
+
+**Section 10 — CVE diffusion per molecule** (new cells)
+- Imports CVE from `pyDiffusion_LeeLab/src/CVE_Functions.py`
+- Per-molecule loop: extracts (x_nm, y_nm) trajectory from `sf_db`, passes to
+  `CVE.DSigma_CVE(coords, dT, R=1/6, n_d=2)` for 2D estimate
+- `cve_df` output: D_nm²/s → D_μm²/s, sigma_nm, colour_cluster, fov_name
+- Physical gate: 0 < D < 100 μm²/s
+- Per-cluster log₁₀(D) histogram (3-panel)
+
+**Section 11 — Raw image overlay** (new cells)
+- Infers TIFF path from .h5 path (tries `.ome.tif` then `.tif`)
+- Max-projects first 100 frames; displays with `imshow`
+- Overlays `sm_db` positions as open circles coloured by `colour_cluster`
+- `fov_index` parameter selects which FOV to display
+
+### Bugs identified (not yet fixed)
+
+1. **`extract_single_molecules_spectral_lap` molecular_index mismatch**
+   `single_molecule_database["molecular_index"]` is renumbered 0..M-1 after
+   `min_frames` removal (line 802) but `loc_data_linked["molecular_index"]` is
+   NOT renumbered — it retains the old 0..N-1 values. When any tracks are
+   removed by min_frames, sf and sm return with inconsistent molecular_index.
+   The notebook's `isin` filter then matches very few sf rows, causing
+   `sf_db.groupby("molecular_index")` to give far fewer groups than `len(sm_db)`.
+   Fix: build old→new mapping before renumbering sm, apply to sf.
+
+2. **Colour scatter should be ternary plot**
+   Sanity-check plot in section 9 is currently A_R vs A_G (2D scatter).
+   Should use `plotter.create_ternary_plot(A_R, A_G, A_B, colors=rgba_array)`
+   from `TernaryPlotMixin` (available on `PublicationPlotter`).
+
+---
+
 ## March 30, 2026 — Tasks Completed ✅
 
 ### Three-Way FRET Simulation ✅

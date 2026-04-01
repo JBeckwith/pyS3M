@@ -156,6 +156,50 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 
 ## Pending Tasks
 
+### Priority 1: Fix tracking notebook bugs (20260331_Dan_Track_Analysis.ipynb)
+
+**Status:** 📋 PENDING — bugs identified 2026-03-31
+
+#### 1a. Fix `extract_single_molecules_spectral_lap` molecular_index mismatch
+
+**File:** `src/SM_extractionfunctions.py` lines 795–807
+
+After `min_frames` removal, `single_molecule_database["molecular_index"]` is
+renumbered 0..M-1 but `loc_data_linked["molecular_index"]` retains old 0..N-1
+values. This causes the notebook's `isin` filter to match very few sf rows when
+N > M (any tracks removed by min_frames), making `sf_db.groupby` give fewer groups
+than `len(sm_db)`.
+
+**Fix:** before the `= np.arange(...)` renumbering, build an old→new dict from the
+kept ids, then apply it to `loc_data_linked["molecular_index"]` after filtering:
+```python
+kept_old_ids = single_molecule_database.loc[keep_mask, "molecular_index"].values
+old_to_new = {int(old): new for new, old in enumerate(kept_old_ids)}
+# ... (existing filter/renumber of sm) ...
+loc_data_linked = loc_data_linked[~loc_data_linked["molecular_index"].isin(removed_ids)].copy()
+loc_data_linked["molecular_index"] = loc_data_linked["molecular_index"].map(old_to_new)
+```
+
+#### 1b. Replace colour scatter with ternary plot
+
+**File:** `notebooks/tracking/20260331_Dan_Track_Analysis.ipynb` cell `jyhe98pgfx9`
+
+Replace the A_R vs A_G 2D scatter with:
+```python
+import matplotlib.colors as mcolors
+rgba_colors = np.array([mcolors.to_rgba(cluster_colors_hex[k])
+                        for k in sm_db["colour_cluster"]])
+fig, ax = plotter.create_ternary_plot(
+    colour_norm[:, 0], colour_norm[:, 1], colour_norm[:, 2],
+    colors=rgba_colors, marker_size=3, marker_alpha=0.4,
+    title="Colour clusters (KMeans, k=3)",
+    labels={"R": "A_R", "G": "A_G", "B": "A_B"},
+)
+plt.show()
+```
+
+---
+
 ### Priority 1: Implement STANDARD_DATA Strategy (smooth → model → raw data weights)
 
 **Status:** 📋 PENDING — strategy validated in `Debug_Sigma.ipynb` big Monte Carlo (2026-03-31)
