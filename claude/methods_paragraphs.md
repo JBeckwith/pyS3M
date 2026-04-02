@@ -53,6 +53,72 @@ were taken as the representative single-molecule observables.
 
 ---
 
+## Diffusion data analysis
+
+```latex
+\subsection*{Single-particle tracking and diffusion analysis}
+
+Raw Bayer-mosaic frames were converted to photoelectron images by the same
+camera-calibration procedure described above. Candidate single-molecule puncta
+were identified using the matched-filter / CA-CFAR pipeline at
+$P_\mathrm{FA} = 10^{-3}$, and each candidate was extracted as a
+$16 \times 16$\,pixel ROI from the raw Bayer image. Because continuous
+illumination induces motion blur that elongates the effective PSF in the
+direction of molecular diffusion, localisation was performed with a rotated,
+elliptical Gaussian model rather than the symmetric model used for static
+emitters. The eleven-parameter model adds an independent minor-axis width
+$\sigma_\mathrm{minor}$ and an in-plane rotation angle $\theta$ relative to
+the isotropic model, allowing the fit to absorb anisotropy introduced by
+sub-frame motion. Fitting proceeded in the same two-stage Levenberg--Marquardt
+weighted least-squares procedure described above.  Localisations were retained
+if $\chi^2_\nu < 2.0$, the per-axis localisation uncertainty
+$\delta x, \delta y < 1.5$\,pixels, the per-channel colour-fraction
+uncertainty was below $0.15$, and the total detected photon count exceeded
+$100$\,photons. Stage drift was corrected with the AIM
+algorithm\cite{maDriftfree2024Sci.Adv.} using the same intersection distance
+and search-region radius as above.
+
+Validated localisations were linked into single-particle trajectories using a
+spectral-assisted Linear Assignment Problem (LAP) framework following
+Jaqaman~\ea\cite{jaqamanRobust2008Nat.Methods} The cost of linking
+localisation $i$ in frame $t$ to localisation $j$ in frame $t+\Delta t$ was
+
+\begin{equation}
+  C_{ij} = w_\mathrm{s}\!\left(\frac{d_{ij}}{d_\mathrm{max}}\right)^{\!2}
+           + w_\lambda\!\left(\frac{\Delta\lambda_{ij}}{\lambda_\mathrm{tol}}\right)^{\!2},
+  \label{eq:LAP_cost}
+\end{equation}
+
+\noindent where $d_{ij}$ is the Euclidean separation, $d_\mathrm{max} =
+690$\,nm is the maximum permitted linking distance, $\Delta\lambda_{ij}$ is
+the Euclidean distance in normalised spectral-fraction space
+$(A_\mathrm{R}, A_\mathrm{G}, A_\mathrm{B})$, and $\lambda_\mathrm{tol} =
+0.25$ is the spectral tolerance. Spatial and spectral weights were set to
+$w_\mathrm{s} = w_\lambda = 1$. Gap-closing was permitted for up to five
+consecutive dark frames. Trajectories containing fewer than ten localisations
+were discarded.
+
+Molecular species were assigned by $k$-means clustering ($k = 3$) applied to
+the time-averaged, normalised spectral fractions
+$\langle A_\mathrm{R}\rangle, \langle A_\mathrm{G}\rangle, \langle A_\mathrm{B}\rangle$
+of each trajectory. Clusters were ordered by increasing mean $A_\mathrm{R}$
+to yield a consistent spectral ordering across acquisitions.
+
+Diffusion coefficients were estimated from the mean-squared displacement
+(MSD) of each trajectory. The MSD as a function of lag time was computed
+analytically via the Fast Fourier Transform\cite{michaletMean2010Phys.Rev.E}
+and fitted using the covariance-based $D\sigma^2$ ordinary-least-squares
+estimator (DSigma2-OLSF) with motion-blur correction parameter $R =
+\nicefrac{1}{6}$, appropriate for uniform exposure throughout the
+acquisition frame\cite{michaletMean2010Phys.Rev.E} The camera frame time was
+$\Delta t = 0.5$\,s and the pixel size was $69$\,nm. Molecules whose
+estimated diffusion coefficient lay outside the range
+$10^{-4}$--$10^{3}\,\upmu\mathrm{m}^2\,\mathrm{s}^{-1}$ were classified as
+non-specifically adsorbed to the coverslip and excluded from further analysis.
+```
+
+---
+
 ## FRET post-hoc change-point analysis
 
 ```latex

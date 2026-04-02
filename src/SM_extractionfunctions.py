@@ -483,6 +483,40 @@ class extract_SMs:
     # Spectral-assisted LAP linking
     # -----------------------------------------------------------------
 
+    def flag_static_localisations(self, loc_data, eps, min_samples):
+        """Identify static (non-diffusing) emitters via DBSCAN.
+
+        Runs DBSCAN on the 2-D localisation positions (xc, yc) across all
+        frames.  Localisations that belong to a dense spatial cluster —
+        i.e. at least ``min_samples`` observations within ``eps`` pixels of
+        one another — are flagged as static.  A genuinely diffusing molecule
+        will scatter its positions over many pixels between frames and will
+        therefore appear as DBSCAN noise (label −1), while a molecule stuck
+        to the coverslip accumulates a tight cloud of positions that forms a
+        cluster.
+
+        The recommended eps is 3 × per-axis localisation precision (px), so
+        that the search radius covers ~99 % of the positional scatter expected
+        from localisation noise alone.  ``min_samples`` should equal
+        ``min_frames`` so that only persistently observed static molecules
+        are flagged.
+
+        Args:
+            loc_data (pd.DataFrame): Localisation table with columns
+                ``xc`` and ``yc`` (pixels).
+            eps (float): DBSCAN neighbourhood radius in pixels.
+            min_samples (int): Minimum cluster size to be called static.
+
+        Returns:
+            np.ndarray: Boolean array of length ``len(loc_data)``, True
+            where the localisation is classified as static.
+        """
+        from sklearn.cluster import DBSCAN
+
+        xy = loc_data[["xc", "yc"]].to_numpy()
+        labels = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1).fit_predict(xy)
+        return labels >= 0   # True = dense cluster member = static
+
     def spectral_lap_link(
         self,
         loc_data,
@@ -492,6 +526,10 @@ class extract_SMs:
         w_spectral=0.5,
         spectral_tol=0.15,
         spectral_columns=("A_R", "A_G", "A_B"),
+        D_prior=None,
+        dt=1.0,
+        sigma_loc=0.0,
+        alpha=3.0,
         verbose=False,
     ):
         """Link localisations across frames using LAP with spectral cost.
@@ -506,8 +544,20 @@ class extract_SMs:
         normalised colour space is added to the spatial cost, extending the
         approach to multicolour single-molecule data. The cost function is:
 
-            cost = w_spatial * (d_spatial / max_distance)**2
+            cost = w_spatial * (d_spatial / max_dist)**2
                  + w_spectral * (d_spectral / spectral_tol)**2
+
+        When ``D_prior`` is supplied the spatial search radius scales with the
+        square root of the elapsed time between the last observation and the
+        current frame (gap-scaled linking):
+
+            max_dist(gap) = alpha * sqrt(4 * D_prior * gap * dt + 2 * sigma_loc**2)
+
+        where ``gap = current_frame - last_frame`` (in frames).  This ensures
+        the search region grows correctly for Brownian motion and prevents the
+        systematic underestimation of D that arises from using a fixed cutoff
+        across long dark periods.  When ``D_prior`` is None the fixed
+        ``max_distance`` is used for all gaps (original behaviour).
 
         References:
             Jaqaman, K. et al. (2008) Robust single-particle tracking in
@@ -525,8 +575,9 @@ class extract_SMs:
             loc_data (pd.DataFrame): Localisations sorted by frame. Must
                 contain columns ``frame``, ``xc``, ``yc`` and the columns
                 listed in *spectral_columns*.
-            max_distance (float): Hard spatial cutoff in pixels. Pairs
-                further apart than this are never linked.
+            max_distance (float): Hard spatial cutoff in pixels used when
+                ``D_prior`` is None.  Also sets the fallback maximum when
+                gap-scaling is active.
             max_dark_time (int): Maximum frame gap allowed between
                 consecutive localisations in a track.
             w_spatial (float): Weight for the spatial cost term.
@@ -535,6 +586,17 @@ class extract_SMs:
                 distance (analogous to ``max_distance`` for spatial).
             spectral_columns (tuple): Column names for the spectral
                 channels used in the cost function.
+            D_prior (float or None): Expected diffusion coefficient in
+                px²/frame_unit consistent with ``dt``.  Supply in µm²/s
+                together with ``dt`` in seconds and ``sigma_loc`` in pixels;
+                the radius is then computed in pixels.  If None, ``max_distance``
+                is used as a fixed cutoff.
+            dt (float): Frame interval in seconds (used only when
+                ``D_prior`` is not None).
+            sigma_loc (float): Per-axis localisation precision in pixels
+                (used only when ``D_prior`` is not None).
+            alpha (float): Number of standard deviations for the gap-scaled
+                cutoff (default 3, covering >99 % of Brownian steps in 2D).
             verbose (bool): Print progress every 500 frames.
 
         Returns:
@@ -622,11 +684,24 @@ class extract_SMs:
                 ((trk_spec[:, None, :] - cur_spec[None, :, :]) ** 2).sum(axis=2)
             )
 
-            cost = (w_spatial * (d_spatial / max_distance) ** 2
+            # Gap-scaled search radius (one value per active track)
+            if D_prior is not None:
+                gap_n = np.array(
+                    [current_frame - t["last_frame"] for t in active_tracks],
+                    dtype=float,
+                )  # (n_active,) — frames elapsed since last observation
+                max_dist_t = alpha * np.sqrt(
+                    4.0 * D_prior * gap_n * dt + 2.0 * sigma_loc ** 2
+                )  # (n_active,) in pixels
+                max_dist_t = max_dist_t[:, None]   # broadcast over n_cur
+            else:
+                max_dist_t = max_distance
+
+            cost = (w_spatial * (d_spatial / max_dist_t) ** 2
                     + w_spectral * (d_spectral / spectral_tol) ** 2)
 
             # Hard spatial cutoff
-            cost[d_spatial > max_distance] = 1e9
+            cost[d_spatial > max_dist_t] = 1e9
 
             # --- Augment for birth/death (Jaqaman 2008) ---
             # Build (n_active + n_cur) x (n_active + n_cur) matrix
@@ -708,6 +783,13 @@ class extract_SMs:
         max_sigma_error=(40.0 / 69),
         min_photons=500,
         max_photons=None,
+        D_prior=None,
+        dt=1.0,
+        sigma_loc=0.0,
+        alpha=3.0,
+        remove_static=True,
+        static_eps=None,
+        static_min_samples=10,
         verbose=False,
     ):
         """Extract single molecules using spectral-assisted LAP linking.
@@ -753,7 +835,20 @@ class extract_SMs:
             max_sigma_error=max_sigma_error,
         )
 
-        loc_data_sorted = loc_data.sort_values("frame").copy()
+        loc_data_sorted = loc_data.sort_values("frame").reset_index(drop=True).copy()
+
+        if remove_static:
+            eps = static_eps if static_eps is not None else (
+                3.0 * sigma_loc if sigma_loc > 0 else 1.0
+            )
+            static_mask = self.flag_static_localisations(
+                loc_data_sorted, eps=eps, min_samples=static_min_samples,
+            )
+            n_static = int(static_mask.sum())
+            if verbose:
+                print(f"  Static removal: {n_static}/{len(loc_data_sorted)} "
+                      f"localisations flagged ({100*n_static/max(len(loc_data_sorted),1):.1f}%)")
+            loc_data_sorted = loc_data_sorted[~static_mask].reset_index(drop=True)
 
         if verbose:
             print(f"Spectral LAP linking: {len(loc_data_sorted)} localisations, "
@@ -767,6 +862,10 @@ class extract_SMs:
             w_spectral=w_spectral,
             spectral_tol=spectral_tol,
             spectral_columns=spectral_columns,
+            D_prior=D_prior,
+            dt=dt,
+            sigma_loc=sigma_loc,
+            alpha=alpha,
             verbose=verbose,
         )
 
