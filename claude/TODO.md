@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-03-31 (end of session)
+**Last Updated:** 2026-04-02 (end of session)
 
 **Note:** For completed work, see LOG.md
 
@@ -156,47 +156,16 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 
 ## Pending Tasks
 
-### Priority 1: Fix tracking notebook bugs (20260331_Dan_Track_Analysis.ipynb)
+### Priority 1: Dan tracking notebook — run and validate
 
-**Status:** 📋 PENDING — bugs identified 2026-03-31
+**Status:** 📋 PENDING — pipeline rebuilt 2026-04-02, not yet re-run on data
 
-#### 1a. Fix `extract_single_molecules_spectral_lap` molecular_index mismatch
-
-**File:** `src/SM_extractionfunctions.py` lines 795–807
-
-After `min_frames` removal, `single_molecule_database["molecular_index"]` is
-renumbered 0..M-1 but `loc_data_linked["molecular_index"]` retains old 0..N-1
-values. This causes the notebook's `isin` filter to match very few sf rows when
-N > M (any tracks removed by min_frames), making `sf_db.groupby` give fewer groups
-than `len(sm_db)`.
-
-**Fix:** before the `= np.arange(...)` renumbering, build an old→new dict from the
-kept ids, then apply it to `loc_data_linked["molecular_index"]` after filtering:
-```python
-kept_old_ids = single_molecule_database.loc[keep_mask, "molecular_index"].values
-old_to_new = {int(old): new for new, old in enumerate(kept_old_ids)}
-# ... (existing filter/renumber of sm) ...
-loc_data_linked = loc_data_linked[~loc_data_linked["molecular_index"].isin(removed_ids)].copy()
-loc_data_linked["molecular_index"] = loc_data_linked["molecular_index"].map(old_to_new)
-```
-
-#### 1b. Replace colour scatter with ternary plot
-
-**File:** `notebooks/tracking/20260331_Dan_Track_Analysis.ipynb` cell `jyhe98pgfx9`
-
-Replace the A_R vs A_G 2D scatter with:
-```python
-import matplotlib.colors as mcolors
-rgba_colors = np.array([mcolors.to_rgba(cluster_colors_hex[k])
-                        for k in sm_db["colour_cluster"]])
-fig, ax = plotter.create_ternary_plot(
-    colour_norm[:, 0], colour_norm[:, 1], colour_norm[:, 2],
-    colors=rgba_colors, marker_size=3, marker_alpha=0.4,
-    title="Colour clusters (KMeans, k=3)",
-    labels={"R": "A_R", "G": "A_G", "B": "A_B"},
-)
-plt.show()
-```
+After the gap-scaling and static-removal changes, the notebook needs to be
+re-run on a real dataset and the results checked:
+- [ ] Verify D distribution shifts toward ~0.05 µm²/s as expected
+- [ ] Check fraction of localisations flagged as static (should be plausible)
+- [ ] Inspect MSD plots for linearity (Brownian behaviour)
+- [ ] Optionally: sweep `D_prior_um2_s` and `alpha_link` to confirm self-consistency
 
 ---
 

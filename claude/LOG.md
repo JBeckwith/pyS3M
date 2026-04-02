@@ -1,8 +1,98 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** March 31, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - FRET post-hoc analysis / diffusion-binding simulation
+**Last Updated:** April 2, 2026
+**Status:** 🟢 **ACTIVE DEVELOPMENT** - Tracking pipeline / methods writing
+
+---
+
+## Session: April 1–2, 2026 — Tracking pipeline fixes, methods paragraphs, 2D noise simulation ✅
+
+### Dan tracking notebook — full pipeline rebuild
+`notebooks/tracking/20260331_Dan_Track_Analysis.ipynb`
+
+- **molecular_index consistency fix** (`src/SM_extractionfunctions.py` ~lines 795–820):
+  after `min_frames` removal, built old→new id mapping before renumbering `sm`, then
+  applied it to `loc_data_linked` so sf and sm always carry consistent indices.
+- **NaN crash guard**: added `if len(sm) == 0: continue` in the linking loop to skip
+  empty FOVs (was causing `ValueError: cannot convert float NaN to integer`).
+- **Ternary plot**: replaced A_R vs A_G scatter (cell `jyhe98pgfx9`) with
+  `plotter.create_ternary_plot()` using per-molecule cluster colours.
+- **MSD plot**: completed `gen_MSD` wrapper around `msd.msd_fft`; added 3-panel MSD
+  plot (one panel per cluster) with alpha=0.1 traces.
+- **D filtering moved early**: `DSigma2_OLSF` now runs immediately after linking
+  (`compute_D_filter_mobile` cell); `D_um2_s` and `sigma_nm` added to `sm_db`;
+  mobile filter `1e-4 < D < 1000 µm²/s` applied before all downstream analysis.
+- **Clustering before D filter, plot after**: KMeans(k=3) on normalised (A_R, A_G, A_B)
+  now runs before the D filter so centroids are unbiased; ternary and cluster plots
+  occur after the mobile filter.
+- **Raw image overlay** (cell `hddubdt6rak`): loads a single raw Bayer frame; filters
+  `sf_fov[sf_fov["frame"] == frame]` to show per-frame localisations across the full
+  FOV as open circles coloured by cluster.
+
+### Gap-scaled linking (`src/SM_extractionfunctions.py`)
+
+Identified the root cause of anomalously slow D: fixed `max_distance = 10 px` was
+applied to all gap lengths, including 5-dark-frame gaps where the expected RMS
+Brownian displacement is 775 nm (11.2 px) — rejecting ~45 % of valid links.
+
+- **`spectral_lap_link`**: added `D_prior`, `dt`, `sigma_loc`, `alpha` parameters.
+  When `D_prior` is set, computes `gap_n = current_frame − t['last_frame']` per active
+  track and `max_dist_t = alpha × sqrt(4 D_prior × gap_n × dt + 2 σ_loc²)` as a
+  per-row array, replacing the fixed cutoff. `D_prior=None` preserves old behaviour.
+- **`extract_single_molecules_spectral_lap`**: threaded the four new parameters through.
+- **Notebook cell `c1`**: added `D_prior_um2_s = 0.05`, unit conversion to `D_prior_px2_s`,
+  `sigma_loc_px`, `alpha_link = 3.0`; cell `d1` passes them to the extractor.
+
+### Static molecule removal (`src/SM_extractionfunctions.py`)
+
+- New method `flag_static_localisations(loc_data, eps, min_samples)`: runs
+  `sklearn.cluster.DBSCAN` on `(xc, yc)` across all frames; returns boolean mask
+  True where the localisation is in a dense spatial cluster (≥ `min_samples` points
+  within `eps` px). Default `eps = 3 × sigma_loc` (≈ 1.09 px for σ_loc = 25 nm/69 nm)
+  — well below the 4.6 px per-frame step of a D = 0.05 µm²/s molecule.
+- **`extract_single_molecules_spectral_lap`**: added `remove_static=True`,
+  `static_eps=None`, `static_min_samples=10`. Static removal runs after quality
+  filtering, before LAP linking; prints fraction removed when `verbose=True`.
+- Notebook `c1`/`d1` updated with `remove_static`, `static_eps`, `static_min_samples`;
+  `verbose=True` in the linking loop so per-FOV removal counts are printed.
+
+### Methods paragraphs (`claude/methods_paragraphs.md`)
+
+Three complete LaTeX `\subsection*` blocks written:
+1. **Single-dye SMLM pipeline** — spot detection (CA-CFAR, P_FA = 1e-3), 2-stage
+   WLS fitting, quality filters, AIM drift (20 nm / 60 nm, 10–50 frames), temporal
+   linking (SR) vs HDBSCAN consolidation (single-molecule).
+2. **FRET single-molecule analysis** — summed-image spot detection (scaled variance),
+   photobleaching PELT on 1D intensity trace (pen = n σ², σ from last 100 frames),
+   FRET transition PELT on joint [A_R, A_G] with BIC penalty log(n)·d·σ̂².
+3. **Single-particle tracking and diffusion** — elliptical Gaussian fitting (motion-blur
+   compensation), quality filters (χ²ν < 2, δ < 1.5 px, colour error < 0.15,
+   photons > 100), AIM drift, spectral-assisted LAP with full cost-function equation
+   (d_max = 690 nm, λ_tol = 0.25, w_s = w_λ = 1, max_dark = 5, min_frames = 10),
+   KMeans k=3 ordered by mean A_R, DSigma2-OLSF MSD (R = 1/6, Δt = 0.5 s, citing
+   Michalet 2010), mobile filter 1e-4–1e3 µm²/s.
+
+### Figure 1 notebook rewrite (`notebooks/figures/Figure1_maximum_readnoise.ipynb`)
+
+Rewrote from 1D read-noise sweep (ATTO 565 only, 300 points, 10 k bootstraps) to a
+2D surface simulation:
+- **Dyes**: ATTO 488, ATTO 565, ATTO 647N
+- **Axes**: read noise (25 log-spaced, 0.01–10 RMS e⁻) × peak pixel QY (9 linear,
+  0.1–0.9); `base_pixel_QYs` normalised to peak = 1, then scaled by `peak_qy`.
+- **n_bootstrap**: 20,000; `overwrite=False` for safe restarts.
+- **Save folder**: `Figure1_MaxReadNoise_2D`; flag encodes dye + QY + read noise.
+- **Load cell**: builds `sigma_xy_surf`, `colour_std_surf`, `fit_yield_surf` as
+  `dict[dye → (9, 25) ndarray]`.
+- **Plot**: 3 × 3 `pcolormesh` grid (rows = dyes, columns = yield/σ_xy/σ_colour),
+  log x-axis with correct cell-edge computation; saves SVG + PNG.
+- Deleted orphaned interpolation cell.
+
+### Diffusion strategy document (`claude/new_diffusion.md`)
+
+Written: diagnosis of slow-D bug (gap-scaling), proposed spectral pre-assignment
+pipeline, Brownianness validation (Rayleigh JDD + KS test), self-consistent D
+iteration, and literature survey (JDD fitting, CVE, Kalman filter, vbSPT, Spot-On).
 
 ---
 

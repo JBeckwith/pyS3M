@@ -128,6 +128,9 @@ class SimulationConfig:
         subtractx0y0 (bool): Whether to subtract ground truth positions from results (default: False)
         saverawimages (bool): Whether to save raw Bayer images (default: False)
         use_lut (bool): Use LUT for fast Nile Red wavelength fitting (default: True)
+        save_summary_csvs (bool): Whether to save the per-run RMSE summary CSVs and
+            photon-levels CSV (default: True).  Set to False for large 2-D parameter
+            sweeps where only the raw HDF5 results are consumed downstream.
         verbose (bool): Whether to print detailed progress messages (default: True)
     """
 
@@ -142,6 +145,7 @@ class SimulationConfig:
     saverawimages: bool = False
     use_lut: bool = True
     use_stochastic_photons: bool = True
+    save_summary_csvs: bool = True
     verbose: bool = True
 
     def __post_init__(self):
@@ -2067,12 +2071,13 @@ class MultiC_Sim_Funcs_Refactored:
             })
 
             # Only write CSV if overwriting or if it doesn't exist
-            photon_levels_csv_path = os.path.join(
-                save_folder,
-                f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
-            )
-            if overwrite or not os.path.exists(photon_levels_csv_path):
-                photon_levels_df.write_csv(photon_levels_csv_path)
+            if config.save_summary_csvs:
+                photon_levels_csv_path = os.path.join(
+                    save_folder,
+                    f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
+                )
+                if overwrite or not os.path.exists(photon_levels_csv_path):
+                    photon_levels_df.write_csv(photon_levels_csv_path)
 
         start = time.time()
 
@@ -2231,22 +2236,23 @@ class MultiC_Sim_Funcs_Refactored:
         )
 
         # Save final results
-        save_params = analysis_save_params[:-2] + ["colour_distance"]
-        self.io.save_simulation_results(
-            save_folder,
-            starting_flag,
-            save_params,
-            n_photon_space,
-            fit_RMSE_mean,
-            fit_std,
-            config.pixel_size,
-            config.NA,
-            config.background_photons,
-            "LM_fitting",
-            "Gaussian_Smoother",
-            smoothing_function.extent,
-            dye,
-        )
+        if config.save_summary_csvs:
+            save_params = analysis_save_params[:-2] + ["colour_distance"]
+            self.io.save_simulation_results(
+                save_folder,
+                starting_flag,
+                save_params,
+                n_photon_space,
+                fit_RMSE_mean,
+                fit_std,
+                config.pixel_size,
+                config.NA,
+                config.background_photons,
+                "LM_fitting",
+                "Gaussian_Smoother",
+                smoothing_function.extent,
+                dye,
+            )
 
         logger.info(f"Simulation completed for strategy {strategy.value}")
 
