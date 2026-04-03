@@ -1435,6 +1435,7 @@ class MultiC_Sim_Funcs_Refactored:
         return_normal_image: bool = False,
         return_photoelectrons: bool = False,
         use_vectorized_photoelectrons: bool = True,
+        return_photoelectrons_stack: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """Generate camera image stack with optional vectorized photoelectron generation.
 
@@ -1445,6 +1446,10 @@ class MultiC_Sim_Funcs_Refactored:
             use_vectorized_photoelectrons: If True, vectorize photoelectron generation across frames
                                           for 2-5× speedup. If False, use original per-frame loop.
                                           Default: True (recommended)
+            return_photoelectrons_stack: If True, return the summed photoelectron stack
+                                        (n_bootstrap, H, W) int32 after Phase 2, before any read
+                                        noise or ADU conversion (Phase 3).  smoothing_function is
+                                        not called in this mode and may be None.
 
         Returns:
             Tuple of (bayer_image, smoothed_image, normal_image)
@@ -1662,6 +1667,10 @@ class MultiC_Sim_Funcs_Refactored:
                 QE_per_channel_all,
                 mask_stack,
             )
+
+            # Early exit: return summed photoelectrons before Phase 3 (no read noise)
+            if return_photoelectrons_stack:
+                return np.sum(n_photoelectrons_all, axis=-1).astype(np.int32)
 
             # PHASE 3: Convert photoelectrons to images (per-frame loop, fast)
             for frame in range(s):
@@ -1884,6 +1893,337 @@ class MultiC_Sim_Funcs_Refactored:
             )
         else:
             return np.squeeze(bayer_image), np.squeeze(smoothed_image), None
+
+    def _generate_photoelectron_batch(
+        self,
+        camera_parameters: Dict[str, Any],
+        wavelength: np.ndarray,
+        average_emission_wavelength,
+        dye_pixel_efficiency: np.ndarray,
+        n_photons: Dict[str, np.ndarray],
+        x0y0: Dict[str, np.ndarray],
+        config: "SimulationConfig",
+    ) -> np.ndarray:
+        """Run Phases 1+2 only, returning summed photoelectrons before read noise.
+
+        Args:
+            camera_parameters: Camera calibration dict (variance not used).
+            wavelength: Wavelength axis.
+            average_emission_wavelength: Scalar or (n_bootstrap,) array of wavelengths.
+            dye_pixel_efficiency: Per-channel QE fractions; shape (n_bootstrap, n_channels)
+                for stochastic mode or (n_channels,) for deterministic mode.
+            n_photons: Dict mapping dye key to photon count array (n_bootstrap,).
+            x0y0: Position dict as used by gen_camera_image_stack.
+            config: SimulationConfig (NA, pixel_size, background parameters).
+
+        Returns:
+            pe_batch: (n_bootstrap, H, W) int32 photoelectron array, summed across all dyes.
+        """
+        return self.gen_camera_image_stack(
+            camera_parameters,
+            wavelength,
+            average_emission_wavelength,
+            dye_pixel_efficiency,
+            n_photons,
+            x0y0,
+            smoothing_function=None,  # not called when return_photoelectrons_stack=True
+            background_photons=config.background_photons,
+            background_colour=config.background_colour,
+            NA=config.NA,
+            pixel_size=config.pixel_size,
+            return_normal_image=False,
+            return_photoelectrons_stack=True,
+        )
+
+    def _apply_read_noise_batch(
+        self,
+        pe_batch: np.ndarray,
+        rn: float,
+        gain: np.ndarray,
+        offset: np.ndarray,
+        smoothing_function,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Vectorised Phase 3: add read noise to a photoelectron batch.
+
+        Args:
+            pe_batch: (n_bootstrap, H, W) int32 photoelectrons.
+            rn: Read-noise RMS in the same units as the camera model variance (ADU).
+            gain: (H, W) gain map.
+            offset: (H, W) offset map.
+            smoothing_function: Smoothing wrapper applied to the full 3-D stack.
+
+        Returns:
+            adu_batch: (n_bootstrap, H, W) ADU images (uint8/uint16/float32).
+            smoothed_batch: (n_bootstrap, H, W) smoothed ADU images.
+        """
+        # Vectorised: loc = gain * pe + offset; add N(0, rn) read noise
+        loc = gain[None].astype(np.float64) * pe_batch + offset[None].astype(np.float64)
+        noise = np.random.normal(0.0, rn, pe_batch.shape)
+        adu_batch = np.clip(loc + noise, 0.0, None)
+
+        # Cast to appropriate bit depth (matches gen_camera_image_stack behaviour)
+        max_val = float(adu_batch.max())
+        if max_val > 65535:
+            adu_batch = adu_batch.astype(np.float32)
+        elif max_val > 255:
+            adu_batch = adu_batch.astype(np.uint16)
+        else:
+            adu_batch = adu_batch.astype(np.uint8)
+
+        # Apply smoothing to the full 3-D stack
+        smoothing_args = dict(smoothing_function.args)
+        smoothing_args[smoothing_function.data_arg] = adu_batch
+        smoothed_batch = smoothing_function.smoothing_function(**smoothing_args)
+
+        return adu_batch, smoothed_batch
+
+    def test_simulation_method_2d_sweep(
+        self,
+        dye: str,
+        filters: List[str],
+        wavelength: np.ndarray,
+        camera_parameters: Dict[str, Any],
+        save_folder: str,
+        n_photon_space: np.ndarray,
+        smoothing_function,
+        strategy: "FittingStrategy",
+        read_noise_space: np.ndarray,
+        peak_qy_space: np.ndarray,
+        starting_flag_fn=None,
+        config: Optional["SimulationConfig"] = None,
+        overwrite: bool = False,
+    ) -> None:
+        """2-D sweep of read noise × peak pixel QY, factorising photoelectron generation.
+
+        For each (n_photon, peak_qy) pair, the photoelectron batch is generated ONCE
+        then reused across all read_noise values.  Across the QY axis, Poisson thinning
+        from the max-QY batch is used so that only one full Poisson+binomial draw is
+        needed per n_photon level (instead of one per QY level).
+
+        Args:
+            camera_parameters: Full camera calibration dict.  ``variance`` and
+                ``readnoise`` are overridden per (peak_qy, rn) combination.
+            read_noise_space: 1-D array of read-noise RMS values (same units as variance).
+            peak_qy_space: 1-D array of peak pixel QY values in (0, 1].
+            starting_flag_fn: callable(dye, peak_qy, rn) -> str flag prefix.  Defaults
+                to the convention used in Figure1_maximum_readnoise.ipynb.
+            overwrite: If False, skip combinations that already have a results HDF5 file.
+        """
+        if config is None:
+            config = SimulationConfig()
+
+        import polars as pl
+        import SpectralFunctions
+        S_F = SpectralFunctions.Spectral_Funcs()
+
+        if starting_flag_fn is None:
+            starting_flag_fn = lambda d, qy, rn: (
+                f'{d.replace(" ", "-")}_qy_{qy:.3f}_readnoise_{rn:.6f}_'
+            )
+
+        # Validate base camera parameters
+        camera_params_base = CameraParameters.validate_and_create(camera_parameters)
+        self._validate_inputs(wavelength, camera_parameters, None, {})
+
+        # Spectral properties (once per dye; relative fractions don't change with uniform QY scaling)
+        average_emission_wavelength, dye_pixel_efficiency = (
+            self.spectral.get_pixel_fractions_dye_and_filters(
+                [dye], filters, wavelength, camera_params_base.pixel_QYs,
+                normalized=False,
+            )
+        )
+        base_pixel_QYs = camera_params_base.pixel_QYs.copy()
+
+        # Simulation geometry (once per function call; x0/y0 do not depend on QY or RN)
+        x0, y0, setup_data = self._setup_simulation_parameters(
+            camera_params_base, config, dye_pixel_efficiency,
+            average_emission_wavelength, dye,
+        )
+        x0y0 = {"dye": np.zeros([config.n_bootstrap, 2, 1])}
+        x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
+
+        # Analysis parameters (strategy-independent for STANDARD strategy)
+        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
+            analysis_save_params = [
+                "xc", "yc", "s_x", "s_y",
+                "bg_B", "bg_G", "bg_R",
+                "A_B", "A_G", "A_R",
+                "chi_sqr", "frame",
+            ]
+        else:
+            analysis_save_params = [
+                "xc", "yc", "s_x", "s_y",
+                "bg_B", "bg_G", "bg_R",
+                "A_B", "A_G", "A_R",
+                "chi_sqr", "frame",
+            ]
+
+        dyestr = dye.replace("/", "-")
+        gain = camera_parameters["gain"]
+        offset = camera_parameters["offset"]
+        qy_max = float(np.max(peak_qy_space))
+
+        # Pre-compute spectrum template for stochastic mode
+        full_spectrum_template = None
+        if config.use_stochastic_photons:
+            dye_spectrum = S_F.get_dye_or_filter_data(
+                names=[dye], wavelength=wavelength, dye_or_filter=True
+            )
+            filter_spectra = S_F.get_dye_or_filter_data(
+                names=filters, wavelength=wavelength, dye_or_filter=False
+            )
+            full_spectrum_template = dye_spectrum[0] * np.prod(filter_spectra, axis=0)
+
+        start_total = time.time()
+        total_combinations = len(n_photon_space) * len(peak_qy_space) * len(read_noise_space)
+        done_count = 0
+
+        for i_ph, n_photon in enumerate(n_photon_space):
+            n_photons = {"dye": np.full(config.n_bootstrap, n_photon)}
+            pe_base = None  # photoelectron batch at qy_max (generated on first QY iteration)
+
+            for peak_qy in sorted(peak_qy_space, reverse=True):
+                # -------------------------------------------------------------------
+                # Phase 1+2: generate or thin the photoelectron batch
+                # -------------------------------------------------------------------
+                if pe_base is None:
+                    # First pass (peak_qy == qy_max): full Poisson + binomial draw
+                    pixel_QYs_max = base_pixel_QYs * qy_max
+                    cam_params_qy = dict(camera_parameters)
+                    cam_params_qy["pixel_QYs"] = pixel_QYs_max
+
+                    if config.use_stochastic_photons:
+                        mean_wl, colour_ratios = S_F.generate_bootstrap_colour_ratios(
+                            full_spectrum_template,
+                            wavelength,
+                            pixel_QYs_max,
+                            n_photons_per_image=int(n_photon),
+                            n_bootstrap=config.n_bootstrap,
+                            pixel_order=camera_params_base.pixel_order,
+                            pixel_order_indices=camera_params_base.pixel_order_indices,
+                            random_state=np.random.default_rng(),
+                        )
+                        avg_wl_for_gen = mean_wl
+                        dpe_for_gen = colour_ratios
+                    else:
+                        avg_wl_for_gen = average_emission_wavelength
+                        dpe_for_gen = dye_pixel_efficiency
+
+                    pe_base = self._generate_photoelectron_batch(
+                        cam_params_qy,
+                        wavelength,
+                        avg_wl_for_gen,
+                        dpe_for_gen,
+                        n_photons,
+                        x0y0,
+                        config,
+                    )
+                    pe_batch = pe_base
+                else:
+                    # Poisson thinning: Binomial(K_max, peak_qy / qy_max)
+                    thin_p = peak_qy / qy_max
+                    pe_batch = np.random.binomial(pe_base, thin_p).astype(np.int32)
+
+                # -------------------------------------------------------------------
+                # Phase 3 inner loop: vary read noise, reuse pe_batch
+                # -------------------------------------------------------------------
+                for rn in read_noise_space:
+                    flag = starting_flag_fn(dye, peak_qy, rn)
+
+                    # Overwrite check
+                    raw_results_h5_path = os.path.join(
+                        save_folder,
+                        f"{flag}LM_method_{dyestr}_rawresults.h5",
+                    )
+                    if not overwrite and os.path.exists(raw_results_h5_path):
+                        done_count += 1
+                        continue
+
+                    # Apply read noise (vectorised Phase 3) + smoothing
+                    bayer_image, smoothed_image = self._apply_read_noise_batch(
+                        pe_batch, rn, gain, offset, smoothing_function,
+                    )
+
+                    # Build camera_params for this rn (fitting needs readnoise for weights)
+                    cam_params_rn_dict = dict(camera_parameters)
+                    cam_params_rn_dict["variance"] = np.full(gain.shape, rn ** 2)
+                    cam_params_rn_dict["readnoise"] = rn
+                    camera_params_rn = CameraParameters.validate_and_create(cam_params_rn_dict)
+
+                    # Save input parameters and ground truth (once per flag)
+                    if overwrite or not os.path.exists(raw_results_h5_path):
+                        parameters_to_save = analysis_save_params[:-2]
+                        real_params = pl.DataFrame(
+                            data=np.expand_dims(setup_data["expected_parameters"], 0),
+                            schema=parameters_to_save,
+                        )
+                        input_params_path = os.path.join(
+                            save_folder,
+                            f"{flag}LM_method_{dyestr}_fittesting_input_parameters.csv",
+                        )
+                        if overwrite or not os.path.exists(input_params_path):
+                            real_params.write_csv(input_params_path)
+
+                        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
+                            gt_path = os.path.join(
+                                save_folder,
+                                f"{flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
+                            )
+                            pl.DataFrame({"x0": x0, "y0": y0}).write_csv(gt_path)
+
+                    # Fitting pipeline
+                    photoelectron_data, smoothed_data, grayscale_data = (
+                        self._prepare_fitting_data(
+                            bayer_image, smoothed_image, camera_params_rn, strategy, config
+                        )
+                    )
+                    weights_map, _ = self._compute_error_maps(
+                        smoothed_data,
+                        grayscale_data[1] if grayscale_data else None,
+                        camera_params_rn,
+                    )
+                    fit_results = self._perform_fitting(
+                        strategy, photoelectron_data, smoothed_data, weights_map,
+                        grayscale_data, camera_params_rn, config,
+                    )
+
+                    # Subtract ground truth positions if requested
+                    if config.subtractx0y0:
+                        fit_results["xc"] = fit_results["xc"] - (x0 / config.pixel_size)
+                        fit_results["yc"] = fit_results["yc"] - (y0 / config.pixel_size)
+
+                    # Add photon level index and save to HDF5
+                    if config.save_raw_results:
+                        fit_results["photon_level"] = i_ph
+                        # For the first photon level, remove any existing file (fresh write).
+                        # For subsequent photon levels, append to the existing file.
+                        should_append = (i_ph > 0) and os.path.exists(raw_results_h5_path)
+                        if i_ph == 0 and overwrite and os.path.exists(raw_results_h5_path):
+                            os.remove(raw_results_h5_path)
+                        self.io._write_h5_database(
+                            fit_results,
+                            raw_results_h5_path,
+                            append=should_append,
+                            normalise_photons=False,
+                            verbose=False,
+                        )
+
+                    done_count += 1
+                    elapsed = (time.time() - start_total) / 60.0
+                    print(
+                        f"[{dye}] {done_count}/{total_combinations} "
+                        f"n_ph={n_photon} qy={peak_qy:.3f} rn={rn:.4f}  "
+                        f"elapsed {elapsed:.2f} min",
+                        end="\r",
+                        flush=True,
+                    )
+
+        total_elapsed = (time.time() - start_total) / 60.0
+        print(
+            f"\n[{dye}] 2-D sweep complete: {total_combinations} combinations  "
+            f"total time {total_elapsed:.3f} min",
+            flush=True,
+        )
 
     def test_simulation_method(
         self,
