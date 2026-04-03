@@ -6,6 +6,28 @@
 
 ---
 
+## Session: April 3, 2026 — Factorised 2D simulation sweep ✅
+
+### Factorised read noise × QY simulation pipeline
+`src/Multicolour_Simulation_Functions.py`, `notebooks/figures/Figure1_maximum_readnoise.ipynb`
+
+- **`return_photoelectrons_stack=True`** early-return path added to `gen_camera_image_stack`
+  after Phase 2 (vectorized binomial QE draw), before any read noise or ADU conversion.
+- **`_generate_photoelectron_batch`**: thin wrapper calling `gen_camera_image_stack` with
+  the new flag; returns `(n_bootstrap, H, W)` int32 photoelectron array.
+- **`_apply_read_noise_batch`**: vectorised Phase 3 — `loc = gain*pe + offset; adu = clip(loc + N(0,rn), 0, ∞)`;
+  casts to uint8/uint16/float32, applies smoothing to full 3-D stack. ~25× faster per RN level.
+- **`test_simulation_method_2d_sweep`**: public method using Poisson thinning
+  `Binomial(K_max, peak_qy/qy_max)` so the expensive draw happens once per n_photon (not
+  once per n_photon × n_QY). Maintains identical file-naming convention to existing notebook.
+- **Figure1_maximum_readnoise.ipynb** simulation cell replaced with single `test_simulation_method_2d_sweep`
+  call per dye (triple nested loop removed).
+- **Unit tests** in `unit_tests/claude/test_2d_sweep_factorisation.py`: 11 tests covering
+  photoelectron batch shape/dtype/sign, noise statistics, and Poisson thinning property (all pass).
+- Committed `7c86df9`.
+
+---
+
 ## Session: April 1–2, 2026 — Tracking pipeline fixes, methods paragraphs, 2D noise simulation ✅
 
 ### Dan tracking notebook — full pipeline rebuild
