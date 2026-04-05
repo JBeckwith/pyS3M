@@ -32,6 +32,7 @@ class Calibration_Functions:
         self,
         mosaic_unit=None,
         high_memory=False,
+        chunk_size=50,
         io_functions=None,
         mask_functions=None,
         helper_functions=None,
@@ -42,11 +43,14 @@ class Calibration_Functions:
             mosaic_unit: Optional custom Bayer mosaic pattern.
                         Defaults to standard [["B", "G"], ["G", "R"]] pattern.
             high_memory: Whether to use high-memory processing mode.
+            chunk_size: Number of frames to read per I/O call in low-memory mode.
+                        Larger values are faster but use more RAM (default: 50).
             io_functions: IO functions instance (default: creates new instance)
             mask_functions: Mask functions instance (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
         """
         self.high_memory = high_memory
+        self.chunk_size = chunk_size
         if isinstance(mosaic_unit, type(None)):
             self.mosaic_unit = np.array([["B", "G"], ["G", "R"]])
         else:
@@ -125,10 +129,9 @@ class Calibration_Functions:
             return
 
         n_powers = int(np.unique(n_powermatrix))
-        # calculate dark offset and variance for all colours
-        offset = self.calculate_offset(os.path.join(directory, dark_directory), "dark")
-        variance = self.calculate_variance(
-            offset, os.path.join(directory, dark_directory), "dark"
+        # calculate dark offset and variance for all colours (single pass)
+        offset, variance = self.calculate_offset_and_variance(
+            os.path.join(directory, dark_directory), "dark"
         )
 
         offset_intensities = np.zeros([offset.shape[0], offset.shape[1], n_powers])
@@ -142,28 +145,14 @@ class Calibration_Functions:
 
         for i, intensity in enumerate(intensity_strings):
             for colour in colour_directories:
-                offset_intensities[:, :, i] = offset_intensities[:, :, i] + np.asarray(
-                    np.multiply(
-                        self.calculate_offset(
-                            os.path.join(directory, colour), intensity
-                        ),
-                        masks[str(colour)],
-                    ),
-                    dtype=float,
+                # Single-pass: compute offset and variance for this colour/intensity
+                # together so each channel uses its own correct mean (not a
+                # partially-accumulated cross-channel offset as the old code did).
+                off_i, var_i = self.calculate_offset_and_variance(
+                    os.path.join(directory, colour), intensity
                 )
-                variance_intensities[:, :, i] = variance_intensities[
-                    :, :, i
-                ] + np.asarray(
-                    np.multiply(
-                        self.calculate_variance(
-                            offset_intensities[:, :, i],
-                            os.path.join(directory, colour),
-                            intensity,
-                        ),
-                        masks[str(colour)],
-                    ),
-                    dtype=float,
-                )
+                offset_intensities[:, :, i] += np.multiply(off_i, masks[str(colour)])
+                variance_intensities[:, :, i] += np.multiply(var_i, masks[str(colour)])
 
         A = np.subtract(variance_intensities, variance[:, :, np.newaxis])
         B = np.subtract(offset_intensities, offset[:, :, np.newaxis])
@@ -183,18 +172,12 @@ class Calibration_Functions:
             pixel_size=CalibrationConstants.PIXEL_SIZE,
         )
 
-        gain = np.zeros_like(offset)
-
-        for i in np.arange(gain.shape[0]):
-            for j in np.arange(gain.shape[1]):
-                Ai = A[i, j, :]
-                Bi = B[i, j, :]
-                gain[i, j] = np.asarray(
-                    np.dot(
-                        np.linalg.pinv(np.matrix(np.dot(Bi, Bi.T))), np.dot(Bi, Ai.T)
-                    ),
-                    dtype=float,
-                )[0][0]
+        # Vectorised OLS: gain[i,j] = sum(A*B) / sum(B*B) per pixel.
+        # Bi is a 1-D vector so pinv(Bi@Bi.T) = 1/||Bi||^2, reducing the
+        # original per-pixel pinv loop to a single pair of einsum calls.
+        denom = np.einsum('ijk,ijk->ij', B, B)
+        numer = np.einsum('ijk,ijk->ij', A, B)
+        gain = np.where(denom > 0, numer / denom, np.nan)
 
         readnoise = np.divide(np.sqrt(variance), gain)
         rqe = self.calculate_rqe(offset_intensities[:, :, -1], offset, gain)
@@ -309,17 +292,18 @@ class Calibration_Functions:
                 else:
                     accumulator = process_multi_frame_fn(accumulator, image)
             else:
-                n_frames = 0
-                finished = 0
-                while finished == 0:
-                    try:
-                        frame = self.io.read_tiff(
-                            os.path.join(directory, file), n_frames
-                        )
-                        n_frames += 1
-                        accumulator = process_single_frame_fn(accumulator, frame)
-                    except (IOError, OSError, IndexError, ValueError) as e:
-                        finished = 1
+                path = os.path.join(directory, file)
+                n_frames = self.io.get_n_frames(path)
+                for chunk_start in range(0, n_frames, self.chunk_size):
+                    chunk_end = min(chunk_start + self.chunk_size, n_frames)
+                    chunk = self.io.read_tiff(
+                        path, frame=list(range(chunk_start, chunk_end))
+                    )
+                    if chunk.ndim == 2:
+                        chunk = chunk[np.newaxis, ...]  # (1, H, W)
+                    # process_multi_frame_fn expects (H, W, N); transpose accordingly
+                    chunk = chunk.transpose(1, 2, 0)
+                    accumulator = process_multi_frame_fn(accumulator, chunk)
 
             framesCounter = framesCounter + n_frames
             elapsed = time.time() - start
@@ -406,6 +390,80 @@ class Calibration_Functions:
 
         offset = offset / framesCounter
         return offset
+
+    def calculate_offset_and_variance(self, directory, intensity_string, imtype=".tif"):
+        """
+        Compute offset (mean) and variance in a single pass over calibration files.
+
+        Accumulates sum(X) and sum(X²) simultaneously, then computes:
+            offset   = sum(X)  / N
+            variance = sum(X²) / N  −  offset²
+
+        This halves file I/O compared to calling calculate_offset and
+        calculate_variance separately, and avoids the bug where variance
+        was computed using a partially-filled cross-channel offset map.
+
+        sum(X²) is accumulated in float64 to avoid precision loss when
+        squaring 16-bit ADU values in float32.
+
+        Args:
+            directory (string): Folder containing tifs
+            intensity_string (string): Intensity string
+            imtype (string): image type to read in
+
+        Returns:
+            offset   (np.2darray, float32): mean pixel value (ADU)
+            variance (np.2darray, float32): pixel variance  (ADU²)
+        """
+        filelist = self.filesearch(directory, imtype, intensity_string)
+
+        frame0_shape = self.io.read_tiff(os.path.join(directory, filelist[0]), 0).shape
+        sum_frames = np.zeros(frame0_shape, dtype=np.float64)
+        sum_sq_frames = np.zeros(frame0_shape, dtype=np.float64)
+        framesCounter = 0
+
+        dir_label = directory.split("/")[-1]
+        display_label = (
+            intensity_string
+            if dir_label == intensity_string
+            else f"{dir_label} {intensity_string}"
+        )
+        print(
+            f"Starting offset+variance analysis of {display_label}",
+            end="\r",
+            flush=True,
+        )
+
+        start_t = time.time()
+        for file_i, file in enumerate(filelist):
+            path = os.path.join(directory, file)
+            n_file_frames = self.io.get_n_frames(path)
+
+            for chunk_start in range(0, n_file_frames, self.chunk_size):
+                chunk_end = min(chunk_start + self.chunk_size, n_file_frames)
+                chunk = self.io.read_tiff(
+                    path, frame=list(range(chunk_start, chunk_end))
+                )
+                if chunk.ndim == 2:
+                    chunk = chunk[np.newaxis, ...]  # (1, H, W)
+                # chunk shape: (N, H, W); sum over frame axis
+                sum_frames += np.sum(chunk, axis=0)
+                sum_sq_frames += np.sum(chunk.astype(np.float64) ** 2, axis=0)
+                framesCounter += chunk.shape[0]
+
+            elapsed = time.time() - start_t
+            elapsed_display, timestring = self.helper.format_elapsed_time(elapsed)
+            print(
+                f"Analysed offset+variance of {display_label} "
+                f"image {file_i + 1}/{len(filelist)}    "
+                f"Time elapsed: {elapsed_display:.3f} {timestring}",
+                end="\r",
+                flush=True,
+            )
+
+        mean = sum_frames / framesCounter
+        variance = sum_sq_frames / framesCounter - mean ** 2
+        return mean.astype(np.float32), variance.astype(np.float32)
 
     def calculate_variance(self, offset, directory, intensity_string, imtype=".tif"):
         """

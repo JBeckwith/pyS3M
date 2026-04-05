@@ -826,6 +826,20 @@ class IO_Functions:
                         image = self._read_tiff_robust(file_path, [int(frame)], dtype)
         return image
 
+    def get_n_frames(self, file_path):
+        """Return the number of frames in a TIFF file without loading pixel data.
+
+        Args:
+            file_path (str): Path to the TIFF file.
+
+        Returns:
+            int: Number of frames (pages).
+        """
+        with tifffile.TiffFile(
+            file_path, is_ome=False, is_mmstack=False, is_imagej=False
+        ) as tif:
+            return len(tif.pages)
+
     def read_tiff_tophotoelectrons(
         self,
         file_path,
