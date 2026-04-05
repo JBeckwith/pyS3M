@@ -1961,14 +1961,7 @@ class MultiC_Sim_Funcs_Refactored:
         noise = np.random.normal(0.0, rn, pe_batch.shape)
         adu_batch = np.clip(loc + noise, 0.0, None)
 
-        # Cast to appropriate bit depth (matches gen_camera_image_stack behaviour)
-        max_val = float(adu_batch.max())
-        if max_val > 65535:
-            adu_batch = adu_batch.astype(np.float32)
-        elif max_val > 255:
-            adu_batch = adu_batch.astype(np.uint16)
-        else:
-            adu_batch = adu_batch.astype(np.uint8)
+        adu_batch = adu_batch.astype(np.float32)
 
         # Apply smoothing to the full 3-D stack
         smoothing_args = dict(smoothing_function.args)
