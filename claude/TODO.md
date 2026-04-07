@@ -1,12 +1,29 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-04-03 (end of session)
+**Last Updated:** 2026-04-06
 
 **Note:** For completed work, see LOG.md
 
 ---
 
 ## Active Projects
+
+### Priority 1: EBI BioImage Archive Submission (ACTIVE)
+
+**Status:** 📋 IN PROGRESS — plan written, awaiting credential registration
+**Plan:** `claude/EBI_submission.md`
+**Data source:** `smb://intelliflash-mgmt-b.ch.private.cam.ac.uk/sycamore_asap_server/2026_Multicolour_Paper/Data/`
+**Scale:** ~1 359 OME-TIF files (Ximea + ThorLabs cameras)
+
+- [ ] Register / obtain EBI Webin account and FTP credentials
+- [ ] Run `generate_ebi_filelist.py` → `ebi_filelist.tsv` + `ebi_upload_paths.txt` (hours, run in tmux)
+- [ ] Spot-check MD5s on a few files manually
+- [ ] Upload via `lftp mirror --reverse` (or `upload_to_ebi.py`) — run overnight in tmux
+- [ ] Verify remote file count matches manifest
+- [ ] Submit `ebi_filelist.tsv` + metadata in BioImage Archive portal
+- [ ] Record accession number (S-BIADXXXXXXX) in `claude/EBI_submission.md`
+
+---
 
 ### Priority 1: FRET Post-Hoc Analysis (ACTIVE)
 
