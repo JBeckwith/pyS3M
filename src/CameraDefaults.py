@@ -39,7 +39,7 @@ CAMERAS = {
         mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
     ),
     "zwo": CameraConfig(
-        pixel_size=0.078,
+        pixel_size=0.0715,
         mosaic_unit=np.array([["R", "G"], ["G", "B"]]),
     ),
 }

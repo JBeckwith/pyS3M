@@ -1,5 +1,8 @@
 # Claude files
 claude/
+
+# EBI upload folder — contains FTP credentials and large manifest files
+notebooks/EBI_Upload/
 *Old*
 DriftCorrection_Example.py
 DriftCorrection_README.md
@@ -7,6 +10,7 @@ DriftCorrection_README.md
 .claude/
 *_backup.py
 archive/
+*.tex
 
 # Python cache files (comprehensive)
 *.pyc
