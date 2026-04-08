@@ -135,8 +135,6 @@ def test_full_pipeline():
             is_multi_frame=False,
             smoothing_function=None,  # No smoothing for test
             frame_offset=0,
-            raw_data_for_fitting=None,
-            fitting_data_is_photoelectrons=False,
         )
 
         if result is not None:

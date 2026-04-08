@@ -11,7 +11,6 @@ import sys
 import gc
 import multiprocessing
 from concurrent import futures
-from enum import Enum
 
 import ruptures as rpt
 
@@ -26,25 +25,6 @@ import SpotDetectionFunctions
 from PlottingBase import PublicationPlotter
 import sCMOSFunctions
 from Constants import ResultColumns
-
-
-class TemporalMedianMode(Enum):
-    """Background subtraction modes for super-resolution microscopy.
-
-    Attributes:
-        NONE: No background subtraction
-        FITTING_ONLY: Subtract background for fitting only (detection uses original)
-            Uses EVER (Extreme Value-based Emitter Recovery)
-        DETECTION_AND_FITTING: Subtract background for both detection and fitting
-            Uses EVER
-
-    Note: EVER uses extreme value statistics for accurate background estimation
-          with ~96% accuracy and ~2600 frames/sec processing speed.
-    """
-
-    NONE = 0
-    FITTING_ONLY = 1  # Uses EVER
-    DETECTION_AND_FITTING = 2  # Uses EVER
 
 
 class SuperRes_Functions:
@@ -210,8 +190,6 @@ class SuperRes_Functions:
         rqe=1.0,
         frame_offset=0,
         is_multi_frame=False,
-        raw_data_for_fitting=None,
-        fitting_data_is_photoelectrons=False,
     ):
         """
         Process a single detected ROI to extract photoelectron data, smoothed data, and weights.
@@ -231,10 +209,6 @@ class SuperRes_Functions:
             rqe (matrix or float): Relative quantum efficiency map
             frame_offset (int): Frame offset for plane labeling
             is_multi_frame (bool): Whether data has multiple frames
-            raw_data_for_fitting (np.ndarray): Optional separate raw data to use for fitting
-                (e.g., temporal median subtracted). If None, uses raw_data.
-            fitting_data_is_photoelectrons (bool): If True, raw_data_for_fitting is already
-                in photoelectrons and should not be converted again. Default False.
 
         Returns:
             tuple or None: (photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane)
@@ -254,20 +228,15 @@ class SuperRes_Functions:
             return None
         xmin, xmax, ymin, ymax = bounds
 
-        # Determine which data to use for fitting
-        data_for_fitting = (
-            raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
-        )
-
         # Extract raw ROI for fitting (note: arrays are [row, col] = [y, x])
         if is_multi_frame:
             raw_roi = (
-                data_for_fitting[frame, ymin:ymax, xmin:xmax]
-                if len(data_for_fitting.shape) > 2
-                else data_for_fitting[ymin:ymax, xmin:xmax]
+                raw_data[frame, ymin:ymax, xmin:xmax]
+                if len(raw_data.shape) > 2
+                else raw_data[ymin:ymax, xmin:xmax]
             )
         else:
-            raw_roi = data_for_fitting[ymin:ymax, xmin:xmax]
+            raw_roi = raw_data[ymin:ymax, xmin:xmax]
 
         # Verify ROI is actually square (sanity check)
         if raw_roi.shape[0] != raw_roi.shape[1]:
@@ -299,15 +268,10 @@ class SuperRes_Functions:
             rqe[ymin:ymax, xmin:xmax] if not isinstance(rqe, (int, float)) else rqe
         )
 
-        # Convert raw ROI to photoelectrons (skip if already in photoelectrons)
-        if fitting_data_is_photoelectrons and raw_data_for_fitting is not None:
-            # Data is already in photoelectrons, no conversion needed
-            photoelectron_roi = raw_roi.astype(np.float32)
-        else:
-            # Convert from ADU to photoelectrons
-            photoelectron_roi = self.io.convert_to_photoelectrons(
-                raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
-            )
+        # Convert raw ROI to photoelectrons
+        photoelectron_roi = self.io.convert_to_photoelectrons(
+            raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
+        )
 
         # Extract read_noise ROI for weights calculation (arrays are [y, x])
         read_noise_roi = (
@@ -321,40 +285,9 @@ class SuperRes_Functions:
             photoelectron_roi, smoothing_function, dtype="float32"
         )
 
-        # CRITICAL FIX FOR EVER: Weights must be calculated from ORIGINAL data variance,
-        # not from EVER-subtracted data (which can be negative and gets clipped to 0)
-        if fitting_data_is_photoelectrons and raw_data_for_fitting is not None:
-            # EVER mode: photoelectron_roi contains EVER-subtracted data (can be negative)
-            # For weights, we need the variance from the ORIGINAL photoelectrons
-            # Extract the same ROI from original raw_data and convert to photoelectrons
-            if is_multi_frame:
-                original_raw_roi = (
-                    raw_data[frame, ymin:ymax, xmin:xmax]
-                    if len(raw_data.shape) > 2
-                    else raw_data[ymin:ymax, xmin:xmax]
-                )
-            else:
-                original_raw_roi = raw_data[ymin:ymax, xmin:xmax]
-
-            # Convert original raw data to photoelectrons
-            original_pe_roi = self.io.convert_to_photoelectrons(
-                original_raw_roi, gain_map=gain_roi, offset_map=offset_roi, rqe=rqe_roi
-            )
-
-            # Smooth the ORIGINAL photoelectrons for variance estimation
-            smoothed_for_weights = self.io.apply_smoothing(
-                original_pe_roi, smoothing_function, dtype="float32"
-            )
-
-            # Generate weights from ORIGINAL data (all positive, correct variance)
-            weights_roi = self.io.generate_weights(
-                smoothed_for_weights, read_noise=read_noise_roi, dtype="float32"
-            )
-        else:
-            # Normal mode: use smoothed EVER-subtracted data (same as before)
-            weights_roi = self.io.generate_weights(
-                smoothed_roi, read_noise=read_noise_roi, dtype="float32"
-            )
+        weights_roi = self.io.generate_weights(
+            smoothed_roi, read_noise=read_noise_roi, dtype="float32"
+        )
 
         # Extract mask ROI (note: masks are indexed as [row, col] = [y, x])
         mask_roi = masks[ymin:ymax, xmin:xmax, :]
@@ -380,8 +313,6 @@ class SuperRes_Functions:
         rqe=None,
         frame_offset=0,
         is_multi_frame=False,
-        raw_data_for_fitting=None,
-        fitting_data_is_photoelectrons=False,
         quality_metrics=None,
     ):
         """Process a batch of detected puncta into fitting-ready ROIs.
@@ -404,8 +335,6 @@ class SuperRes_Functions:
             rqe (float or np.ndarray, optional): Relative QE map or scalar
             frame_offset (int, optional): Frame number offset for multi-file processing (default: 0)
             is_multi_frame (bool, optional): Whether processing multi-frame data (default: False)
-            raw_data_for_fitting (np.ndarray, optional): Separate data for fitting if different
-                from detection data (e.g., temporal median subtracted)
             quality_metrics (dict, optional): Dict of quality metric arrays from spot detection.
                 Will be filtered to match ROIs that pass processing (not too close to edges, etc.)
 
@@ -429,14 +358,6 @@ class SuperRes_Functions:
             ... )
             >>> puncta, smoothed, masks_roi, weights, coords, frames, qm = results
 
-            >>> # Multi-frame with temporal median subtraction and quality metrics
-            >>> results = self._process_detected_puncta_batch(
-            ...     raw_data_original, detected_puncta, width, height, ROI_size,
-            ...     smoothing_function, read_noise, masks,
-            ...     frame_offset=1000, is_multi_frame=True,
-            ...     raw_data_for_fitting=temporal_median_subtracted_data,
-            ...     quality_metrics=qm_dict
-            ... )
         """
         puncta_tofit = []
         smoothed_puncta_tofit = []
@@ -462,8 +383,6 @@ class SuperRes_Functions:
                 rqe=rqe,
                 frame_offset=frame_offset,
                 is_multi_frame=is_multi_frame,
-                raw_data_for_fitting=raw_data_for_fitting,
-                fitting_data_is_photoelectrons=fitting_data_is_photoelectrons,
             )
 
             if result is None:
@@ -529,8 +448,6 @@ class SuperRes_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         use_variance_aware_demosaic: bool = True,
-        temporal_median_mode: TemporalMedianMode = TemporalMedianMode.NONE,
-        ever_window: int = 100,
         frame_index: int = 0,
         n_frames_sum: int = 1,
     ):
@@ -559,12 +476,6 @@ class SuperRes_Functions:
             sigma (float): Gaussian sigma for detection (default: 1.5)
             fraction_true (float): Expected fraction of true spots (default: 0.2)
             use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default: True)
-            temporal_median_mode (TemporalMedianMode): Background subtraction mode:
-                - NONE: No background subtraction (default)
-                - FITTING_ONLY: EVER background subtraction for fitting only, detection uses original data
-                - DETECTION_AND_FITTING: EVER background subtraction for both detection and fitting
-            ever_window (int): Window for EVER in frames, centered on the current frame
-                (e.g., 100 frames = 50 before + 50 after). Typical: 50-200 frames. (default: 100)
             frame_index (int): Which frame to start from (default: 0)
             n_frames_sum (int): Number of frames to sum for spot detection (default: 1).
                 When > 1, frames from frame_index to frame_index + n_frames_sum - 1 are summed
@@ -670,62 +581,9 @@ class SuperRes_Functions:
             offset_map = offset_map * actual_frames_summed
             variance = variance * actual_frames_summed
 
-        # Prepare data based on temporal median mode
-        raw_data_for_detection = raw_data
-        raw_data_for_fitting = None
-
-        if temporal_median_mode != TemporalMedianMode.NONE:
-            # Load surrounding frames for EVER calculation (may cross file boundaries)
-            # Get frame counts for all files for cross-file loading
-            file_frame_counts = [self.io.get_num_pages_in_TIF(f) for f in image_files]
-
-            # Load frames across file boundaries
-            print(f"Applying EVER background subtraction (window={ever_window})")
-            frames_for_ever, center_idx = self._load_frames_for_ever_window(
-                image_files,
-                0,  # First file
-                frame_index,
-                ever_window,
-                file_frame_counts,
-            )
-
-            # Compute EVER background subtraction in photoelectron space
-            # Returns both ADU (for variance-aware demosaic) and photoelectrons (for fitting)
-            print(f"  Loaded {frames_for_ever.shape[0]} frames for EVER window")
-            ever_subtracted_adu_stack, ever_subtracted_pe_stack = (
-                self._compute_ever_background(
-                    frames_for_ever,
-                    window_size=ever_window,
-                    spatial_filter_size=1,  # No spatial averaging for Bayer patterns
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    rqe=rqe,
-                )
-            )
-
-            # Extract the requested frame from EVER-subtracted stacks
-            ever_subtracted_adu = ever_subtracted_adu_stack[center_idx]
-            ever_subtracted_pe = ever_subtracted_pe_stack[center_idx]
-
-            # Apply to detection and/or fitting based on mode
-            if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
-                print(f"  Using EVER for BOTH detection and fitting")
-                # Detection: use ADU for variance-aware demosaic
-                raw_data_for_detection = ever_subtracted_adu
-                # Fitting: use photoelectrons directly
-                raw_data_for_fitting = ever_subtracted_pe
-            elif temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
-                print(f"  Using EVER for FITTING only")
-                # Fitting: use photoelectrons directly
-                raw_data_for_fitting = ever_subtracted_pe
-
-            # Cleanup
-            del frames_for_ever, ever_subtracted_adu_stack, ever_subtracted_pe_stack
-            gc.collect()
-
         # Demosaic the raw Bayer image for detection
         image_to_analyse = self._demosaic_image(
-            raw_data_for_detection,
+            raw_data,
             use_variance_aware=use_variance_aware_demosaic,
             gain_map=gain_map,
             offset_map=offset_map,
@@ -746,7 +604,6 @@ class SuperRes_Functions:
         )
 
         # Extract detected ROIs and generate smoothed/weights only for ROIs (most memory efficient)
-        # Detection uses appropriate data based on mode, fitting may use median-subtracted
         (
             puncta_tofit,
             smoothed_puncta_tofit,
@@ -756,7 +613,7 @@ class SuperRes_Functions:
             _,
             _,  # filtered_quality_metrics (None - not using quality metrics in this method)
         ) = self._process_detected_puncta_batch(
-            raw_data_for_detection,
+            raw_data,
             detected_puncta,
             width,
             height,
@@ -769,23 +626,12 @@ class SuperRes_Functions:
             rqe=rqe,
             frame_offset=0,
             is_multi_frame=False,
-            raw_data_for_fitting=raw_data_for_fitting,
-            fitting_data_is_photoelectrons=(temporal_median_mode != TemporalMedianMode.NONE),
         )
         gc.collect()
 
-        # Set raw_image_for_fitting for plotting
-        # IMPORTANT: We always plot the photoelectron image that was actually fitted
-        # - If EVER enabled: raw_data_for_fitting contains EVER-subtracted photoelectrons
-        # - If EVER disabled: convert raw_data to photoelectrons (matching what fitting uses)
-        if temporal_median_mode == TemporalMedianMode.NONE:
-            # No EVER: convert raw ADU data to photoelectrons for plotting
-            raw_image_for_fitting = self.io.convert_to_photoelectrons(
-                raw_data, gain_map=gain_map, offset_map=offset_map, rqe=rqe
-            )
-        else:
-            # EVER enabled: raw_data_for_fitting already contains photoelectrons
-            raw_image_for_fitting = raw_data_for_fitting if raw_data_for_fitting is not None else raw_data
+        raw_image_for_fitting = self.io.convert_to_photoelectrons(
+            raw_data, gain_map=gain_map, offset_map=offset_map, rqe=rqe
+        )
 
         fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
             puncta_tofit,
@@ -837,7 +683,6 @@ class SuperRes_Functions:
             vmax_processed = np.percentile(image_to_analyse, 99.8)
 
             # Plot the photoelectron image that was actually fitted
-            # raw_image_for_fitting is always in photoelectrons (with or without EVER)
             vmin_raw = np.percentile(raw_image_for_fitting, 1)
             vmax_raw = np.percentile(raw_image_for_fitting, 99.8)
 
@@ -2164,192 +2009,6 @@ class SuperRes_Functions:
             gc.collect()
         return
 
-    def _load_frames_for_ever_window(
-        self,
-        image_files: list,
-        current_file_idx: int,
-        current_frame_in_file: int,
-        window_size: int,
-        file_frame_counts: list,
-    ) -> tuple:
-        """Load frames for EVER window, crossing file boundaries if needed.
-
-        Args:
-            image_files: List of image file paths
-            current_file_idx: Index of current file being processed
-            current_frame_in_file: Frame index within current file (0-based)
-            window_size: EVER window size (number of frames)
-            file_frame_counts: List of frame counts for each file
-
-        Returns:
-            tuple: (frames_stack, center_frame_index)
-                - frames_stack: 3D array (n_frames, height, width) containing window frames
-                - center_frame_index: Index of the target frame within frames_stack
-        """
-        half_window = window_size // 2
-
-        # Calculate global frame index across all files
-        global_frame_start = (
-            sum(file_frame_counts[:current_file_idx]) + current_frame_in_file
-        )
-
-        # Determine window boundaries in global frame space
-        window_global_start = max(0, global_frame_start - half_window)
-        window_global_end = global_frame_start + half_window + 1
-        total_global_frames = sum(file_frame_counts)
-        window_global_end = min(window_global_end, total_global_frames)
-
-        # Convert global frame indices back to (file_idx, frame_in_file) pairs
-        frames_to_load = []
-        cumulative_frames = 0
-        for file_idx, file_frame_count in enumerate(file_frame_counts):
-            file_global_start = cumulative_frames
-            file_global_end = cumulative_frames + file_frame_count
-
-            # Does this file overlap with our window?
-            if (
-                file_global_end > window_global_start
-                and file_global_start < window_global_end
-            ):
-                # Calculate which frames from this file to load
-                load_start = max(0, window_global_start - file_global_start)
-                load_end = min(file_frame_count, window_global_end - file_global_start)
-
-                frames_to_load.append(
-                    {
-                        "file_idx": file_idx,
-                        "file_path": image_files[file_idx],
-                        "frame_start": load_start,
-                        "frame_end": load_end,
-                        "frame_range": list(range(load_start, load_end)),
-                    }
-                )
-
-            cumulative_frames += file_frame_count
-
-        # Load frames from all relevant files
-        all_frames = []
-        for load_info in frames_to_load:
-            frames = self.io.read_tiff(
-                load_info["file_path"], dtype="float32", frame=load_info["frame_range"]
-            )
-            if frames.ndim == 2:
-                frames = frames[np.newaxis, :, :]
-            all_frames.append(frames)
-
-        # Stack all loaded frames
-        frames_stack = np.concatenate(all_frames, axis=0)
-
-        # Calculate where the target frame is in the stack
-        center_frame_index = current_frame_in_file + (
-            sum(file_frame_counts[:current_file_idx]) - window_global_start
-        )
-
-        return frames_stack, center_frame_index
-
-    def _compute_ever_background(
-        self,
-        frames: np.ndarray,
-        window_size: int = 100,
-        spatial_filter_size: int = 1,
-        gain_map: np.ndarray = None,
-        offset_map: np.ndarray = None,
-        rqe: np.ndarray = None,
-    ) -> tuple:
-        """Compute EVER (Extreme Value-based Emitter Recovery) background subtraction.
-
-        EVER uses temporal minimum values and extreme value statistics to accurately
-        estimate and remove heterogeneous background. It is ~5x faster and more
-        accurate than temporal median filtering.
-
-        IMPORTANT: EVER requires photoelectron units because it uses Poisson statistics.
-        This method handles conversion from ADU → photoelectrons → EVER → ADU and photoelectrons.
-
-        Key advantages:
-        - ~5x faster than temporal median
-        - More robust to high emitter density (>50% occupancy)
-        - No over-estimation of background (preserves emitter intensity/size)
-        - ~98% accuracy compared to ground truth
-        - Fully automatic with no manual parameter tuning
-
-        Reference: Ma et al. (2021) Scientific Reports 11:20417
-
-        Args:
-            frames: 3D array of frames (n_frames, height, width) in ADU units
-            window_size: Temporal window size for minimum calculation (default: 100)
-            spatial_filter_size: Spatial mean filter size for noise reduction (default: 1)
-                Set to 1 to disable spatial filtering
-                Set to 2 or higher to enable Bayer-aware spatial filtering (automatically enabled)
-                Bayer-aware filtering provides 62% improvement in background estimation accuracy
-            gain_map: Gain calibration map for ADU→photoelectron conversion
-            offset_map: Offset calibration map for ADU→photoelectron conversion
-            rqe: Relative quantum efficiency map for ADU→photoelectron conversion
-
-        Returns:
-            tuple: (emitters_adu, emitters_photoelectrons)
-                - emitters_adu: Background-subtracted frames in ADU (for variance-aware demosaic)
-                - emitters_photoelectrons: Background-subtracted frames in photoelectrons (for fitting)
-
-        Example:
-            >>> # Process chunk with EVER
-            >>> cleaned_adu, cleaned_pe = _compute_ever_background(
-            ...     chunk_frames, window_size=100, gain_map=gain, offset_map=offset, rqe=rqe
-            ... )
-        """
-        from EVERFunctions import EVER_Functions
-
-        # Convert ADU to photoelectrons using IOFunctions method
-        # This ensures consistent conversion across the codebase
-        if gain_map is not None and offset_map is not None:
-            # Use rqe if provided, otherwise default to 1.0
-            rqe_value = rqe if rqe is not None else 1.0
-            frames_pe = self.io.convert_to_photoelectrons(
-                frames, gain_map=gain_map, offset_map=offset_map, rqe=rqe_value
-            )
-        else:
-            # If no calibration maps, assume already in photoelectrons
-            frames_pe = frames
-
-        ever = EVER_Functions(io_functions=self.io)
-
-        # Get Bayer masks if spatial filtering is enabled
-        bayer_masks = None
-        if spatial_filter_size > 1:
-            # Get masks for the frame dimensions
-            _, height, width = frames.shape
-            bayer_masks = self.mask.get_masks(
-                size_x=height, size_y=width, mosaic_unit=self.mosaic_unit
-            )
-
-        # Compute EVER background estimation in photoelectron space
-        # Returns 3D backgrounds (one per frame) and emitters
-        # Note: Spatial filtering (if enabled) automatically uses Bayer-aware filtering
-        backgrounds_pe, emitters_pe = ever.compute_ever_background(
-            frames_pe,
-            window_size=window_size,
-            spatial_filter_size=spatial_filter_size,
-            use_cache=True,
-            n_jobs=-1,  # Use all available CPUs for parallel processing
-            bayer_masks=bayer_masks,
-        )
-
-        # Convert emitters back to ADU for variance-aware demosaic
-        # Reverse the photoelectron conversion: ADU = (PE * rqe * gain) + offset
-        if gain_map is not None and offset_map is not None:
-            # Use rqe if provided, otherwise default to 1.0
-            rqe_value = rqe if rqe is not None else 1.0
-            # Note: gain_map, offset_map, and rqe are 2D, will broadcast across frames
-            # Proper broadcasting for 2D maps across 3D frame data
-            if not isinstance(rqe_value, (int, float)):
-                emitters_adu = (emitters_pe * rqe_value[np.newaxis, :, :] * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
-            else:
-                emitters_adu = (emitters_pe * rqe_value * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
-        else:
-            # If no calibration maps, return photoelectrons for both
-            emitters_adu = emitters_pe
-
-        return emitters_adu, emitters_pe
-
     def _demosaic_image(
         self,
         raw_data: np.ndarray,
@@ -2626,8 +2285,6 @@ class SuperRes_Functions:
         fraction_true: float = 0.2,
         image_type=".tif",
         use_variance_aware_demosaic: bool = True,
-        temporal_median_mode: TemporalMedianMode = TemporalMedianMode.NONE,
-        ever_window: int = 100,
     ):
         """Cross-file imaging data fitting function.
 
@@ -2653,19 +2310,9 @@ class SuperRes_Functions:
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron
                 images that suppress hot pixels. If False, uses standard grayscale demosaicing.
-            temporal_median_mode (TemporalMedianMode): Background subtraction mode:
-                - NONE: No background subtraction (default)
-                - FITTING_ONLY: EVER background subtraction for fitting only, detection uses original data
-                - DETECTION_AND_FITTING: EVER background subtraction for both detection and fitting
-            ever_window (int): Window size (in frames) for EVER calculation.
-                The minimum is centered on each frame (e.g., for frame N with window=100, uses all 100 frames).
-                Typical: 50-200 frames. Larger windows better capture background but require more memory.
-                Can load frames across file boundaries. (default: 100)
-
         Returns:
             None: Writes results to HDF5 file:
-                - image_folder/Localisations.h5 (if temporal_median_mode == NONE)
-                - image_folder/Localisations_EVER.h5 (if EVER background subtraction enabled)
+                - image_folder/Localisations.h5
         """
 
         image_files = self.helper.file_search(image_folder, image_type, "")
@@ -2673,11 +2320,7 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=False
         )
 
-        # Use different filename when EVER background subtraction is enabled
-        if temporal_median_mode != TemporalMedianMode.NONE:
-            fit_savename = os.path.join(image_folder, "Localisations_EVER.h5")
-        else:
-            fit_savename = os.path.join(image_folder, "Localisations.h5")
+        fit_savename = os.path.join(image_folder, "Localisations.h5")
         masks = self.mask.get_stacked_masks(
             start_x, start_y, width, height, self.mosaic_unit
         )
@@ -2703,23 +2346,9 @@ class SuperRes_Functions:
 
         result_params = ResultColumns.get_all_columns()
 
-        # Pre-compute frame counts for all files (needed for cross-file EVER windows)
-        file_frame_counts = []
-        if temporal_median_mode != TemporalMedianMode.NONE:
-            print("Pre-scanning files for EVER cross-file loading...")
-            for file in image_files:
-                file_frame_counts.append(self.io.get_num_pages_in_TIF(file))
-            print(
-                f"  Total files: {len(image_files)}, Total frames: {sum(file_frame_counts)}"
-            )
-
         total_frames = 0
         for FOVn, file in enumerate(image_files):
-            # Get total frame count without loading entire file
-            if temporal_median_mode != TemporalMedianMode.NONE:
-                file_frames = file_frame_counts[FOVn]
-            else:
-                file_frames = self.io.get_num_pages_in_TIF(file)
+            file_frames = self.io.get_num_pages_in_TIF(file)
 
             chunk_size = 1000
             all_puncta_tofit = []
@@ -2750,98 +2379,9 @@ class SuperRes_Functions:
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                # Prepare data based on temporal median mode
-                raw_data_for_detection = raw_data
-                raw_data_for_fitting = None
-                buffer_data = None
-
-                if temporal_median_mode != TemporalMedianMode.NONE:
-                    # EVER algorithm - fast and accurate background subtraction in photoelectron space
-                    # Load frames across file boundaries for proper temporal minimum calculation
-                    print(
-                        f"    Applying EVER background subtraction (window={ever_window})"
-                    )
-
-                    # Calculate buffer region: load chunk + buffer for EVER window
-                    # Buffer size is half the EVER window on each side
-                    half_window = ever_window // 2
-
-                    # Calculate global frame indices for buffer region
-                    global_chunk_start = total_frames + chunk_start
-                    global_chunk_end = total_frames + chunk_end
-                    buffer_global_start = max(0, global_chunk_start - half_window)
-                    buffer_global_end = min(sum(file_frame_counts), global_chunk_end + half_window)
-
-                    # Load frames with buffer (may span multiple files)
-                    buffer_frames = []
-                    buffer_file_mapping = []  # Track which frames came from which file/position
-
-                    cumulative_frames = 0
-                    for file_idx, file_frame_count in enumerate(file_frame_counts):
-                        file_global_start = cumulative_frames
-                        file_global_end = cumulative_frames + file_frame_count
-
-                        # Does this file overlap with our buffer region?
-                        if file_global_end > buffer_global_start and file_global_start < buffer_global_end:
-                            # Calculate which frames from this file to load
-                            load_start = max(0, buffer_global_start - file_global_start)
-                            load_end = min(file_frame_count, buffer_global_end - file_global_start)
-
-                            # Load these frames
-                            frames_to_load = list(range(int(load_start), int(load_end)))
-                            if frames_to_load:
-                                loaded_frames = self.io.read_tiff(
-                                    image_files[file_idx], dtype="float32", frame=frames_to_load
-                                )
-                                if loaded_frames.ndim == 2:
-                                    loaded_frames = loaded_frames[np.newaxis, :, :]
-                                buffer_frames.append(loaded_frames)
-
-                        cumulative_frames += file_frame_count
-
-                    # Stack all buffer frames
-                    buffer_data = np.concatenate(buffer_frames, axis=0)
-                    print(f"      → Loaded {buffer_data.shape[0]} frames (chunk + buffer)")
-
-                    # Apply EVER to the buffer
-                    ever_adu_buffer, ever_pe_buffer = self._compute_ever_background(
-                        buffer_data,
-                        window_size=ever_window,
-                        spatial_filter_size=1,  # No spatial averaging for Bayer patterns
-                        gain_map=gain_map,
-                        offset_map=offset_map,
-                        rqe=rqe,
-                    )
-
-                    # Extract just the chunk frames from EVER result
-                    # The chunk starts at offset (global_chunk_start - buffer_global_start) in the buffer
-                    chunk_offset_in_buffer = global_chunk_start - buffer_global_start
-                    chunk_slice = slice(chunk_offset_in_buffer, chunk_offset_in_buffer + len(chunk_frames))
-
-                    background_subtracted_adu = ever_adu_buffer[chunk_slice]
-                    background_subtracted_pe = ever_pe_buffer[chunk_slice]
-
-                    print(f"      → Extracted {background_subtracted_adu.shape[0]} chunk frames from EVER result")
-
-                    # Cleanup buffer
-                    del buffer_data, ever_adu_buffer, ever_pe_buffer
-                    gc.collect()
-
-                    # Apply to detection and/or fitting based on mode
-                    if temporal_median_mode == TemporalMedianMode.DETECTION_AND_FITTING:
-                        print(f"      → EVER for BOTH detection and fitting")
-                        # Detection: use ADU for variance-aware demosaic
-                        raw_data_for_detection = background_subtracted_adu
-                        # Fitting: use photoelectrons directly
-                        raw_data_for_fitting = background_subtracted_pe
-                    elif temporal_median_mode == TemporalMedianMode.FITTING_ONLY:
-                        print(f"      → EVER for FITTING only")
-                        # Fitting: use photoelectrons directly
-                        raw_data_for_fitting = background_subtracted_pe
-
                 # Demosaic the raw Bayer image for detection
                 image_to_analyse = self._demosaic_image(
-                    raw_data_for_detection,
+                    raw_data,
                     use_variance_aware=use_variance_aware_demosaic,
                     gain_map=gain_map,
                     offset_map=offset_map,
@@ -2873,7 +2413,7 @@ class SuperRes_Functions:
                     chunk_planes,
                     filtered_quality_metrics,  # Returns filtered metrics matching processed ROIs
                 ) = self._process_detected_puncta_batch(
-                    raw_data_for_detection,
+                    raw_data,
                     detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
                     width,
                     height,
@@ -2887,8 +2427,6 @@ class SuperRes_Functions:
                     frame_offset=total_frames
                     + chunk_start,  # Global frame offset including chunk
                     is_multi_frame=True,
-                    raw_data_for_fitting=raw_data_for_fitting,
-                    fitting_data_is_photoelectrons=(temporal_median_mode != TemporalMedianMode.NONE),
                     quality_metrics=quality_metrics,  # Pass quality metrics to be filtered
                 )
 
@@ -2904,9 +2442,7 @@ class SuperRes_Functions:
                     all_quality_metrics.append(filtered_quality_metrics)
 
                 # Clean up chunk data
-                del raw_data, raw_data_for_detection, detected_puncta, image_to_analyse
-                if raw_data_for_fitting is not None:
-                    del raw_data_for_fitting
+                del raw_data, detected_puncta, image_to_analyse
                 gc.collect()
 
             print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")

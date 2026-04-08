@@ -23,7 +23,6 @@ def test_quality_metrics_saved_with_roi_filtering():
     import IOFunctions
     import sCMOSFunctions
     import SR_Functions
-    from SR_Functions import TemporalMedianMode
 
     # Create temporary directory for test
     temp_dir = tempfile.mkdtemp(prefix='test_quality_metrics_')

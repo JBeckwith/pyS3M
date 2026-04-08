@@ -3,11 +3,9 @@
 Interactive Threshold Tuner for Nile Red Analysis
 Bacteria with Nile Red experiment
 
-This script helps determine optimal spot detection parameters (pfa, sigma, fraction_true,
-EVER mode, ever_window) for spot detection in Nile Red stained bacteria datasets. It
+This script helps determine optimal spot detection parameters (pfa, sigma, fraction_true) for spot detection in Nile Red stained bacteria datasets. It
 interactively loads 3 test frames (1, 10, 20) from each folder in the Nile Red analysis
-workflow, displays detection results in a column layout (including EVER background-subtracted
-images), and saves the optimized parameters for use by NileRedAnalysis.sh.
+workflow, displays detection results in a column layout, and saves the optimized parameters for use by NileRedAnalysis.sh.
 
 Usage:
     python superres_notebooks/NileRedAnalysisTuner.py <folder_path>
@@ -44,7 +42,7 @@ try:
     from PlottingFunctions import Plotter
     from HelperFunctions import Helper_Functions
     from sCMOSFunctions import sCMOS_Functions
-    from SR_Functions import SuperRes_Functions, TemporalMedianMode
+    from SR_Functions import SuperRes_Functions
     from ImageAnalysisFunctions import Image_Analysis_Functions
     from MaskFunctions import Mask_Functions
     import matplotlib
@@ -93,8 +91,6 @@ class NileRedThresholdTuner:
         self.default_true_fraction = 0.25
         self.default_wavelength = 0.650  # 650nm
         self.default_use_variance_aware = True  # Default to variance-aware demosaicing
-        self.default_ever_mode = TemporalMedianMode.NONE  # Default: EVER off
-        self.default_ever_window = 500  # Default EVER window size in frames (typical: 50-500)
 
         # Results storage
         self.threshold_results = {}
@@ -217,161 +213,8 @@ class NileRedThresholdTuner:
             print(f"Error finding TIFF files in {folder_path}: {e}")
             return []
 
-    def load_frame_stacks_for_ever(
-        self, folder_path: str, ever_window: int
-    ) -> Optional[Dict[str, any]]:
-        """Load frame stacks for EVER background subtraction preview.
-
-        Returns a dict containing:
-        - 'stacks': List of 3 frame stacks (each stack has ever_window frames in photoelectrons)
-        - 'test_frame_indices': List of 3 indices within each stack for the test frame
-        - 'display_frames': List of 3 frames to display (the middle frame of each stack in photoelectrons)
-        """
-        tiff_files = self.find_tiff_files(folder_path)
-
-        if not tiff_files:
-            print(f"No TIFF files found in {folder_path}")
-            return None
-
-        # Check for metadata files to get ROI information
-        self.roi_info = self._get_roi_info(folder_path)
-
-        # Get camera calibration data for ADU to photoelectron conversion
-        camera_data_to_use = (
-            self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
-            if self.roi_info and self.camera_data
-            else self.camera_data
-        )
-
-        if not camera_data_to_use:
-            print("Warning: No camera calibration data available for photoelectron conversion")
-            print("         EVER will be computed on raw ADU values")
-
-        # Determine how many frames to load for each stack
-        # Use the EVER window (don't cap - user controls this)
-        stack_size = ever_window
-        half_window = stack_size // 2
-
-        print(f"EVER window: {ever_window} frames (±{half_window} from center)")
-        if camera_data_to_use:
-            print("Converting frames to photoelectrons for EVER computation")
-
-        try:
-            result = {
-                'stacks': [],
-                'test_frame_indices': [],
-                'display_frames': []
-            }
-
-            if len(tiff_files) == 1:
-                # Single file: load 3 stacks centered at frames 50, 200, 400
-                print(f"Single TIFF file detected: {os.path.basename(tiff_files[0])}")
-                with tifffile.TiffFile(tiff_files[0]) as tif:
-                    total_frames = len(tif.pages)
-                    print(f"Total frames available: {total_frames}")
-                    print(f"Loading stacks of {stack_size} frames for EVER preview")
-
-                    # Target center frames for the stacks
-                    target_centers = [50, 200, 400]
-
-                    for center_idx in target_centers:
-                        # Adjust if we're near the end of the file
-                        center_idx = min(center_idx, total_frames - 1)
-
-                        # Calculate stack boundaries
-                        start_idx = max(0, center_idx - half_window)
-                        end_idx = min(total_frames, center_idx + half_window)
-
-                        # Load the stack and convert to photoelectrons
-                        stack_frames = []
-                        for idx in range(start_idx, end_idx):
-                            frame_adu = tif.pages[idx].asarray().astype(np.float32)
-
-                            # Convert to photoelectrons if camera data available
-                            if camera_data_to_use:
-                                frame_pe = self.iof.convert_to_photoelectrons(
-                                    frame_adu,
-                                    gain_map=camera_data_to_use["gain"],
-                                    offset_map=camera_data_to_use["offset"],
-                                    rqe=camera_data_to_use["rqe"]
-                                )
-                            else:
-                                frame_pe = frame_adu  # Use raw ADU if no calibration
-
-                            stack_frames.append(frame_pe)
-
-                        if len(stack_frames) > 0:
-                            # Index of the display frame within this stack
-                            display_idx = center_idx - start_idx
-                            display_idx = min(display_idx, len(stack_frames) - 1)
-
-                            result['stacks'].append(np.array(stack_frames))
-                            result['test_frame_indices'].append(display_idx)
-                            result['display_frames'].append(stack_frames[display_idx])
-
-                            print(f"  Loaded stack: frames {start_idx+1}-{end_idx} ({len(stack_frames)} frames), display frame at index {display_idx}")
-
-            else:
-                # Multiple files: load stack from 10% position in first 3 files
-                print(f"Multiple TIFF files detected: {len(tiff_files)} files")
-                files_to_process = tiff_files[:3]
-
-                for i, tiff_file in enumerate(files_to_process):
-                    print(f"Processing file {i+1}: {os.path.basename(tiff_file)}")
-                    with tifffile.TiffFile(tiff_file) as tif:
-                        total_frames = len(tif.pages)
-
-                        # Center at 10% of stack
-                        center_idx = int(total_frames * 0.1)
-
-                        # Calculate stack boundaries
-                        start_idx = max(0, center_idx - half_window)
-                        end_idx = min(total_frames, center_idx + half_window)
-
-                        # Load the stack and convert to photoelectrons
-                        stack_frames = []
-                        for idx in range(start_idx, end_idx):
-                            frame_adu = tif.pages[idx].asarray().astype(np.float32)
-
-                            # Convert to photoelectrons if camera data available
-                            if camera_data_to_use:
-                                frame_pe = self.iof.convert_to_photoelectrons(
-                                    frame_adu,
-                                    gain_map=camera_data_to_use["gain"],
-                                    offset_map=camera_data_to_use["offset"],
-                                    rqe=camera_data_to_use["rqe"]
-                                )
-                            else:
-                                frame_pe = frame_adu  # Use raw ADU if no calibration
-
-                            stack_frames.append(frame_pe)
-
-                        if len(stack_frames) > 0:
-                            # Index of the display frame within this stack
-                            display_idx = center_idx - start_idx
-                            display_idx = min(display_idx, len(stack_frames) - 1)
-
-                            result['stacks'].append(np.array(stack_frames))
-                            result['test_frame_indices'].append(display_idx)
-                            result['display_frames'].append(stack_frames[display_idx])
-
-                            print(f"  Loaded stack: frames {start_idx+1}-{end_idx} ({len(stack_frames)} frames), display frame at index {display_idx}")
-
-            if len(result['stacks']) == 0:
-                print("No frame stacks could be loaded")
-                return None
-
-            print(f"Successfully loaded {len(result['stacks'])} frame stacks for EVER preview")
-            return result
-
-        except Exception as e:
-            print(f"Error loading frame stacks: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
     def load_test_frames(self, folder_path: str) -> Optional[List[np.ndarray]]:
-        """Load 3 test frames with improved logic for single vs multiple files (legacy mode without EVER)"""
+        """Load 3 test frames with improved logic for single vs multiple files """
         tiff_files = self.find_tiff_files(folder_path)
 
         if not tiff_files:
@@ -450,138 +293,20 @@ class NileRedThresholdTuner:
             print(f"Error loading frames: {e}")
             return None
 
-    def test_spot_detection_with_temporal_median(
-        self,
-        frame_stack: np.ndarray,
-        test_frame_index: int,
-        pfa: float,
-        sigma: float,
-        fraction_true: float,
-        wavelength: float,
-        use_variance_aware: bool = True,
-        ever_window: int = 100,
-    ) -> Tuple[np.ndarray, int, np.ndarray]:
-        """Test spot detection with EVER subtraction using SR_Functions._compute_ever_background().
-
-        Args:
-            frame_stack: 3D array of frames (n_frames, height, width) in photoelectrons
-            test_frame_index: Index of the frame to test within the stack
-            pfa: False alarm probability
-            sigma: Sigma parameter
-            fraction_true: Fraction true parameter
-            wavelength: Peak wavelength
-            use_variance_aware: Use variance-aware demosaicing
-            ever_window: Window size for EVER
-
-        Returns:
-            (detected_spots, num_spots, processed_frame): spots array, count, and the processed frame after EVER
-        """
-        try:
-            # Use the REAL EVER algorithm from SR_Functions
-            print(f"  Computing EVER from {len(frame_stack)} frames using SR_Functions...")
-
-            # Get camera data for this ROI
-            camera_data_to_use = (
-                self._crop_camera_data_to_roi(self.camera_data, self.roi_info)
-                if self.roi_info and self.camera_data
-                else self.camera_data
-            )
-
-            # Frame stack is in photoelectrons, but _compute_ever_background expects ADU
-            # Convert back to ADU for EVER processing
-            if camera_data_to_use:
-                gain_map = camera_data_to_use["gain"]
-                offset_map = camera_data_to_use["offset"]
-                rqe_map = camera_data_to_use.get("rqe", 1.0)
-                # Convert PE back to ADU: ADU = (PE * rqe * gain) + offset
-                if not isinstance(rqe_map, (int, float)):
-                    frame_stack_adu = (frame_stack * rqe_map[np.newaxis, :, :] * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
-                else:
-                    frame_stack_adu = (frame_stack * rqe_map * gain_map[np.newaxis, :, :]) + offset_map[np.newaxis, :, :]
-            else:
-                # No calibration, assume already correct units
-                frame_stack_adu = frame_stack
-                gain_map = None
-                offset_map = None
-                rqe_map = None
-
-            # Call the REAL EVER algorithm from SR_Functions
-            ever_subtracted_adu, ever_subtracted_pe = self.srf._compute_ever_background(
-                frame_stack_adu,
-                window_size=ever_window,
-                spatial_filter_size=1,  # No spatial averaging for Bayer patterns
-                gain_map=gain_map,
-                offset_map=offset_map,
-                rqe=rqe_map,
-            )
-
-            # Extract the test frame
-            frame_after_ever_adu = ever_subtracted_adu[test_frame_index]
-            frame_after_ever_pe = ever_subtracted_pe[test_frame_index]
-
-            print(f"  Frame before EVER: {frame_stack_adu[test_frame_index].min():.0f} - {frame_stack_adu[test_frame_index].max():.0f}")
-            print(f"  Frame after EVER (ADU): {frame_after_ever_adu.min():.0f} - {frame_after_ever_adu.max():.0f}")
-            print(f"  Frame after EVER (PE): {frame_after_ever_pe.min():.1f} - {frame_after_ever_pe.max():.1f}")
-
-            # Apply demosaicing based on setting using EVER-subtracted ADU data
-            if use_variance_aware and self.camera_data:
-                # Check if calibration data needs to be resized to match image
-                image_shape = frame_after_ever_adu.shape
-                variance_shape = camera_data_to_use["variance"].shape
-
-                if image_shape != variance_shape:
-                    print(f"Warning: Image shape {image_shape} != calibration data shape {variance_shape}")
-                    print("Falling back to standard demosaicing")
-                    demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_ever_adu)
-                else:
-                    # Use variance-aware demosaicing on EVER-subtracted ADU data
-                    demosaiced_image = self.scmos.variance_aware_demosaic(
-                        frame_after_ever_adu,
-                        variance_map=camera_data_to_use["variance"],
-                        offset_map=camera_data_to_use["offset"],
-                        gain=camera_data_to_use["gain"],
-                        grayscale=True
-                    )
-            else:
-                # Use standard grayscale demosaicing on EVER-subtracted ADU data
-                demosaiced_image = self.scmos.bayer_demosaic_stack_grayscale(frame_after_ever_adu)
-
-            detected_spots = self.sdf.detect_puncta_in_image(
-                image=demosaiced_image,
-                pfa=pfa,
-                wavelength=wavelength,
-                sigma=sigma,
-                fraction_true=fraction_true,
-                pixel_size=0.069,  # Standard pixel size
-                NA=1.49,  # Standard NA
-                mf_factor=3.0,  # Standard match filter factor
-                local_factor=3.0,  # Standard local factor
-            )
-            # Return EVER-subtracted photoelectron frame for fitting (matching what analysis does)
-            return detected_spots, len(detected_spots), frame_after_ever_pe
-
-        except Exception as e:
-            print(f"Error in spot detection with EVER: {e}")
-            import traceback
-            traceback.print_exc()
-            return np.array([]), 0, frame_stack[test_frame_index]
-
     def fit_detected_spots(
         self,
         raw_frame: np.ndarray,
         detected_spots: np.ndarray,
         smoothing_function=None,
         ROI_size: int = 16,
-        frame_is_photoelectrons: bool = False,
     ) -> np.ndarray:
         """Fit detected spots using ROI extraction and fitting.
 
         Args:
-            raw_frame: Raw frame data (2D) - can be ADU or photoelectrons
+            raw_frame: Raw frame data (2D) in ADU units
             detected_spots: Detected spot coordinates (Nx2 or Nx3 array)
             smoothing_function: Optional smoothing function
             ROI_size: Size of ROI to extract around each spot
-            frame_is_photoelectrons: If True, raw_frame is already in photoelectrons
 
         Returns:
             Array of fitted spot coordinates (x, y) or empty array if no fits succeed
@@ -649,8 +374,6 @@ class NileRedThresholdTuner:
                     rqe=rqe,
                     frame_offset=0,
                     is_multi_frame=False,
-                    raw_data_for_fitting=raw_frame if frame_is_photoelectrons else None,
-                    fitting_data_is_photoelectrons=frame_is_photoelectrons,
                 )
 
                 if result is not None:
@@ -707,7 +430,7 @@ class NileRedThresholdTuner:
         wavelength: float,
         use_variance_aware: bool = True,
     ) -> Tuple[np.ndarray, int]:
-        """Test spot detection with given parameters on demosaiced image (no EVER)"""
+        """Test spot detection with given parameters on demosaiced image"""
         try:
             # Apply demosaicing based on setting
             if use_variance_aware and self.camera_data:
@@ -997,7 +720,7 @@ class NileRedThresholdTuner:
             fitting_results: List of fitted spot coordinates arrays
             pfa, sigma, fraction_true: Detection parameters
             folder_name: Name of folder being processed
-            use_temporal_median: Whether EVER was used
+            use_temporal_median: Whether background subtraction was used (unused, kept for API compatibility)
 
         Returns:
             Tuple of (detection_fig, fitting_fig) or filenames if not interactive
@@ -1136,132 +859,44 @@ class NileRedThresholdTuner:
         current_fraction_true = self.default_true_fraction
         current_wavelength = default_wavelength
         current_use_variance_aware = self.default_use_variance_aware
-        current_ever_mode = self.default_ever_mode
-        current_ever_window = self.default_ever_window
 
-        # Load data based on EVER mode
+        # Load test frames
         frames = None
-        frame_stack_data = None
-
-        if current_ever_mode != TemporalMedianMode.NONE:
-            print(f"\nEVER mode: {current_ever_mode.name} - loading frame stacks...")
-            frame_stack_data = self.load_frame_stacks_for_ever(
-                folder_path, current_ever_window
-            )
-            if frame_stack_data is None:
-                print("Could not load frame stacks, skipping...")
-                return None
-        else:
-            print("\nEVER disabled - loading individual test frames...")
-            frames = self.load_test_frames(folder_path)
-            if frames is None:
-                print("Could not load test frames, skipping...")
-                return None
+        print("\nLoading individual test frames...")
+        frames = self.load_test_frames(folder_path)
+        if frames is None:
+            print("Could not load test frames, skipping...")
+            return None
 
         fig_or_file = None
 
         while True:
-            # Reload data if EVER mode changed
-            if current_ever_mode != TemporalMedianMode.NONE and frame_stack_data is None:
-                print(f"\nEVER mode: {current_ever_mode.name} - loading frame stacks...")
-                frame_stack_data = self.load_frame_stacks_for_ever(
-                    folder_path, current_ever_window
-                )
-                if frame_stack_data is None:
-                    print("Could not load frame stacks, disabling EVER...")
-                    current_ever_mode = TemporalMedianMode.NONE
-
-            if current_ever_mode == TemporalMedianMode.NONE and frames is None:
+            if frames is None:
                 print("\nLoading individual test frames...")
                 frames = self.load_test_frames(folder_path)
                 if frames is None:
                     print("Could not load test frames, skipping folder...")
                     return None
 
-            # Process all frames based on mode
-            detection_results = []
-            detection_frames_for_plot = []
-            fitting_frames_for_plot = []
-            original_frames_for_fitting = []
-
-            if current_ever_mode != TemporalMedianMode.NONE and frame_stack_data is not None:
-                # Use EVER processing
-                print(f"\nPerforming detection and fitting with EVER mode: {current_ever_mode.name}")
-
-                for i, (stack, test_idx, display_frame) in enumerate(zip(
-                    frame_stack_data['stacks'],
-                    frame_stack_data['test_frame_indices'],
-                    frame_stack_data['display_frames']
-                )):
-                    print(f"Processing stack {i+1}/3...")
-
-                    # Call the REAL EVER algorithm for this stack
-                    spots, num_spots, fitting_frame_pe = self.test_spot_detection_with_temporal_median(
-                        frame_stack=stack,
-                        test_frame_index=test_idx,
-                        pfa=current_pfa,
-                        sigma=current_sigma,
-                        fraction_true=current_fraction_true,
-                        wavelength=current_wavelength,
-                        use_variance_aware=current_use_variance_aware,
-                        ever_window=current_ever_window,
-                    )
-
-                    # Determine which frames to use based on mode
-                    if current_ever_mode == TemporalMedianMode.DETECTION_AND_FITTING:
-                        # BOTH detection and fitting use EVER
-                        # Detection already done by test_spot_detection_with_temporal_median
-                        detection_frame = fitting_frame_pe  # Show EVER PE frame
-                        fitting_frame = fitting_frame_pe  # Use EVER PE frame for fitting
-                        print(f"  Mode: BOTH detection and fitting use EVER")
-                    elif current_ever_mode == TemporalMedianMode.FITTING_ONLY:
-                        # Detection uses original, fitting uses EVER
-                        # Need to re-do detection on original frame
-                        spots, num_spots = self.test_spot_detection(
-                            display_frame,  # Original ADU
-                            current_pfa,
-                            current_sigma,
-                            current_fraction_true,
-                            current_wavelength,
-                            current_use_variance_aware,
-                        )
-                        detection_frame = display_frame  # Show original ADU frame
-                        fitting_frame = fitting_frame_pe  # Use EVER PE frame for fitting
-                        print(f"  Mode: Detection uses original, fitting uses EVER")
-                    else:  # NONE (shouldn't reach here, but handle anyway)
-                        detection_frame = display_frame
-                        fitting_frame = display_frame
-
-                    # Store results
-                    detection_results.append((spots, num_spots))
-                    detection_frames_for_plot.append(detection_frame)
-                    fitting_frames_for_plot.append(fitting_frame)
-                    original_frames_for_fitting.append(display_frame)
-
-            else:
-                # No EVER
-                print("\nPerforming detection and fitting without EVER...")
-                detection_results = self.test_spot_detection_multi_frame(
-                    frames,
-                    current_pfa,
-                    current_sigma,
-                    current_fraction_true,
-                    current_wavelength,
-                    current_use_variance_aware,
-                )
-                detection_frames_for_plot = frames
-                fitting_frames_for_plot = frames
-                original_frames_for_fitting = frames
+            # Process all frames
+            print("\nPerforming detection and fitting...")
+            detection_results = self.test_spot_detection_multi_frame(
+                frames,
+                current_pfa,
+                current_sigma,
+                current_fraction_true,
+                current_wavelength,
+                current_use_variance_aware,
+            )
+            detection_frames_for_plot = frames
+            fitting_frames_for_plot = frames
+            original_frames_for_fitting = frames
 
             # Perform fitting on detected spots
             print("\nFitting detected spots...")
-            # Determine if fitting frames are already in photoelectrons (from EVER)
-            fitting_is_photoelectrons = (current_ever_mode != TemporalMedianMode.NONE)
-
             fitting_results = []
-            for i, ((spots, num_spots), orig_frame, fit_frame) in enumerate(zip(
+            for i, ((spots, num_spots), fit_frame) in enumerate(zip(
                 detection_results,
-                original_frames_for_fitting,
                 fitting_frames_for_plot
             )):
                 print(f"  Fitting frame {i+1}/3 ({num_spots} spots)...")
@@ -1271,7 +906,6 @@ class NileRedThresholdTuner:
                         spots,
                         smoothing_function=None,
                         ROI_size=16,
-                        frame_is_photoelectrons=fitting_is_photoelectrons,
                     )
                     fitting_results.append(fitted_coords)
                     print(f"    Successfully fitted {len(fitted_coords)}/{num_spots} spots")
@@ -1292,7 +926,6 @@ class NileRedThresholdTuner:
                     plt.close(fig_or_file)
 
             # Plot results using dual window display
-            use_temporal_median = current_ever_mode != TemporalMedianMode.NONE
             fig_or_file = self.plot_detection_and_fitting_results(
                 detection_frames_for_plot,
                 fitting_frames_for_plot,
@@ -1302,20 +935,16 @@ class NileRedThresholdTuner:
                 current_sigma,
                 current_fraction_true,
                 folder_name,
-                use_temporal_median,
+                False,
             )
 
             variance_aware_status = "enabled" if current_use_variance_aware else "disabled"
-            ever_mode_name = current_ever_mode.name
             print(f"\nCurrent parameters:")
             print(f"  PFA (probability of false alarm): {current_pfa:.0e}")
             print(f"  Sigma : {current_sigma}")
             print(f"  Fraction true : {current_fraction_true}")
             print(f"  Wavelength: {current_wavelength}")
             print(f"  Variance-aware demosaicing: {variance_aware_status}")
-            print(f"  EVER mode: {ever_mode_name}")
-            if current_ever_mode != TemporalMedianMode.NONE:
-                print(f"  EVER window: {current_ever_window} frames")
             print(f"\nResults:")
             print(f"  Detected spots: {total_detected} (across 3 frames)")
             print(f"  Fitted spots: {total_fitted} (across 3 frames)")
@@ -1326,13 +955,11 @@ class NileRedThresholdTuner:
             print(f"  3. Adjust Fraction true (current: {current_fraction_true})")
             print(f"  4. Adjust wavelength (current: {current_wavelength})")
             print(f"  5. Toggle variance-aware demosaicing (current: {variance_aware_status})")
-            print(f"  6. Change EVER mode (current: {ever_mode_name})")
-            print(f"  7. Adjust EVER window (current: {current_ever_window} frames)")
-            print(f"  8. Accept current parameters")
-            print(f"  9. Skip this folder")
+            print(f"  6. Accept current parameters")
+            print(f"  7. Skip this folder")
             print(f"  q. Quit")
 
-            choice = input("Enter choice (1-9 or q): ").strip()
+            choice = input("Enter choice (1-7 or q): ").strip()
 
             if choice == "1":
                 try:
@@ -1390,45 +1017,6 @@ class NileRedThresholdTuner:
                     print("  Warning: Camera calibration data not available - will use standard demosaicing")
 
             elif choice == "6":
-                # Cycle through EVER modes
-                mode_options = [TemporalMedianMode.NONE, TemporalMedianMode.FITTING_ONLY, TemporalMedianMode.DETECTION_AND_FITTING]
-                current_idx = mode_options.index(current_ever_mode)
-                next_idx = (current_idx + 1) % len(mode_options)
-                current_ever_mode = mode_options[next_idx]
-
-                print(f"EVER mode changed to: {current_ever_mode.name}")
-                if current_ever_mode == TemporalMedianMode.NONE:
-                    print("  No EVER subtraction")
-                    frames = None
-                    frame_stack_data = None
-                elif current_ever_mode == TemporalMedianMode.FITTING_ONLY:
-                    print(f"  EVER for FITTING only (window={current_ever_window} frames)")
-                    frame_stack_data = None
-                    frames = None
-                elif current_ever_mode == TemporalMedianMode.DETECTION_AND_FITTING:
-                    print(f"  EVER for BOTH detection and fitting (window={current_ever_window} frames)")
-                    frame_stack_data = None
-                    frames = None
-
-            elif choice == "7":
-                # Adjust EVER window
-                try:
-                    new_window = int(
-                        input(f"Enter new EVER window (current: {current_ever_window} frames): ").strip()
-                    )
-                    if new_window > 2:
-                        old_window = current_ever_window
-                        current_ever_window = new_window
-                        print(f"EVER window changed from {old_window} to {new_window} frames")
-                        # Need to reload frame stacks with new window size
-                        if current_ever_mode != TemporalMedianMode.NONE:
-                            frame_stack_data = None  # Force reload on next iteration
-                    else:
-                        print("Window must be greater than 2 frames")
-                except ValueError:
-                    print("Invalid input, keeping current value")
-
-            elif choice == "8":
                 # Accept parameters
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     if isinstance(fig_or_file, tuple):
@@ -1445,12 +1033,10 @@ class NileRedThresholdTuner:
                     "fraction_true": current_fraction_true,
                     "wavelength": current_wavelength,
                     "use_variance_aware": current_use_variance_aware,
-                    "ever_mode": current_ever_mode.value,  # Save as integer
-                    "ever_window": current_ever_window,
                     "detected_spots": total_detected,
                 }
 
-            elif choice == "9":
+            elif choice == "7":
                 # Skip folder
                 if INTERACTIVE_DISPLAY and fig_or_file is not None:
                     if isinstance(fig_or_file, tuple):
@@ -1488,16 +1074,13 @@ class NileRedThresholdTuner:
         with open(output_path, "w") as f:
             f.write("# Threshold parameters for Nile Red Analysis\n")
             f.write("# Generated by NileRedAnalysisTuner.py\n")
-            f.write("# Format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware|ever_mode|ever_window\n")
-            f.write("# ever_mode: 0=NONE, 1=FITTING_ONLY, 2=DETECTION_AND_FITTING\n")
+            f.write("# Format: folder_path|pfa|sigma|fraction_true|wavelength|use_variance_aware\n")
             f.write("#\n")
 
             for folder_path, params in self.threshold_results.items():
                 use_variance_aware_str = "true" if params.get('use_variance_aware', True) else "false"
-                ever_mode = params.get('ever_mode', 1)  # Default to FITTING_ONLY
-                ever_window = params.get('ever_window', 500)
                 f.write(
-                    f"{folder_path}|{params['pfa']:.0e}|{params['sigma']:.1f}|{params['fraction_true']:.1f}|{params['wavelength']:.3f}|{use_variance_aware_str}|{ever_mode}|{ever_window}\n"
+                    f"{folder_path}|{params['pfa']:.0e}|{params['sigma']:.1f}|{params['fraction_true']:.1f}|{params['wavelength']:.3f}|{use_variance_aware_str}\n"
                 )
 
         print(f"\nNile Red threshold parameters saved to:")
@@ -1512,7 +1095,7 @@ class NileRedThresholdTuner:
         print("Bacteria with Nile Red experiment")
         print("=" * 80)
         print("This tool helps determine optimal spot detection parameters")
-        print("(including EVER settings) for Nile Red stained bacteria.\n")
+        print("for Nile Red stained bacteria.\n")
         print(f"Processing folder: {self.folder_path}\n")
 
         # Get all folders to process

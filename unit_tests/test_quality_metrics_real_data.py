@@ -27,7 +27,6 @@ import SpotDetectionFunctions
 import SR_Functions
 import ImageAnalysisFunctions
 import HelperFunctions
-from SR_Functions import TemporalMedianMode
 
 
 def test_quality_metrics_real_data():
@@ -106,8 +105,6 @@ def test_quality_metrics_real_data():
     NA = 1.49
     pixel_size = 0.069  # μm
     use_variance_aware_demosaic = True
-    temporal_median_mode = TemporalMedianMode.NONE  # No EVER for this test
-
     print()
     print("Analysis Parameters:")
     print(f"  Peak wavelength: {peak_wavelength} μm")
@@ -116,7 +113,6 @@ def test_quality_metrics_real_data():
     print(f"  Fraction true: {fraction_true}")
     print(f"  ROI size: {ROI_size}")
     print(f"  Variance-aware demosaic: {use_variance_aware_demosaic}")
-    print(f"  EVER mode: {temporal_median_mode.name}")
     print()
 
     # Clean up any existing .h5 files
@@ -148,7 +144,6 @@ def test_quality_metrics_real_data():
             fraction_true=fraction_true,
             image_type='.tif',
             use_variance_aware_demosaic=use_variance_aware_demosaic,
-            temporal_median_mode=temporal_median_mode,
         )
 
         print()
