@@ -36,7 +36,9 @@ class SuperRes_Functions:
 
     def __init__(
         self,
-        mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
+        camera: str = "ximea",
+        mosaic_unit=None,
+        pixel_size: float = None,
         io_functions=None,
         helper_functions=None,
         mask_functions=None,
@@ -48,8 +50,13 @@ class SuperRes_Functions:
         """Initialize SuperRes_Functions class.
 
         Args:
-            mosaic_unit: Bayer mosaic pattern array. Defaults to standard
-                        [["B", "G"], ["G", "R"]] pattern.
+            camera: Camera model name used to set default ``pixel_size`` and
+                ``mosaic_unit``.  Currently ``"ximea"`` (69 nm, BGGR) or
+                ``"zwo"`` (78 nm, RGGB).  Overridden by explicit kwargs.
+            mosaic_unit: Bayer mosaic pattern array.  If ``None``, taken from
+                *camera* defaults.
+            pixel_size: Physical pixel size in µm.  If ``None``, taken from
+                *camera* defaults.
             io_functions: IO functions instance (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
             mask_functions: Mask functions instance (default: creates new instance)
@@ -57,7 +64,10 @@ class SuperRes_Functions:
             spot_detection_functions: Spot detection functions instance (default: creates new instance)
             plotter: Plotter instance (default: creates new instance)
         """
-        self.mosaic_unit = mosaic_unit
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
 
         # Dependency injection with sensible defaults
         self.io = (
@@ -443,7 +453,7 @@ class SuperRes_Functions:
         ROI_size=16,
         peak_wavelength=0.638,
         NA=1.49,
-        pixel_size=0.069,
+        pixel_size: float = None,
         s=5,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
@@ -496,6 +506,8 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=True
         )
 
+        if pixel_size is None:
+            pixel_size = self.pixel_size
         file = image_files[0]
         puncta_tofit = []
         smoothed_puncta_tofit = []
@@ -877,7 +889,7 @@ class SuperRes_Functions:
         ROI_size: int = 16,
         peak_wavelength: float = 0.638,
         NA: float = 1.49,
-        pixel_size: float = 0.069,
+        pixel_size: float = None,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
     ) -> None:
@@ -921,6 +933,9 @@ class SuperRes_Functions:
             puncta_id, frame, xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr
         """
         from tqdm import tqdm
+        if pixel_size is None:
+            pixel_size = self.pixel_size
+
 
         # Find image files
         image_files = self.helper.file_search(image_folder, image_type, "")
@@ -1207,7 +1222,7 @@ class SuperRes_Functions:
         ROI_size: int = 16,
         peak_wavelength: float = 0.638,
         NA: float = 1.49,
-        pixel_size: float = 0.069,
+        pixel_size: float = None,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
         chunk_size: int = 500,
@@ -1251,6 +1266,9 @@ class SuperRes_Functions:
             puncta_id, frame, xc, yc, s_x, s_y, bg_B, bg_G, bg_R, A_B, A_G, A_R, chi_sqr
         """
         from tqdm import tqdm
+        if pixel_size is None:
+            pixel_size = self.pixel_size
+
 
         # Find image files
         image_files = self.helper.file_search(image_folder, image_type, "")
@@ -1536,7 +1554,7 @@ class SuperRes_Functions:
         ROI_size=16,
         peak_wavelength=0.638,
         NA=1.49,
-        pixel_size=0.069,
+        pixel_size=None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         image_type=".tif",
@@ -1567,6 +1585,9 @@ class SuperRes_Functions:
         Returns:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
+
+        if pixel_size is None:
+            pixel_size = self.pixel_size
 
         image_files = self.helper.file_search(image_folder, image_type, "")
         start_x, start_y, width, height = self.helper.load_metadata_roi(
@@ -1782,7 +1803,7 @@ class SuperRes_Functions:
         ROI_size=16,
         peak_wavelength=0.638,
         NA=1.49,
-        pixel_size=0.069,
+        pixel_size=None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         image_type=".tif",
@@ -1833,6 +1854,9 @@ class SuperRes_Functions:
         else:
             strategy = FittingStrategy.STANDARD
             result_params = ResultColumns.get_all_columns()
+
+        if pixel_size is None:
+            pixel_size = self.pixel_size
 
         image_files = self.helper.file_search(image_folder, image_type, "")
         start_x, start_y, width, height = self.helper.load_metadata_roi(
@@ -2280,7 +2304,7 @@ class SuperRes_Functions:
         ROI_size=20,
         peak_wavelength=0.638,
         NA=1.49,
-        pixel_size=0.069,
+        pixel_size=None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         image_type=".tif",
@@ -2314,6 +2338,9 @@ class SuperRes_Functions:
             None: Writes results to HDF5 file:
                 - image_folder/Localisations.h5
         """
+
+        if pixel_size is None:
+            pixel_size = self.pixel_size
 
         image_files = self.helper.file_search(image_folder, image_type, "")
         start_x, start_y, width, height = self.helper.load_metadata_roi(

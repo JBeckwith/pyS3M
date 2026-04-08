@@ -30,6 +30,7 @@ class Calibration_Functions:
 
     def __init__(
         self,
+        camera: str = "ximea",
         mosaic_unit=None,
         high_memory=False,
         chunk_size=50,
@@ -40,8 +41,11 @@ class Calibration_Functions:
         """Initialize Calibration_Functions class.
 
         Args:
-            mosaic_unit: Optional custom Bayer mosaic pattern.
-                        Defaults to standard [["B", "G"], ["G", "R"]] pattern.
+            camera: Camera model name used to set default ``mosaic_unit``.
+                Currently ``"ximea"`` (BGGR) or ``"zwo"`` (RGGB).
+                Overridden by an explicit *mosaic_unit* kwarg.
+            mosaic_unit: Custom Bayer mosaic pattern.  If ``None``, taken
+                from *camera* defaults.
             high_memory: Whether to use high-memory processing mode.
             chunk_size: Number of frames to read per I/O call in low-memory mode.
                         Larger values are faster but use more RAM (default: 50).
@@ -49,12 +53,11 @@ class Calibration_Functions:
             mask_functions: Mask functions instance (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
         """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
         self.high_memory = high_memory
         self.chunk_size = chunk_size
-        if isinstance(mosaic_unit, type(None)):
-            self.mosaic_unit = np.array([["B", "G"], ["G", "R"]])
-        else:
-            self.mosaic_unit = mosaic_unit
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
 
         # Dependency injection with sensible defaults
         self.io = (

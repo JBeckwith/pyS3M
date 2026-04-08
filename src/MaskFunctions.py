@@ -20,9 +20,19 @@ class Mask_Functions:
     spatial filtering, and mask operations for multicolour SMLM.
     """
 
-    def __init__(self):
-        """Initialize Mask_Functions class."""
-        pass
+    def __init__(self, camera: str = "ximea", mosaic_unit=None):
+        """Initialize Mask_Functions class.
+
+        Args:
+            camera: Camera model name used to set default ``mosaic_unit``.
+                Currently ``"ximea"`` (BGGR) or ``"zwo"`` (RGGB).
+                Overridden by an explicit *mosaic_unit* kwarg.
+            mosaic_unit: Bayer mosaic pattern array.  If ``None``, taken
+                from *camera* defaults.
+        """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
 
     def optimise_matrix_symmetry(self, numbers, N):
         """
@@ -159,7 +169,7 @@ class Mask_Functions:
         ROI_y_start,
         width,
         height,
-        mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
+        mosaic_unit=None,
     ):
         """
         Generates a mask and then reshapes based on ROI.
@@ -173,6 +183,8 @@ class Mask_Functions:
         Returns:
             masks (dict): A dictionary containing the assigned masks.
         """
+        if mosaic_unit is None:
+            mosaic_unit = self.mosaic_unit
         # Note: get_masks uses (size_x, size_y) but internally treats size_x as height (rows)
         # and size_y as width (columns) due to legacy naming convention
         size_x = ROI_y_start + height  # size_x is actually rows
@@ -202,7 +214,7 @@ class Mask_Functions:
             np.ndarray: 3D array of shape (height, width, n_channels) containing stacked masks
         """
         if mosaic_unit is None:
-            mosaic_unit = np.array([["B", "G"], ["G", "R"]])
+            mosaic_unit = self.mosaic_unit
 
         masks = self.get_ROI_mask(
             ROI_x_start=ROI_x_start,
@@ -213,7 +225,7 @@ class Mask_Functions:
         )
         return np.dstack([masks[x] for x in masks.keys()])
 
-    def get_masks(self, size_x, size_y, mosaic_unit=np.array([["B", "G"], ["G", "R"]])):
+    def get_masks(self, size_x, size_y, mosaic_unit=None):
         """
         Assigns the appropriate masks based on the mosaic unit values.
 
@@ -225,6 +237,8 @@ class Mask_Functions:
         Returns:
             masks (dict): A dictionary containing the assigned masks.
         """
+        if mosaic_unit is None:
+            mosaic_unit = self.mosaic_unit
         masks = {}
         default_unit = np.zeros_like(mosaic_unit)
         colours = np.unique(mosaic_unit)

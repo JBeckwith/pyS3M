@@ -82,14 +82,23 @@ class SpotDetection_Functions:
     REFACTORED: Uses dependency injection instead of global object instantiation.
     """
 
-    def __init__(self, psf_functions=None, scmos_functions=None, helper_functions=None):
+    def __init__(self, camera: str = "ximea", pixel_size: float = None,
+                 psf_functions=None, scmos_functions=None, helper_functions=None):
         """Initialize SpotDetection_Functions class with dependency injection.
 
         Args:
+            camera: Camera model name used to set default ``pixel_size``.
+                Currently ``"ximea"`` (69 nm) or ``"zwo"`` (78 nm).
+                Overridden by an explicit *pixel_size* kwarg.
+            pixel_size: Physical pixel size in µm.  If ``None``, taken from
+                *camera* defaults.
             psf_functions: PSF calculation functions (default: creates new instance)
             scmos_functions: sCMOS camera functions (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
         """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
         # Dependency injection with sensible defaults
         self.psf = (
             psf_functions if psf_functions is not None else PSFFunctions.PSF_Functions()
@@ -116,7 +125,7 @@ class SpotDetection_Functions:
         variance: np.ndarray = None,
         pfa: float = 10**-4,
         wavelength: float = 0.6,
-        pixel_size: float = 0.069,
+        pixel_size: float = None,
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
@@ -150,6 +159,8 @@ class SpotDetection_Functions:
             puncta_detected (np.ndarray): detected puncta coordinates
             quality_metrics (dict): Optional, if return_quality=True
         """
+        if pixel_size is None:
+            pixel_size = self.pixel_size
         n_frames = int(image.shape[0])
         n_workers, n_tasks, frames_per_task, start_indices = (
             self.helper.calculate_parallel_chunks(
@@ -258,7 +269,7 @@ class SpotDetection_Functions:
         variance: np.ndarray = None,
         pfa: float = 10**-4,
         wavelength: float = 0.6,
-        pixel_size: float = 0.069,
+        pixel_size: float = None,
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
@@ -286,6 +297,8 @@ class SpotDetection_Functions:
             detected_puncta (list of np.ndarray): xy coordinates of detected puncta per frame
             quality_metrics (dict): Optional, if return_quality=True. Dict with arrays of quality
                                    metrics for all detected spots across all frames"""
+        if pixel_size is None:
+            pixel_size = self.pixel_size
         detected_puncta = []
         all_quality_metrics = [] if return_quality else None
 
@@ -360,7 +373,7 @@ class SpotDetection_Functions:
         variance: np.ndarray = None,
         pfa: float = 10**-4,
         wavelength: float = 0.6,
-        pixel_size: float = 0.069,
+        pixel_size: float = None,
         NA: float = 1.49,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
@@ -396,6 +409,8 @@ class SpotDetection_Functions:
                 - 'n_pixels_above_threshold': Number of inner pixels above threshold
                 - 'snr': Signal-to-noise ratio
         """
+        if pixel_size is None:
+            pixel_size = self.pixel_size
         if variance is not None:
             image_for_detection = np.divide(image, variance)
         else:
