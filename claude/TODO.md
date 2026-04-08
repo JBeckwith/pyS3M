@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-04-06
+**Last Updated:** 2026-04-07
 
 **Note:** For completed work, see LOG.md
 
@@ -10,15 +10,17 @@
 
 ### Priority 1: EBI BioImage Archive Submission (ACTIVE)
 
-**Status:** 📋 IN PROGRESS — plan written, awaiting credential registration
+**Status:** 📋 IN PROGRESS — notebook ready, credentials obtained, awaiting upload from analysis PC
 **Plan:** `claude/EBI_submission.md`
+**Notebook:** `notebooks/EBI_Upload/EBI_Upload_Notebook.ipynb`
 **Data source:** `smb://intelliflash-mgmt-b.ch.private.cam.ac.uk/sycamore_asap_server/2026_Multicolour_Paper/Data/`
 **Scale:** ~1 359 OME-TIF files (Ximea + ThorLabs cameras)
 
-- [ ] Register / obtain EBI Webin account and FTP credentials
-- [ ] Run `generate_ebi_filelist.py` → `ebi_filelist.tsv` + `ebi_upload_paths.txt` (hours, run in tmux)
+- [x] Register / obtain EBI Webin account and FTP credentials (`bs-upload`, secret dir in notebook)
+- [x] Write upload notebook (scan + hash, manifest, FTP upload with resume, verify)
+- [ ] Run scan cell → `ebi_filelist.tsv` + `ebi_upload_paths.txt` (hours, run in tmux)
 - [ ] Spot-check MD5s on a few files manually
-- [ ] Upload via `lftp mirror --reverse` (or `upload_to_ebi.py`) — run overnight in tmux
+- [ ] Upload via notebook FTP cell or `lftp mirror --parallel=4` — run overnight in tmux
 - [ ] Verify remote file count matches manifest
 - [ ] Submit `ebi_filelist.tsv` + metadata in BioImage Archive portal
 - [ ] Record accession number (S-BIADXXXXXXX) in `claude/EBI_submission.md`
@@ -531,7 +533,6 @@ src/
 │   ├── __init__.py
 │   ├── DriftCorrectionFunctions.py
 │   ├── AIMAlgorithm.py
-│   ├── RCCAlgorithm.py
 │   ├── FiducialDetection.py
 │   └── CoordinateProcessing.py
 ├── plotting/

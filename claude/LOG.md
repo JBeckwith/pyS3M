@@ -6,6 +6,41 @@
 
 ---
 
+## Session: April 7, 2026 — EBI BioImage Archive upload notebook ✅
+
+### EBI Upload Notebook
+`notebooks/EBI_Upload/EBI_Upload_Notebook.ipynb`
+
+Created a self-contained Jupyter notebook to generate the EBI file manifest and
+upload all raw TIFF data from the 2026 Multicolour Paper SMB share to the BioImage
+Archive FTP server.
+
+**Notebook sections:**
+- **Configuration** — SMB root, output paths, EBI prefix, FTP credentials all in one cell
+- **Scan + hash** — walks `SMB_ROOT` via `rglob`, MD5s every `.tif`/`.tiff`, writes
+  `ebi_filelist.tsv` (filename / md5 / size) and `ebi_upload_paths.txt`; tqdm progress
+  bar with per-50-file ETA fallback
+- **Inspect manifest** — file count, total size, per-directory breakdown (camera/dataset
+  level), first-5-row preview
+- **FTP upload** — size-based resume (skips files already present at correct size);
+  auto-reconnects on error; credentials from env vars `WEBIN_USER`/`WEBIN_PASS` with
+  hardcoded defaults; `ensure_remote_dirs` recreates full directory tree on server
+- **Verify** — recursive NLST count on FTP compared to local manifest line count
+- **lftp alternative** — filled-in `mirror --reverse --parallel=4` command for terminal use
+
+**FTP credentials (EBI-issued):**
+- Host: `ftp-private.ebi.ac.uk`, User: `bs-upload`
+- Secret dir: `/dc/7de16d-c8a7-4bd3-b500-c664ccf4d3ba-a27000`
+
+**Directory structure:** fully preserved — `relative_to(SMB_ROOT)` captures
+`Ximea/`, `ThorLabs/`, etc.; `ensure_remote_dirs` creates all intermediate dirs
+via `ftp.mkd` before each file upload.
+
+**`.gitignore`:** `notebooks/EBI_Upload/` added to exclude credentials and large
+manifest files from version control.
+
+---
+
 ## Session: April 3, 2026 — Factorised 2D simulation sweep ✅
 
 ### Factorised read noise × QY simulation pipeline
