@@ -32,7 +32,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 try:
     import DriftCorrectionFunctions as DCF
     import IOFunctions
-    import PlottingFunctions
+    from PlottingBase import PublicationPlotter
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure you're running from the pyBayerSMLM directory with src/ available")
@@ -413,13 +413,13 @@ def create_comprehensive_plots(
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     axes = axes.flatten()
 
-    # Try to use PlottingFunctions where appropriate
+    # Try to use PublicationPlotter where appropriate
     try:
-        plotter = PlottingFunctions.Plotter(poster=False, dark_background=False)
+        plotter = PublicationPlotter(poster=False, dark_background=False)
         use_plotting_functions = True
     except:
         use_plotting_functions = False
-        print("⚠️ PlottingFunctions not available, using matplotlib directly")
+        print("⚠️ PublicationPlotter not available, using matplotlib directly")
 
     # 1. Original data scatter
     ax = axes[0]

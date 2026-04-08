@@ -2718,14 +2718,6 @@ class Drift_Correction_Functions:
             - Threshold value used for detection
             - Metadata dictionary with detection statistics
         """
-        try:
-            import PlottingFunctions
-        except ImportError:
-            warnings.warn(
-                "PlottingFunctions not available. Visualization will be limited."
-            )
-            PlottingFunctions = None
-
         # Calculate histogram and threshold
         image_flat = smoothed_image.ravel()
         image_flat = image_flat[image_flat > 0]  # Exclude zero values

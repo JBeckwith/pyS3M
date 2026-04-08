@@ -36,7 +36,7 @@ import sCMOSFunctions
 import SpotDetectionFunctions
 import Multicolour_Simulation_Functions
 import SpectralFunctions
-import PlottingFunctions
+from PlottingBase import PublicationPlotter
 import MaskFunctions
 
 # Initialise function classes
@@ -46,7 +46,7 @@ sCMOS = sCMOSFunctions.sCMOS_Functions()
 SD = SpotDetectionFunctions.SpotDetection_Functions()
 MSF = Multicolour_Simulation_Functions.MultiC_Sim_Funcs()
 SF = SpectralFunctions.Spectral_Funcs()
-plotter = PlottingFunctions.Plotter()
+plotter = PublicationPlotter()
 Mask = MaskFunctions.Mask_Functions()
 
 

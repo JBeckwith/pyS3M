@@ -3703,6 +3703,445 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         else:
             return fig, axs
 
+    # ------------------------------------------------------------------
+    # Legacy-compatible methods migrated from PlottingFunctions.Plotter
+    # ------------------------------------------------------------------
+
+    def _get_plot_font_size(self, plot_type: str = "standard") -> int:
+        """Return plot element font size for the current mode.
+
+        Args:
+            plot_type: ``"standard"`` (8 pt) or ``"scatter"`` (7 pt).
+
+        Returns:
+            Font size in points.
+        """
+        if self.poster:
+            return 15
+        return 7 if plot_type == "scatter" else 8
+
+    def _setup_colorbar(self, im, axs, cbarlabel: str, location: str = "right") -> None:
+        """Add a styled colorbar using BasePlotter.add_colorbar.
+
+        Args:
+            im: Image / mappable object.
+            axs: Parent axes.
+            cbarlabel: Label for the colorbar.
+            location: ``"left"``, ``"right"``, ``"top"``, or ``"bottom"``.
+        """
+        cbar = self.add_colorbar(im, axs, label=cbarlabel, location=location)
+        font_size = self._get_plot_font_size()
+        cbar.ax.tick_params(labelsize=font_size - 1, pad=0.1, width=0.5, length=2)
+
+    def _setup_scalebar(
+        self,
+        axs,
+        pixelsize: float,
+        scalebarsize: float,
+        scalebarlabel: str,
+        labelcolor: str,
+        location: str = "lower right",
+    ) -> None:
+        """Add a scale bar using BasePlotter.add_scalebar.
+
+        Args:
+            axs: Axes to annotate.
+            pixelsize: Pixel size in nm.
+            scalebarsize: Scale bar length in nm.
+            scalebarlabel: Text label for the scale bar.
+            labelcolor: Color for the scale bar and label.
+            location: Legend location string.
+        """
+        self.add_scalebar(
+            axs,
+            pixelsize=pixelsize,
+            length_nm=scalebarsize,
+            location=location,
+            color=labelcolor,
+            label=scalebarlabel,
+        )
+
+    def image_scatter_plot(
+        self,
+        axs,
+        data: np.ndarray,
+        xdata: np.ndarray,
+        ydata: np.ndarray,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "gist_gray",
+        cbar: str = "on",
+        cbarlabel: str = "photons",
+        label: str = "",
+        labelcolor: str = "white",
+        pixelsize: float = 69,
+        scalebarsize: float = 10000,
+        scalebarlabel: str = "10 μm",
+        alpha: float = 1,
+        scatteralpha: float = 1,
+        scattercolor: str = "red",
+        facecolor: str = "None",
+        marker: str = "o",
+        s: float = 20,
+        lws: float = 0.75,
+    ):
+        """Create an image plot with scatter overlay.
+
+        Args:
+            axs: Axes object.
+            data: Image data.
+            xdata: Scatter X coordinates.
+            ydata: Scatter Y coordinates.
+            vmin: Minimum display value (default: 1st percentile).
+            vmax: Maximum display value (default: 99th percentile).
+            cmap: Colormap.
+            cbar: ``"on"`` to show colorbar.
+            cbarlabel: Colorbar label.
+            label: Text annotation on the image.
+            labelcolor: Annotation color.
+            pixelsize: Pixel size in nm (for scale bar).
+            scalebarsize: Scale bar length in nm.
+            scalebarlabel: Scale bar text label.
+            alpha: Image transparency.
+            scatteralpha: Scatter point transparency.
+            scattercolor: Scatter edge color.
+            facecolor: Scatter face color.
+            marker: Scatter marker style.
+            s: Scatter marker size.
+            lws: Scatter line width.
+
+        Returns:
+            Modified axes object.
+        """
+        font_size = self._get_plot_font_size()
+
+        if vmin is None:
+            vmin = np.percentile(data.ravel(), 1)
+        if vmax is None:
+            vmax = np.percentile(data.ravel(), 99)
+
+        im = axs.imshow(data, vmin=vmin, vmax=vmax, cmap=cmap, alpha=alpha, origin="lower")
+
+        if cbar == "on":
+            self._setup_colorbar(im, axs, cbarlabel, "left")
+
+        axs.set_xticks([])
+        axs.set_yticks([])
+
+        self._setup_scalebar(axs, pixelsize, scalebarsize, scalebarlabel, labelcolor)
+
+        axs.annotate(
+            label,
+            xy=(5, 5),
+            xytext=(20, 60),
+            xycoords="data",
+            color=labelcolor,
+            fontsize=font_size - 1,
+        )
+
+        axs.scatter(
+            xdata,
+            ydata,
+            lw=lws,
+            edgecolor=scattercolor,
+            s=s,
+            marker=marker,
+            facecolors=facecolor,
+            alpha=scatteralpha,
+        )
+        return axs
+
+    def line_error_plot(
+        self,
+        axs,
+        x: np.ndarray,
+        y: np.ndarray,
+        yerror: np.ndarray,
+        xlim: Optional[Tuple] = None,
+        ylim: Optional[Tuple] = None,
+        color: str = "k",
+        lw: float = 0.75,
+        label: str = "",
+        xaxislabel: str = "x axis",
+        yaxislabel: str = "y axis",
+        ls: str = "-",
+        alpha: float = 1.0,
+    ):
+        """Create a line plot with error bands.
+
+        Thin wrapper around :meth:`BasePlotter.line_plot_with_error` using the
+        legacy parameter names accepted by notebooks.
+
+        Args:
+            axs: Axes object.
+            x: X data.
+            y: Y data.
+            yerror: Y error data.
+            xlim: X axis limits (min, max).
+            ylim: Y axis limits (min, max).
+            color: Line color.
+            lw: Line width.
+            label: Line label.
+            xaxislabel: X axis label.
+            yaxislabel: Y axis label.
+            ls: Line style (currently unused — passed for API compat).
+            alpha: Error band transparency.
+
+        Returns:
+            Modified axes object.
+        """
+        xlim_t = tuple(xlim) if xlim is not None else None
+        ylim_t = tuple(ylim) if ylim is not None else None
+        return self.line_plot_with_error(
+            axs, x, y, yerror,
+            xlabel=xaxislabel,
+            ylabel=yaxislabel,
+            xlim=xlim_t,
+            ylim=ylim_t,
+            color=color,
+            linewidth=lw,
+            label=label,
+            alpha=alpha,
+        )
+
+    def make_animated_gif_image(
+        self,
+        image: np.ndarray,
+        n_frames: int,
+        filename: str,
+        vmin: float = 0,
+        vmax: float = 150,
+        pixelsize: float = 69,
+        scalebarsize: float = 300,
+        scalebarlabel: str = "300 nm",
+        label: str = "",
+        fontsz: int = 6,
+        cbarlabel: str = "# of photoelectrons",
+        cbar: bool = False,
+        width: float = 3,
+        height: float = 3,
+    ) -> None:
+        """Create animated GIF from a grayscale image sequence.
+
+        Thin wrapper around :meth:`make_animated_gif` kept for backwards
+        compatibility with notebooks that call ``make_animated_gif_image``.
+
+        Args:
+            image: 3-D image stack (n_frames × H × W).
+            n_frames: Ignored — frame count is taken from ``image.shape[0]``.
+            filename: Output GIF path.
+            vmin: Minimum display value.
+            vmax: Maximum display value.
+            pixelsize: Pixel size in nm.
+            scalebarsize: Scale bar length in nm.
+            scalebarlabel: Scale bar text label.
+            label: Text annotation on each frame.
+            fontsz: Font size for annotations.
+            cbarlabel: Colorbar label.
+            cbar: Whether to show colorbar.
+            width: Figure width in inches.
+            height: Figure height in inches.
+        """
+        self.make_animated_gif(
+            image=image,
+            filename=filename,
+            vmin=vmin,
+            vmax=vmax,
+            pixelsize=pixelsize,
+            scalebarsize=scalebarsize,
+            scalebarlabel=scalebarlabel,
+            label=label,
+            fontsz=fontsz,
+            cbarlabel=cbarlabel,
+            cbar=cbar,
+            width=width,
+            height=height,
+        )
+
+    def _setup_ternary_axis(
+        self,
+        ax,
+        maj_loc: float,
+        min_loc: float,
+        maxt: float,
+        maxl: float,
+        maxr: float,
+        trianglesize: float,
+    ) -> None:
+        """Configure a ternary plot axis with ticks, limits, and labels.
+
+        Args:
+            ax: Ternary axes object (mpltern).
+            maj_loc: Major tick interval.
+            min_loc: Minor tick interval.
+            maxt: Maximum t value.
+            maxl: Maximum l value.
+            maxr: Maximum r value.
+            trianglesize: Side length of the displayed triangle region.
+        """
+        for axis in [ax.taxis, ax.laxis, ax.raxis]:
+            axis.set_major_locator(MultipleLocator(maj_loc))
+            axis.set_minor_locator(MultipleLocator(min_loc))
+
+        ax.set_ternary_lim(
+            maxt - trianglesize, maxt,
+            maxl - trianglesize, maxl,
+            maxr - trianglesize, maxr,
+        )
+
+        ax.set_tlabel(r"pixel 1 QE")
+        ax.set_llabel(r"pixel 3 QE")
+        ax.set_rlabel(r"pixel 2 QE")
+
+        ax.grid(lw=0.5, alpha=0.25, ls="--", which="both", axis="both", color="white")
+
+    def ternary_scatter_plot(
+        self,
+        fig,
+        axs,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        colours: np.ndarray,
+        xlevel: int = 1,
+        ylevel: int = 2,
+        location_pos: int = 2,
+        maj_loc: float = 0.2,
+        min_loc: float = 0.1,
+        maxt: float = 1,
+        maxl: float = 1,
+        maxr: float = 1,
+        trianglesize: float = 1,
+        s: float = 25,
+        lws: float = 0.5,
+    ) -> Tuple[Any, Any]:
+        """Create a ternary scatter plot using the legacy subplot-replacement API.
+
+        Args:
+            fig: Figure object.
+            axs: Axes array — ``axs[1]`` is removed and replaced by the ternary axis.
+            R: T (top) scatter values.
+            G: L (left) scatter values.
+            B: R (right) scatter values.
+            colours: RGBA edge colors for each scatter point.
+            xlevel: Row count for :func:`~matplotlib.figure.Figure.add_subplot`.
+            ylevel: Column count for :func:`~matplotlib.figure.Figure.add_subplot`.
+            location_pos: Subplot position index.
+            maj_loc: Major tick interval.
+            min_loc: Minor tick interval.
+            maxt: Maximum t value.
+            maxl: Maximum l value.
+            maxr: Maximum r value.
+            trianglesize: Side length of the displayed triangle region.
+            s: Scatter marker size.
+            lws: Scatter marker edge width.
+
+        Returns:
+            Tuple of (figure, axes).
+        """
+        axs[1].remove()
+
+        try:
+            import mpltern  # noqa: F401 — registers projection
+            ax = fig.add_subplot(xlevel, ylevel, location_pos, projection="ternary")
+        except ImportError:
+            raise ImportError(
+                "mpltern is required for ternary plots. Install with: pip install mpltern"
+            )
+
+        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize)
+
+        ax.scatter(
+            R, G, B,
+            s=s,
+            facecolors="None",
+            edgecolors=colours,
+            lw=lws,
+            marker="o",
+        )
+        return fig, axs
+
+    def ternary_contour_plot(
+        self,
+        fig,
+        axs,
+        t: np.ndarray,
+        l: np.ndarray,
+        r: np.ndarray,
+        R: np.ndarray,
+        G: np.ndarray,
+        B: np.ndarray,
+        maj_loc: float = 0.2,
+        min_loc: float = 0.1,
+        gridsize: int = 100,
+        bins: Optional[int] = None,
+        cmap: str = "gist_gray",
+        maxt: float = 1,
+        maxl: float = 1,
+        maxr: float = 1,
+        trianglesize: float = 1,
+        ecolour: str = "red",
+        s: float = 25,
+        lws: float = 0.5,
+    ) -> Tuple[Any, Any]:
+        """Create a ternary contour (hexbin) plot with scatter overlay.
+
+        Args:
+            fig: Figure object.
+            axs: Axes array — ``axs[1]`` is removed and replaced by the ternary axis.
+            t: T (top) hexbin values.
+            l: L (left) hexbin values.
+            r: R (right) hexbin values.
+            R: T scatter values.
+            G: L scatter values.
+            B: R scatter values.
+            maj_loc: Major tick interval.
+            min_loc: Minor tick interval.
+            gridsize: Hexbin grid size.
+            bins: Hexbin bins argument.
+            cmap: Colormap for hexbin.
+            maxt: Maximum t value.
+            maxl: Maximum l value.
+            maxr: Maximum r value.
+            trianglesize: Side length of the displayed triangle region.
+            ecolour: Edge color for scatter overlay points.
+            s: Scatter marker size.
+            lws: Scatter marker edge width.
+
+        Returns:
+            Tuple of (figure, axes).
+        """
+        axs[1].remove()
+
+        try:
+            import mpltern  # noqa: F401 — registers projection
+            ax = fig.add_subplot(2, 1, 2, projection="ternary")
+        except ImportError:
+            raise ImportError(
+                "mpltern is required for ternary plots. Install with: pip install mpltern"
+            )
+
+        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize)
+
+        ax.hexbin(
+            t, l, r,
+            gridsize=gridsize,
+            edgecolors="none",
+            bins=bins,
+            cmap=cmap,
+            rasterized=True,
+        )
+
+        ax.scatter(
+            R, G, B,
+            s=s,
+            facecolors="None",
+            edgecolors=ecolour,
+            lw=lws,
+            marker="o",
+        )
+        return fig, axs
+
 
 class AnalysisPlotter(TernaryPlotMixin, DatashaderMixin, ImagePlotMixin, BasePlotter):
     """Analysis-focused plotter with large dataset handling and ternary plots.

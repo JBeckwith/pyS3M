@@ -415,8 +415,8 @@ def get_pandas():
 
 
 def get_plotting_functions():
-    """Get PlottingFunctions module if available."""
-    return get_module("PlottingFunctions")
+    """Get PlottingBase module (replaces deprecated PlottingFunctions)."""
+    return get_module("PlottingBase")
 
 
 def get_postprocess():

@@ -39,7 +39,7 @@ try:
     from SpotDetectionFunctions import SpotDetection_Functions
     from IOFunctions import IO_Functions
     from CalibrationFunctions import Calibration_Functions
-    from PlottingFunctions import Plotter
+    from PlottingBase import PublicationPlotter as Plotter
     from HelperFunctions import Helper_Functions
     from sCMOSFunctions import sCMOS_Functions
     from SR_Functions import SuperRes_Functions

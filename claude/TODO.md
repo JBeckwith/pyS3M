@@ -8,6 +8,20 @@
 
 ## Active Projects
 
+### Priority 1: Plotting Migration — Retire PlottingFunctions.py ✅ COMPLETE
+
+**Status:** ✅ DONE — `PlottingFunctions.py` deleted; all notebooks/scripts migrated
+**Plan:** `claude/plotting_migration.md`
+
+- [x] Step 1: Migrate 5 methods into `PublicationPlotter`
+- [x] Step 2: Update 6 Python source/script files
+- [x] Step 3: Bulk notebook migration (105 files changed)
+- [x] Step 4/6: Test suite — 27 failures before and after (no regressions)
+- [x] Step 5: Deleted `PlottingFunctions.py` + redirected `ImportManager.get_plotting_functions()`
+- [ ] **Step 7:** Spot-check 6 key notebooks in Jupyter (do next time you have Jupyter open)
+
+---
+
 ### Priority 1: EBI BioImage Archive Submission (ACTIVE)
 
 **Status:** 📋 IN PROGRESS — notebook ready, credentials obtained, awaiting upload from analysis PC
