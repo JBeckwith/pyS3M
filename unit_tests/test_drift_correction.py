@@ -5,7 +5,6 @@ Tests cover:
 - DriftCorrectionFunctions main class
 - CoordinateProcessor
 - AIMAlgorithm
-- RCCAlgorithm
 - FiducialDetection
 - Integration tests for full workflow
 """
@@ -23,7 +22,6 @@ from typing import Dict, Tuple
 import DriftCorrectionFunctions as DCF
 from CoordinateProcessing import CoordinateProcessor
 from AIMAlgorithm import AIMAlgorithm
-from RCCAlgorithm import RCCAlgorithm
 from FiducialDetection import FiducialDetector
 
 
@@ -273,67 +271,6 @@ class TestAIMAlgorithm:
 
 
 # ============================================================================
-# RCCAlgorithm Tests
-# ============================================================================
-
-class TestRCCAlgorithm:
-    """Test RCC drift correction algorithm."""
-
-    def test_rcc_initialization(self):
-        """Test RCC algorithm can be initialized."""
-        drift_corr = DCF.Drift_Correction_Functions()
-        rcc = RCCAlgorithm(drift_correction_instance=drift_corr)
-
-        assert rcc is not None
-        assert hasattr(rcc, 'run_rcc_2d')
-
-    def test_rcc_detects_linear_drift(self):
-        """Test RCC can detect simple linear drift."""
-        # Generate data with known drift
-        n_frames = 100
-        drift_x_true, drift_y_true = generate_linear_drift(n_frames, drift_rate=0.2)
-
-        locs = generate_test_localizations(
-            n_locs=10000,  # RCC needs more localizations
-            n_frames=n_frames,
-            drift_x=drift_x_true,
-            drift_y=drift_y_true
-        )
-
-        info = [{
-            'Width': 256,
-            'Height': 256,
-            'Frames': n_frames,
-            'Pixelsize': 69
-        }]
-
-        # Run RCC
-        drift_corr = DCF.Drift_Correction_Functions()
-        rcc = RCCAlgorithm(drift_correction_instance=drift_corr)
-
-        drift_x, drift_y, meta = rcc.run_rcc_2d(
-            locs, info,
-            segmentation=10,
-            use_time_factor=False
-        )
-
-        # Check that drift was detected
-        assert len(drift_x) == n_frames
-        assert len(drift_y) == n_frames
-
-        # Total drift should be approximately correct
-        expected_total_x = drift_x_true[-1] - drift_x_true[0]
-        expected_total_y = drift_y_true[-1] - drift_y_true[0]
-
-        actual_total_x = drift_x[-1] - drift_x[0]
-        actual_total_y = drift_y[-1] - drift_y[0]
-
-        # RCC is generally more accurate than AIM
-        assert abs(actual_total_x - expected_total_x) < abs(expected_total_x) * 0.2
-        assert abs(actual_total_y - expected_total_y) < abs(expected_total_y) * 0.2
-
-
-# ============================================================================
 # FiducialDetection Tests
 # ============================================================================
 
@@ -446,7 +383,6 @@ class TestDriftCorrectionIntegration:
         assert hasattr(drift_corr, 'undrift')
         assert drift_corr.coordinate_processor is not None
         assert drift_corr.aim_algorithm is not None
-        assert drift_corr.rcc_algorithm is not None
         assert drift_corr.fiducial_detection is not None
 
     def test_undrift_with_aim(self):

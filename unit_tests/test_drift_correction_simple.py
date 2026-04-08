@@ -47,7 +47,6 @@ class TestDriftCorrectionUserAPI:
         # Verify submodules are initialized
         assert drift_corrector.coordinate_processor is not None
         assert drift_corrector.aim_algorithm is not None
-        assert drift_corrector.rcc_algorithm is not None
         assert drift_corrector.fiducial_detector is not None
 
     def test_undrift_with_aim_method(self):
@@ -177,12 +176,10 @@ class TestModuleAccessibility:
         # These imports should all succeed after refactoring
         from CoordinateProcessing import CoordinateProcessor
         from AIMAlgorithm import AIMAlgorithm
-        from RCCAlgorithm import RCCAlgorithm
         from FiducialDetection import FiducialDetector
 
         assert CoordinateProcessor is not None
         assert AIMAlgorithm is not None
-        assert RCCAlgorithm is not None
         assert FiducialDetector is not None
 
     def test_submodules_initialized(self):
@@ -192,13 +189,11 @@ class TestModuleAccessibility:
         # Check all submodules exist
         assert hasattr(drift_corr, 'coordinate_processor')
         assert hasattr(drift_corr, 'aim_algorithm')
-        assert hasattr(drift_corr, 'rcc_algorithm')
         assert hasattr(drift_corr, 'fiducial_detector')
 
         # Check they're not None
         assert drift_corr.coordinate_processor is not None
         assert drift_corr.aim_algorithm is not None
-        assert drift_corr.rcc_algorithm is not None
         assert drift_corr.fiducial_detector is not None
 
 

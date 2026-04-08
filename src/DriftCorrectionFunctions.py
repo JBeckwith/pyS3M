@@ -53,16 +53,6 @@ except ImportError:
     _fiducial_detector = None
 
 try:
-    from RCCAlgorithm import RCCAlgorithm
-
-    _rcc_algorithm = RCCAlgorithm()
-except ImportError:
-    warnings.warn(
-        "Could not import RCCAlgorithm. RCC algorithm features may be limited."
-    )
-    _rcc_algorithm = None
-
-try:
     from AIMAlgorithm import AIMAlgorithm
 
     _aim_algorithm = AIMAlgorithm()
@@ -1780,13 +1770,6 @@ class Drift_Correction_Functions:
             self.fiducial_detector = None
 
         try:
-            from RCCAlgorithm import RCCAlgorithm
-
-            self.rcc_algorithm = RCCAlgorithm(drift_correction_instance=self)
-        except ImportError:
-            self.rcc_algorithm = None
-
-        try:
             from AIMAlgorithm import AIMAlgorithm
 
             self.aim_algorithm = AIMAlgorithm(drift_correction_instance=self)
@@ -1887,19 +1870,6 @@ class Drift_Correction_Functions:
         return self.fiducial_detector.identify_real_fiducials_with_clustering(
             *args, **kwargs
         )
-
-    # RCC Algorithm delegation methods
-    def run_rcc_2d(self, *args, **kwargs):
-        """Delegate to RCCAlgorithm.run_rcc_2d"""
-        if self.rcc_algorithm is None:
-            raise RuntimeError("RCCAlgorithm module not available")
-        return self.rcc_algorithm.run_rcc_2d(*args, **kwargs)
-
-    def run_rcc_3d(self, *args, **kwargs):
-        """Delegate to RCCAlgorithm.run_rcc_3d"""
-        if self.rcc_algorithm is None:
-            raise RuntimeError("RCCAlgorithm module not available")
-        return self.rcc_algorithm.run_rcc_3d(*args, **kwargs)
 
     # AIM Algorithm delegation methods
     def run_aim_2d(self, *args, **kwargs):
