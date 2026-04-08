@@ -11,6 +11,7 @@ DriftCorrection_README.md
 *_backup.py
 archive/
 *.tex
+logs/
 
 # Python cache files (comprehensive)
 *.pyc
