@@ -27,7 +27,6 @@ sys.path.append(module_dir)
 from ImportManager import get_module, is_available
 import lib
 import render
-import imageprocess
 from LinkingFunctions import (
     _link_group_count,
     _link_group_sum,
@@ -604,98 +603,6 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
         valid = np.logical_and(first_frame_ > 0, last_frame_ < info[0]["Frames"])
         linked_locs = linked_locs[valid]
     return linked_locs
-
-
-def n_segments(info, segmentation):
-    n_frames = info[0]["Frames"]
-    return int(np.round(n_frames / segmentation))
-
-
-def segment(locs, info, segmentation, kwargs={}, callback=None):
-    Y = info[0]["Height"]
-    X = info[0]["Width"]
-    n_frames = info[0]["Frames"]
-    n_seg = n_segments(info, segmentation)
-    bounds = np.linspace(0, n_frames - 1, n_seg + 1, dtype=np.uint32)
-    segments = np.zeros((n_seg, Y, X))
-    if callback is None:
-        with ProgressUtils.analysis_progress_bar(
-            total=n_seg, desc="Generating segments"
-        ) as pbar:
-            for i in range(n_seg):
-                segment_locs = locs[
-                    (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
-                ]
-                _, segments[i] = render.render(segment_locs, info, **kwargs)
-                pbar.update(1)
-    else:
-        callback(0)
-        for i in range(n_seg):
-            segment_locs = locs[
-                (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
-            ]
-            _, segments[i] = render.render(segment_locs, info, **kwargs)
-            callback(i + 1)
-    return bounds, segments
-
-
-def undrift(
-    locs,
-    info,
-    segmentation,
-    display=True,
-    save_path=None,
-    segmentation_callback=None,
-    rcc_callback=None,
-):
-    """Undrift by RCC.
-
-    Parameters
-    ----------
-    locs : np.recarray
-        Localization data
-    info : list
-        Metadata
-    segmentation : int
-        Segmentation parameter
-    display : bool, optional
-        Whether to display drift analysis plot (default: True)
-    save_path : str, optional
-        Path to save drift analysis plot (default: None)
-    segmentation_callback : callable, optional
-        Callback for segmentation progress
-    rcc_callback : callable, optional
-        Callback for RCC progress
-
-    Returns
-    -------
-    drift : np.recarray
-        Calculated drift values
-    locs : np.recarray
-        Undrifted localisation data
-    """
-
-    bounds, segments = segment(
-        locs,
-        info,
-        segmentation,
-        {"blur_method": "gaussian", "min_blur_width": 1},
-        segmentation_callback,
-    )
-    shift_y, shift_x = imageprocess.rcc(segments, 32, rcc_callback)
-    t = (bounds[1:] + bounds[:-1]) / 2
-    drift_x_pol = interpolate.InterpolatedUnivariateSpline(t, shift_x, k=3)
-    drift_y_pol = interpolate.InterpolatedUnivariateSpline(t, shift_y, k=3)
-    t_inter = np.arange(info[0]["Frames"])
-    drift = (drift_x_pol(t_inter), drift_y_pol(t_inter))
-    drift = np.rec.array(drift, dtype=[("x", "f"), ("y", "f")])
-
-    if display:
-        _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=save_path)
-
-    locs.xc -= drift.x[locs.frame]
-    locs.yc -= drift.y[locs.frame]
-    return drift, locs
 
 
 def undrift_from_picked(picked_locs, n_frames):

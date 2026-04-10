@@ -88,34 +88,6 @@ class TestDriftCorrectionUserAPI:
         assert len(drift_result.drift_x) > 0, "drift_x should not be empty"
         assert len(drift_result.drift_y) > 0, "drift_y should not be empty"
 
-    def test_undrift_with_rcc_method(self):
-        """Test undrift with RCC method."""
-        loc_data = generate_test_data(n_locs=5000, n_frames=50)  # RCC needs more data
-        width = 256
-        height = 256
-
-        drift_corrector = DCF.Drift_Correction_Functions()
-
-        info = [{
-            "Width": width,
-            "Height": height,
-            "Frames": np.max(loc_data['frame']),
-            "Pixelsize": 69,
-        }]
-
-        corrected_locs, drift_result = drift_corrector.undrift(
-            locs=loc_data.to_records(index=False),
-            info=info,
-            method="rcc",
-            segmentation=20
-        )
-
-        # Basic checks
-        corrected_locs_df = pd.DataFrame(corrected_locs)
-        assert len(corrected_locs_df) > 0
-        assert hasattr(drift_result, 'drift_x')
-        assert hasattr(drift_result, 'drift_y')
-
     def test_undrift_auto_method(self):
         """Test automatic method selection."""
         loc_data = generate_test_data(n_locs=1000, n_frames=30)

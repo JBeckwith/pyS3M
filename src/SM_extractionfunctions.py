@@ -80,7 +80,7 @@ class extract_SMs:
             # Treat as iterable of file paths
             dfs = []
             for f in loc_data:
-                dfs.append(pd.read_hdf(str(f), key="data"))
+                dfs.append(self.io.read_h5_database(str(f)))
             if not dfs:
                 return pd.DataFrame()
             df = pd.concat(dfs, ignore_index=True)
@@ -1009,7 +1009,7 @@ class extract_SMs:
                 )
 
             # Load localization data
-            loc_data = pd.read_hdf(loc_file)
+            loc_data = self.io.read_h5_database(loc_file)
             if start_frame > 0:
                 loc_data = loc_data[loc_data["frame"] >= start_frame].reset_index(drop=True)
 
@@ -1420,16 +1420,15 @@ class extract_SMs:
             # Create output folder if it doesn't exist
             os.makedirs(output_folder, exist_ok=True)
 
-            # Save single molecule database
-            # Note: Use pandas to_hdf directly since single_molecule_db doesn't have frame column
+            # Save single molecule database (no frame column — normalise_photons=False)
             sm_path = os.path.join(output_folder, f"{output_prefix}_single_molecules.h5")
-            single_molecule_db.to_hdf(sm_path, key="data", mode="w", format="table")
+            self.io.write_h5_database(single_molecule_db, sm_path, normalise_photons=False)
             if verbose:
                 print(f"  Saved: {os.path.basename(sm_path)}")
 
             # Save single frame database
             sf_path = os.path.join(output_folder, f"{output_prefix}_single_frames.h5")
-            self.io._write_h5_database(
+            self.io.write_h5_database(
                 single_frame_db, sf_path, normalise_photons=False, append=False, verbose=verbose
             )
             if verbose:
@@ -1440,8 +1439,7 @@ class extract_SMs:
                 pa_path = os.path.join(
                     output_folder, f"{output_prefix}_photon_accumulation.h5"
                 )
-                # Note: Use pandas to_hdf directly - this database doesn't have traditional frame column
-                photon_accumulation_db.to_hdf(pa_path, key="data", mode="w", format="table")
+                self.io.write_h5_database(photon_accumulation_db, pa_path, normalise_photons=False)
                 if verbose:
                     print(f"  Saved: {os.path.basename(pa_path)}")
 

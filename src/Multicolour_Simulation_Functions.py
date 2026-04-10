@@ -2283,7 +2283,7 @@ class MultiC_Sim_Funcs_Refactored:
                         should_append = (i_ph > 0) and os.path.exists(raw_results_h5_path)
                         if i_ph == 0 and overwrite and os.path.exists(raw_results_h5_path):
                             os.remove(raw_results_h5_path)
-                        self.io._write_h5_database(
+                        self.io.write_h5_database(
                             fit_results,
                             raw_results_h5_path,
                             append=should_append,
@@ -2472,7 +2472,7 @@ class MultiC_Sim_Funcs_Refactored:
                 import pandas as pd
                 try:
                     # Read existing HDF5 file to find completed photon levels
-                    existing_data = pd.read_hdf(raw_results_h5_path, key="data")
+                    existing_data = self.io.read_h5_database(raw_results_h5_path)
                     if "photon_level" in existing_data.columns:
                         completed_photon_levels = set(existing_data["photon_level"].unique())
                         print(f"Found existing results with {len(completed_photon_levels)} completed photon levels")
@@ -2630,7 +2630,7 @@ class MultiC_Sim_Funcs_Refactored:
                 # to avoid double normalization
                 # Append if: (1) not the first iteration OR (2) continuing from previous run
                 should_append = (i > 0) or (len(completed_photon_levels) > 0)
-                self.io._write_h5_database(
+                self.io.write_h5_database(
                     fit_results,
                     raw_results_h5_path,
                     append=should_append,

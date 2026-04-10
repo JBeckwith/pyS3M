@@ -386,28 +386,3 @@ def check_kinetics(locs, info):
     return len_mean
 
 
-def check_drift(locs, info, callback=None):
-    steps = int(len(locs) // (MAX_LOCS))
-    steps = max(1, steps)
-
-    locs = locs[::steps]
-
-    n_frames = info[0]["Frames"]
-
-    segmentation = max(1, int(n_frames // 10))
-
-    print(f"Estimating drift with segmentation {segmentation}")
-    drift, locs = postprocess.undrift(
-        locs,
-        info,
-        segmentation,
-        display=False,
-        rcc_callback=callback,
-    )
-
-    drift_x = float(drift["x"].mean())
-    drift_y = float(drift["y"].mean())
-
-    print(f"Drift is X: {drift_x:.2f}, Y: {drift_y:.2f}.")
-
-    return (drift_x, drift_y)

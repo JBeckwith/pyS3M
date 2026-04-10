@@ -18,6 +18,7 @@ from scipy.optimize import least_squares
 from typing import Dict, Tuple, Optional, List, Union
 import SpectralFunctions
 import PSFFunctions
+import IOFunctions
 
 
 class NileRed_Functions:
@@ -56,9 +57,10 @@ class NileRed_Functions:
         self.default_alpha = alpha
         self.default_wavelength_center = wavelength_center_init
 
-        # Initialize SpectralFunctions and PSFFunctions for shared functionality
+        # Initialize SpectralFunctions, PSFFunctions, and IOFunctions
         self.spectral_funcs = SpectralFunctions.Spectral_Funcs()
         self.psf_funcs = PSFFunctions.PSF_Functions()
+        self.io = IOFunctions.IO_Functions()
 
     def compute_sigma_psf_array(
         self, wavelength_array: np.ndarray, NA: float = 1.49
@@ -927,7 +929,7 @@ class NileRed_Functions:
                 import pandas as pd
 
                 file_path = os.path.join(save_folder, raw_file)
-                df_pandas = pd.read_hdf(file_path, "data")
+                df_pandas = self.io.read_h5_database(file_path)
                 df = pl.from_pandas(df_pandas)
 
                 # Check if wavelength columns exist
@@ -1094,7 +1096,7 @@ class NileRed_Functions:
         if verbose:
             print("Loading HDF5 file...")
 
-        df = pd.read_hdf(h5_path, "data")
+        df = self.io.read_h5_database(h5_path)
         n_locs = len(df)
 
         if verbose:
@@ -1348,7 +1350,7 @@ class NileRed_Functions:
             if verbose:
                 print(f"\nSaving results to: {output_path}")
 
-            df.to_hdf(output_path, key="data", mode="w", format="table")
+            self.io.write_h5_database(df, output_path, normalise_photons=False)
 
             if verbose:
                 print("Save complete!")
@@ -1456,7 +1458,7 @@ class NileRed_Functions:
         if not os.path.exists(h5_path):
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
-        df = pd.read_hdf(h5_path, "data")
+        df = self.io.read_h5_database(h5_path)
         df = df.loc[:, ~df.columns.duplicated()]
         n_locs = len(df)
 
@@ -1827,7 +1829,7 @@ class NileRed_Functions:
         if output_path is not None:
             if verbose:
                 print(f"\nSaving results to: {output_path}")
-            df.to_hdf(output_path, key="data", mode="w", format="table")
+            self.io.write_h5_database(df, output_path, normalise_photons=False)
             if verbose:
                 print("Save complete!")
 

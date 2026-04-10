@@ -1,7 +1,7 @@
 """
 DriftCorrectionFunctions.py
 
-Unified drift correction module combining RCC and AIM approaches from postprocess.py and aim.py.
+Drift correction module using AIM (Adaptive Intersection Maximization) and fiducial-based approaches.
 Implements strategy pattern for flexible drift correction method selection.
 
 :authors: Claude Code (based on Joerg Schnitzbauer, Maximilian Thomas Strauss, Hongqiang Ma, Maomao Chen)
@@ -78,15 +78,11 @@ except ImportError:
 
 try:
     import render
-    import imageprocess
     import postprocess
     from PlottingBase import PublicationPlotter
 except ImportError:
-    warnings.warn(
-        "Could not import render/imageprocess modules. RCC method may not work."
-    )
+    warnings.warn("Could not import render/postprocess modules.")
     render = None
-    imageprocess = None
     postprocess = None
     PublicationPlotter = None
 
@@ -94,7 +90,6 @@ except ImportError:
 class DriftMethod(Enum):
     """Enumeration of available drift correction methods."""
 
-    RCC = "rcc"
     AIM = "aim"
     FIDUCIAL = "fiducial"  # Fiducial-based drift correction using picked localisations
     AUTO = "auto"  # Automatically select based on data characteristics
@@ -114,12 +109,8 @@ class DriftParameters:
         segmentation: Time interval for drift tracking (frames)
         intersect_d: Intersection distance for AIM (camera pixels)
         roi_r: Search region radius for AIM (camera pixels)
-        blur_method: Blur method for RCC rendering
-        min_blur_width: Minimum blur width for RCC
-        rcc_max_shift: Maximum correlation shift for RCC
         progress_callback: Optional progress callback function
         display: Whether to display drift plots
-        # Fiducial detection parameters
         fiducial_threshold_percentile: Histogram percentile threshold for fiducial detection
         fiducial_box_size_nm: Box size for fiducial detection in nanometers
         fiducial_min_frames_fraction: Minimum fraction of frames for valid fiducial
@@ -130,16 +121,13 @@ class DriftParameters:
     segmentation: int = 100
     intersect_d: float = 20 / 69  # Default AIM intersection distance
     roi_r: float = 60 / 69  # Default AIM search radius
-    blur_method: str = "gaussian"
-    min_blur_width: float = 1.0
-    rcc_max_shift: int = 32
     progress_callback: Optional[Callable[[int], None]] = None
     display: bool = False
     # Fiducial detection parameters with sensible defaults
     fiducial_threshold_percentile: float = 99.0  # 99th percentile threshold
-    fiducial_box_size_nm: float = 900.0  # 900nm box size (matches imageprocess.py)
+    fiducial_box_size_nm: float = 900.0  # 900nm box size
     fiducial_min_frames_fraction: float = (
-        0.8  # 80% of frames minimum (matches imageprocess.py)
+        0.8  # 80% of frames minimum
     )
     fiducial_histogram_bins: int = 256  # Number of histogram bins
     auto_detect_fiducials: bool = True  # Automatically detect if no group field
@@ -182,7 +170,7 @@ class DriftResult:
     drift_x: np.ndarray
     drift_y: np.ndarray
     drift_z: Optional[np.ndarray] = None
-    method_used: DriftMethod = DriftMethod.RCC
+    method_used: DriftMethod = DriftMethod.AIM
     metadata: Dict[str, Any] = None
 
     def __post_init__(self):
@@ -279,145 +267,6 @@ class DriftCorrector(ABC):
         )
 
         return corrected_locs, drift_result
-
-
-class RCCDriftCorrector(DriftCorrector):
-    """RCC (Rapid Cross-Correlation) drift correction implementation.
-
-    Based on postprocess.py undrift() function. Uses image rendering and
-    cross-correlation to detect drift between temporal segments.
-    """
-
-    def supports_3d(self) -> bool:
-        """RCC supports 2D drift correction only."""
-        return False
-
-    def calculate_drift(
-        self, locs: np.recarray, info: list, params: DriftParameters
-    ) -> DriftResult:
-        """Calculate drift using RCC method.
-
-        Args:
-            locs: Localisation data
-            info: Metadata list
-            params: Drift correction parameters
-
-        Returns:
-            RCC drift correction result
-        """
-        if render is None or imageprocess is None:
-            raise DriftCorrectionError(
-                "RCC method requires render and imageprocess modules"
-            )
-
-        # Extract metadata
-        meta = CoordinateProcessor.extract_metadata(info)
-
-        # Generate segments
-        bounds, segments = self._generate_segments(locs, info, meta, params)
-
-        # Calculate shifts using RCC
-        shift_y, shift_x = imageprocess.rcc(
-            segments, params.rcc_max_shift, params.progress_callback
-        )
-
-        # Interpolate to all frames
-        drift_x, drift_y = self._interpolate_drift(
-            bounds, shift_x, shift_y, int(meta["n_frames"])
-        )
-
-        return DriftResult(
-            drift_x=-drift_x,  # Negative because we want to correct drift
-            drift_y=-drift_y,
-            method_used=DriftMethod.RCC,
-            metadata={
-                "segments": len(bounds) - 1,
-                "max_shift": params.rcc_max_shift,
-                "blur_method": params.blur_method,
-            },
-        )
-
-    def _generate_segments(
-        self,
-        locs: np.recarray,
-        info: list,
-        meta: Dict[str, float],
-        params: DriftParameters,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate temporal segments for RCC analysis.
-
-        Args:
-            locs: Localisation data
-            info: Original metadata list (for render compatibility)
-            meta: Extracted metadata
-            params: Drift parameters
-
-        Returns:
-            Tuple of (bounds, segments)
-        """
-        n_segments = SegmentationHandler.n_segments(
-            int(meta["n_frames"]), params.segmentation
-        )
-        bounds = np.linspace(0, meta["n_frames"] - 1, n_segments + 1, dtype=np.uint32)
-
-        # Render segments
-        Y = int(meta["height"])
-        X = int(meta["width"])
-        segments = np.zeros((n_segments, Y, X))
-
-        if params.progress_callback is None:
-            with ProgressUtils.clean_progress_bar(
-                range(n_segments), desc="Generating segments"
-            ) as it:
-                for i in it:
-                    segment_locs = locs[
-                        (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
-                    ]
-                    _, segments[i] = render.render(
-                        segment_locs,
-                        info,
-                        blur_method=params.blur_method,
-                        min_blur_width=params.min_blur_width,
-                    )
-        else:
-            params.progress_callback(0)
-            for i in range(n_segments):
-                segment_locs = locs[
-                    (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
-                ]
-                _, segments[i] = render.render(
-                    segment_locs,
-                    info,
-                    blur_method=params.blur_method,
-                    min_blur_width=params.min_blur_width,
-                )
-                params.progress_callback(i + 1)
-
-        return bounds, segments
-
-    def _interpolate_drift(
-        self,
-        bounds: np.ndarray,
-        shift_x: np.ndarray,
-        shift_y: np.ndarray,
-        n_frames: int,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Interpolate drift to all frames using splines.
-
-        Now delegates to CoordinateProcessor for consistent interpolation.
-
-        Args:
-            bounds: Segment boundaries
-            shift_x: X shifts between segments
-            shift_y: Y shifts between segments
-            n_frames: Total number of frames
-
-        Returns:
-            Tuple of (drift_x, drift_y) for all frames
-        """
-        return CoordinateProcessor.interpolate_drift(
-            bounds, shift_x, shift_y, n_frames, method="cubic"
-        )
 
 
 class AIMDriftCorrector(DriftCorrector):
@@ -1435,9 +1284,9 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             New localisation array with group field added
         """
-        if render is None or imageprocess is None:
+        if render is None:
             raise DriftCorrectionError(
-                "Fiducial detection requires render and imageprocess modules"
+                "Fiducial detection requires render module"
             )
 
         # Extract metadata for pixel size
@@ -1569,51 +1418,28 @@ class FiducialDriftCorrector(DriftCorrector):
 
 
 class AutoDriftCorrector(DriftCorrector):
-    """Automatic drift corrector that selects method based on data characteristics."""
+    """Automatic drift corrector — always uses AIM."""
 
     def __init__(self):
-        self.rcc_corrector = RCCDriftCorrector()
         self.aim_corrector = AIMDriftCorrector()
 
     def supports_3d(self) -> bool:
-        """Auto corrector supports 3D if AIM is available."""
         return True
 
     def calculate_drift(
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> DriftResult:
-        """Automatically select and apply best drift correction method.
-
-        Selection criteria:
-        - Use AIM for dense data (>1000 locs per segment on average)
-        - Use RCC for sparse data
-        - Use RCC if render modules unavailable
-        """
-        # Calculate data density
+        """Apply AIM drift correction."""
         meta = CoordinateProcessor.extract_metadata(info)
         n_segments = SegmentationHandler.n_segments(
             int(meta["n_frames"]), params.segmentation
         )
         avg_locs_per_segment = len(locs) / n_segments
 
-        # Selection logic
-        if avg_locs_per_segment > 1000:
-            selected_method = DriftMethod.AIM
-            corrector = self.aim_corrector
-        elif render is not None and imageprocess is not None:
-            selected_method = DriftMethod.RCC
-            corrector = self.rcc_corrector
-        else:
-            # Fallback to AIM if RCC modules unavailable
-            selected_method = DriftMethod.AIM
-            corrector = self.aim_corrector
-
-        # Run selected method
-        result = corrector.calculate_drift(locs, info, params)
-        result.method_used = selected_method
+        result = self.aim_corrector.calculate_drift(locs, info, params)
+        result.method_used = DriftMethod.AIM
         result.metadata["auto_selection_reason"] = (
-            f"Selected {selected_method.value} based on "
-            f"{avg_locs_per_segment:.1f} locs/segment"
+            f"Selected aim based on {avg_locs_per_segment:.1f} locs/segment"
         )
 
         return result
@@ -1623,7 +1449,6 @@ class DriftCorrectionFactory:
     """Factory for creating drift correctors."""
 
     _correctors = {
-        DriftMethod.RCC: RCCDriftCorrector,
         DriftMethod.AIM: AIMDriftCorrector,
         DriftMethod.FIDUCIAL: FiducialDriftCorrector,
         DriftMethod.AUTO: AutoDriftCorrector,
@@ -1654,35 +1479,6 @@ class DriftCorrectionFactory:
 
 
 # Convenience functions for backward compatibility
-def undrift_rcc(
-    locs: np.recarray,
-    info: list,
-    segmentation: int = 100,
-    display: bool = True,
-    segmentation_callback: Optional[Callable] = None,
-    rcc_callback: Optional[Callable] = None,
-) -> Tuple[np.recarray, DriftResult]:
-    """Apply RCC drift correction (backward compatible interface).
-
-    Args:
-        locs: Localisation data
-        info: Metadata list
-        segmentation: Frames per segment
-        display: Whether to display results
-        segmentation_callback: Progress callback for segmentation
-        rcc_callback: Progress callback for RCC
-
-    Returns:
-        Tuple of (corrected_locs, drift_result)
-    """
-    params = DriftParameters(
-        segmentation=segmentation, display=display, progress_callback=rcc_callback
-    )
-
-    corrector = DriftCorrectionFactory.create_corrector(DriftMethod.RCC)
-    return corrector.correct_drift(locs, info, params)
-
-
 def undrift_aim(
     locs: np.recarray,
     info: list,
@@ -1782,7 +1578,7 @@ class Drift_Correction_Functions:
         Args:
             locs: Localisation data
             info: Metadata list
-            method: Drift correction method ("rcc", "aim", "auto")
+            method: Drift correction method ("aim", "fiducial", "auto")
             **params: Method-specific parameters
 
         Returns:
@@ -1790,8 +1586,8 @@ class Drift_Correction_Functions:
 
         Example:
             >>> DCF = Drift_Correction_Functions()
-            >>> corrected_locs, drift = DCF.undrift(locs, info, method="rcc")
             >>> corrected_locs, drift = DCF.undrift(locs, info, method="aim", segmentation=50)
+            >>> corrected_locs, drift = DCF.undrift(locs, info, method="fiducial")
         """
         # Convert string to enum if needed
         if isinstance(method, str):
@@ -2372,9 +2168,9 @@ class Drift_Correction_Functions:
             >>> # Use detected fiducials for drift correction
             >>> corrected, drift = DCF.undrift_with_detected_fiducials(detection_result)
         """
-        if render is None or imageprocess is None:
+        if render is None:
             raise DriftCorrectionError(
-                "Fiducial detection requires render and imageprocess modules"
+                "Fiducial detection requires render module"
             )
 
         # Extract metadata

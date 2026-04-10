@@ -1190,7 +1190,7 @@ class SuperRes_Functions:
             fit_df = self._filter_fit_results(fit_df, width, height)
 
             # Save to HDF5 database
-            self.io._write_h5_database(fit_df, fit_savename, append=False)
+            self.io.write_h5_database(fit_df, fit_savename, append=False)
             print(f"  Saved {len(fit_df)} fits to {os.path.basename(fit_savename)}")
 
             # Cleanup
@@ -1458,7 +1458,7 @@ class SuperRes_Functions:
                 fit_df = self._filter_fit_results(fit_df, width, height)
 
                 # Append to HDF5 (first chunk creates the file, subsequent chunks append)
-                self.io._write_h5_database(fit_df, fit_savename, append=(not first_save))
+                self.io.write_h5_database(fit_df, fit_savename, append=(not first_save))
                 first_save = False
 
                 del (
@@ -1775,7 +1775,7 @@ class SuperRes_Functions:
                 quality_metrics=combined_quality_metrics,  # NEW: Pass quality metrics
             )
 
-            self.io._write_h5_database(fit_results, fit_savename, append=False)
+            self.io.write_h5_database(fit_results, fit_savename, append=False)
             del (
                 fit_results_array,
                 fit_results,
@@ -2018,7 +2018,7 @@ class SuperRes_Functions:
                 quality_metrics=combined_quality_metrics,
             )
 
-            self.io._write_h5_database(fit_results, fit_savename, append=False)
+            self.io.write_h5_database(fit_results, fit_savename, append=False)
             del (
                 fit_results_array,
                 fit_results,
@@ -2535,9 +2535,9 @@ class SuperRes_Functions:
             )
 
             if FOVn == 0:
-                self.io._write_h5_database(fit_results, fit_savename, append=False)
+                self.io.write_h5_database(fit_results, fit_savename, append=False)
             else:
-                self.io._write_h5_database(fit_results, fit_savename, append=True)
+                self.io.write_h5_database(fit_results, fit_savename, append=True)
             del (
                 fit_results_array,
                 fit_results,

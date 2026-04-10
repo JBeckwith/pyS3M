@@ -58,13 +58,35 @@ class IO_Functions:
 
         return df
 
-    def _write_h5_database(self, df, filepath, append=False, normalise_photons=True, verbose=True):
+    def read_h5_database(self, filepath, key="data"):
+        """Read localisation database from HDF5 file.
+
+        Args:
+            filepath (str): Path to HDF5 file.
+            key (str): HDF5 key to read (default: "data").
+
+        Returns:
+            pd.DataFrame: Localisation data.
+        """
+        return pd.read_hdf(filepath, key=key)
+
+    def write_h5_database(self, df, filepath, append=False, normalise_photons=True, verbose=True):
+        """Write localisation DataFrame to HDF5 with optional photon normalisation and frame sorting.
+
+        Args:
+            df (pd.DataFrame): Data to write.
+            filepath (str): Destination HDF5 path.
+            append (bool): If True, append to existing file and re-sort by frame.
+            normalise_photons (bool): If True, add/normalise photon columns.
+            verbose (bool): Print progress messages.
+        """
         if df.shape[0] > 0:
             # first, remove any rows that are all NaN
             df = df.dropna(axis=0, how="all")
-            # Always convert frame column to int32 to handle large frame numbers
-            # int16 max is 32767, but experiments can have 100k+ frames
-            df["frame"] = pd.to_numeric(df["frame"], errors="coerce").astype("int32")
+            # Convert frame column to int32 only when present
+            # (some DataFrames, e.g. single-molecule summaries, have no frame column)
+            if "frame" in df.columns:
+                df["frame"] = pd.to_numeric(df["frame"], errors="coerce").astype("int32")
             # Add photon columns if amplitude columns are present
             if "photons" not in df.columns:
                 df = self._add_photon_columns(df, normalise=normalise_photons)
@@ -105,6 +127,9 @@ class IO_Functions:
                             )
             else:
                 df.to_hdf(filepath, key="data", format="table")
+
+    # Keep private alias for any external callers not yet migrated
+    _write_h5_database = write_h5_database
 
     def _add_photon_columns(self, df, normalise=True):
         """

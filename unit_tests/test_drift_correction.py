@@ -436,44 +436,6 @@ class TestDriftCorrectionIntegration:
         assert corrected_var_x > 0
         assert original_var_x > 0
 
-    def test_undrift_with_rcc(self):
-        """Test full undrift workflow with RCC method."""
-        # Generate data with drift
-        n_frames = 50
-        drift_x_true, drift_y_true = generate_linear_drift(n_frames, drift_rate=0.3)
-
-        locs = generate_test_localizations(
-            n_locs=5000,  # RCC needs more data
-            n_frames=n_frames,
-            width=256,
-            height=256,
-            drift_x=drift_x_true,
-            drift_y=drift_y_true
-        )
-
-        info = [{
-            'Width': 256,
-            'Height': 256,
-            'Frames': n_frames,
-            'Pixelsize': 69
-        }]
-
-        # Run drift correction
-        drift_corr = DCF.Drift_Correction_Functions()
-
-        corrected_locs, drift_result = drift_corr.undrift(
-            locs=locs,
-            info=info,
-            method='rcc',
-            segmentation=10
-        )
-
-        # Check outputs
-        assert len(corrected_locs) == len(locs)
-        assert 'drift_x' in drift_result
-        assert 'drift_y' in drift_result
-        assert len(drift_result['drift_x']) == n_frames
-
     def test_undrift_with_fiducials(self):
         """Test full undrift workflow with fiducial method."""
         # Generate fiducial data with drift
