@@ -20,6 +20,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.animation import FuncAnimation, PillowWriter
+from Constants import DriftConstants
 
 # Import mpltern to register ternary projection with matplotlib
 # This allows using projection="ternary" in add_subplot()
@@ -939,7 +940,7 @@ class BasePlotter(ABC):
         interpolation: Optional[str] = None,
         origin: str = "lower",
         scalebar: bool = False,
-        pixelsize: float = 69.0,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         scalebarsize: float = 10000.0,
         scalebarlabel: str = "10 μm",
         scalebar_color: str = "white",
@@ -1028,7 +1029,7 @@ class BasePlotter(ABC):
         cbarlabel: str = "",
         label: str = "",
         labelcolor: str = "white",
-        pixelsize: float = 69.0,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         sbar: str = "on",
         scalebarsize: float = 10000.0,
         scalebarlabel: str = "10 μm",
@@ -1150,7 +1151,7 @@ class BasePlotter(ABC):
         positions_x: np.ndarray,
         positions_y: np.ndarray,
         colors: Optional[Union[np.ndarray, list]] = None,
-        pixelsize: float = 69.0,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         marker_size: float = 50,
         marker_style: str = 'x',
         marker_linewidth: float = 1.5,
@@ -1636,7 +1637,7 @@ class ImagePlotMixin:
         filename: str,
         vmin: float = 0,
         vmax: float = 150,
-        pixelsize: float = 69,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         scalebarsize: float = 300,
         scalebarlabel: str = "300 nm",
         label: str = "",
@@ -1758,7 +1759,7 @@ class ImagePlotMixin:
         pattern: str = "BGGR",
         vmin: float = 0.1,
         vmax: float = 99.9,
-        pixelsize: float = 69,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         scalebarsize: float = 300,
         scalebarlabel: str = "300 nm",
         marker_color = "white",
@@ -3719,7 +3720,7 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         cbarlabel: str = "photons",
         label: str = "",
         labelcolor: str = "white",
-        pixelsize: float = 69,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         scalebarsize: float = 10000,
         scalebarlabel: str = "10 μm",
         alpha: float = 1,
@@ -3856,7 +3857,7 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         filename: str,
         vmin: float = 0,
         vmax: float = 150,
-        pixelsize: float = 69,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         scalebarsize: float = 300,
         scalebarlabel: str = "300 nm",
         label: str = "",

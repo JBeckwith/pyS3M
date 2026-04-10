@@ -12,6 +12,7 @@ Created on August 29, 2025
 
 # Standard logging for constants module
 from LoggingFramework import setup_logger
+from CameraDefaults import CAMERAS as _CAMERAS
 
 logger = setup_logger(__name__, console_output=False)
 logger.info("Constants module loaded with standardised values")
@@ -68,6 +69,38 @@ class DefaultParameters:
     CAMERA_VARIANCE = DEFAULT_CAMERA_VARIANCE
     N_PHOTONS = DEFAULT_N_PHOTONS
     N_FRAMES = DEFAULT_N_FRAMES
+
+
+class DriftConstants:
+    """Constants for drift correction algorithms.
+
+    Pixel sizes are derived from CameraDefaults so they stay in sync
+    if camera specs are updated there.
+
+    AIM distances are stored in nm; divide by pixel_size_nm to get camera pixels.
+    """
+
+    XIMEA_PIXEL_SIZE_NM: float = _CAMERAS["ximea"].pixel_size * 1e3  # 69.0 nm
+    ZWO_PIXEL_SIZE_NM: float = _CAMERAS["zwo"].pixel_size * 1e3      # 71.5 nm
+
+    DEFAULT_SEGMENTATION_FRAMES: int = 100
+    FIDUCIAL_BOX_SIZE_NM: float = 900.0          # nm — detection box for fiducials
+    AIM_INTERSECT_DISTANCE_NM: float = 20.0      # nm — AIM intersection distance
+    AIM_ROI_RADIUS_NM: float = 60.0             # nm — AIM search region radius
+
+
+class FilteringConstants:
+    """Constants for single-molecule quality filtering.
+
+    Sigma bounds are in nm; divide by pixel_size_nm to get camera pixels.
+    """
+
+    MAX_COLOUR_ERROR: float = 0.15              # fractional amplitude error
+    MAX_LOCALISATION_ERROR_PX: float = 1.0      # pixels
+    MIN_SIGMA_NM: float = 75.0                  # nm — minimum PSF sigma
+    MAX_SIGMA_NM: float = 160.0                 # nm — maximum PSF sigma
+    MAX_SIGMA_ERROR_NM: float = 40.0            # nm — maximum fitted sigma error
+    MIN_PHOTONS: int = 500                      # photon count lower bound
 
 
 class ResultColumns:

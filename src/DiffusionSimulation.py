@@ -22,6 +22,7 @@ from scipy.spatial.distance import cdist
 from typing import Optional, Tuple, List, Dict, Set
 from dataclasses import dataclass, field
 from numba import jit
+from Constants import DriftConstants
 
 
 @dataclass
@@ -1475,7 +1476,7 @@ class CameraAdapter:
         background_photons: float = 40.0,
         background_colour: List[float] = None,
         NA: float = 1.49,
-        pixel_size: float = 69,
+        pixel_size: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         save_tiff: bool = True,
         random_state: Optional[np.random.Generator] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -1651,7 +1652,7 @@ class CameraAdapter:
         output_path: str,
         frame_indices: Optional[np.ndarray] = None,
         image_size_nm: Optional[Tuple[float, float]] = None,
-        pixel_size_nm: float = 69.0,
+        pixel_size_nm: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         gaussian_width_nm: float = 50.0,
         colormap: str = 'spectral',
         save_video: bool = True,

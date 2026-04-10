@@ -15,6 +15,7 @@ from typing import Tuple, Dict, Optional
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
+from Constants import DriftConstants, FilteringConstants
 
 import postprocess
 from sklearn.cluster import DBSCAN
@@ -51,12 +52,19 @@ def _safe_tight_layout(fig):
 
 
 class extract_SMs:
-    def __init__(self, io_functions=None) -> None:
+    def __init__(self, camera: str = "ximea", pixel_size: float = None, io_functions=None) -> None:
         """Single molecule extraction functions for clustering localizations into single molecules.
 
         Args:
+            camera: Camera model name (``"ximea"`` or ``"zwo"``). Sets pixel_size
+                and therefore sigma bounds if not overridden explicitly.
+            pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
             io_functions: IO functions instance (default: creates new instance)
         """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+
         # Dependency injection with sensible defaults
         self.io = (
             io_functions if io_functions is not None else IOFunctions.IO_Functions()
@@ -94,11 +102,11 @@ class extract_SMs:
         loc_data,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
     ):
         """
@@ -114,6 +122,15 @@ class extract_SMs:
         Returns:
             pd.DataFrame: Filtered localisation data
         """
+        # Resolve sigma bounds from camera pixel size if not explicitly provided
+        pixel_size_nm = self.pixel_size * 1000  # µm → nm
+        if min_sigma is None:
+            min_sigma = FilteringConstants.MIN_SIGMA_NM / pixel_size_nm
+        if max_sigma is None:
+            max_sigma = FilteringConstants.MAX_SIGMA_NM / pixel_size_nm
+        if max_sigma_error is None:
+            max_sigma_error = FilteringConstants.MAX_SIGMA_ERROR_NM / pixel_size_nm
+
         # Calculate chi-squared threshold if not provided
         if chi_val is None:
             chi_val = np.median(loc_data["chi_sqr"])
@@ -243,11 +260,11 @@ class extract_SMs:
         min_cluster_size=10,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         start_frame=0,
     ):
@@ -321,11 +338,11 @@ class extract_SMs:
         min_cluster_size=10,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         epsilon_multiplier=1.0,
         start_frame=0,
@@ -410,11 +427,11 @@ class extract_SMs:
         max_frames=10,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         start_frame=0,
     ):
@@ -524,7 +541,7 @@ class extract_SMs:
         max_dark_time=1,
         w_spatial=1.0,
         w_spectral=0.5,
-        spectral_tol=0.15,
+        spectral_tol=FilteringConstants.MAX_COLOUR_ERROR,
         spectral_columns=("A_R", "A_G", "A_B"),
         D_prior=None,
         dt=1.0,
@@ -772,16 +789,16 @@ class extract_SMs:
         max_dark_time=1,
         w_spatial=1.0,
         w_spectral=0.5,
-        spectral_tol=0.15,
+        spectral_tol=FilteringConstants.MAX_COLOUR_ERROR,
         spectral_columns=("A_R", "A_G", "A_B"),
         min_frames=3,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75.0 / 69),
-        max_sigma=(160.0 / 69),
-        max_sigma_error=(40.0 / 69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         D_prior=None,
         dt=1.0,
@@ -947,11 +964,11 @@ class extract_SMs:
         min_cluster_size=10,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=1e6,
         max_distance=0.5,
         max_frames=10,
@@ -1326,11 +1343,11 @@ class extract_SMs:
         min_cluster_size=10,
         chi_val=None,
         max_localisation_error=1.0,
-        max_colour_error=0.15,
-        min_sigma=(75./69),
-        max_sigma=(160./69),
-        max_sigma_error=(40./69),
-        min_photons=500,
+        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
+        max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
+        max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
+        min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=1e6,
         max_distance=0.5,
         max_frames=10,
@@ -5072,7 +5089,7 @@ class extract_SMs:
         min_spatial_dist_nm: float = 500.0,
         max_spatial_dist_nm: float | None = None,
         min_photons: float = 2000.0,
-        pixel_size: float = 69.0,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         n_top: int = 10,
     ):
         """Find a co-localised pair of single-frame localisations representing two dye classes.
@@ -5108,6 +5125,9 @@ class extract_SMs:
               spatial_dist_nm, spectral_score
             Returns None if no pairs satisfy the constraints.
         """
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
+
         import pandas as pd
         from scipy.spatial.distance import cdist
 

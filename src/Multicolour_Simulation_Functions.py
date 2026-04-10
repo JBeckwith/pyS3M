@@ -19,6 +19,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 
 import IOFunctions
+from Constants import DriftConstants
 import PSFFunctions
 import sCMOSFunctions
 import ImageAnalysisFunctions
@@ -139,7 +140,7 @@ class SimulationConfig:
     background_photons: float = 40.0
     background_colour: List[float] = None
     NA: float = 1.49
-    pixel_size: float = 69
+    pixel_size: float = DriftConstants.XIMEA_PIXEL_SIZE_NM
     cpu_fraction: float = 0.9
     save_raw_results: bool = False
     subtractx0y0: bool = False
@@ -349,6 +350,8 @@ class MultiC_Sim_Funcs_Refactored:
 
     def __init__(
         self,
+        camera: str = "ximea",
+        pixel_size: float = None,
         mosaic_unit=None,
         io_functions=None,
         psf_functions=None,
@@ -360,14 +363,20 @@ class MultiC_Sim_Funcs_Refactored:
         Initialize the simulation functions with dependency injection support.
 
         Args:
-            mosaic_unit: Optional parameter for mosaic configuration (currently unused)
+            camera: Camera model name (``"ximea"`` or ``"zwo"``). Sets pixel_size
+                and mosaic_unit if not overridden explicitly.
+            pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
+            mosaic_unit: Bayer mosaic pattern. If None, taken from camera defaults.
             io_functions: IO functions instance (default: creates new instance)
             psf_functions: PSF functions instance (default: creates new instance)
             scmos_functions: sCMOS functions instance (default: creates new instance)
             image_analysis_functions: Image analysis functions instance (default: creates new instance)
             spectral_functions: Spectral functions instance (default: creates new instance)
         """
-        self.mosaic_unit = mosaic_unit
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
         self.result_processor = FittingResultProcessor()
 
         # Dependency injection with sensible defaults
@@ -1521,7 +1530,7 @@ class MultiC_Sim_Funcs_Refactored:
         background_photons: float = 0,
         background_colour: List[float] = None,
         NA: float = 1.49,
-        pixel_size: float = 69,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         return_normal_image: bool = False,
         return_photoelectrons: bool = False,
         use_vectorized_photoelectrons: bool = True,
@@ -1558,6 +1567,9 @@ class MultiC_Sim_Funcs_Refactored:
         gain = camera_calibration["gain"]
         offset = camera_calibration["offset"]
         variance = camera_calibration["variance"]
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
+
         relative_QE = camera_calibration["rqe"]
 
         # Calculate sigma in nm, then convert to pixels for PSF generation
@@ -3015,7 +3027,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         n_simulations: int = 1000,
         background_photons: float = 4,
         NA: float = 1.49,
-        pixel_size: float = 69,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         image_dims: int = 12,
         smoothing_function=None
     ) -> Dict[str, np.ndarray]:
@@ -3063,6 +3075,9 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
                 'photons': np.ndarray of shape (n_simulations,)
             }
         """
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
+
         # Get dye spectral properties
         filter_spectrum = np.prod(
             self.spectral.get_dye_or_filter_data(
@@ -3485,7 +3500,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         n_simulations: int = 1000,
         background_photons: float = 4,
         NA: float = 1.49,
-        pixel_size: float = 69,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         image_dims: int = 12,
         smoothing_function=None,
         integration_time_ms: float = 100,
@@ -3547,6 +3562,9 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
             print("="*60)
             print("OPTIMAL DYE SELECTION VIA SIMULATION")
             print("="*60)
+
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
 
         # Step 1: Filter by photon threshold
         if verbose:

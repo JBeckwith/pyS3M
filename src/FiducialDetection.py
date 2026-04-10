@@ -24,6 +24,7 @@ sys.path.append(module_dir)
 
 from ImportManager import get_module, is_available
 from PlottingBase import AnalysisPlotter, PublicationPlotter
+from Constants import DriftConstants
 
 # Import scipy components
 try:
@@ -443,7 +444,7 @@ class FiducialDetector:
         retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
-        pixelsize: float = 69.0,
+        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,

@@ -19,6 +19,7 @@ from typing import Dict, Tuple, Optional, List, Union
 import SpectralFunctions
 import PSFFunctions
 import IOFunctions
+from Constants import DriftConstants
 
 
 class NileRed_Functions:
@@ -42,6 +43,8 @@ class NileRed_Functions:
 
     def __init__(
         self,
+        camera: str = "ximea",
+        pixel_size: float = None,
         sigma_energy: float = 0.1630104,
         alpha: float = -1.56453968,
         wavelength_center_init: float = 617.6,
@@ -49,10 +52,17 @@ class NileRed_Functions:
         """Initialize Nile Red model with spectral parameters.
 
         Args:
+            camera: Camera model name (``"ximea"`` or ``"zwo"``). Sets pixel_size
+                used when converting localisation coordinates to nm.
+            pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
             sigma_energy: Gaussian width in energy space (eV), default from fit
             alpha: Skewness parameter, default from fit
             wavelength_center_init: Initial guess for central wavelength (nm)
         """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+
         self.default_sigma_energy = sigma_energy
         self.default_alpha = alpha
         self.default_wavelength_center = wavelength_center_init
@@ -703,7 +713,7 @@ class NileRed_Functions:
         n_bootstrap: int = 1000,
         filter_names: Optional[list] = None,
         NA: float = 1.49,
-        pixel_size: float = 69.0,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         camera_parameters: Optional[dict] = None,
         image_size: int = 16,
         smoothing_function=None,
@@ -747,6 +757,9 @@ class NileRed_Functions:
             - wavelength_precision_summary.csv: Extracted wavelength statistics
         """
         import polars as pl
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
+
         import os
         import time
         import Multicolour_Simulation_Functions
@@ -998,7 +1011,7 @@ class NileRed_Functions:
         camera_parameters: Dict,
         wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
         NA: float = 1.49,
-        pixel_size: float = 69.0,
+        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         output_path: Optional[str] = None,
         cpu_fraction: float = 0.9,
         verbose: bool = True,
@@ -1077,6 +1090,9 @@ class NileRed_Functions:
             ...     aggregate_id_column='cluster_id',
             ... )
         """
+        if pixel_size is None:
+            pixel_size = self.pixel_size * 1000  # µm → nm
+
         import pandas as pd
         import os
         import multiprocessing
@@ -1368,7 +1384,7 @@ class NileRed_Functions:
         pixel_size_nm: float = 50.0,
         wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
         NA: float = 1.49,
-        camera_pixel_size: float = 69.0,
+        camera_pixel_size: float = None,  # nm; None → self.pixel_size * 1000
         min_localisations: int = 3,
         output_path: Optional[str] = None,
         cpu_fraction: float = 0.9,
@@ -1441,6 +1457,9 @@ class NileRed_Functions:
             - s_x_err, s_y_err: PSF width errors (camera pixels)
             - photons, background_photons: (optional) for SNR-based error inflation
         """
+        if camera_pixel_size is None:
+            camera_pixel_size = self.pixel_size * 1000  # µm → nm
+
         import os
         import multiprocessing
 

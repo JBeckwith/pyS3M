@@ -31,6 +31,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 
 import ProgressUtils
+from Constants import DriftConstants
 
 # Import our specialised algorithm modules
 try:
@@ -105,10 +106,19 @@ class DriftCorrectionError(Exception):
 class DriftParameters:
     """Parameters for drift correction algorithms.
 
+    AIM distances (`intersect_d`, `roi_r`) are in camera pixels and are computed
+    automatically from `pixel_size_nm` if left as None.  Pass `pixel_size_nm` for
+    your camera (e.g. ``DriftConstants.ZWO_PIXEL_SIZE_NM`` for ZWO) and the AIM
+    parameters scale correctly without any other changes.
+
     Attributes:
         segmentation: Time interval for drift tracking (frames)
-        intersect_d: Intersection distance for AIM (camera pixels)
-        roi_r: Search region radius for AIM (camera pixels)
+        pixel_size_nm: Camera pixel size in nm; used to scale AIM distances.
+            Defaults to Ximea (69 nm). Use DriftConstants.ZWO_PIXEL_SIZE_NM for ZWO.
+        intersect_d: Intersection distance for AIM (camera pixels).
+            If None, computed as DriftConstants.AIM_INTERSECT_DISTANCE_NM / pixel_size_nm.
+        roi_r: Search region radius for AIM (camera pixels).
+            If None, computed as DriftConstants.AIM_ROI_RADIUS_NM / pixel_size_nm.
         progress_callback: Optional progress callback function
         display: Whether to display drift plots
         fiducial_threshold_percentile: Histogram percentile threshold for fiducial detection
@@ -118,19 +128,24 @@ class DriftParameters:
         auto_detect_fiducials: Whether to automatically detect fiducials if no group field exists
     """
 
-    segmentation: int = 100
-    intersect_d: float = 20 / 69  # Default AIM intersection distance
-    roi_r: float = 60 / 69  # Default AIM search radius
+    segmentation: int = DriftConstants.DEFAULT_SEGMENTATION_FRAMES
+    pixel_size_nm: float = DriftConstants.XIMEA_PIXEL_SIZE_NM
+    intersect_d: Optional[float] = None  # computed in __post_init__ from pixel_size_nm
+    roi_r: Optional[float] = None        # computed in __post_init__ from pixel_size_nm
     progress_callback: Optional[Callable[[int], None]] = None
     display: bool = False
     # Fiducial detection parameters with sensible defaults
-    fiducial_threshold_percentile: float = 99.0  # 99th percentile threshold
-    fiducial_box_size_nm: float = 900.0  # 900nm box size
-    fiducial_min_frames_fraction: float = (
-        0.8  # 80% of frames minimum
-    )
-    fiducial_histogram_bins: int = 256  # Number of histogram bins
-    auto_detect_fiducials: bool = True  # Automatically detect if no group field
+    fiducial_threshold_percentile: float = 99.0
+    fiducial_box_size_nm: float = DriftConstants.FIDUCIAL_BOX_SIZE_NM
+    fiducial_min_frames_fraction: float = 0.8
+    fiducial_histogram_bins: int = 256
+    auto_detect_fiducials: bool = True
+
+    def __post_init__(self):
+        if self.intersect_d is None:
+            self.intersect_d = DriftConstants.AIM_INTERSECT_DISTANCE_NM / self.pixel_size_nm
+        if self.roi_r is None:
+            self.roi_r = DriftConstants.AIM_ROI_RADIUS_NM / self.pixel_size_nm
 
     def validate(self) -> None:
         """Validate parameter values."""
@@ -1291,7 +1306,7 @@ class FiducialDriftCorrector(DriftCorrector):
 
         # Extract metadata for pixel size
         meta = CoordinateProcessor.extract_metadata(info)
-        pixelsize = meta.get("pixelsize", 69.0)  # Default fallback
+        pixelsize = meta.get("pixelsize", DriftConstants.XIMEA_PIXEL_SIZE_NM)
         n_frames = int(meta["n_frames"])
 
         # Render localisations to image for fiducial detection
@@ -1538,8 +1553,18 @@ class Drift_Correction_Functions:
     organizing functions within a class structure.
     """
 
-    def __init__(self):
-        """Initialize drift correction functions."""
+    def __init__(self, camera: str = "ximea", pixel_size: float = None):
+        """Initialize drift correction functions.
+
+        Args:
+            camera: Camera model name (``"ximea"`` or ``"zwo"``). Sets pixel_size
+                used as default when building DriftParameters.
+            pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
+        """
+        import CameraDefaults
+        config = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+
         self.factory = DriftCorrectionFactory()
 
         # Initialize plotting and specialised algorithm modules
@@ -2175,7 +2200,7 @@ class Drift_Correction_Functions:
 
         # Extract metadata
         meta = CoordinateProcessor.extract_metadata(info)
-        pixelsize = meta.get("pixelsize", 69.0)  # Default fallback in nm
+        pixelsize = meta.get("pixelsize", DriftConstants.XIMEA_PIXEL_SIZE_NM) in nm
         n_frames = int(meta["n_frames"])
         width = int(meta["width"])
         height = int(meta["height"])
@@ -2812,7 +2837,7 @@ class Drift_Correction_Functions:
         retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
-        pixelsize: float = 69.0,
+        pixelsize: float = None,  # nm; None → self.pixel_size * 1000
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,
@@ -2839,6 +2864,9 @@ class Drift_Correction_Functions:
             - List of localisation arrays for validated fiducials
             - Metadata dictionary with Gaussian fitting statistics
         """
+
+        if pixelsize is None:
+            pixelsize = self.pixel_size * 1000  # µm → nm
 
         validated_fiducials = []
         clustering_metadata = []

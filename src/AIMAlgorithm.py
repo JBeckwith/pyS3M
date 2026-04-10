@@ -28,6 +28,7 @@ numpy_fft = get_module("numpy.fft")
 
 # Progress utilities (now with built-in fallback)
 import ProgressUtils
+from Constants import DriftConstants
 
 
 class AIMAlgorithm:
@@ -58,9 +59,11 @@ class AIMAlgorithm:
             locs: Localisation data with xc, yc, frame fields
             aim_params: Parameters for AIM algorithm including:
                 - segmentation: Number of frames per segment
-                - intersect_d: Intersection distance in camera pixels (default: 20/69)
-                - roi_r: Search region radius in camera pixels (default: 60/69)
-                - pixelsize: Pixel size in nm (default: 69)
+                - intersect_d: Intersection distance in camera pixels
+                    (default: DriftConstants.AIM_INTERSECT_DISTANCE_NM / pixel_size_nm)
+                - roi_r: Search region radius in camera pixels
+                    (default: DriftConstants.AIM_ROI_RADIUS_NM / pixel_size_nm)
+                - pixelsize: Pixel size in nm (default: DriftConstants.XIMEA_PIXEL_SIZE_NM)
                 - width: Image width in pixels
                 - height: Image height in pixels (optional)
             enable_multithreading: Whether to enable multithreading
@@ -73,9 +76,15 @@ class AIMAlgorithm:
             aim_params = {}
 
         segmentation = aim_params.get("segmentation", 100)
-        intersect_d = aim_params.get("intersect_d", 20 / 69)
-        roi_r = aim_params.get("roi_r", 60 / 69)
-        pixelsize = aim_params.get("pixelsize", 69)
+        intersect_d = aim_params.get(
+            "intersect_d",
+            DriftConstants.AIM_INTERSECT_DISTANCE_NM / DriftConstants.XIMEA_PIXEL_SIZE_NM,
+        )
+        roi_r = aim_params.get(
+            "roi_r",
+            DriftConstants.AIM_ROI_RADIUS_NM / DriftConstants.XIMEA_PIXEL_SIZE_NM,
+        )
+        pixelsize = aim_params.get("pixelsize", DriftConstants.XIMEA_PIXEL_SIZE_NM)
         width = aim_params.get("width", 256)
         height = aim_params.get("height", 256)
         progress_callback = aim_params.get("progress_callback", None)
@@ -159,9 +168,15 @@ class AIMAlgorithm:
             aim_params = {}
 
         segmentation = aim_params.get("segmentation", 100)
-        intersect_d = aim_params.get("intersect_d", 20 / 69)
-        roi_r = aim_params.get("roi_r", 60 / 69)
-        pixelsize = aim_params.get("pixelsize", 69)
+        intersect_d = aim_params.get(
+            "intersect_d",
+            DriftConstants.AIM_INTERSECT_DISTANCE_NM / DriftConstants.XIMEA_PIXEL_SIZE_NM,
+        )
+        roi_r = aim_params.get(
+            "roi_r",
+            DriftConstants.AIM_ROI_RADIUS_NM / DriftConstants.XIMEA_PIXEL_SIZE_NM,
+        )
+        pixelsize = aim_params.get("pixelsize", DriftConstants.XIMEA_PIXEL_SIZE_NM)
         width = aim_params.get("width", 256)
         height = aim_params.get("height", 256)
         progress_callback = aim_params.get("progress_callback", None)
