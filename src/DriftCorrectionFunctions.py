@@ -32,24 +32,17 @@ sys.path.append(module_dir)
 
 import ProgressUtils
 
-# Import our new plotting module
-try:
-    from DriftPlotting import DriftPlotter
-
-    _drift_plotter = DriftPlotter()
-except ImportError:
-    warnings.warn("Could not import DriftPlotter. Plotting features may be limited.")
-    _drift_plotter = None
-
 # Import our specialised algorithm modules
 try:
-    from FiducialDetection import FiducialDetector
+    from FiducialDetection import FiducialDetector, DriftPlotter
 
+    _drift_plotter = DriftPlotter()
     _fiducial_detector = FiducialDetector()
 except ImportError:
     warnings.warn(
-        "Could not import FiducialDetector. Fiducial detection features may be limited."
+        "Could not import FiducialDetector/DriftPlotter. Plotting/detection features may be limited."
     )
+    _drift_plotter = None
     _fiducial_detector = None
 
 try:
@@ -1753,20 +1746,14 @@ class Drift_Correction_Functions:
         """Initialize drift correction functions."""
         self.factory = DriftCorrectionFactory()
 
-        # Initialize plotting functionality
+        # Initialize plotting and specialised algorithm modules
         try:
-            from DriftPlotting import DriftPlotter
+            from FiducialDetection import DriftPlotter, FiducialDetector
 
             self.plotter = DriftPlotter()
-        except ImportError:
-            self.plotter = None
-
-        # Initialize specialised algorithm modules
-        try:
-            from FiducialDetection import FiducialDetector
-
             self.fiducial_detector = FiducialDetector(drift_correction_instance=self)
         except ImportError:
+            self.plotter = None
             self.fiducial_detector = None
 
         try:
