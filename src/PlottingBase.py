@@ -1950,165 +1950,110 @@ class TernaryPlotMixin:
         B: np.ndarray,
         colors: Optional[np.ndarray] = None,
         marker_size: float = 10,
-        marker_alpha: float = 0.5,
-        edge_width: float = 0.5,
+        marker_alpha: float = 1.0,
+        edge_width: float = 0,
         title: Optional[str] = None,
-        labels: Optional[Dict[str, str]] = None,
+        tlabel: str = 'pixel 1 /%',
+        llabel: str = 'pixel 3 /%',
+        rlabel: str = 'pixel 2 /%',
         show_grid: bool = True,
-        grid_spacing: float = 0.1,
+        maj_loc: float = 0.2,
+        min_loc: float = 0.1,
         figsize: Tuple[float, float] = (6, 5),
         rasterized: bool = False,
+        black_background: bool = True,
         **kwargs
     ) -> Tuple[Any, Any]:
         """Create a standalone ternary scatter plot for RGB data.
 
-        This method creates a single-panel ternary plot showing the distribution
-        of R, G, B values. The RGB values should be normalized (sum to 1).
+        Creates a single-panel ternary plot with a clean layout and, by default,
+        a black background inside the triangle.  RGB values are the t/l/r
+        coordinates in that order (top, left, right).
 
         Args:
-            R: Red channel values (normalized, 0-1)
-            G: Green channel values (normalized, 0-1)
-            B: Blue channel values (normalized, 0-1)
-            colors: Optional RGBA colors for each point. If None, uses point density coloring.
-            marker_size: Size of scatter markers (default: 10)
-            marker_alpha: Transparency of markers (default: 0.5)
-            edge_width: Width of marker edges (default: 0.5)
-            title: Plot title (optional)
-            labels: Dictionary with keys 'R', 'G', 'B' for axis labels (optional)
-            show_grid: Whether to show grid lines (default: True)
-            grid_spacing: Spacing between grid lines (default: 0.1)
-            figsize: Figure size as (width, height) (default: (6, 5))
-            rasterized: Whether to rasterize scatter points (default: False)
-            **kwargs: Additional arguments passed to ax.scatter()
+            R: T (top) values — typically the red channel fraction.
+            G: L (left) values — typically the green channel fraction.
+            B: R (right) values — typically the blue channel fraction.
+            colors: Optional RGBA array of per-point colors.  If None the
+                default matplotlib color cycle is used.
+            marker_size: Scatter marker size (default: 10).
+            marker_alpha: Marker opacity (default: 1.0).
+            edge_width: Marker edge linewidth; 0 = no edge (default: 0).
+            title: Optional plot title.
+            tlabel: Label for the top (T) axis (default: 'pixel 1 /%').
+            llabel: Label for the left (L) axis (default: 'pixel 3 /%').
+            rlabel: Label for the right (R) axis (default: 'pixel 2 /%').
+            show_grid: Whether to show dashed grid lines (default: True).
+            maj_loc: Major tick / grid interval (default: 0.2).
+            min_loc: Minor tick interval (default: 0.1).
+            figsize: Figure size (width, height) in inches (default: (6, 5)).
+            rasterized: Rasterize scatter points for smaller SVG (default: False).
+            black_background: Fill triangle interior with black (default: True).
+            **kwargs: Extra keyword arguments forwarded to ``ax.scatter()``.
 
         Returns:
-            Tuple of (fig, ax) where ax is a ternary axis
+            Tuple of (fig, ax) where ax is a mpltern TernaryAxes.
 
         Example:
-            >>> from PlottingBase import PublicationPlotter
-            >>> plotter = PublicationPlotter()
-            >>>
-            >>> # Normalize your RGB data
-            >>> total = R + G + B
-            >>> R_norm = R / total
-            >>> G_norm = G / total
-            >>> B_norm = B / total
-            >>>
-            >>> # Create plot
             >>> fig, ax = plotter.create_ternary_plot(
-            ...     R_norm, G_norm, B_norm,
-            ...     title='Color Distribution',
-            ...     marker_size=5
+            ...     A_R * 100, A_G * 100, A_B * 100,
+            ...     colors=point_colors,
+            ...     marker_size=10,
             ... )
-            >>> fig.savefig('ternary_plot.png', dpi=300, bbox_inches='tight')
-
-        Notes:
-            - Requires mpltern: `pip install mpltern`
-            - RGB values should be normalized (sum to 1 for each point)
-            - If not normalized, the function will normalize them automatically
+            >>> fig.savefig('ternary.svg', format='svg', dpi=600)
         """
         try:
-            import mpltern
+            import mpltern  # noqa: F401 — registers projection
         except ImportError:
             raise ImportError(
                 "mpltern is required for ternary plots. Install with: pip install mpltern"
             )
 
-        # Validate inputs
-        if len(R) != len(G) or len(R) != len(B):
-            raise ValueError("R, G, B arrays must have the same length")
-
-        # Convert to numpy arrays if needed
         R = np.asarray(R)
         G = np.asarray(G)
         B = np.asarray(B)
+        if len(R) != len(G) or len(R) != len(B):
+            raise ValueError("R, G, B arrays must have the same length")
 
-        # Check for and handle normalization
-        totals = R + G + B
-        if not np.allclose(totals, 1.0, atol=1e-6):
-            # Normalize
-            R = R / totals
-            G = G / totals
-            B = B / totals
-            print(f"Warning: RGB values were not normalized. Automatically normalized to sum=1")
-
-        # Create figure with ternary projection
+        # Create a clean figure with only the ternary axis
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111, projection='ternary')
 
-        # Set up axis labels with colors
-        default_labels = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}
-        if labels is not None:
-            default_labels.update(labels)
+        if black_background:
+            ax.set_facecolor('black')
 
-        # Note: scatter(R, G, B) means t=R (top), l=G (left), r=B (right)
-        ax.set_tlabel(default_labels['R'], color='darkred', fontsize=12)
-        ax.set_llabel(default_labels['G'], color='darkgreen', fontsize=12)
-        ax.set_rlabel(default_labels['B'], color='darkblue', fontsize=12)
+        # Axis labels
+        ax.set_tlabel(tlabel)
+        ax.set_llabel(llabel)
+        ax.set_rlabel(rlabel)
 
-        # Color the tick marks and tick labels
-        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
-        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
-        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
+        # Tick locators
+        from matplotlib.ticker import MultipleLocator
+        for taxis in (ax.taxis, ax.laxis, ax.raxis):
+            taxis.set_major_locator(MultipleLocator(maj_loc))
+            taxis.set_minor_locator(MultipleLocator(min_loc))
 
-        # Color the axis lines (spines)
-        # Note: In ternary plots, each axis runs along the OPPOSITE side:
-        # - taxis (top vertex, R) runs along bottom edge = 'tside'
-        # - laxis (left vertex, G) runs along right edge = 'rside'
-        # - raxis (right vertex, B) runs along left edge = 'lside'
-        ax.spines['lside'].set_color('darkred')      # Left edge = R axis
-        ax.spines['rside'].set_color('darkgreen')    # Right edge = G axis
-        ax.spines['tside'].set_color('darkblue')     # Bottom edge = B axis
-        ax.spines['lside'].set_linewidth(1.5)
-        ax.spines['rside'].set_linewidth(1.5)
-        ax.spines['tside'].set_linewidth(1.5)
-
-        # Set up grid with colored gridlines
+        # Grid
         if show_grid:
-            from matplotlib.ticker import MultipleLocator
-            for axis in [ax.taxis, ax.laxis, ax.raxis]:
-                axis.set_major_locator(MultipleLocator(grid_spacing))
+            ax.grid(lw=0.5, alpha=0.25, ls='--', which='both', axis='both')
 
-            # Color the gridlines to match the axes
-            ax.grid(True, which='major', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.taxis.grid(color='darkred', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.laxis.grid(color='darkgreen', alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.raxis.grid(color='darkblue', alpha=0.3, linestyle='--', linewidth=0.5)
-
-        # Create scatter plot
-        # Note: mpltern uses (t, l, r) ordering where t=top, l=left/bottom-left, r=right/bottom-right
-        # For RGB with standard orientation: t=R (top), l=G (bottom-left), r=B (bottom-right)
-        # We swap to: scatter(R, G, B) so Blue ends up at bottom-right as expected
+        # Scatter
+        scatter_kw = dict(
+            s=marker_size,
+            alpha=marker_alpha,
+            edgecolors='None',
+            lw=edge_width,
+            marker='o',
+            rasterized=rasterized,
+        )
+        scatter_kw.update(kwargs)
         if colors is not None:
-            # User-provided colors
-            scatter = ax.scatter(
-                R, G, B,
-                c=colors,
-                s=marker_size,
-                alpha=marker_alpha,
-                linewidths=edge_width,
-                edgecolors='none' if edge_width == 0 else 'black',
-                rasterized=rasterized,
-                **kwargs
-            )
+            ax.scatter(R, G, B, c=colors, **scatter_kw)
         else:
-            # No colors specified - use default blue
-            scatter = ax.scatter(
-                R, G, B,
-                s=marker_size,
-                alpha=marker_alpha,
-                linewidths=edge_width,
-                edgecolors='none' if edge_width == 0 else 'black',
-                rasterized=rasterized,
-                **kwargs
-            )
+            ax.scatter(R, G, B, **scatter_kw)
 
-        # Set title
         if title:
             ax.set_title(title, pad=20)
-
-        # Adjust layout
-        plt.tight_layout()
 
         return fig, ax
 
@@ -3967,6 +3912,7 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         maxl: float,
         maxr: float,
         trianglesize: float,
+        black_background: bool = True,
     ) -> None:
         """Configure a ternary plot axis with ticks, limits, and labels.
 
@@ -3978,7 +3924,11 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
             maxl: Maximum l value.
             maxr: Maximum r value.
             trianglesize: Side length of the displayed triangle region.
+            black_background: Fill triangle interior with black (default: True).
         """
+        if black_background:
+            ax.set_facecolor('black')
+
         for axis in [ax.taxis, ax.laxis, ax.raxis]:
             axis.set_major_locator(MultipleLocator(maj_loc))
             axis.set_minor_locator(MultipleLocator(min_loc))
@@ -4014,12 +3964,16 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         trianglesize: float = 1,
         s: float = 25,
         lws: float = 0.5,
+        black_background: bool = True,
     ) -> Tuple[Any, Any]:
         """Create a ternary scatter plot using the legacy subplot-replacement API.
 
+        All existing axes are cleared from *fig* before the ternary axis is
+        added, so no rectangular background panels remain visible.
+
         Args:
             fig: Figure object.
-            axs: Axes array — ``axs[1]`` is removed and replaced by the ternary axis.
+            axs: Axes array — all axes are removed and replaced by the ternary axis.
             R: T (top) scatter values.
             G: L (left) scatter values.
             B: R (right) scatter values.
@@ -4035,11 +3989,14 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
             trianglesize: Side length of the displayed triangle region.
             s: Scatter marker size.
             lws: Scatter marker edge width.
+            black_background: Fill triangle interior with black (default: True).
 
         Returns:
             Tuple of (figure, axes).
         """
-        axs[1].remove()
+        # Remove every pre-existing rectangular axis so none remain in the background
+        for a in fig.axes:
+            a.remove()
 
         try:
             import mpltern  # noqa: F401 — registers projection
@@ -4049,7 +4006,8 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
                 "mpltern is required for ternary plots. Install with: pip install mpltern"
             )
 
-        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize)
+        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize,
+                                 black_background=black_background)
 
         ax.scatter(
             R, G, B,
@@ -4083,8 +4041,13 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         ecolour: str = "red",
         s: float = 25,
         lws: float = 0.5,
+        black_background: bool = True,
     ) -> Tuple[Any, Any]:
         """Create a ternary contour (hexbin) plot with scatter overlay.
+
+        ``axs[1]`` is replaced by the ternary axis; ``axs[0]`` is preserved so
+        that callers can continue to use it for an accompanying histogram or other
+        panel.
 
         Args:
             fig: Figure object.
@@ -4107,6 +4070,7 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
             ecolour: Edge color for scatter overlay points.
             s: Scatter marker size.
             lws: Scatter marker edge width.
+            black_background: Fill triangle interior with black (default: True).
 
         Returns:
             Tuple of (figure, axes).
@@ -4121,7 +4085,8 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
                 "mpltern is required for ternary plots. Install with: pip install mpltern"
             )
 
-        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize)
+        self._setup_ternary_axis(ax, maj_loc, min_loc, maxt, maxl, maxr, trianglesize,
+                                 black_background=black_background)
 
         ax.hexbin(
             t, l, r,

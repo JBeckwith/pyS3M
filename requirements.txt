@@ -15,11 +15,8 @@ asttokens==2.4.1
 async-lru==2.0.4
 attrs==23.2.0
 autodocsumm==0.2.12
-av==13.1.0
 Babel==2.14.0
-backcall==0.2.0
 beautifulsoup4==4.12.3
-bermuda==0.1.6
 black==24.10.0
 bleach==6.1.0
 blosc2==3.3.4
@@ -47,7 +44,6 @@ decorator==5.1.1
 defusedxml==0.7.1
 dill==0.3.8
 diplib==3.6.0
-docopt==0.6.2
 docstring_parser==0.17.0
 docutils==0.20.1
 donfig==0.8.1.post1
@@ -67,7 +63,6 @@ frc==0.1.1
 freetype-py==2.5.1
 frozenlist==1.8.0
 fsspec==2024.12.0
-grandalf==0.8
 h11==0.14.0
 h5py==3.12.1
 HeapDict==1.0.1
@@ -136,7 +131,6 @@ nbconvert==7.16.1
 nbformat==5.9.2
 ndindex==1.10.0
 nest-asyncio==1.6.0
-netgraph==4.13.2
 networkx==3.2.1
 notebook==7.1.0
 notebook_shim==0.2.4
@@ -203,8 +197,6 @@ PyYAML==6.0.1
 pyzmq==25.1.2
 qtconsole==5.7.0
 QtPy==2.4.3
-rdfpy==1.0.0
-rectangle-packer==2.0.4
 referencing==0.33.0
 requests==2.32.3
 rfc3339-validator==0.1.4
