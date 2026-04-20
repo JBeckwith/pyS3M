@@ -186,6 +186,10 @@ def clean_progress_bar(
         )
         return
 
+    # Honour global disable flag set via set_progress_enabled(False)
+    if progress_manager.is_globally_disabled():
+        kwargs["disable"] = True
+
     # Merge default configuration with provided arguments
     pbar_kwargs = ProgressBarConfig.get_default_kwargs()
 
