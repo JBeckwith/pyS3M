@@ -41,7 +41,7 @@ from numpy.lib.recfunctions import stack_arrays
 plt = get_module("matplotlib.pyplot")
 
 
-def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
+def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, display: bool = True):
     """Create standardized drift analysis plot using consolidated plotting."""
     if not is_available("matplotlib.pyplot"):
         print("⚠️ Matplotlib not available - skipping drift plot display")
@@ -106,7 +106,8 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None):
 
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        plt.show()
+        if display:
+            plt.show()
         plt.close(fig)
         return fig, None
 

@@ -24,7 +24,7 @@ from ImageAnalysisFunctions import FittingStrategy, FittingConstants
 import SpotDetectionFunctions
 from PlottingBase import PublicationPlotter
 import sCMOSFunctions
-from Constants import ResultColumns
+from Constants import ResultColumns, AnalysisConfig
 
 
 class SuperRes_Functions:
@@ -46,6 +46,7 @@ class SuperRes_Functions:
         spot_detection_functions=None,
         plotter=None,
         scmos=None,
+        config: AnalysisConfig = None,
     ):
         """Initialize SuperRes_Functions class.
 
@@ -63,11 +64,14 @@ class SuperRes_Functions:
             image_analysis_functions: Image analysis functions instance (default: creates new instance)
             spot_detection_functions: Spot detection functions instance (default: creates new instance)
             plotter: Plotter instance (default: creates new instance)
+            config: :class:`~Constants.AnalysisConfig` controlling display and
+                I/O behaviour.  Defaults to ``AnalysisConfig()`` (interactive,
+                no auto-save).
         """
         import CameraDefaults
-        config = CameraDefaults.get_camera_config(camera)
-        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
-        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
+        cam_cfg = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else cam_cfg.pixel_size
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else cam_cfg.mosaic_unit
 
         # Dependency injection with sensible defaults
         self.io = (
@@ -95,6 +99,7 @@ class SuperRes_Functions:
         )
         self.plotter = plotter if plotter is not None else PublicationPlotter()
         self.scmos = scmos if scmos is not None else sCMOSFunctions.sCMOS_Functions()
+        self.config = config if config is not None else AnalysisConfig()
 
     def _postprocess_fit_results(
         self,
@@ -862,6 +867,17 @@ class SuperRes_Functions:
         # Clean up
         del raw_data
         gc.collect()
+
+        # Save and/or display according to AnalysisConfig
+        save_path = None
+        if self.config.save_figures and self.config.output_dir is not None:
+            stem = "example_spots_singleframe"
+            save_path = str(
+                self.config.output_dir / f"{stem}.{self.config.figure_format}"
+            )
+        self.plotter.save_or_show(
+            fig, save_path=save_path, show=self.config.display, dpi=self.config.dpi
+        )
 
         return fig, axs
 

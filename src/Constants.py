@@ -11,6 +11,12 @@ Created on August 29, 2025
 """
 
 # Standard logging for constants module
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+
 from LoggingFramework import setup_logger
 from CameraDefaults import CAMERAS as _CAMERAS
 
@@ -189,3 +195,43 @@ class ResultColumns:
             list: Combined list of elliptical parameter and error column names
         """
         return cls.ELLIPTICAL_FIT_PARAMS + cls.ELLIPTICAL_FIT_ERRORS
+
+
+@dataclass
+class AnalysisConfig:
+    """Controls I/O and display behaviour for analysis functions.
+
+    Pass to any analysis function to decouple figure display from computation.
+    GUI code can set ``display=False`` and supply callbacks; headless scripts
+    can set ``save_figures=True`` with an ``output_dir`` to write all outputs
+    to disk without opening any windows.
+
+    Example::
+
+        cfg = AnalysisConfig(display=False, save_figures=True,
+                             output_dir=Path('results/'), dpi=300)
+        sr.fit_SM_data(..., config=cfg)
+
+    Attributes:
+        output_dir: Directory for saved figures/data.  ``None`` means current
+            working directory (figures are only saved when ``save_figures`` is
+            True).
+        display: Show interactive figure windows.  Set ``False`` for
+            GUI/server/headless runs.
+        save_figures: Write figures to ``output_dir`` automatically.
+        figure_format: File extension for saved figures (``'svg'``, ``'pdf'``,
+            ``'png'``, …).
+        dpi: Resolution used when saving raster figures.
+        progress_callback: Optional callable ``(fraction: float, msg: str)``
+            invoked during long operations so a GUI can update a progress bar.
+        logging_callback: Optional callable ``(msg: str)`` that receives log
+            messages instead of (or in addition to) the standard logger.
+    """
+
+    output_dir: Optional[Path] = None
+    display: bool = True
+    save_figures: bool = False
+    figure_format: str = "svg"
+    dpi: int = 300
+    progress_callback: Optional[Callable[[float, str], None]] = None
+    logging_callback: Optional[Callable[[str], None]] = None

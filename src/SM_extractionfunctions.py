@@ -3924,7 +3924,7 @@ class extract_SMs:
         return assigned_locs, metadata
 
     def _plot_initial_guess_2d(self, X, channels_to_use, initial_means,
-                                initial_covariances, n_channels):
+                                initial_covariances, n_channels, display: bool = True):
         """
         Plot 2D histogram with initial guess overlaid (means and 2σ ellipses).
 
@@ -3983,12 +3983,13 @@ class extract_SMs:
 
         # Don't use tight_layout() - it conflicts with colorbar layout engine
         fig.subplots_adjust(right=0.85)  # Make room for colorbar
-        plt.show()
+        if display:
+            plt.show()
 
     def _plot_unmixing_results(
         self, X, channels_to_use, assignments, confidence,
         means, covariances, weights, n_channels, confidence_threshold,
-        metadata
+        metadata, display: bool = True
     ):
         """Create diagnostic plots for channel unmixing results."""
         import matplotlib.pyplot as plt
@@ -4050,7 +4051,8 @@ class extract_SMs:
             ax.grid(True, alpha=0.3)
 
         _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
-        plt.show()
+        if display:
+            plt.show()
 
         # Plot 2: 2D Scatter (if 2D data)
         if n_features == 2:
@@ -4110,7 +4112,8 @@ class extract_SMs:
             ax.grid(True, alpha=0.3)
 
             _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
-            plt.show()
+            if display:
+                plt.show()
 
         # Plot 3: Confidence histogram
         fig, ax = plotter.one_column_plot(npanels=1)  # Use default height (3 inches)
@@ -4133,7 +4136,8 @@ class extract_SMs:
         ax.legend()
         ax.grid(True, alpha=0.3)
         _safe_tight_layout(fig)  # Use safe wrapper to avoid layout warnings
-        plt.show()
+        if display:
+            plt.show()
 
         # Plot 4: Confusion matrix (if available)
         if 'confusion_matrix' in metadata:
@@ -4162,7 +4166,8 @@ class extract_SMs:
             plt.colorbar(im, ax=ax, label='Probability')
             # Don't use tight_layout() - it conflicts with colorbar layout engine
             fig.subplots_adjust(right=0.85)  # Make room for colorbar
-            plt.show()
+            if display:
+                plt.show()
 
     # ========================================================================
     # Hierarchical Spatial-Spectral Refinement
@@ -4876,6 +4881,7 @@ class extract_SMs:
         n_channels: int,
         channels_to_use: list,
         save_path: Optional[str] = None,
+        display: bool = True,
     ) -> None:
         """
         Create diagnostic plots for spatial-spectral refinement.
@@ -4964,14 +4970,14 @@ class extract_SMs:
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"Saved refinement diagnostics to: {save_path}")
-        else:
+        elif display:
             plt.show()
-        
+
         # Create spatial distribution plot if 2D data
         n_features = len(channels_to_use)
         if n_features == 2 and 'xc' in assigned_current.columns and 'yc' in assigned_current.columns:
             self._plot_spatial_distribution(
-                assigned_current, n_channels, n_recovered, save_path
+                assigned_current, n_channels, n_recovered, save_path, display=display
             )
 
     def _plot_spatial_distribution(
@@ -4980,6 +4986,7 @@ class extract_SMs:
         n_channels: int,
         n_recovered: Dict[int, int],
         save_path: Optional[str] = None,
+        display: bool = True,
     ) -> None:
         """
         Create spatial distribution plot showing initial vs recovered localizations.
@@ -5077,7 +5084,7 @@ class extract_SMs:
             spatial_path = f"{base}_spatial{ext}"
             fig.savefig(spatial_path, dpi=300, bbox_inches='tight')
             print(f"Saved spatial distribution to: {spatial_path}")
-        else:
+        elif display:
             plt.show()
 
     def find_exemplar_dye_pair(

@@ -3055,6 +3055,7 @@ class Drift_Correction_Functions:
         output_figure_path: Optional[str],
         title: str,
         r_threshold: float,
+        display: bool = True,
     ) -> None:
         """Plot individual Gaussian validation results showing kept vs discarded points."""
 
@@ -3168,7 +3169,8 @@ class Drift_Correction_Functions:
             fig.savefig(gaussian_filename, dpi=300, bbox_inches="tight")
             print(f"Saved Gaussian plot: {gaussian_filename}")
 
-        plt.show()
+        if display:
+            plt.show()
         plt.close(fig)
 
     def _filter_fiducials_fast(
