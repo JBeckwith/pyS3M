@@ -198,6 +198,34 @@ class ResultColumns:
 
 
 @dataclass
+class FilteringCriteria:
+    """Quality-filtering thresholds for single-molecule localisation data.
+
+    Groups the 8 parameters that are re-passed identically on every call to
+    ``filter_quality_localisations`` and ``extract_single_molecules_*``.
+    Pass a single ``FilteringCriteria`` instance instead of the individual
+    keyword arguments to reduce call-site verbosity.
+
+    ``None`` fields are resolved at filter time using ``FilteringConstants``
+    divided by the camera pixel size (same logic as the individual-param path).
+
+    Example::
+
+        filt = FilteringCriteria(min_photons=1000, max_colour_error=0.10)
+        sm_db, sf_db = SM_E.extract_single_molecules_HDBSCAN(data, criteria=filt)
+    """
+
+    chi_val: Optional[float] = None
+    max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX
+    max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR
+    min_sigma: Optional[float] = None   # px; None → MIN_SIGMA_NM / pixel_size_nm
+    max_sigma: Optional[float] = None   # px; None → MAX_SIGMA_NM / pixel_size_nm
+    max_sigma_error: Optional[float] = None  # px; None → MAX_SIGMA_ERROR_NM / pixel_size_nm
+    min_photons: int = FilteringConstants.MIN_PHOTONS
+    max_photons: Optional[float] = None
+
+
+@dataclass
 class AnalysisConfig:
     """Controls I/O and display behaviour for analysis functions.
 

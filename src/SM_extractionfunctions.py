@@ -15,7 +15,7 @@ from typing import Tuple, Dict, Optional
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
-from Constants import DriftConstants, FilteringConstants
+from Constants import DriftConstants, FilteringConstants, FilteringCriteria
 
 import postprocess
 from sklearn.cluster import DBSCAN
@@ -101,27 +101,43 @@ class extract_SMs:
         self,
         loc_data,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
         max_sigma_error=None, # px; None → FilteringConstants.MAX_SIGMA_ERROR_NM / self.pixel_size_nm
         min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
+        criteria: FilteringCriteria = None,
     ):
-        """
-        Apply quality filters to localisation data.
+        """Apply quality filters to localisation data.
+
+        Individual keyword arguments are used when ``criteria`` is ``None``
+        (backwards-compatible path).  Pass a :class:`~Constants.FilteringCriteria`
+        instance to replace all individual kwargs with a single object.
 
         Args:
-            loc_data (pd.DataFrame): Localization data to filter
-            chi_val (float, optional): Chi-squared threshold. If None, uses median.
-            max_localization_error (float): Maximum localisation precision in pixels
-            min_photons (int): Minimum total photon count
-            max_photons (int): Maximum total photon count
+            loc_data (pd.DataFrame): Localization data to filter.
+            chi_val: Chi-squared threshold; ``None`` → median of data.
+            max_localisation_error: Maximum localisation precision (pixels).
+            max_colour_error: Maximum amplitude error fraction.
+            min_sigma, max_sigma, max_sigma_error: PSF sigma bounds (pixels);
+                ``None`` → derived from ``FilteringConstants`` / pixel size.
+            min_photons, max_photons: Photon count bounds.
+            criteria: If provided, overrides all individual kwargs above.
 
         Returns:
-            pd.DataFrame: Filtered localisation data
+            pd.DataFrame: Filtered localisation data.
         """
+        if criteria is not None:
+            chi_val               = criteria.chi_val
+            max_localisation_error = criteria.max_localisation_error
+            max_colour_error      = criteria.max_colour_error
+            min_sigma             = criteria.min_sigma
+            max_sigma             = criteria.max_sigma
+            max_sigma_error       = criteria.max_sigma_error
+            min_photons           = criteria.min_photons
+            max_photons           = criteria.max_photons
         # Resolve sigma bounds from camera pixel size if not explicitly provided
         pixel_size_nm = self.pixel_size * 1000  # µm → nm
         if min_sigma is None:
@@ -258,8 +274,9 @@ class extract_SMs:
         self,
         loc_data,
         min_cluster_size=10,
+        criteria: FilteringCriteria = None,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
@@ -285,9 +302,10 @@ class extract_SMs:
         loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
 
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
+            loc_data=loc_data, criteria=criteria,
+            chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
-            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error,
         )
 
         # Check if we have any data left after filtering
@@ -336,8 +354,9 @@ class extract_SMs:
         self,
         loc_data,
         min_cluster_size=10,
+        criteria: FilteringCriteria = None,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
@@ -367,9 +386,10 @@ class extract_SMs:
         loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
 
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
+            loc_data=loc_data, criteria=criteria,
+            chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
-            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error,
         )
 
         # Check if we have any data left after filtering
@@ -425,8 +445,9 @@ class extract_SMs:
         loc_data,
         max_distance=1.0,
         max_frames=10,
+        criteria: FilteringCriteria = None,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
@@ -459,9 +480,10 @@ class extract_SMs:
         loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
 
         loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, chi_val=chi_val, max_localisation_error=max_localisation_error,
+            loc_data=loc_data, criteria=criteria,
+            chi_val=chi_val, max_localisation_error=max_localisation_error,
             min_photons=min_photons, max_photons=max_photons, max_colour_error=max_colour_error,
-            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error
+            min_sigma=min_sigma, max_sigma=max_sigma, max_sigma_error=max_sigma_error,
         )
 
         # Convert to numpy record array for postprocess.py compatibility and sort by frame
@@ -792,8 +814,9 @@ class extract_SMs:
         spectral_tol=FilteringConstants.MAX_COLOUR_ERROR,
         spectral_columns=("A_R", "A_G", "A_B"),
         min_frames=3,
+        criteria: FilteringCriteria = None,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
@@ -842,6 +865,7 @@ class extract_SMs:
         """
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data,
+            criteria=criteria,
             chi_val=chi_val,
             max_localisation_error=max_localisation_error,
             min_photons=min_photons,
@@ -962,8 +986,9 @@ class extract_SMs:
         localisation_files,
         clustering_method="HDBSCAN",
         min_cluster_size=10,
+        criteria: FilteringCriteria = None,
         chi_val=None,
-        max_localisation_error=1.0,
+        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
         max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
         min_sigma=None,       # px; None → FilteringConstants.MIN_SIGMA_NM / self.pixel_size_nm
         max_sigma=None,       # px; None → FilteringConstants.MAX_SIGMA_NM / self.pixel_size_nm
@@ -1045,6 +1070,7 @@ class extract_SMs:
                 sm_db, sf_db = self.extract_single_molecules_HDBSCAN(
                     loc_data,
                     min_cluster_size=min_cluster_size,
+                    criteria=criteria,
                     chi_val=chi_val,
                     max_localisation_error=max_localisation_error,
                     max_colour_error=max_colour_error,
@@ -1058,6 +1084,7 @@ class extract_SMs:
                 sm_db, sf_db = self.extract_single_molecules_DBSCAN(
                     loc_data,
                     min_cluster_size=min_cluster_size,
+                    criteria=criteria,
                     chi_val=chi_val,
                     max_localisation_error=max_localisation_error,
                     max_colour_error=max_colour_error,
@@ -1073,6 +1100,7 @@ class extract_SMs:
                     loc_data,
                     max_distance=max_distance,
                     max_frames=max_frames,
+                    criteria=criteria,
                     chi_val=chi_val,
                     max_localisation_error=max_localisation_error,
                     max_colour_error=max_colour_error,
