@@ -68,7 +68,7 @@ class NileRed_Functions:
         self.default_wavelength_center = wavelength_center_init
 
         # Initialize SpectralFunctions, PSFFunctions, and IOFunctions
-        self.spectral_funcs = SpectralFunctions.Spectral_Funcs()
+        self.spectral_funcs = SpectralFunctions.Spectral_Funcs(camera=camera)
         self.psf_funcs = PSFFunctions.PSF_Functions()
         self.io = IOFunctions.IO_Functions()
 

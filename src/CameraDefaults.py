@@ -14,8 +14,11 @@ To add a new camera, insert an entry in :data:`CAMERAS`::
     )
 """
 
+import os
 import numpy as np
 from dataclasses import dataclass
+
+_QE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Spectra", "Camera_QE")
 
 
 @dataclass
@@ -26,10 +29,13 @@ class CameraConfig:
         pixel_size: Physical pixel size in µm.
         mosaic_unit: 2×2 Bayer unit-cell array,
             e.g. ``np.array([["B","G"],["G","R"]])``.
+        qe_file: Absolute path to the per-channel QE CSV file
+            (columns: wavelength, R, G, B).
     """
 
     pixel_size: float
     mosaic_unit: np.ndarray
+    qe_file: str
 
 
 #: Registry of known camera configurations.
@@ -37,10 +43,12 @@ CAMERAS = {
     "ximea": CameraConfig(
         pixel_size=0.069,
         mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
+        qe_file=os.path.join(_QE_DIR, "CS505CU_QE.csv"),
     ),
     "zwo": CameraConfig(
         pixel_size=0.0715,
         mosaic_unit=np.array([["R", "G"], ["G", "B"]]),
+        qe_file=os.path.join(_QE_DIR, "ASI585MC_QE.csv"),
     ),
 }
 

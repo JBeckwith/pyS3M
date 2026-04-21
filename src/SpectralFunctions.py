@@ -377,11 +377,19 @@ class Spectral_Funcs:
     (dyes vs filters) and provides optimised database query handling.
     """
 
-    def __init__(self):
+    def __init__(self, camera: str = "ximea"):
         """Initialize the Spectral_Funcs class.
+
+        Args:
+            camera: Camera model name (``"ximea"`` or ``"zwo"``).
+                Determines which QE file is used by default in
+                :meth:`getpixelefficiency`.
 
         Sets up database connection and loads available dye and filter names.
         """
+        import CameraDefaults
+        self._qe_file = CameraDefaults.get_camera_config(camera).qe_file
+
         # Set up database path
         spectra_folder = os.path.join(os.path.split(module_dir)[0], "Spectra")
         db_path = os.path.join(spectra_folder, "spectral_data.duckdb")
@@ -402,15 +410,17 @@ class Spectral_Funcs:
         # Initialize IO functions
         self.io = IOFunctions.IO_Functions()
 
-    @staticmethod
     def getpixelefficiency(
-        filename: str = SpectralConstants.DEFAULT_CAMERA_QE_FILE,
+        self,
+        filename: str = None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get pixel quantum efficiency for a camera from CSV file.
 
         Args:
-            filename: Path to the CSV file containing camera QE data.
-                     Expected columns: wavelength, R, G, B.
+            filename: Path to the CSV file containing camera QE data
+                (columns: wavelength, R, G, B).  If *None*, the file
+                selected at construction time by the ``camera`` argument
+                is used (default: CS505CU for Ximea, ASI585MC for ZWO).
 
         Returns:
             Tuple containing:
@@ -423,6 +433,8 @@ class Spectral_Funcs:
             FileNotFoundError: If the QE file cannot be found.
             ValueError: If the CSV file has incorrect format.
         """
+        if filename is None:
+            filename = self._qe_file
         try:
             data = pl.read_csv(filename)
         except Exception as e:
