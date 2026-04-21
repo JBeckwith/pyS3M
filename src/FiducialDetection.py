@@ -754,7 +754,7 @@ class DriftPlotter(AnalysisPlotter):
     ) -> None:
         """Create a plot of fiducial detection results."""
         try:
-            from DriftCorrectionFunctions import CoordinateProcessor
+            from CoordinateProcessing import CoordinateProcessor
 
             meta = CoordinateProcessor.extract_metadata(info)
             pixelsize = meta.get("pixelsize", 130.0)

@@ -1,16 +1,11 @@
 """
-DriftCorrectionFunctions.py
+drift_correction — drift correction subpackage for pyBayerSMLM.
 
-Backward-compatibility shim. The drift correction implementation has been
-reorganised into the drift_correction/ subpackage. This module re-exports
-everything so existing callers need no changes.
+Public API re-exported here for convenience; the canonical import path
+remains ``import DriftCorrectionFunctions`` for backward compatibility.
 """
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-from drift_correction._base import (
+from ._base import (
     DriftMethod,
     DriftCorrectionError,
     DriftParameters,
@@ -18,15 +13,15 @@ from drift_correction._base import (
     FiducialDetectionResult,
     DriftCorrector,
 )
-from drift_correction.aim import AIMDriftCorrector
-from drift_correction.fiducial import FiducialDriftCorrector
-from drift_correction.auto import (
+from .aim import AIMDriftCorrector
+from .fiducial import FiducialDriftCorrector
+from .auto import (
     AutoDriftCorrector,
     DriftCorrectionFactory,
     undrift_aim,
     undrift_auto,
 )
-from drift_correction._facade import Drift_Correction_Functions
+from ._facade import Drift_Correction_Functions
 
 __all__ = [
     "DriftMethod",
