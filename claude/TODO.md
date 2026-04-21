@@ -343,27 +343,8 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 
 ### Priority 2: Codebase Refactoring (ongoing — see `claude/code_refactoring.md`)
 
-**Status:** 📋 Tier 2 in progress — see refactoring plan for full detail
+**Status:** 📋 Tier 2 — one item remaining
 
-**Completed (2026-04-10):**
-- ✅ RCC drift corrector fully removed
-- ✅ Magic numbers → `DriftConstants` / `FilteringConstants` in `Constants.py`
-- ✅ Camera-aware pixel size (`camera="ximea"`) propagated to 4 main classes
-- ✅ HDF5 I/O consolidated via `IOFunctions`
-- ✅ `DriftPlotting.py` eliminated; `DriftPlotter` moved into `FiducialDetection.py`
-- ✅ `PlottingFunctions.py` retired; all callers migrated to `PlottingBase`
-- ✅ `postprocess.py` dead-code removal (−753 lines)
-
-**Completed (2026-04-20):**
-- ✅ **1.1** 9 `plt.show()` calls replaced with `if display: plt.show()` across 4 files
-- ✅ **1.3** `AnalysisConfig` dataclass added to `Constants.py`; threaded into `SR_Functions`
-- ✅ **2.2** `FilteringCriteria` dataclass added; threaded into all `extract_single_molecules_*` methods
-- ✅ `ProgressUtils.clean_progress_bar` now honours `set_progress_enabled(False)`
-
-**Completed (2026-04-21):**
-- ✅ **2.1** `DriftCorrectionFunctions.py` split into `drift_correction/` subpackage (`_base`, `aim`, `fiducial`, `auto`, `_facade`); shim preserves all callers; stale import in `FiducialDetection.py` fixed
-
-**Next refactoring items:**
 - [ ] **2.3** Split clustering logic out of `SM_extractionfunctions.py`
 
 ---
