@@ -156,13 +156,12 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 
 ## Pending Tasks
 
-### Priority 1: Benchmark STANDARD_DATA and switch default if confirmed
+### Priority 1: Promote STANDARD_DATA if full Monte Carlo confirms improvement
 
-**Status:** 📋 PENDING — S4 implemented and unit-tested (2026-04-08); needs full Monte Carlo
+**Status:** 📋 PENDING — S4 unit-tested (2026-04-08); default already switched to STANDARD_ITER (2026-04-22)
 **Plan:** `claude/new_fitting_plan.md`
 
 S4 median χ² = 0.979 vs S2 = 0.883 in unit-test Monte Carlo (N=150, 1000 pe).
-Need the full photon-range benchmark before switching the production default.
 
 - [ ] Run `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` with `FittingStrategy.STANDARD_DATA`
   and compare G-channel amplitude precision log-log slope vs STANDARD_ITER across photon levels
@@ -343,9 +342,11 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 
 ### Priority 2: Codebase Refactoring (ongoing — see `claude/code_refactoring.md`)
 
-**Status:** 📋 Tier 2 — one item remaining
+**Status:** 📋 Tier 2 — one new item added
 
-- [ ] **2.3** Split clustering logic out of `SM_extractionfunctions.py`
+- ✅ **2.3** Split clustering logic into `src/clustering/` mixin subpackage
+- [ ] **2.4** Split GMM + channel-unmixing code out of `SM_extractionfunctions.py`
+  → `mixture_analysis.py` (~1 800 lines) + `channel_unmixing.py` (~2 000 lines)
 
 ---
 
