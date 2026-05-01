@@ -37,6 +37,9 @@ from LinkingFunctions import (
 from threading import Thread
 import ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
+import logging
+logger = logging.getLogger(__name__)
+
 
 plt = get_module("matplotlib.pyplot")
 
@@ -44,7 +47,7 @@ plt = get_module("matplotlib.pyplot")
 def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, display: bool = True):
     """Create standardized drift analysis plot using consolidated plotting."""
     if not is_available("matplotlib.pyplot"):
-        print("⚠️ Matplotlib not available - skipping drift plot display")
+        logger.warning("⚠️ Matplotlib not available - skipping drift plot display")
         return None, None
 
     try:
@@ -80,7 +83,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, displa
     except ImportError:
         # Fallback to basic matplotlib if PlottingBase not available
         if plt is None:
-            print("⚠️ Plotting not available - skipping drift analysis display")
+            logger.warning("⚠️ Plotting not available - skipping drift analysis display")
             return None, None
 
         fig = plt.figure(figsize=(17, 6))
@@ -756,9 +759,7 @@ def _parallel_picked_locs_rectangle(
                     except Exception as e:
                         # Handle individual pick failures gracefully
                         original_idx = future_to_index[future]
-                        print(
-                            f"Warning: Processing pick {original_idx} failed with error: {e}"
-                        )
+                        logger.warning(f"Warning: Processing pick {original_idx} failed with error: {e}")
                         picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(
                             np.recarray
                         )
@@ -781,7 +782,7 @@ def _parallel_picked_locs_rectangle(
                 progress_bar_context.__exit__(None, None, None)
 
     except Exception as e:
-        print(f"Parallel processing failed ({e}), falling back to serial processing")
+        logger.warning(f"Parallel processing failed ({e}), falling back to serial processing")
         # Fall back to serial processing
         return _serial_picked_locs_rectangle(
             locs, width, height, picks, pick_size, add_group, callback
@@ -1016,9 +1017,7 @@ def _parallel_picked_locs_circle(
                     except Exception as e:
                         # Handle individual pick failures gracefully
                         original_idx = future_to_index[future]
-                        print(
-                            f"Warning: Processing circle pick {original_idx} failed with error: {e}"
-                        )
+                        logger.warning(f"Warning: Processing circle pick {original_idx} failed with error: {e}")
                         picked_locs[original_idx] = np.array([], dtype=locs.dtype).view(
                             np.recarray
                         )
@@ -1041,7 +1040,7 @@ def _parallel_picked_locs_circle(
                 progress_bar_context.__exit__(None, None, None)
 
     except Exception as e:
-        print(f"Parallel processing failed ({e}), falling back to serial processing")
+        logger.warning(f"Parallel processing failed ({e}), falling back to serial processing")
         # Fall back to serial processing
         return _serial_picked_locs_circle(
             locs, width, height, picks, pick_size, add_group, callback
@@ -1230,7 +1229,7 @@ def _serial_picked_locs_circle(
                     callback(i + 1)
 
             except Exception as e:
-                print(f"Warning: Processing pick {i} failed: {e}")
+                logger.warning(f"Warning: Processing pick {i} failed: {e}")
                 picked_locs.append(np.array([], dtype=locs.dtype).view(np.recarray))
 
                 # Still update progress on error
@@ -1324,7 +1323,7 @@ def _serial_picked_locs_rectangle(
                     callback(i + 1)
 
             except Exception as e:
-                print(f"Warning: Processing pick {i} failed: {e}")
+                logger.warning(f"Warning: Processing pick {i} failed: {e}")
                 picked_locs.append(np.array([], dtype=locs.dtype).view(np.recarray))
 
                 # Still update progress on error
@@ -1440,7 +1439,7 @@ def segment_locs_by_rendered_image(
 
     # Step 1: Render super-resolved image
     if callback == "console" or callback is not None:
-        print("Step 1/5: Rendering super-resolved image...")
+        logger.info("Step 1/5: Rendering super-resolved image...")
 
     info = [{
     "Width": width,         # Image width in pixels
@@ -1458,7 +1457,7 @@ def segment_locs_by_rendered_image(
 
     # Step 2: Apply thresholding
     if callback == "console" or callback is not None:
-        print(f"Step 2/5: Applying {threshold_method} thresholding...")
+        logger.info(f"Step 2/5: Applying {threshold_method} thresholding...")
 
     if threshold_method == "otsu":
         threshold = filters.threshold_otsu(rendered_image)
@@ -1476,14 +1475,14 @@ def segment_locs_by_rendered_image(
 
     # Step 3: Label connected components
     if callback == "console" or callback is not None:
-        print("Step 3/5: Detecting connected regions...")
+        logger.info("Step 3/5: Detecting connected regions...")
 
     label_image = measure.label(binary_image)
     regions = measure.regionprops(label_image)
 
     # Step 4: Filter by area and count localisations
     if callback == "console" or callback is not None:
-        print("Step 4/5: Filtering aggregates by size and localisation count...")
+        logger.info("Step 4/5: Filtering aggregates by size and localisation count...")
 
     valid_regions = []
     # Calculate super-resolved pixel size
@@ -1605,7 +1604,7 @@ def segment_locs_by_rendered_image(
             plotter.save_or_show(fig, show=True)
 
         except Exception as e:
-            print(f"Warning: Could not display verbose plots: {e}")
+            logger.warning(f"Warning: Could not display verbose plots: {e}")
             import traceback
             traceback.print_exc()
 
@@ -1613,29 +1612,9 @@ def segment_locs_by_rendered_image(
         # Provide diagnostic information
         if len(regions) > 0:
             region_areas_nm2 = [r.area * (superres_pixel_size_nm ** 2) for r in regions]
-            print(
-                f"Warning: No valid aggregates found (tried {len(regions)} regions).\n"
-                f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n"
-                f"  Min area threshold: {min_area_nm2:.1f} nm² ({min_area_pixels:.1f} pixels)\n"
-                f"  Min localisations: {min_localisations}\n"
-                f"  Region areas found: min={min(region_areas_nm2):.1f} nm², "
-                f"max={max(region_areas_nm2):.1f} nm², mean={np.mean(region_areas_nm2):.1f} nm²\n"
-                f"Suggestions:\n"
-                f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n"
-                f"  - Try reducing min_area_nm2 (current: {min_area_nm2:.1f} nm²)\n"
-                f"  - Try reducing min_localisations (current: {min_localisations})\n"
-                f"  - Use verbose=True to visualize the thresholding"
-            )
+            logger.warning(f"Warning: No valid aggregates found (tried {len(regions)} regions).\n" f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n" f"  Min area threshold: {min_area_nm2:.1f} nm² ({min_area_pixels:.1f} pixels)\n" f"  Min localisations: {min_localisations}\n" f"  Region areas found: min={min(region_areas_nm2):.1f} nm², " f"max={max(region_areas_nm2):.1f} nm², mean={np.mean(region_areas_nm2):.1f} nm²\n" f"Suggestions:\n" f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n" f"  - Try reducing min_area_nm2 (current: {min_area_nm2:.1f} nm²)\n" f"  - Try reducing min_localisations (current: {min_localisations})\n" f"  - Use verbose=True to visualize the thresholding")
         else:
-            print(
-                f"Warning: No regions detected after thresholding.\n"
-                f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n"
-                f"  Image stats: min={rendered_image.min():.4f}, max={rendered_image.max():.4f}, "
-                f"mean={rendered_image.mean():.4f}\n"
-                f"Suggestions:\n"
-                f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n"
-                f"  - Use verbose=True to visualize the image and threshold"
-            )
+            logger.warning(f"Warning: No regions detected after thresholding.\n" f"  Threshold value: {threshold:.4f} ({threshold_method} method)\n" f"  Image stats: min={rendered_image.min():.4f}, max={rendered_image.max():.4f}, " f"mean={rendered_image.mean():.4f}\n" f"Suggestions:\n" f"  - Try threshold_method='li' or 'percentile' (current: '{threshold_method}')\n" f"  - Use verbose=True to visualize the image and threshold")
         # Return empty results
         empty_locs = locs_df.iloc[:0].copy()
         empty_locs["aggregate_id"] = pd.Series(dtype=int)
@@ -1644,14 +1623,11 @@ def segment_locs_by_rendered_image(
         return empty_locs, empty_stats
 
     if callback == "console" or callback is not None:
-        print(
-            f"Found {len(valid_regions)} valid aggregates "
-            f"(from {len(regions)} total regions)"
-        )
+        logger.info(f"Found {len(valid_regions)} valid aggregates " f"(from {len(regions)} total regions)")
 
     # Step 5: Extract localisations and compute statistics
     if callback == "console" or callback is not None:
-        print("Step 5/5: Extracting localisations and computing statistics...")
+        logger.info("Step 5/5: Extracting localisations and computing statistics...")
 
     aggregate_locs_list = []
     per_aggregate_stats_list = []
@@ -1764,10 +1740,7 @@ def segment_locs_by_rendered_image(
         per_aggregate_stats["frame"] = 0
 
     if callback == "console" or callback is not None:
-        print(
-            f"✓ Complete! Extracted {len(aggregate_locs_combined)} localisations "
-            f"in {len(valid_regions)} aggregates"
-        )
+        logger.info(f"✓ Complete! Extracted {len(aggregate_locs_combined)} localisations " f"in {len(valid_regions)} aggregates")
 
     return aggregate_locs_combined, per_aggregate_stats
 
@@ -1941,13 +1914,13 @@ def remove_fiducials(
     n_fiducials = np.sum(fiducial_mask)
 
     if verbose:
-        print(f"Fiducial removal summary:")
-        print(f"  Total aggregates: {n_aggregates}")
+        logger.info(f"Fiducial removal summary:")
+        logger.info(f"  Total aggregates: {n_aggregates}")
         for name, m in criteria:
-            print(f"  Flagged by {name}: {np.sum(m)}")
+            logger.info(f"  Flagged by {name}: {np.sum(m)}")
         combine_str = "ALL" if require_all else "ANY"
-        print(f"  Combined ({combine_str}): {n_fiducials} fiducials")
-        print(f"  Remaining: {n_aggregates - n_fiducials} aggregates")
+        logger.info(f"  Combined ({combine_str}): {n_fiducials} fiducials")
+        logger.info(f"  Remaining: {n_aggregates - n_fiducials} aggregates")
 
     # Filter out fiducial aggregates
     fiducial_ids = set(per_aggregate_stats.loc[fiducial_mask, id_col].values)
@@ -1971,7 +1944,6 @@ def remove_fiducials(
 
     if verbose:
         n_removed_locs = len(aggregate_locs) - len(filtered_locs)
-        print(f"  Localisations removed: {n_removed_locs} "
-              f"({100 * n_removed_locs / len(aggregate_locs):.1f}%)")
+        logger.info(f"  Localisations removed: {n_removed_locs} " f"({100 * n_removed_locs / len(aggregate_locs):.1f}%)")
 
     return filtered_locs, filtered_stats, fiducial_mask

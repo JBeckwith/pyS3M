@@ -26,6 +26,9 @@ import postprocess
 import os
 from datetime import datetime
 import pandas as pd
+import logging
+logger = logging.getLogger(__name__)
+
 
 plt = get_module("matplotlib.pyplot")
 
@@ -362,26 +365,26 @@ def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
 
 def check_nena(locs, info, callback=None):
     # Nena
-    print("Calculating NeNA.. ", end="")
+    logger.debug("Calculating NeNA.. ")
     locs = locs[0:MAX_LOCS]
     try:
         result, best_result = postprocess.nena(locs, info, callback=callback)
         nena_px = best_result
     except Exception as e:
-        print(e)
+        logger.warning(e)
         nena_px = float("nan")
 
-    print(f"{nena_px:.2f} px.")
+    logger.info(f"{nena_px:.2f} px.")
 
     return nena_px
 
 
 def check_kinetics(locs, info):
-    print("Linking.. ", end="")
+    logger.debug("Linking.. ")
     locs = locs[0:MAX_LOCS]
     locs = postprocess.link(locs, info=info)
     len_mean = locs.len.mean()
-    print(f"Mean lenght {len_mean:.2f} frames.")
+    logger.info(f"Mean lenght {len_mean:.2f} frames.")
 
     return len_mean
 

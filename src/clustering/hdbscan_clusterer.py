@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 
 from Constants import FilteringConstants
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Prefer the multicore-optimised fast_hdbscan; fall back to sklearn.
 try:
@@ -68,13 +71,11 @@ class HDBSCANMixin:
         )
 
         if len(loc_data) == 0:
-            print("Warning: No localizations remaining after filtering. Returning empty databases.")
+            logger.warning("Warning: No localizations remaining after filtering. Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         if len(loc_data) < min_cluster_size:
-            print(f"Warning: Only {len(loc_data)} localizations remaining after filtering, "
-                  f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. "
-                  f"Returning empty databases.")
+            logger.warning(f"Warning: Only {len(loc_data)} localizations remaining after filtering, " f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. " f"Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
@@ -82,7 +83,7 @@ class HDBSCANMixin:
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
         )
 
-        print(f"Using {HDBSCAN_BACKEND} for HDBSCAN clustering")
+        logger.info(f"Using {HDBSCAN_BACKEND} for HDBSCAN clustering")
         hdb = HDBSCAN(
             min_cluster_size=min_cluster_size,
             cluster_selection_epsilon=loc_precision,

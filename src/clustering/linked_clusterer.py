@@ -10,6 +10,9 @@ import pandas as pd
 
 from Constants import FilteringConstants, FilteringCriteria
 import postprocess
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class LinkedMixin:
@@ -195,8 +198,7 @@ class LinkedMixin:
 
         for fi, current_frame in enumerate(unique_frames):
             if verbose and fi % 500 == 0 and fi > 0:
-                print(f"  Frame {fi}/{len(unique_frames)}, "
-                      f"{next_track_id} tracks so far")
+                logger.info(f"  Frame {fi}/{len(unique_frames)}, " f"{next_track_id} tracks so far")
 
             frame_mask = frames_arr == current_frame
             cur_indices = np.where(frame_mask)[0]
@@ -295,8 +297,7 @@ class LinkedMixin:
         if verbose:
             n_tracks = len(np.unique(link_group[link_group >= 0]))
             n_linked = np.sum(link_group >= 0)
-            print(f"  Linking complete: {n_tracks} tracks from "
-                  f"{n_linked}/{n_locs} localisations")
+            logger.info(f"  Linking complete: {n_tracks} tracks from " f"{n_linked}/{n_locs} localisations")
 
         return link_group
 
@@ -384,13 +385,11 @@ class LinkedMixin:
             )
             n_static = int(static_mask.sum())
             if verbose:
-                print(f"  Static removal: {n_static}/{len(loc_data_sorted)} "
-                      f"localisations flagged ({100*n_static/max(len(loc_data_sorted),1):.1f}%)")
+                logger.info(f"  Static removal: {n_static}/{len(loc_data_sorted)} " f"localisations flagged ({100*n_static/max(len(loc_data_sorted),1):.1f}%)")
             loc_data_sorted = loc_data_sorted[~static_mask].reset_index(drop=True)
 
         if verbose:
-            print(f"Spectral LAP linking: {len(loc_data_sorted)} localisations, "
-                  f"max_distance={max_distance}, max_dark_time={max_dark_time}")
+            logger.info(f"Spectral LAP linking: {len(loc_data_sorted)} localisations, " f"max_distance={max_distance}, max_dark_time={max_dark_time}")
 
         link_groups = self.spectral_lap_link(
             loc_data_sorted,
@@ -444,8 +443,6 @@ class LinkedMixin:
             loc_data_linked["molecular_index"] = loc_data_linked["molecular_index"].map(old_to_new)
 
         if verbose:
-            print(f"Result: {len(single_molecule_database)} molecules from "
-                  f"{len(loc_data_linked)} linked localisations "
-                  f"(min_frames={min_frames})")
+            logger.info(f"Result: {len(single_molecule_database)} molecules from " f"{len(loc_data_linked)} linked localisations " f"(min_frames={min_frames})")
 
         return single_molecule_database, loc_data_linked

@@ -25,6 +25,9 @@ sys.path.append(module_dir)
 from ImportManager import get_module, is_available
 from PlottingBase import AnalysisPlotter, PublicationPlotter
 from Constants import DriftConstants
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Import scipy components
 try:
@@ -325,18 +328,13 @@ class FiducialDetector:
 
             if memory_optimise and region_id % 100 == 0 and region_id > 0:
                 gc.collect()
-                print(
-                    f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions "
-                    f"({len(selected_puncta)} accepted, {rejected_count} rejected)"
-                )
+                logger.info(f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions " f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
 
         # Final memory cleanup
         if memory_optimise:
             del picked_locs_arrays
             gc.collect()
-            print(
-                "Memory optimisation: Freed intermediate arrays after region processing"
-            )
+            logger.info("Memory optimisation: Freed intermediate arrays after region processing")
 
         # Create visualization if requested
         if create_plot:
@@ -431,10 +429,7 @@ class FiducialDetector:
         )
 
         n_removed = int((~keep).sum())
-        print(
-            f"remove_puncta_locs: removed {n_removed:,} localisations "
-            f"({n_removed / max(len(locs), 1) * 100:.1f}% of {len(locs):,} total)"
-        )
+        logger.info(f"remove_puncta_locs: removed {n_removed:,} localisations " f"({n_removed / max(len(locs), 1) * 100:.1f}% of {len(locs):,} total)")
 
         return locs[keep]
 
@@ -742,7 +737,7 @@ class DriftPlotter(AnalysisPlotter):
             self.save_or_show(fig, save_path=save_path, show=True, dpi=300)
 
         except Exception as e:
-            print(f"⚠️ Failed to create fiducial detection steps plot: {e}")
+            logger.warning(f"⚠️ Failed to create fiducial detection steps plot: {e}")
             import traceback
             traceback.print_exc()
 
@@ -825,7 +820,7 @@ class DriftPlotter(AnalysisPlotter):
             self.save_or_show(fig, save_path=save_path, show=True, dpi=150)
 
         except Exception as e:
-            print(f"⚠️ Failed to create fiducial detection plot: {e}")
+            logger.warning(f"⚠️ Failed to create fiducial detection plot: {e}")
 
     def plot_region_data_with_datashader(self, ax, data_list, color_list, title):
         """Plot region data using optimised rendering based on dataset size."""
@@ -961,7 +956,7 @@ class DriftPlotter(AnalysisPlotter):
             self.save_or_show(fig, save_path=output_figure_path, show=True, dpi=150)
 
         except Exception as e:
-            print(f"⚠️ Failed to create puncta selection plot: {e}")
+            logger.warning(f"⚠️ Failed to create puncta selection plot: {e}")
             import traceback
             traceback.print_exc()
 
@@ -977,7 +972,7 @@ class DriftPlotter(AnalysisPlotter):
         try:
             n_validated = len(validated_fiducials)
             if n_validated == 0:
-                print("⚠️ No validated fiducials to plot")
+                logger.warning("⚠️ No validated fiducials to plot")
                 return
 
             cols = min(3, n_validated)
@@ -1012,11 +1007,11 @@ class DriftPlotter(AnalysisPlotter):
             plt.tight_layout()
             filename = f"{base_path}_details.png"
             plt.savefig(filename, dpi=300, bbox_inches="tight")
-            print(f"Saved individual clustering details: {filename}")
+            logger.info(f"Saved individual clustering details: {filename}")
             plt.show()
 
         except Exception as e:
-            print(f"⚠️ Error creating individual clustering details: {e}")
+            logger.warning(f"⚠️ Error creating individual clustering details: {e}")
 
     def plot_clustering_results(
         self,
@@ -1031,7 +1026,7 @@ class DriftPlotter(AnalysisPlotter):
             n_regions = len(selected_puncta)
             n_validated = len(validated_fiducials)
             if n_regions == 0:
-                print("⚠️ No puncta regions to plot")
+                logger.warning("⚠️ No puncta regions to plot")
                 return
 
             fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
@@ -1104,13 +1099,13 @@ class DriftPlotter(AnalysisPlotter):
                              if "." in output_figure_path else output_figure_path)
                 filename = f"{base_path}_clustering_results.png"
                 plt.savefig(filename, dpi=300, bbox_inches="tight")
-                print(f"Clustering results saved to: {filename}")
+                logger.info(f"Clustering results saved to: {filename}")
             else:
                 plt.show()
             plt.close()
 
         except Exception as e:
-            print(f"⚠️ Error creating clustering results plot: {e}")
+            logger.warning(f"⚠️ Error creating clustering results plot: {e}")
 
     def plot_clustering_summary_only(
         self,
@@ -1125,7 +1120,7 @@ class DriftPlotter(AnalysisPlotter):
             n_regions = len(selected_puncta)
             n_validated = len(validated_fiducials)
             if n_regions == 0:
-                print("⚠️ No data to plot in summary")
+                logger.warning("⚠️ No data to plot in summary")
                 return
 
             fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
@@ -1196,13 +1191,13 @@ class DriftPlotter(AnalysisPlotter):
                              if "." in output_figure_path else output_figure_path)
                 filename = f"{base_path}_clustering_summary.png"
                 plt.savefig(filename, dpi=300, bbox_inches="tight")
-                print(f"Clustering summary saved to: {filename}")
+                logger.info(f"Clustering summary saved to: {filename}")
             else:
                 plt.show()
             plt.close()
 
         except Exception as e:
-            print(f"⚠️ Error creating clustering summary plot: {e}")
+            logger.warning(f"⚠️ Error creating clustering summary plot: {e}")
 
     def create_separate_plots(
         self,
@@ -1254,11 +1249,11 @@ class DriftPlotter(AnalysisPlotter):
                              if "." in output_figure_path else output_figure_path)
                 filename = f"{base_path}_density_detection.png"
                 self.save_or_show(fig, save_path=filename, show=False, dpi=150)
-                print(f"Density detection plot saved to: {filename}")
+                logger.info(f"Density detection plot saved to: {filename}")
             else:
                 self.save_or_show(fig, save_path=None, show=True, dpi=150)
 
         except Exception as e:
-            print(f"⚠️ Error creating density detection plots: {e}")
+            logger.warning(f"⚠️ Error creating density detection plots: {e}")
             import traceback
             traceback.print_exc()

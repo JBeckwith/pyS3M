@@ -24,6 +24,9 @@ from ._base import (
 )
 from .auto import DriftCorrectionFactory
 from .fiducial import FiducialDriftCorrector
+import logging
+logger = logging.getLogger(__name__)
+
 
 try:
     import render
@@ -223,7 +226,7 @@ class Drift_Correction_Functions:
         n_frames = int(meta["n_frames"])
 
         # Step 1: Render localisations to image
-        print("Step 1/5: Rendering localisations to image...")
+        logger.info("Step 1/5: Rendering localisations to image...")
         if render is None:
             raise DriftCorrectionError("render module required for fiducial detection")
 
@@ -235,7 +238,7 @@ class Drift_Correction_Functions:
         )
 
         # Step 2: Detect high-density regions
-        print("Step 2/5: Detecting high-density regions...")
+        logger.info("Step 2/5: Detecting high-density regions...")
         region_centres, binary_mask, threshold, detection_meta = (
             self.fiducial_detector.detect_high_density_regions_from_image(
                 smoothed_image=image,
@@ -249,9 +252,7 @@ class Drift_Correction_Functions:
             )
         )
 
-        print(
-            f"  Found {detection_meta['n_regions_detected']} potential fiducial regions"
-        )
+        logger.info(f"  Found {detection_meta['n_regions_detected']} potential fiducial regions")
 
         if detection_meta["n_regions_detected"] == 0:
             raise DriftCorrectionError(
@@ -259,7 +260,7 @@ class Drift_Correction_Functions:
             )
 
         # Step 3: Select puncta from regions
-        print("Step 3/5: Selecting localisations from regions...")
+        logger.info("Step 3/5: Selecting localisations from regions...")
         selected_puncta, selection_meta = (
             self.fiducial_detector.select_puncta_from_regions(
                 locs=locs,
@@ -275,7 +276,7 @@ class Drift_Correction_Functions:
             )
         )
 
-        print(f"  Selected {selection_meta['n_regions_selected']} fiducial candidates")
+        logger.info(f"  Selected {selection_meta['n_regions_selected']} fiducial candidates")
 
         if selection_meta["n_regions_selected"] == 0:
             raise DriftCorrectionError(
@@ -284,7 +285,7 @@ class Drift_Correction_Functions:
             )
 
         # Step 4: Validate fiducials using clustering
-        print("Step 4/5: Validating fiducials with clustering...")
+        logger.info("Step 4/5: Validating fiducials with clustering...")
         validated_fiducials, validation_meta = (
             self.fiducial_detector.identify_real_fiducials_with_clustering(
                 selected_puncta=selected_puncta,
@@ -297,7 +298,7 @@ class Drift_Correction_Functions:
             )
         )
 
-        print(f"  Validated {len(validated_fiducials)} final fiducials")
+        logger.info(f"  Validated {len(validated_fiducials)} final fiducials")
 
         if len(validated_fiducials) == 0:
             raise DriftCorrectionError(
@@ -305,7 +306,7 @@ class Drift_Correction_Functions:
             )
 
         # Step 5: Add group field and perform drift correction
-        print("Step 5/5: Performing fiducial-based drift correction...")
+        logger.info("Step 5/5: Performing fiducial-based drift correction...")
         locs_with_groups = self._add_group_field(
             locs, validated_fiducials, region_centres
         )
@@ -332,7 +333,7 @@ class Drift_Correction_Functions:
             }
         )
 
-        print(f"✓ Drift correction complete using {len(validated_fiducials)} fiducials")
+        logger.info(f"✓ Drift correction complete using {len(validated_fiducials)} fiducials")
 
         return result
 
@@ -441,7 +442,7 @@ class Drift_Correction_Functions:
                 end_frame = min_frame + (i + 1) * chunk_size - 1
             chunk_boundaries.append((start_frame, end_frame))
 
-        print(f"Detecting fiducials using {n_chunks} temporal chunks")
+        logger.info(f"Detecting fiducials using {n_chunks} temporal chunks")
 
         # Find candidates in each chunk
         chunk_candidates = []
@@ -454,12 +455,10 @@ class Drift_Correction_Functions:
             chunk_locs = locs[chunk_mask]
 
             if len(chunk_locs) == 0:
-                print(f"Warning: Chunk {chunk_idx + 1} has no localisations")
+                logger.warning(f"Warning: Chunk {chunk_idx + 1} has no localisations")
                 continue
 
-            print(
-                f"Chunk {chunk_idx + 1}/{n_chunks}: frames {start_frame}-{end_frame} ({len(chunk_locs)} locs)"
-            )
+            logger.info(f"Chunk {chunk_idx + 1}/{n_chunks}: frames {start_frame}-{end_frame} ({len(chunk_locs)} locs)")
 
             # Render this chunk
             chunk_image = render.render(
@@ -493,12 +492,12 @@ class Drift_Correction_Functions:
                     for xi, yi in zip(x, y)
                 ]
                 chunk_candidates.extend(chunk_picks)
-                print(f"  Found {len(chunk_picks)} candidates")
+                logger.info(f"  Found {len(chunk_picks)} candidates")
             except Exception as e:
-                print(f"  Warning: Failed to detect in chunk {chunk_idx + 1}: {e}")
+                logger.warning(f"  Warning: Failed to detect in chunk {chunk_idx + 1}: {e}")
                 continue
 
-        print(f"Total candidates across all chunks: {len(chunk_candidates)}")
+        logger.info(f"Total candidates across all chunks: {len(chunk_candidates)}")
 
         # Link candidates across chunks to form tracks
         if len(chunk_candidates) == 0:
@@ -508,7 +507,7 @@ class Drift_Correction_Functions:
             chunk_candidates, n_chunks, max_linking_distance_nm, pixelsize
         )
 
-        print(f"Linked candidates into {len(linked_tracks)} potential fiducial tracks")
+        logger.info(f"Linked candidates into {len(linked_tracks)} potential fiducial tracks")
 
         # Convert tracks back to picks (use average position)
         half_box = int(np.round(box_size_nm / pixelsize)) // 2
@@ -536,7 +535,7 @@ class Drift_Correction_Functions:
             combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
             threshold = 0
 
-        print(f"Final result: {len(picks)} robust fiducial candidates")
+        logger.info(f"Final result: {len(picks)} robust fiducial candidates")
         return picks, combined_image, combined_hist, threshold
 
     def _link_candidates_across_chunks(
@@ -741,7 +740,7 @@ class Drift_Correction_Functions:
                         save_plot,
                     )
                 else:
-                    print("⚠️ DriftPlotter not available, skipping step-by-step plots")
+                    logger.warning("⚠️ DriftPlotter not available, skipping step-by-step plots")
 
             return result
 
@@ -919,7 +918,7 @@ class Drift_Correction_Functions:
                     title,
                 )
             else:
-                print("⚠️ DriftPlotter not available, skipping density detection plots")
+                logger.warning("⚠️ DriftPlotter not available, skipping density detection plots")
 
         metadata = {
             "n_regions_detected": n_regions,
@@ -1052,17 +1051,12 @@ class Drift_Correction_Functions:
 
             if memory_optimize and region_id % 100 == 0 and region_id > 0:
                 gc.collect()
-                print(
-                    f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions "
-                    f"({len(selected_puncta)} accepted, {rejected_count} rejected)"
-                )
+                logger.info(f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions " f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
 
         if memory_optimize:
             del picked_locs_arrays
             gc.collect()
-            print(
-                f"Memory optimisation: Freed intermediate arrays after region processing"
-            )
+            logger.info(f"Memory optimisation: Freed intermediate arrays after region processing")
 
         if create_plot:
             if self.plotter is not None:
@@ -1080,7 +1074,7 @@ class Drift_Correction_Functions:
                     use_datashader_threshold,
                 )
             else:
-                print("⚠️ DriftPlotter not available, skipping puncta selection plots")
+                logger.warning("⚠️ DriftPlotter not available, skipping puncta selection plots")
 
             if memory_optimize:
                 plt.close("all")
@@ -1133,9 +1127,7 @@ class Drift_Correction_Functions:
             raise ValueError("retention_percentage must be between 0 and 1")
 
         radial_threshold_factor = np.sqrt(-2 * np.log(1 - retention_percentage))
-        print(
-            f"Using radial threshold factor: {radial_threshold_factor:.3f} for {retention_percentage*100:.1f}% retention"
-        )
+        logger.info(f"Using radial threshold factor: {radial_threshold_factor:.3f} for {retention_percentage*100:.1f}% retention")
 
         for region_id, puncta_locs in enumerate(selected_puncta):
             n_locs = len(puncta_locs)
@@ -1150,17 +1142,13 @@ class Drift_Correction_Functions:
             )
 
             if n_locs < min_samples:
-                print(
-                    f"  Region {region_id}: Too few points ({n_locs}) < min_samples ({min_samples}), skipping"
-                )
+                logger.info(f"  Region {region_id}: Too few points ({n_locs}) < min_samples ({min_samples}), skipping")
                 continue
 
             try:
                 from sklearn.mixture import GaussianMixture
 
-                print(
-                    f"  Fitting single Gaussian to {n_locs} points in region {region_id}"
-                )
+                logger.info(f"  Fitting single Gaussian to {n_locs} points in region {region_id}")
 
                 gm = GaussianMixture(n_components=1, random_state=0)
                 gm.fit(X)
@@ -1226,9 +1214,7 @@ class Drift_Correction_Functions:
 
                     del validated_locs
                 else:
-                    print(
-                        f"  Region {region_id}: Not enough kept points ({n_kept}) < min_samples ({min_samples}), discarding"
-                    )
+                    logger.info(f"  Region {region_id}: Not enough kept points ({n_kept}) < min_samples ({min_samples}), discarding")
 
                 del X, kept_mask, radial_distances_pixels, radial_distances_nm
                 gc.collect()
@@ -1237,7 +1223,7 @@ class Drift_Correction_Functions:
                     gc.collect()
 
             except Exception as e:
-                print(f"Warning: Gaussian fitting failed for region {region_id}: {e}")
+                logger.warning(f"Warning: Gaussian fitting failed for region {region_id}: {e}")
                 continue
 
         if create_plot and len(validated_fiducials) > 0:
@@ -1250,7 +1236,7 @@ class Drift_Correction_Functions:
                     title,
                 )
             else:
-                print("⚠️ DriftPlotter not available, skipping clustering summary plots")
+                logger.warning("⚠️ DriftPlotter not available, skipping clustering summary plots")
 
         summary_metadata = {
             "n_input_regions": len(selected_puncta),
@@ -1296,7 +1282,7 @@ class Drift_Correction_Functions:
 
             plotter = PublicationPlotter(poster=False)
         except ImportError:
-            print("PlottingBase not available, skipping Gaussian plot")
+            logger.warning("PlottingBase not available, skipping Gaussian plot")
             return
 
         fig, ax = plotter.one_column_plot(width=3.5, height=3.5)
@@ -1386,7 +1372,7 @@ class Drift_Correction_Functions:
             )
             gaussian_filename = f"{base_path}_gaussian_region_{region_id+1:02d}.png"
             fig.savefig(gaussian_filename, dpi=300, bbox_inches="tight")
-            print(f"Saved Gaussian plot: {gaussian_filename}")
+            logger.info(f"Saved Gaussian plot: {gaussian_filename}")
 
         if display:
             plt.show()
@@ -1403,7 +1389,7 @@ class Drift_Correction_Functions:
         n_frames, n_fiducials = all_corrected_x.shape
         valid_fiducials = np.ones(n_fiducials, dtype=bool)
 
-        print("Filtering by variance ratio...", end="", flush=True)
+        logger.debug("Filtering by variance ratio...")
 
         x_variances = np.nanvar(all_corrected_x, axis=0)
         y_variances = np.nanvar(all_corrected_y, axis=0)
@@ -1411,7 +1397,7 @@ class Drift_Correction_Functions:
 
         finite_variances = combined_variances[~np.isnan(combined_variances)]
         if len(finite_variances) == 0:
-            print("No valid variances found")
+            logger.info("No valid variances found")
             return np.zeros(n_fiducials, dtype=bool), {}
 
         median_variance = np.median(finite_variances)
@@ -1421,12 +1407,8 @@ class Drift_Correction_Functions:
         n_removed_variance = np.sum(~variance_mask)
         valid_fiducials &= variance_mask
 
-        print(
-            f"\rRemoved {n_removed_variance} high-variance fiducials.    ",
-            end="",
-            flush=True,
-        )
-        print("\rFiltering by RMS distance...", end="", flush=True)
+        logger.debug(f"\rRemoved {n_removed_variance} high-variance fiducials.    ")
+        logger.debug("\rFiltering by RMS distance...")
 
         rms_distances = np.sqrt(
             np.nanmean(all_corrected_x**2 + all_corrected_y**2, axis=0)
@@ -1434,7 +1416,7 @@ class Drift_Correction_Functions:
 
         finite_rms = rms_distances[~np.isnan(rms_distances)]
         if len(finite_rms) == 0:
-            print("No valid RMS distances found")
+            logger.info("No valid RMS distances found")
             return valid_fiducials, {
                 "n_variance_filtered": n_removed_variance,
                 "n_rms_filtered": 0,
@@ -1449,14 +1431,11 @@ class Drift_Correction_Functions:
         n_removed_rms = np.sum(~rms_mask)
         valid_fiducials &= rms_mask
 
-        print(f"\rRemoved {n_removed_rms} high-RMS fiducials.    ", end="", flush=True)
+        logger.debug(f"\rRemoved {n_removed_rms} high-RMS fiducials.    ")
 
         n_total_removed = n_removed_variance + n_removed_rms
         n_final = np.sum(valid_fiducials)
-        print(
-            f"\rFinal: {n_final}/{n_fiducials} fiducials retained ({n_total_removed} removed)    ",
-            flush=True,
-        )
+        logger.info(f"\rFinal: {n_final}/{n_fiducials} fiducials retained ({n_total_removed} removed)    ")
 
         return valid_fiducials, {
             "n_variance_filtered": n_removed_variance,
@@ -1486,10 +1465,7 @@ class Drift_Correction_Functions:
         max_frame = int(locs.frame.max())
 
         if not has_x_err or not has_y_err:
-            print(
-                f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.",
-                flush=True,
-            )
+            logger.warning(f"Warning: Error fields '{x_err_field}' or '{y_err_field}' not found. Using uniform weights.")
             has_x_err = has_y_err = False
 
         unique_frames = np.unique(locs.frame)
@@ -1536,11 +1512,7 @@ class Drift_Correction_Functions:
                     all_fiducial_weights_x[frame_indices, i] = 1.0
                     all_fiducial_weights_y[frame_indices, i] = 1.0
             else:
-                print(
-                    f"\rWarning: Fiducial cluster {i} has multiple localisations in the same frame. Skipping this cluster.    ",
-                    end="",
-                    flush=True,
-                )
+                logger.debug(f"\rWarning: Fiducial cluster {i} has multiple localisations in the same frame. Skipping this cluster.    ")
                 continue
 
         if np.all(np.isnan(all_corrected_x)):
@@ -1579,23 +1551,23 @@ class Drift_Correction_Functions:
 
         valid_frame_mask = np.logical_not(mask_x | mask_y)
 
-        print(f"\nDEBUG: Drift calculation results:")
-        print(f"  - Total unique frames in locs: {len(unique_frames)}")
-        print(f"  - drift_x type: {type(drift_x)}, shape: {np.shape(drift_x)}")
-        print(f"  - drift_y type: {type(drift_y)}, shape: {np.shape(drift_y)}")
-        print(f"  - mask_x sum (masked frames): {np.sum(mask_x)}")
-        print(f"  - mask_y sum (masked frames): {np.sum(mask_y)}")
-        print(f"  - valid_frame_mask sum: {np.sum(valid_frame_mask)}")
+        logger.info(f"\nDEBUG: Drift calculation results:")
+        logger.info(f"  - Total unique frames in locs: {len(unique_frames)}")
+        logger.info(f"  - drift_x type: {type(drift_x)}, shape: {np.shape(drift_x)}")
+        logger.info(f"  - drift_y type: {type(drift_y)}, shape: {np.shape(drift_y)}")
+        logger.info(f"  - mask_x sum (masked frames): {np.sum(mask_x)}")
+        logger.info(f"  - mask_y sum (masked frames): {np.sum(mask_y)}")
+        logger.info(f"  - valid_frame_mask sum: {np.sum(valid_frame_mask)}")
         if len(drift_x) > 0:
-            print(f"  - drift_x first 5 values: {drift_x[:5]}")
-            print(f"  - drift_y first 5 values: {drift_y[:5]}")
+            logger.info(f"  - drift_x first 5 values: {drift_x[:5]}")
+            logger.info(f"  - drift_y first 5 values: {drift_y[:5]}")
         if np.sum(valid_frame_mask) == 0:
-            print(f"  ⚠️ WARNING: No valid frames! All drift values are masked/NaN")
-            print(f"  - Checking all_corrected arrays:")
-            print(f"    - all_corrected_x shape: {all_corrected_x.shape}")
-            print(f"    - all_corrected_y shape: {all_corrected_y.shape}")
-            print(f"    - Non-NaN entries in all_corrected_x: {np.sum(~np.isnan(all_corrected_x))}")
-            print(f"    - Non-NaN entries in all_corrected_y: {np.sum(~np.isnan(all_corrected_y))}")
+            logger.info(f"  ⚠️ WARNING: No valid frames! All drift values are masked/NaN")
+            logger.info(f"  - Checking all_corrected arrays:")
+            logger.info(f"    - all_corrected_x shape: {all_corrected_x.shape}")
+            logger.info(f"    - all_corrected_y shape: {all_corrected_y.shape}")
+            logger.info(f"    - Non-NaN entries in all_corrected_x: {np.sum(~np.isnan(all_corrected_x))}")
+            logger.info(f"    - Non-NaN entries in all_corrected_y: {np.sum(~np.isnan(all_corrected_y))}")
 
         valid_frame_numbers = unique_frames[valid_frame_mask]
         valid_drift_x = np.asarray(drift_x[valid_frame_mask])
@@ -1661,12 +1633,8 @@ class Drift_Correction_Functions:
             ],
         }
 
-        print(f"Drift correction applied to {len(final_corrected_locs)} localisations")
-        print(
-            f"Used {len(valid_frame_numbers)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)"
-        )
-        print(
-            f"Average {np.mean(drift_info['n_fiducials_per_frame']):.1f} fiducials per frame"
-        )
+        logger.info(f"Drift correction applied to {len(final_corrected_locs)} localisations")
+        logger.info(f"Used {len(valid_frame_numbers)} frames with fiducials (out of {max_frame - min_frame + 1} total frames)")
+        logger.info(f"Average {np.mean(drift_info['n_fiducials_per_frame']):.1f} fiducials per frame")
 
         return final_corrected_locs, drift_info

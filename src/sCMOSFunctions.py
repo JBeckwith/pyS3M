@@ -19,6 +19,9 @@ from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import HelperFunctions
+import logging
+logger = logging.getLogger(__name__)
+
 
 try:
     import ProgressUtils
@@ -117,10 +120,8 @@ class sCMOS_Functions:
         if variance_map.shape != expected_shape:
             # Try transpose if dimensions are swapped
             if variance_map.shape == expected_shape[::-1]:
-                print(
-                    f"Warning: variance_map shape {variance_map.shape} doesn't match CFA spatial dimensions {expected_shape}."
-                )
-                print(f"Attempting transpose to fix dimension mismatch.")
+                logger.warning(f"Warning: variance_map shape {variance_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                logger.info(f"Attempting transpose to fix dimension mismatch.")
                 variance_map = variance_map.T
             else:
                 raise ValueError(
@@ -140,10 +141,8 @@ class sCMOS_Functions:
             if gain.shape != expected_shape:
                 # Try transpose if dimensions are swapped
                 if gain.shape == expected_shape[::-1]:
-                    print(
-                        f"Warning: gain shape {gain.shape} doesn't match CFA spatial dimensions {expected_shape}."
-                    )
-                    print(f"Attempting transpose to fix dimension mismatch.")
+                    logger.warning(f"Warning: gain shape {gain.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    logger.info(f"Attempting transpose to fix dimension mismatch.")
                     gain = gain.T
                 else:
                     raise ValueError(
@@ -163,10 +162,8 @@ class sCMOS_Functions:
             if offset_map.shape != expected_shape:
                 # Try transpose if dimensions are swapped
                 if offset_map.shape == expected_shape[::-1]:
-                    print(
-                        f"Warning: offset_map shape {offset_map.shape} doesn't match CFA spatial dimensions {expected_shape}."
-                    )
-                    print(f"Attempting transpose to fix dimension mismatch.")
+                    logger.warning(f"Warning: offset_map shape {offset_map.shape} doesn't match CFA spatial dimensions {expected_shape}.")
+                    logger.info(f"Attempting transpose to fix dimension mismatch.")
                     offset_map = offset_map.T
                 else:
                     raise ValueError(

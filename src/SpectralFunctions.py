@@ -29,6 +29,9 @@ from scipy.special import erf
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 import IOFunctions
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class SpectralDataType(Enum):
@@ -1123,10 +1126,7 @@ class Spectral_Funcs:
 
             except Exception as e:
                 # Log warning but continue processing other items
-                print(
-                    f"Warning: Failed to process {data_type.value} '{name}': {e}",
-                    flush=True,
-                )
+                logger.warning(f"Warning: Failed to process {data_type.value} '{name}': {e}")
                 continue
 
         return spectra

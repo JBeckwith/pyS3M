@@ -25,6 +25,9 @@ import SpotDetectionFunctions
 from PlottingBase import PublicationPlotter
 import sCMOSFunctions
 from Constants import ResultColumns, AnalysisConfig
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class SuperRes_Functions:
@@ -136,7 +139,7 @@ class SuperRes_Functions:
                 if len(values) == len(fit_results):
                     fit_results[f'spot_{key}'] = values
                 else:
-                    print(f"    WARNING: Skipping quality metric '{key}' due to length mismatch: {len(values)} != {len(fit_results)}")
+                    logger.info(f"    WARNING: Skipping quality metric '{key}' due to length mismatch: {len(values)} != {len(fit_results)}")
 
         # Fix frame numbers: replace with offset plane values for continuous numbering
         if len(planes) == len(fit_results):
@@ -528,9 +531,9 @@ class SuperRes_Functions:
             actual_frames_summed = end_frame - frame_index
 
             if actual_frames_summed < n_frames_sum:
-                print(f"Warning: Only {actual_frames_summed} frames available from frame {frame_index}, requested {n_frames_sum}")
+                logger.warning(f"Warning: Only {actual_frames_summed} frames available from frame {frame_index}, requested {n_frames_sum}")
 
-            print(f"Summing {actual_frames_summed} frames (frames {frame_index} to {end_frame - 1}) for spot detection")
+            logger.info(f"Summing {actual_frames_summed} frames (frames {frame_index} to {end_frame - 1}) for spot detection")
 
             # Load all frames at once and sum
             frames_to_load = list(range(frame_index, end_frame))
@@ -997,7 +1000,7 @@ class SuperRes_Functions:
 
         # Process each file independently
         for FOVn, file in enumerate(image_files):
-            print(f"\nFile {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+            logger.info(f"\nFile {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
 
             fit_savename = file.split(".")[0] + ".h5"
             total_frames = self.io.get_num_pages_in_TIF(file)
@@ -1042,7 +1045,7 @@ class SuperRes_Functions:
             n_detected = len(detected_puncta)
 
             if n_detected == 0:
-                print(f"  No spots detected, skipping")
+                logger.info(f"  No spots detected, skipping")
                 del summed_data, image_to_analyse, variance_summed, offset_summed
                 gc.collect()
                 continue
@@ -1074,12 +1077,12 @@ class SuperRes_Functions:
             gc.collect()
 
             if len(frames_to_fit) == 0:
-                print(f"  {n_detected} spots, 0 with change points, skipping")
+                logger.info(f"  {n_detected} spots, 0 with change points, skipping")
                 continue
 
             # PHASE 4: Fit spots at all frames up to change point
             total_rois = sum(len(frames) for frames in frames_to_fit.values())
-            print(f"  {n_detected} spots, {len(frames_to_fit)} with CPs, {total_rois} ROIs to fit")
+            logger.info(f"  {n_detected} spots, {len(frames_to_fit)} with CPs, {total_rois} ROIs to fit")
 
             # Accumulate ROIs for fitting
             puncta_tofit = []
@@ -1167,7 +1170,7 @@ class SuperRes_Functions:
                 del raw_data, photoelectrons, smoothed, weights_data
                 gc.collect()
 
-            print(f"  Accumulated {len(puncta_tofit)} ROIs for fitting")
+            logger.info(f"  Accumulated {len(puncta_tofit)} ROIs for fitting")
 
             if len(puncta_tofit) == 0:
                 continue
@@ -1207,7 +1210,7 @@ class SuperRes_Functions:
 
             # Save to HDF5 database
             self.io.write_h5_database(fit_df, fit_savename, append=False)
-            print(f"  Saved {len(fit_df)} fits to {os.path.basename(fit_savename)}")
+            logger.info(f"  Saved {len(fit_df)} fits to {os.path.basename(fit_savename)}")
 
             # Cleanup
             del (
@@ -1338,7 +1341,7 @@ class SuperRes_Functions:
 
         # Process each file independently
         for FOVn, file in enumerate(image_files):
-            print(f"\nProcessing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+            logger.info(f"\nProcessing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
 
             fit_savename = file.split(".")[0] + ".h5"
             total_frames = self.io.get_num_pages_in_TIF(file)
@@ -1382,10 +1385,10 @@ class SuperRes_Functions:
             gc.collect()
 
             if n_detected == 0:
-                print(f"  No spots detected, skipping")
+                logger.info(f"  No spots detected, skipping")
                 continue
 
-            print(f"  {n_detected} spots detected; fitting all {total_frames} frames")
+            logger.info(f"  {n_detected} spots detected; fitting all {total_frames} frames")
 
             # Pre-compute ROI bounds for all detected spots
             puncta_bounds = {}
@@ -1483,7 +1486,7 @@ class SuperRes_Functions:
                 )
                 gc.collect()
 
-            print(f"  Saved fits to {os.path.basename(fit_savename)}")
+            logger.info(f"  Saved fits to {os.path.basename(fit_savename)}")
 
         return
 
@@ -1650,16 +1653,14 @@ class SuperRes_Functions:
             all_planes = []
             all_quality_metrics = []  # NEW: Accumulate quality metrics
 
-            print(
-                f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}"
-            )
+            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}")
 
             # Process file in chunks
             for chunk_start in range(0, total_frames, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, total_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
 
-                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+                logger.info(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
                 # Load chunk of raw data
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
@@ -1734,7 +1735,7 @@ class SuperRes_Functions:
                     del buffer_data
                 gc.collect()
 
-            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+            logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
 
             # Move all data to final arrays for fitting
             puncta_tofit = all_puncta_tofit
@@ -1915,16 +1916,13 @@ class SuperRes_Functions:
             all_planes = []
             all_quality_metrics = []
 
-            print(
-                f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames "
-                f"in chunks of {chunk_size} (strategy: {strategy.value})"
-            )
+            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames " f"in chunks of {chunk_size} (strategy: {strategy.value})")
 
             for chunk_start in range(0, total_frames, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, total_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
 
-                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+                logger.info(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
 
@@ -1992,7 +1990,7 @@ class SuperRes_Functions:
                     del buffer_data
                 gc.collect()
 
-            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+            logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
 
             combined_quality_metrics = {}
             if len(all_quality_metrics) > 0:
@@ -2401,9 +2399,7 @@ class SuperRes_Functions:
             all_relative_coords = []
             all_planes = []
 
-            print(
-                f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}"
-            )
+            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}")
 
             # NEW: Accumulate quality metrics across chunks
             all_quality_metrics = []
@@ -2413,7 +2409,7 @@ class SuperRes_Functions:
                 chunk_end = min(chunk_start + chunk_size, file_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
 
-                print(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
+                logger.info(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
                 # Load chunk of raw data
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
@@ -2488,7 +2484,7 @@ class SuperRes_Functions:
                 del raw_data, detected_puncta, image_to_analyse
                 gc.collect()
 
-            print(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
+            logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
 
             # Move all data to final arrays for fitting
             puncta_tofit = all_puncta_tofit
@@ -2525,7 +2521,7 @@ class SuperRes_Functions:
                             combined_quality_metrics[key]
                         )
             else:
-                print("  WARNING: No quality metrics collected!")
+                logger.info("  WARNING: No quality metrics collected!")
 
             fit_results_array, fit_errors_array = (
                 self.image_analysis.fit_puncta_parallel_method(

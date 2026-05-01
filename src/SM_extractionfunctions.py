@@ -17,6 +17,9 @@ from Constants import DriftConstants, FilteringConstants, FilteringCriteria
 from clustering import HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
 from mixture_analysis import MixtureAnalysisMixin
 from channel_unmixing import ChannelUnmixingMixin
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
@@ -231,11 +234,7 @@ class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
             trace_matrix[i, :] = np.sum(
                 np.sum(image_stack[:, ymin:ymax, xmin:xmax], axis=-1), axis=-1
             )
-            print(
-                "Summed trace {}/{}".format(i + 1, len(labels)),
-                end="\r",
-                flush=True,
-            )
+            logger.debug("Summed trace {}/{}".format(i + 1, len(labels)))
 
         return locations, trace_matrix
 

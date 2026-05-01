@@ -10,6 +10,9 @@ import pandas as pd
 
 from Constants import FilteringConstants
 from sklearn.cluster import DBSCAN
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class DBSCANMixin:
@@ -64,13 +67,11 @@ class DBSCANMixin:
         )
 
         if len(loc_data) == 0:
-            print("Warning: No localizations remaining after filtering. Returning empty databases.")
+            logger.warning("Warning: No localizations remaining after filtering. Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         if len(loc_data) < min_cluster_size:
-            print(f"Warning: Only {len(loc_data)} localizations remaining after filtering, "
-                  f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. "
-                  f"Returning empty databases.")
+            logger.warning(f"Warning: Only {len(loc_data)} localizations remaining after filtering, " f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. " f"Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T

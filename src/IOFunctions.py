@@ -13,6 +13,9 @@ import pandas as pd
 import polars as pl
 import sys
 from copy import copy
+import logging
+logger = logging.getLogger(__name__)
+
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
@@ -99,32 +102,26 @@ class IO_Functions:
                 # Re-read entire file, sort by frame, and rewrite
                 # This ensures proper frame ordering for visualization
                 if verbose:
-                    print(
-                        f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}"
-                    )
+                    logger.info(f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}")
                 with pd.HDFStore(filepath, mode="r+") as store:
                     if "data" in store:
                         # Read all data
                         full_df = store["data"]
                         if verbose:
-                            print(f"  Read {len(full_df):,} total localizations")
+                            logger.info(f"  Read {len(full_df):,} total localizations")
 
                         # Sort by frame with stable sort to preserve order within frames
                         sorted_df = full_df.sort_values(
                             by="frame", kind="mergesort", ignore_index=True
                         ).reset_index(drop=True)
                         if verbose:
-                            print(
-                                f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})"
-                            )
+                            logger.info(f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})")
 
                         # Remove old data and write sorted data back
                         store.remove("data")
                         store.put("data", sorted_df, format="table")
                         if verbose:
-                            print(
-                                f"  Rewritten sorted data to {os.path.basename(filepath)}"
-                            )
+                            logger.info(f"  Rewritten sorted data to {os.path.basename(filepath)}")
             else:
                 df.to_hdf(filepath, key="data", format="table")
 
@@ -196,7 +193,7 @@ class IO_Functions:
                         df["frame"] = df["frame"] + max_existing_frame
         except Exception as e:
             # If anything goes wrong, log warning but continue without offset
-            print(f"Warning: Could not apply frame offset for {filepath}: {e}")
+            logger.warning(f"Warning: Could not apply frame offset for {filepath}: {e}")
 
         return df
 
@@ -216,7 +213,7 @@ class IO_Functions:
         if backup:
             backup_path = filepath.replace(".h5", "_backup.h5")
             shutil.copy2(filepath, backup_path)
-            print(f"Created backup: {backup_path}")
+            logger.info(f"Created backup: {backup_path}")
 
         # Read, sort, and rewrite the data
         df_sorted = None
@@ -224,25 +221,23 @@ class IO_Functions:
             with pd.HDFStore(filepath, mode="r") as store:
                 if "data" in store:
                     df = store["data"]
-                    print(f"Read {len(df):,} localizations")
+                    logger.info(f"Read {len(df):,} localizations")
 
                     # Sort by frame using mergesort for stability
                     df_sorted = df.sort_values(
                         by="frame", kind="mergesort", ignore_index=True
                     ).reset_index(drop=True)
-                    print(
-                        f"Sorted data by frame (range: {df_sorted['frame'].min()}-{df_sorted['frame'].max()})"
-                    )
+                    logger.info(f"Sorted data by frame (range: {df_sorted['frame'].min()}-{df_sorted['frame'].max()})")
 
             # Write sorted data back
             if df_sorted is not None:
                 df_sorted.to_hdf(filepath, key="data", format="table", mode="w")
-                print(f"Sorted HDF5 file saved: {filepath}")
+                logger.info(f"Sorted HDF5 file saved: {filepath}")
 
         except Exception as e:
-            print(f"Error sorting HDF5 file {filepath}: {e}")
+            logger.warning(f"Error sorting HDF5 file {filepath}: {e}")
             if backup and backup_path:
-                print(f"Restore from backup if needed: {backup_path}")
+                logger.info(f"Restore from backup if needed: {backup_path}")
 
     def _ensure_hdf5_compatibility(self, df, filepath):
         """
@@ -298,9 +293,7 @@ class IO_Functions:
                                     target_dtype
                                 )
                                 if target_dtype != existing_dtype:
-                                    print(
-                                        f"Note: Frame column upgrading from {existing_dtype} to {target_dtype} for large frame number support"
-                                    )
+                                    logger.info(f"Note: Frame column upgrading from {existing_dtype} to {target_dtype} for large frame number support")
                             else:
                                 df_compatible[col] = df_compatible[col].astype(
                                     existing_dtype
@@ -334,10 +327,7 @@ class IO_Functions:
                                         )
                                     else:
                                         # Can't convert to int - widen existing type to float
-                                        print(
-                                            f"Warning: Column '{col}' dtype mismatch ({existing_dtype} vs {new_dtype}). "
-                                            f"Values contain decimals, keeping as {new_dtype}"
-                                        )
+                                        logger.warning(f"Warning: Column '{col}' dtype mismatch ({existing_dtype} vs {new_dtype}). " f"Values contain decimals, keeping as {new_dtype}")
                                 else:
                                     df_compatible[col] = df_compatible[col].astype(
                                         existing_dtype
@@ -354,17 +344,15 @@ class IO_Functions:
                             )
 
                     except (ValueError, TypeError) as e:
-                        print(
-                            f"Warning: Could not convert column '{col}' from {new_dtype} to {existing_dtype}: {e}"
-                        )
-                        print(f"Keeping original dtype {new_dtype}")
+                        logger.warning(f"Warning: Could not convert column '{col}' from {new_dtype} to {existing_dtype}: {e}")
+                        logger.info(f"Keeping original dtype {new_dtype}")
                         # Keep original dtype if conversion fails
 
             return df_compatible
 
         except Exception as e:
-            print(f"Warning: Could not check HDF5 compatibility: {e}", flush=True)
-            print("Proceeding with original DataFrame", flush=True)
+            logger.warning(f"Warning: Could not check HDF5 compatibility: {e}")
+            logger.info("Proceeding with original DataFrame")
             return df
 
     def _write_csv_dataframe(self, df, filepath, append=False, normalise_photons=False):
@@ -644,7 +632,7 @@ class IO_Functions:
         Raises:
             RuntimeError: If no frames can be loaded successfully
         """
-        print(f"Opening TIFF with robust frame-by-frame reader...")
+        logger.info(f"Opening TIFF with robust frame-by-frame reader...")
 
         with tifffile.TiffFile(file_path) as tif:
             n_frames = len(tif.pages)
@@ -655,8 +643,8 @@ class IO_Functions:
             else:
                 frame_indices = list(frames)
 
-            print(f"Total frames in file: {n_frames}")
-            print(f"Attempting to load {len(frame_indices)} frame(s)")
+            logger.info(f"Total frames in file: {n_frames}")
+            logger.info(f"Attempting to load {len(frame_indices)} frame(s)")
 
             # Try to read first good frame to get shape
             first_frame = None
@@ -667,7 +655,7 @@ class IO_Functions:
                     first_idx = idx
                     break
                 except Exception as e:
-                    print(f"  Frame {idx}: FAILED ({type(e).__name__})")
+                    logger.warning(f"  Frame {idx}: FAILED ({type(e).__name__})")
                     continue
 
             if first_frame is None:
@@ -692,13 +680,13 @@ class IO_Functions:
                     successful_frames.append(idx)
                 except Exception as e:
                     # Frame is corrupted, fill with zeros
-                    print(f"  Frame {idx}: FAILED ({type(e).__name__}), filling with zeros")
+                    logger.info(f"  Frame {idx}: FAILED ({type(e).__name__}), filling with zeros")
                     failed_frames.append(idx)
                     images[i] = np.zeros(first_frame.shape, dtype=dtype)
 
-            print(f"Successfully loaded: {len(successful_frames)}/{len(frame_indices)} frames")
+            logger.info(f"Successfully loaded: {len(successful_frames)}/{len(frame_indices)} frames")
             if failed_frames:
-                print(f"Failed frames (filled with zeros): {failed_frames}")
+                logger.warning(f"Failed frames (filled with zeros): {failed_frames}")
 
             # Return single frame if only one requested
             if len(frame_indices) == 1:
@@ -798,9 +786,7 @@ class IO_Functions:
             raise  # out-of-range frame is an intentional EOF signal — don't recover
         except Exception as e:
             # Fallback to non-memmap if memory mapping fails
-            print(
-                f"Memory mapping failed for {file_path}, falling back to standard loading: {e}"
-            )
+            logger.info(f"Memory mapping failed for {file_path}, falling back to standard loading: {e}")
             if isinstance(frame, type(None)):
                 # Try standard loading for all frames
                 try:
@@ -809,8 +795,8 @@ class IO_Functions:
                         dtype=dtype,
                     )
                 except Exception as e2:
-                    print(f"Standard loading also failed: {e2}")
-                    print("Attempting frame-by-frame recovery...")
+                    logger.warning(f"Standard loading also failed: {e2}")
+                    logger.info("Attempting frame-by-frame recovery...")
                     image = self._read_tiff_robust(file_path, None, dtype)
             else:
                 if hasattr(frame, "__len__"):
@@ -827,8 +813,8 @@ class IO_Functions:
                             dtype=dtype,
                         )
                     except Exception as e2:
-                        print(f"Standard loading of frame list failed: {e2}")
-                        print("Attempting frame-by-frame recovery...")
+                        logger.warning(f"Standard loading of frame list failed: {e2}")
+                        logger.info("Attempting frame-by-frame recovery...")
                         image = self._read_tiff_robust(file_path, frame, dtype)
                 else:
                     # Try standard loading for single frame
@@ -846,8 +832,8 @@ class IO_Functions:
                     except IndexError:
                         raise  # out-of-range frame is an intentional EOF signal — don't recover
                     except Exception as e2:
-                        print(f"Standard loading of frame {frame} failed: {e2}")
-                        print("Attempting frame-by-frame recovery...")
+                        logger.warning(f"Standard loading of frame {frame} failed: {e2}")
+                        logger.info("Attempting frame-by-frame recovery...")
                         image = self._read_tiff_robust(file_path, [int(frame)], dtype)
         return image
 
@@ -902,9 +888,7 @@ class IO_Functions:
         if type(gain_map) is not float:
 
             if data.shape[-2:] != gain_map.shape:
-                print(
-                    "Gain and offset map not compatible with image dimensions. Defaulting to gain of 1 and offset of 0."
-                )
+                logger.info("Gain and offset map not compatible with image dimensions. Defaulting to gain of 1 and offset of 0.")
                 gain_map = 1.0
                 offset_map = 0.0
 
@@ -954,10 +938,7 @@ class IO_Functions:
 
         # Validate array shapes if any are arrays
         if gain_is_array and raw_data.shape[-2:] != gain_map.shape:
-            print(
-                "Gain and offset map not compatible with image dimensions. "
-                "Defaulting to gain of 1 and offset of 0."
-            )
+            logger.info("Gain and offset map not compatible with image dimensions. " "Defaulting to gain of 1 and offset of 0.")
             gain_map = 1.0
             offset_map = 0.0
             gain_is_array = False

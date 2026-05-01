@@ -1967,12 +1967,8 @@ class MultiC_Sim_Funcs_Refactored:
         # Determine appropriate bit depth based on actual data range
         if max_value > 65535 or min_value < 0:
             # Values exceed uint16 range, use float32 for full dynamic range
-            print(
-                f"WARNING: Pixel values exceed uint16 range (min: {min_value:.1f}, max: {max_value:.1f})"
-            )
-            print(
-                "Automatically using float32 bit depth to preserve high photon count data"
-            )
+            logger.warning(f"WARNING: Pixel values exceed uint16 range (min: {min_value:.1f}, max: {max_value:.1f})")
+            logger.info("Automatically using float32 bit depth to preserve high photon count data")
             bayer_image = bayer_image.astype(np.float32)
         elif max_value > 255:
             # Values exceed uint8 but fit in uint16
@@ -2305,20 +2301,10 @@ class MultiC_Sim_Funcs_Refactored:
 
                     done_count += 1
                     elapsed = (time.time() - start_total) / 60.0
-                    print(
-                        f"[{dye}] {done_count}/{total_combinations} "
-                        f"n_ph={n_photon} qy={peak_qy:.3f} rn={rn:.4f}  "
-                        f"elapsed {elapsed:.2f} min",
-                        end="\r",
-                        flush=True,
-                    )
+                    logger.debug(f"[{dye}] {done_count}/{total_combinations} " f"n_ph={n_photon} qy={peak_qy:.3f} rn={rn:.4f}  " f"elapsed {elapsed:.2f} min")
 
         total_elapsed = (time.time() - start_total) / 60.0
-        print(
-            f"\n[{dye}] 2-D sweep complete: {total_combinations} combinations  "
-            f"total time {total_elapsed:.3f} min",
-            flush=True,
-        )
+        logger.info(f"\n[{dye}] 2-D sweep complete: {total_combinations} combinations  " f"total time {total_elapsed:.3f} min")
 
     def test_simulation_method(
         self,
@@ -2476,7 +2462,7 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Handle overwrite mode
             if overwrite and os.path.exists(raw_results_h5_path):
-                print(f"Overwrite=True: Deleting existing results file: {os.path.basename(raw_results_h5_path)}")
+                logger.info(f"Overwrite=True: Deleting existing results file: {os.path.basename(raw_results_h5_path)}")
                 os.remove(raw_results_h5_path)
 
             # Check if we should skip existing results
@@ -2487,16 +2473,16 @@ class MultiC_Sim_Funcs_Refactored:
                     existing_data = self.io.read_h5_database(raw_results_h5_path)
                     if "photon_level" in existing_data.columns:
                         completed_photon_levels = set(existing_data["photon_level"].unique())
-                        print(f"Found existing results with {len(completed_photon_levels)} completed photon levels")
-                        print(f"Completed levels: {sorted(completed_photon_levels)}")
+                        logger.info(f"Found existing results with {len(completed_photon_levels)} completed photon levels")
+                        logger.info(f"Completed levels: {sorted(completed_photon_levels)}")
 
                         # If all photon levels are complete, notify and return
                         if len(completed_photon_levels) >= len(n_photon_space):
-                            print(f"All {len(n_photon_space)} photon levels already completed. Use overwrite=True to rerun.")
+                            logger.info(f"All {len(n_photon_space)} photon levels already completed. Use overwrite=True to rerun.")
                             return
                 except Exception as e:
-                    print(f"Warning: Could not read existing HDF5 file: {e}")
-                    print("Starting fresh simulation...")
+                    logger.warning(f"Warning: Could not read existing HDF5 file: {e}")
+                    logger.info("Starting fresh simulation...")
                     completed_photon_levels = set()
 
             # Save/update photon levels CSV
@@ -2537,7 +2523,7 @@ class MultiC_Sim_Funcs_Refactored:
         for i, n_photon in enumerate(n_photon_space):
             # Skip if this photon level was already completed
             if i in completed_photon_levels:
-                print(f"Skipping photon level {i} ({n_photon} photons) - already completed", flush=True)
+                logger.info(f"Skipping photon level {i} ({n_photon} photons) - already completed")
                 continue
 
             n_photons = {"dye": np.full(config.n_bootstrap, n_photon)}
@@ -2657,18 +2643,11 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Progress update - use carriage return to update in place
             elapsed = (time.time() - start) / 60.0
-            print(
-                f"Analysed photon flux {i + 1}/{len(n_photon_space)}    Time elapsed: {elapsed:.3f} min",
-                end="\r",
-                flush=True,
-            )
+            logger.debug(f"Analysed photon flux {i + 1}/{len(n_photon_space)}    Time elapsed: {elapsed:.3f} min")
 
         # Clear the progress line and show completion
         total_elapsed = (time.time() - start) / 60.0
-        print(
-            f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min",
-            flush=True,
-        )
+        logger.info(f"\nCompleted analysis of {len(n_photon_space)} photon flux values    Total time: {total_elapsed:.3f} min")
 
         # Save final results
         if config.save_summary_csvs:
@@ -3559,16 +3538,16 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         from itertools import combinations
 
         if verbose:
-            print("="*60)
-            print("OPTIMAL DYE SELECTION VIA SIMULATION")
-            print("="*60)
+            logger.info("="*60)
+            logger.info("OPTIMAL DYE SELECTION VIA SIMULATION")
+            logger.info("="*60)
 
         if pixel_size is None:
             pixel_size = self.pixel_size * 1000  # µm → nm
 
         # Step 1: Filter by photon threshold
         if verbose:
-            print(f"\nStep 1: Filtering dyes (min {min_photons_per_100ms} photons/100ms)...")
+            logger.info(f"\nStep 1: Filtering dyes (min {min_photons_per_100ms} photons/100ms)...")
 
         filtered = self._filter_dyes_by_photons(
             potential_dyes,
@@ -3584,17 +3563,17 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         viable_dyes = filtered['viable_dyes']
 
         if verbose:
-            print(f"  {len(potential_dyes)} candidates -> {len(viable_dyes)} viable dyes")
+            logger.info(f"  {len(potential_dyes)} candidates -> {len(viable_dyes)} viable dyes")
             rejected = set(potential_dyes) - set(viable_dyes)
             if rejected:
-                print(f"  Rejected: {rejected}")
+                logger.info(f"  Rejected: {rejected}")
 
         if len(viable_dyes) < n_dyes_desired:
             raise ValueError(f"Only {len(viable_dyes)} viable dyes, but {n_dyes_desired} requested!")
 
         # Step 2 & 3: Simulate all viable dyes
         if verbose:
-            print(f"\nStep 2-3: Simulating {n_simulations} molecules per dye...")
+            logger.info(f"\nStep 2-3: Simulating {n_simulations} molecules per dye...")
 
         dye_simulations = {}
         dye_gaussians = {}
@@ -3603,7 +3582,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
             if verbose:
                 source = filtered['expected_photons'][dye_name]
                 detector = filtered['expected_photons_at_detector'][dye_name]
-                print(f"  Simulating {dye_name} ({source:.0f} source / {detector:.0f} detector photons)...")
+                logger.info(f"  Simulating {dye_name} ({source:.0f} source / {detector:.0f} detector photons)...")
 
             color_data = self._simulate_dye_color_distributions(
                 dye_name,
@@ -3627,20 +3606,20 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
 
             if verbose:
                 success_rate = gaussian_params['n_valid'] / n_simulations * 100
-                print(f"    Fit success: {gaussian_params['n_valid']}/{n_simulations} ({success_rate:.1f}%)")
-                print(f"    Mean (A_R, A_G): ({gaussian_params['mean'][0]:.3f}, {gaussian_params['mean'][1]:.3f})")
-                print(f"    Std  (A_R, A_G): ({gaussian_params['std_A_R']:.3f}, {gaussian_params['std_A_G']:.3f})")
+                logger.info(f"    Fit success: {gaussian_params['n_valid']}/{n_simulations} ({success_rate:.1f}%)")
+                logger.info(f"    Mean (A_R, A_G): ({gaussian_params['mean'][0]:.3f}, {gaussian_params['mean'][1]:.3f})")
+                logger.info(f"    Std  (A_R, A_G): ({gaussian_params['std_A_R']:.3f}, {gaussian_params['std_A_G']:.3f})")
 
         # Step 5-6: Find optimal combination
         if verbose:
-            print(f"\nStep 4-6: Searching for optimal {n_dyes_desired}-dye combination...")
+            logger.info(f"\nStep 4-6: Searching for optimal {n_dyes_desired}-dye combination...")
 
         if exhaustive_search:
             # Test all combinations
             all_combos = list(combinations(viable_dyes, n_dyes_desired))
 
             if verbose:
-                print(f"  Testing all {len(all_combos)} combinations (exhaustive search)...")
+                logger.info(f"  Testing all {len(all_combos)} combinations (exhaustive search)...")
 
             results = []
             for combo in all_combos:
@@ -3663,7 +3642,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         else:
             # Greedy selection: iteratively add the dye that maximizes separability
             if verbose:
-                print(f"  Using greedy selection algorithm...")
+                logger.info(f"  Using greedy selection algorithm...")
 
             selected = []
             remaining = viable_dyes.copy()
@@ -3686,7 +3665,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
             remaining = [d for d in remaining if d not in selected]
 
             if verbose:
-                print(f"    Initial pair: {selected} (accuracy: {best_pair_acc:.3f})")
+                logger.info(f"    Initial pair: {selected} (accuracy: {best_pair_acc:.3f})")
 
             # Iteratively add dyes
             while len(selected) < n_dyes_desired:
@@ -3709,7 +3688,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
                 remaining.remove(best_dye)
 
                 if verbose:
-                    print(f"    Added {best_dye} -> {selected} (accuracy: {best_acc:.3f})")
+                    logger.info(f"    Added {best_dye} -> {selected} (accuracy: {best_acc:.3f})")
 
             # Get final statistics
             final_stats = self._calculate_dye_separability(
@@ -3727,18 +3706,18 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
 
         # Prepare return dict
         if verbose:
-            print("\n" + "="*60)
-            print("RESULTS")
-            print("="*60)
-            print(f"Selected dyes: {best_result['dyes']}")
-            print(f"Overall accuracy: {best_result['accuracy']:.3f}")
-            print(f"\nConfusion Matrix:")
-            print(best_result['stats']['confusion_matrix'])
-            print(f"\nExpected photons (source/detector):")
+            logger.info("\n" + "="*60)
+            logger.info("RESULTS")
+            logger.info("="*60)
+            logger.info(f"Selected dyes: {best_result['dyes']}")
+            logger.info(f"Overall accuracy: {best_result['accuracy']:.3f}")
+            logger.info(f"\nConfusion Matrix:")
+            logger.info(best_result['stats']['confusion_matrix'])
+            logger.info(f"\nExpected photons (source/detector):")
             for dye in best_result['dyes']:
                 source = filtered['expected_photons'][dye]
                 detector = filtered['expected_photons_at_detector'][dye]
-                print(f"  {dye}: {source:.0f} / {detector:.0f}")
+                logger.info(f"  {dye}: {source:.0f} / {detector:.0f}")
 
         # Decide which dyes to include in returned data
         if return_all_simulations:

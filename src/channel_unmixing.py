@@ -11,6 +11,9 @@ from scipy.stats import multivariate_normal
 from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import KDTree
+import logging
+logger = logging.getLogger(__name__)
+
 
 try:
     from fast_hdbscan import HDBSCAN
@@ -150,13 +153,13 @@ class ChannelUnmixingMixin:
             >>> print(f"Channel 1: {metadata['n_assigned'][1]} locs")
         """
         if verbose:
-            print("=" * 70)
-            print("Channel Unmixing")
-            print("=" * 70)
-            print(f"Input: {len(loc_data)} localizations")
-            print(f"Channels: {n_channels}")
-            print(f"Features: {channels_to_use}")
-            print()
+            logger.info("=" * 70)
+            logger.info("Channel Unmixing")
+            logger.info("=" * 70)
+            logger.info(f"Input: {len(loc_data)} localizations")
+            logger.info(f"Channels: {n_channels}")
+            logger.info(f"Features: {channels_to_use}")
+            logger.info()
 
         # ===== Phase 1: Input Validation and Preprocessing =====
         # Check required columns
@@ -173,8 +176,8 @@ class ChannelUnmixingMixin:
 
         if missing_errors:
             if verbose:
-                print(f"Missing error columns: {missing_errors}")
-                print("Attempting to auto-generate errors...")
+                logger.info(f"Missing error columns: {missing_errors}")
+                logger.info("Attempting to auto-generate errors...")
 
             for error_col in missing_errors:
                 # Extract base column name (remove '_err' suffix)
@@ -185,15 +188,15 @@ class ChannelUnmixingMixin:
                     loc_data_work[error_col] = np.sqrt(np.maximum(loc_data_work[base_col].values, 1))
                     if verbose:
                         mean_err = loc_data_work[error_col].mean()
-                        print(f"  {error_col}: Generated from Poisson statistics (mean={mean_err:.2f})")
+                        logger.info(f"  {error_col}: Generated from Poisson statistics (mean={mean_err:.2f})")
                 elif base_col in loc_data_work.columns:
                     # For other columns, use a small fraction of the value as error estimate
                     # This is a conservative guess - user should provide real errors if possible
                     loc_data_work[error_col] = loc_data_work[base_col].values * 0.05  # 5% relative error
                     if verbose:
                         mean_err = loc_data_work[error_col].mean()
-                        print(f"  {error_col}: Estimated as 5% of {base_col} (mean={mean_err:.4f})")
-                        print(f"    WARNING: Using estimated errors. Provide measured errors for better results.")
+                        logger.info(f"  {error_col}: Estimated as 5% of {base_col} (mean={mean_err:.4f})")
+                        logger.info(f"    WARNING: Using estimated errors. Provide measured errors for better results.")
                 else:
                     raise ValueError(f"Cannot auto-generate error for '{error_col}': column '{base_col}' not found")
 
@@ -202,17 +205,15 @@ class ChannelUnmixingMixin:
         n_features = X.shape[1]
 
         if verbose:
-            print(f"Feature matrix: {X.shape}")
-            print(f"Feature ranges:")
+            logger.info(f"Feature matrix: {X.shape}")
+            logger.info(f"Feature ranges:")
             for i, col in enumerate(channels_to_use):
-                print(
-                    f"  {col}: [{X[:, i].min():.3f}, {X[:, i].max():.3f}], mean={X[:, i].mean():.3f}"
-                )
-            print()
+                logger.info(f"  {col}: [{X[:, i].min():.3f}, {X[:, i].max():.3f}], mean={X[:, i].mean():.3f}")
+            logger.info()
 
         # ===== Phase 2: Initial Guess for Channel Means =====
         if verbose:
-            print(f"Finding initial channel means (method: {initial_guess_method})...")
+            logger.info(f"Finding initial channel means (method: {initial_guess_method})...")
 
         if n_features == 1:
             # 1D case
@@ -233,19 +234,19 @@ class ChannelUnmixingMixin:
             initial_means = kmeans.cluster_centers_
 
         if verbose:
-            print(f"Initial means:")
+            logger.info(f"Initial means:")
             for k in range(n_channels):
                 mean_str = ", ".join(
                     [f"{channels_to_use[i]}={initial_means[k, i]:.3f}" for i in range(n_features)]
                 )
-                print(f"  Channel {k}: {mean_str}")
-            print()
+                logger.info(f"  Channel {k}: {mean_str}")
+            logger.info()
 
         # ===== Phase 2.5: Estimate Initial Covariances =====
         # Two-stage initialization: means from histograms, covariances from data
         if initial_guess_method == "histogram_peaks":
             if verbose:
-                print("Estimating initial covariances from core regions (conservative)...")
+                logger.info("Estimating initial covariances from core regions (conservative)...")
 
             # Extract error matrix if available (now works for any n_features)
             error_cols = [f"{col}_err" for col in channels_to_use]
@@ -266,8 +267,8 @@ class ChannelUnmixingMixin:
                     # Calculate standard deviations along principal axes
                     eigvals = np.linalg.eigvalsh(initial_covariances[k])
                     sigma_str = ", ".join([f"σ{i+1}={np.sqrt(eigvals[i]):.3f}" for i in range(n_features)])
-                    print(f"  Channel {k}: det(cov)={det_k:.6f}, {sigma_str}")
-                print()
+                    logger.info(f"  Channel {k}: det(cov)={det_k:.6f}, {sigma_str}")
+                logger.info()
 
             # Create diagnostic plot showing initial guess (only for 2D)
             if plot_results and n_features == 2:
@@ -276,7 +277,7 @@ class ChannelUnmixingMixin:
                 )
             elif plot_results and n_features > 2:
                 if verbose:
-                    print(f"  Skipping initial guess plot (only available for 2D, current: {n_features}D)")
+                    logger.info(f"  Skipping initial guess plot (only available for 2D, current: {n_features}D)")
         else:
             initial_covariances = None
 
@@ -296,23 +297,23 @@ class ChannelUnmixingMixin:
                 # Use pygmmis Extreme Deconvolution (theoretically optimal for per-point errors)
                 actual_method = "extreme_deconvolution"
                 if verbose:
-                    print(f"Fitting GMM (method: EM → Extreme Deconvolution, covariance: {covariance_type})...")
-                    print(f"  Auto-selected pygmmis (error columns detected)")
-                    print(f"  Mean errors: {X_err.mean(axis=0)}")
+                    logger.info(f"Fitting GMM (method: EM → Extreme Deconvolution, covariance: {covariance_type})...")
+                    logger.info(f"  Auto-selected pygmmis (error columns detected)")
+                    logger.info(f"  Mean errors: {X_err.mean(axis=0)}")
             else:
                 # Use sklearn EM (no errors available)
                 actual_method = "sklearn_EM"
                 if verbose:
-                    print(f"Fitting GMM (method: EM → sklearn, covariance: {covariance_type})...")
-                    print("  No error columns found, using sklearn EM without error weighting")
+                    logger.info(f"Fitting GMM (method: EM → sklearn, covariance: {covariance_type})...")
+                    logger.info("  No error columns found, using sklearn EM without error weighting")
         else:
             actual_method = gmm_fit_method
             if verbose:
-                print(f"Fitting GMM (method: {gmm_fit_method}, covariance: {covariance_type})...")
+                logger.info(f"Fitting GMM (method: {gmm_fit_method}, covariance: {covariance_type})...")
                 if has_errors:
-                    print(f"  Error columns available (mean errors: {X_err.mean(axis=0)})")
+                    logger.info(f"  Error columns available (mean errors: {X_err.mean(axis=0)})")
                 else:
-                    print("  No error columns found")
+                    logger.info("  No error columns found")
 
         if actual_method == "sklearn_EM":
             # Use sklearn GMM without error weighting (pure EM)
@@ -440,8 +441,8 @@ class ChannelUnmixingMixin:
                 eigvals = np.linalg.eigvalsh(covariances[k])
                 if np.min(eigvals) <= 0:
                     if verbose:
-                        print(f"  Warning: Channel {k} covariance not positive definite (min eigenvalue={np.min(eigvals):.2e})")
-                        print(f"           Adding regularization...")
+                        logger.info(f"  Warning: Channel {k} covariance not positive definite (min eigenvalue={np.min(eigvals):.2e})")
+                        logger.info(f"           Adding regularization...")
                     # Add regularization
                     diag_mean = np.mean(np.diag(covariances[k]))
                     reg_amount = np.abs(np.min(eigvals)) + np.maximum(1e-6, diag_mean * 1e-3)
@@ -457,26 +458,26 @@ class ChannelUnmixingMixin:
             gmm = None
 
             if verbose:
-                print("Using fixed initial guess (no EM refinement)")
+                logger.info("Using fixed initial guess (no EM refinement)")
 
         else:
             raise ValueError(f"Unknown gmm_fit_method: {gmm_fit_method}")
 
         if verbose:
             status = "converged" if converged else "did not converge"
-            print(f"GMM fitting: {status}")
-            print(f"Fitted means:")
+            logger.info(f"GMM fitting: {status}")
+            logger.info(f"Fitted means:")
             for k in range(n_channels):
                 mean_str = ", ".join(
                     [f"{channels_to_use[i]}={means[k, i]:.3f}" for i in range(n_features)]
                 )
                 weight_pct = weights[k] * 100
-                print(f"  Channel {k}: {mean_str} (weight: {weight_pct:.1f}%)")
-            print()
+                logger.info(f"  Channel {k}: {mean_str} (weight: {weight_pct:.1f}%)")
+            logger.info()
 
         # ===== Phase 4: Channel Assignment with Confidence =====
         if verbose:
-            print("Calculating posterior probabilities and assignments...")
+            logger.info("Calculating posterior probabilities and assignments...")
 
         # Calculate posterior probabilities
         n_locs = len(X)
@@ -500,28 +501,24 @@ class ChannelUnmixingMixin:
         # Calculate analytical confusion matrix if FPR specified
         if false_positive_rate is not None:
             if verbose:
-                print(
-                    f"Calculating analytical FPR to determine confidence threshold (target: {false_positive_rate:.3f})..."
-                )
+                logger.info(f"Calculating analytical FPR to determine confidence threshold (target: {false_positive_rate:.3f})...")
 
             stats = self.calculate_analytical_misidentification(
                 means, covariances, weights, n_samples=10000, random_state=42
             )
 
             if verbose:
-                print(f"Analytical accuracy: {stats['overall_accuracy']:.3f}")
-                print(f"Confusion matrix:")
-                print(stats["confusion_matrix"])
-                print()
+                logger.info(f"Analytical accuracy: {stats['overall_accuracy']:.3f}")
+                logger.info(f"Confusion matrix:")
+                logger.info(stats["confusion_matrix"])
+                logger.info()
 
             # Use simple threshold based on FPR
             # Higher FPR tolerance → lower threshold → more assignments
             confidence_threshold = 1.0 - (false_positive_rate / n_channels)
 
             if verbose:
-                print(
-                    f"Setting confidence threshold to {confidence_threshold:.3f} (from FPR={false_positive_rate:.3f})"
-                )
+                logger.info(f"Setting confidence threshold to {confidence_threshold:.3f} (from FPR={false_positive_rate:.3f})")
 
         # Apply confidence threshold
         is_assigned = confidence >= confidence_threshold
@@ -533,7 +530,7 @@ class ChannelUnmixingMixin:
 
         if outlier_rejection == "mahalanobis":
             if verbose:
-                print("Applying Mahalanobis distance outlier rejection...")
+                logger.info("Applying Mahalanobis distance outlier rejection...")
 
             from scipy.stats import chi2
 
@@ -564,9 +561,7 @@ class ChannelUnmixingMixin:
 
             if verbose:
                 n_outliers = is_outlier.sum()
-                print(
-                    f"  Outliers detected: {n_outliers} ({100*n_outliers/n_locs:.2f}%, threshold={outlier_threshold:.2f})"
-                )
+                logger.info(f"  Outliers detected: {n_outliers} ({100*n_outliers/n_locs:.2f}%, threshold={outlier_threshold:.2f})")
 
         else:
             # Calculate Mahalanobis distance anyway for diagnostics
@@ -623,17 +618,17 @@ class ChannelUnmixingMixin:
             metadata["false_positive_rates"] = 1.0 - np.diag(stats["confusion_matrix"])
 
         if verbose:
-            print("\n" + "=" * 70)
-            print("Unmixing Complete")
-            print("=" * 70)
-            print(f"Assignments:")
+            logger.info("\n" + "=" * 70)
+            logger.info("Unmixing Complete")
+            logger.info("=" * 70)
+            logger.info(f"Assignments:")
             for k in range(n_channels):
                 n_k = n_assigned_per_channel[k]
                 pct_k = 100 * n_k / n_locs
-                print(f"  Channel {k}: {n_k:,} ({pct_k:.1f}%)")
+                logger.info(f"  Channel {k}: {n_k:,} ({pct_k:.1f}%)")
             pct_unassigned = 100 * n_unassigned / n_locs
-            print(f"  Unassigned: {n_unassigned:,} ({pct_unassigned:.1f}%)")
-            print()
+            logger.info(f"  Unassigned: {n_unassigned:,} ({pct_unassigned:.1f}%)")
+            logger.info()
 
         # ===== Phase 7: Diagnostic Plotting =====
         if plot_results:
@@ -984,19 +979,19 @@ class ChannelUnmixingMixin:
             >>> print(f"Recovered: {meta['n_recovered_total']} locs")
         """
         if verbose:
-            print("=" * 80)
-            print("Hierarchical Spatial-Spectral Channel Unmixing")
-            print("=" * 80)
-            print(f"Input: {len(loc_data):,} localizations")
-            print(f"Channels: {n_channels}")
-            print(f"Features: {channels_to_use}")
-            print()
+            logger.info("=" * 80)
+            logger.info("Hierarchical Spatial-Spectral Channel Unmixing")
+            logger.info("=" * 80)
+            logger.info(f"Input: {len(loc_data):,} localizations")
+            logger.info(f"Channels: {n_channels}")
+            logger.info(f"Features: {channels_to_use}")
+            logger.info()
 
         # ===== STEP 1: Initial Conservative Spectral Unmixing =====
         if verbose:
-            print("=" * 80)
-            print("STEP 1: Initial Spectral Unmixing (Conservative Seeds)")
-            print("=" * 80)
+            logger.info("=" * 80)
+            logger.info("STEP 1: Initial Spectral Unmixing (Conservative Seeds)")
+            logger.info("=" * 80)
 
         assigned_initial, metadata = self.unmix_channels(
             loc_data,
@@ -1027,17 +1022,17 @@ class ChannelUnmixingMixin:
         n_unassigned_initial = (assigned_initial['channel'] == -1).sum()
 
         if verbose:
-            print(f"\nInitial assignments (confidence ≥ {confidence_threshold_initial}):")
+            logger.info(f"\nInitial assignments (confidence ≥ {confidence_threshold_initial}):")
             for k in range(n_channels):
-                print(f"  Channel {k}: {n_assigned_initial[k]:,} locs")
-            print(f"  Unassigned: {n_unassigned_initial:,} locs")
-            print()
+                logger.info(f"  Channel {k}: {n_assigned_initial[k]:,} locs")
+            logger.info(f"  Unassigned: {n_unassigned_initial:,} locs")
+            logger.info()
 
         # ===== STEP 2: Spatial Clustering Per Channel =====
         if verbose:
-            print("=" * 80)
-            print("STEP 2: Spatial Clustering of Seeds (per channel)")
-            print("=" * 80)
+            logger.info("=" * 80)
+            logger.info("STEP 2: Spatial Clustering of Seeds (per channel)")
+            logger.info("=" * 80)
 
         # Auto-calculate spatial epsilon from seed localizations
         spatial_eps, puncta_per_channel, spatial_cluster_ids = self._cluster_seeds_spatially(
@@ -1056,9 +1051,9 @@ class ChannelUnmixingMixin:
 
         if n_puncta_total >= n_channels:
             if verbose:
-                print("=" * 80)
-                print("STEP 2.5: Refine Spectral Model from Puncta")
-                print("=" * 80)
+                logger.info("=" * 80)
+                logger.info("STEP 2.5: Refine Spectral Model from Puncta")
+                logger.info("=" * 80)
 
             # Refine spectral model using puncta-based statistics
             means, covariances, weights = self._refine_spectral_model_from_puncta(
@@ -1073,24 +1068,24 @@ class ChannelUnmixingMixin:
             )
 
             if verbose:
-                print()
+                logger.info()
         else:
             if verbose:
-                print("=" * 80)
-                print(f"STEP 2.5: Skipping spectral refinement (only {n_puncta_total} puncta)")
-                print("=" * 80)
-                print()
+                logger.info("=" * 80)
+                logger.info(f"STEP 2.5: Skipping spectral refinement (only {n_puncta_total} puncta)")
+                logger.info("=" * 80)
+                logger.info()
 
         # ===== STEP 3: Hierarchical Iterative Refinement =====
         if verbose:
-            print("=" * 80)
-            print("STEP 3: Hierarchical Spatial-Spectral Refinement")
-            print("=" * 80)
-            print(f"Spectral thresholds:")
-            print(f"  Clear regions (1 channel nearby):    {confidence_threshold_clear:.2f}")
-            print(f"  Overlap regions (2+ channels nearby): {confidence_threshold_overlap:.2f}")
-            print(f"(Higher threshold in overlap regions accounts for spatial ambiguity)")
-            print()
+            logger.info("=" * 80)
+            logger.info("STEP 3: Hierarchical Spatial-Spectral Refinement")
+            logger.info("=" * 80)
+            logger.info(f"Spectral thresholds:")
+            logger.info(f"  Clear regions (1 channel nearby):    {confidence_threshold_clear:.2f}")
+            logger.info(f"  Overlap regions (2+ channels nearby): {confidence_threshold_overlap:.2f}")
+            logger.info(f"(Higher threshold in overlap regions accounts for spatial ambiguity)")
+            logger.info()
 
         # Calculate posterior probabilities for ALL localizations
         X = loc_data[channels_to_use].values
@@ -1147,15 +1142,15 @@ class ChannelUnmixingMixin:
         }
 
         if verbose:
-            print("=" * 80)
-            print("Refinement Complete")
-            print("=" * 80)
-            print(f"\nFinal assignments:")
+            logger.info("=" * 80)
+            logger.info("Refinement Complete")
+            logger.info("=" * 80)
+            logger.info(f"\nFinal assignments:")
             for k in range(n_channels):
-                print(f"  Channel {k}: {n_assigned_final[k]:,} locs (+{n_recovered[k]:,} from refinement)")
-            print(f"  Unassigned: {n_unassigned_final:,} locs")
-            print(f"\nTotal recovered: {n_recovered_total:,} locs ({100*n_recovered_total/len(loc_data):.2f}%)")
-            print()
+                logger.info(f"  Channel {k}: {n_assigned_final[k]:,} locs (+{n_recovered[k]:,} from refinement)")
+            logger.info(f"  Unassigned: {n_unassigned_final:,} locs")
+            logger.info(f"\nTotal recovered: {n_recovered_total:,} locs ({100*n_recovered_total/len(loc_data):.2f}%)")
+            logger.info()
 
         # ===== STEP 5: Diagnostic Plotting =====
         if plot_results:
@@ -1207,12 +1202,12 @@ class ChannelUnmixingMixin:
         epsilon_pixels = spatial_eps * base_scale
 
         if verbose:
-            print(f"Spatial clustering scale:")
-            print(f"  Base scale (mean of median errors) = {base_scale:.4f} pixels")
-            print(f"    median(xc_err) = {median_xc_err:.4f}, median(yc_err) = {median_yc_err:.4f}")
-            print(f"  spatial_eps multiplier = {spatial_eps:.2f}")
-            print(f"  Effective epsilon = {epsilon_pixels:.4f} pixels")
-            print()
+            logger.info(f"Spatial clustering scale:")
+            logger.info(f"  Base scale (mean of median errors) = {base_scale:.4f} pixels")
+            logger.info(f"    median(xc_err) = {median_xc_err:.4f}, median(yc_err) = {median_yc_err:.4f}")
+            logger.info(f"  spatial_eps multiplier = {spatial_eps:.2f}")
+            logger.info(f"  Effective epsilon = {epsilon_pixels:.4f} pixels")
+            logger.info()
 
         # Perform spatial clustering for each channel
         spatial_cluster_ids = np.full(len(assigned_initial), -1, dtype=int)
@@ -1224,7 +1219,7 @@ class ChannelUnmixingMixin:
 
             if len(channel_k_locs) < min_cluster_size:
                 if verbose:
-                    print(f"Channel {k}: Too few locs ({len(channel_k_locs)}), skipping")
+                    logger.info(f"Channel {k}: Too few locs ({len(channel_k_locs)}), skipping")
                 puncta_per_channel[k] = 0
                 continue
 
@@ -1243,7 +1238,7 @@ class ChannelUnmixingMixin:
                 raise ValueError(f"Unknown spatial_method: {spatial_method}")
 
             if verbose and k == 0:  # Only print once
-                print(f"  Clustering method: {method_info}")
+                logger.info(f"  Clustering method: {method_info}")
 
             cluster_labels = clusterer.fit_predict(X_spatial)
 
@@ -1272,12 +1267,12 @@ class ChannelUnmixingMixin:
                 n_filtered = n_raw_clusters - n_puncta_k
                 n_in_valid = sum(1 for lbl in cluster_labels if lbl in valid_puncta)
 
-                print(f"Channel {k}: {n_puncta_k} valid puncta (≥{min_cluster_size} locs each)")
+                logger.info(f"Channel {k}: {n_puncta_k} valid puncta (≥{min_cluster_size} locs each)")
                 if n_filtered > 0:
-                    print(f"  Filtered out {n_filtered} small clusters")
-                print(f"  In valid puncta: {n_in_valid:,} locs")
-                print(f"  Noise/small clusters: {len(channel_k_locs) - n_in_valid:,} locs")
-                print()
+                    logger.info(f"  Filtered out {n_filtered} small clusters")
+                logger.info(f"  In valid puncta: {n_in_valid:,} locs")
+                logger.info(f"  Noise/small clusters: {len(channel_k_locs) - n_in_valid:,} locs")
+                logger.info()
 
         return epsilon_pixels, puncta_per_channel, spatial_cluster_ids
 
@@ -1341,7 +1336,7 @@ class ChannelUnmixingMixin:
 
             if n_locs_k < min_locs_per_channel:
                 if verbose:
-                    print(f"  Channel {k}: Only {n_locs_k} locs in puncta (< {min_locs_per_channel}), keeping original GMM parameters")
+                    logger.info(f"  Channel {k}: Only {n_locs_k} locs in puncta (< {min_locs_per_channel}), keeping original GMM parameters")
                 # Keep original GMM parameters (safety)
                 refined_weights[k] = original_weights[k]
                 continue
@@ -1364,9 +1359,9 @@ class ChannelUnmixingMixin:
             refined_weights[k] = n_locs_k
 
             if verbose:
-                print(f"  Channel {k}: Refined from {n_locs_k:,} locs in puncta")
-                print(f"    Original mean: {original_means[k]}")
-                print(f"    Refined mean:  {refined_means[k]}")
+                logger.info(f"  Channel {k}: Refined from {n_locs_k:,} locs in puncta")
+                logger.info(f"    Original mean: {original_means[k]}")
+                logger.info(f"    Refined mean:  {refined_means[k]}")
 
         # Normalize weights
         if refined_weights.sum() > 0:
@@ -1437,10 +1432,10 @@ class ChannelUnmixingMixin:
             if len(punctum_centers) > 0:
                 puncta_kdtrees[k] = KDTree(np.array(punctum_centers))
                 if verbose:
-                    print(f"Channel {k}: Built KDTree with {len(punctum_centers)} punctum centers")
+                    logger.info(f"Channel {k}: Built KDTree with {len(punctum_centers)} punctum centers")
 
         if verbose:
-            print()
+            logger.info()
 
         return puncta_kdtrees, puncta_members
 
@@ -1487,11 +1482,11 @@ class ChannelUnmixingMixin:
 
             if n_unassigned == 0:
                 if verbose:
-                    print(f"Iteration {iteration}: No unassigned locs remaining, stopping.")
+                    logger.info(f"Iteration {iteration}: No unassigned locs remaining, stopping.")
                 break
 
             if verbose:
-                print(f"Iteration {iteration}: Testing {n_unassigned:,} unassigned locs...")
+                logger.info(f"Iteration {iteration}: Testing {n_unassigned:,} unassigned locs...")
 
             # VECTORIZED APPROACH: Query all unassigned locs at once per channel
             # Performance: Instead of n_locs × n_channels individual queries,
@@ -1575,23 +1570,23 @@ class ChannelUnmixingMixin:
                 assigned_current.loc[idx, 'is_spatial_overlap'] = is_overlap
 
             if verbose:
-                print(f"  Assigned {n_new:,} locs ({n_new_clear:,} clear + {n_new_overlap:,} overlap)")
+                logger.info(f"  Assigned {n_new:,} locs ({n_new_clear:,} clear + {n_new_overlap:,} overlap)")
                 for k in range(n_channels):
                     n_k_new = sum(1 for _, (ch, _, _) in new_assignments.items() if ch == k)
                     n_k_clear = sum(1 for _, (ch, _, is_ov) in new_assignments.items() if ch == k and not is_ov)
                     n_k_overlap = sum(1 for _, (ch, _, is_ov) in new_assignments.items() if ch == k and is_ov)
-                    print(f"    Channel {k}: +{n_k_new:,} locs ({n_k_clear:,} clear, {n_k_overlap:,} overlap)")
+                    logger.info(f"    Channel {k}: +{n_k_new:,} locs ({n_k_clear:,} clear, {n_k_overlap:,} overlap)")
 
             # Check convergence
             if n_new < min_new_assignments:
                 if verbose:
-                    print(f"  Convergence: Fewer than {min_new_assignments} new assignments, stopping.")
+                    logger.info(f"  Convergence: Fewer than {min_new_assignments} new assignments, stopping.")
                 break
 
-            print()
+            logger.info()
 
         if verbose:
-            print("=" * 80)
+            logger.info("=" * 80)
 
         return assigned_current, assignments_per_iteration
 
@@ -1691,7 +1686,7 @@ class ChannelUnmixingMixin:
 
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Saved refinement diagnostics to: {save_path}")
+            logger.info(f"Saved refinement diagnostics to: {save_path}")
         elif display:
             plt.show()
 
@@ -1805,7 +1800,7 @@ class ChannelUnmixingMixin:
             base, ext = os.path.splitext(save_path)
             spatial_path = f"{base}_spatial{ext}"
             fig.savefig(spatial_path, dpi=300, bbox_inches='tight')
-            print(f"Saved spatial distribution to: {spatial_path}")
+            logger.info(f"Saved spatial distribution to: {spatial_path}")
         elif display:
             plt.show()
 
@@ -1878,11 +1873,7 @@ class ChannelUnmixingMixin:
         cands_1['spec_dist'] = spec_dist_1[spec_dist_1 <= spectral_tol]
 
         if len(cands_0) == 0 or len(cands_1) == 0:
-            print(
-                f"No candidates found within spectral_tol={spectral_tol:.3f}. "
-                f"Class 0: {len(cands_0)} candidates, Class 1: {len(cands_1)} candidates. "
-                "Try increasing spectral_tol."
-            )
+            logger.info(f"No candidates found within spectral_tol={spectral_tol:.3f}. " f"Class 0: {len(cands_0)} candidates, Class 1: {len(cands_1)} candidates. " "Try increasing spectral_tol.")
             return None
 
         fov_col = 'fov_index' if 'fov_index' in sf_db.columns else 'fov_name'
@@ -1895,7 +1886,7 @@ class ChannelUnmixingMixin:
         )
 
         if len(common_groups) == 0:
-            print("No (FOV, frame) group contains candidates from both classes.")
+            logger.info("No (FOV, frame) group contains candidates from both classes.")
             return None
 
         all_pairs = []
@@ -1950,7 +1941,7 @@ class ChannelUnmixingMixin:
             all_pairs.append(pairs)
 
         if not all_pairs:
-            print("No pairs found within spatial distance constraints.")
+            logger.info("No pairs found within spatial distance constraints.")
             return None
 
         result = pd.concat(all_pairs, ignore_index=True)
@@ -1958,20 +1949,12 @@ class ChannelUnmixingMixin:
         # cands_1, producing a self-pair.  Remove any row where mol_0 == mol_1.
         result = result[result['mol_0_idx'] != result['mol_1_idx']]
         if len(result) == 0:
-            print("All pairs were self-pairs (same molecule in both classes). "
-                  "Try reducing spectral_tol.")
+            logger.info("All pairs were self-pairs (same molecule in both classes). " "Try reducing spectral_tol.")
             return None
         result = result.sort_values('spatial_dist_nm').head(n_top).reset_index(drop=True)
 
-        print(
-            f"Found {len(result)} candidate pairs from {len(common_groups)} (FOV, frame) group(s)."
-        )
-        print(
-            f"Best pair: FOV={result.iloc[0][fov_col]}, frame={result.iloc[0]['frame']}, "
-            f"dist={result.iloc[0]['spatial_dist_nm']:.0f} nm, "
-            f"mol_0 A_R={result.iloc[0]['A_R_0']:.3f} A_G={result.iloc[0]['A_G_0']:.3f}, "
-            f"mol_1 A_R={result.iloc[0]['A_R_1']:.3f} A_G={result.iloc[0]['A_G_1']:.3f}"
-        )
+        logger.info(f"Found {len(result)} candidate pairs from {len(common_groups)} (FOV, frame) group(s).")
+        logger.info(f"Best pair: FOV={result.iloc[0][fov_col]}, frame={result.iloc[0]['frame']}, " f"dist={result.iloc[0]['spatial_dist_nm']:.0f} nm, " f"mol_0 A_R={result.iloc[0]['A_R_0']:.3f} A_G={result.iloc[0]['A_G_0']:.3f}, " f"mol_1 A_R={result.iloc[0]['A_R_1']:.3f} A_G={result.iloc[0]['A_G_1']:.3f}")
         return result
 
     def get_exemplar_crop(
@@ -2019,7 +2002,7 @@ class ChannelUnmixingMixin:
                 f"'{data_folder}'."
             )
         tif_path = tif_files[fov_index]
-        print(f"Loading FOV {fov_index}, frame {frame_index}: {os.path.basename(tif_path)}")
+        logger.info(f"Loading FOV {fov_index}, frame {frame_index}: {os.path.basename(tif_path)}")
 
         # Load a single frame directly via IO.read_tiff
         projected = self.io.read_tiff(tif_path, frame=frame_index)

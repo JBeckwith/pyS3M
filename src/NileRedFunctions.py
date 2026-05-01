@@ -20,6 +20,9 @@ import SpectralFunctions
 import PSFFunctions
 import IOFunctions
 from Constants import DriftConstants
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class NileRed_Functions:
@@ -515,7 +518,7 @@ class NileRed_Functions:
         results = [(np.nan, np.nan)] * n_total
 
         if verbose:
-            print(f"{label}: {n_total} tasks with {n_workers} workers...")
+            logger.info(f"{label}: {n_total} tasks with {n_workers} workers...")
             start_time = time.time()
 
         with futures.ProcessPoolExecutor(n_workers) as executor:
@@ -537,19 +540,14 @@ class NileRed_Functions:
                     ):
                         elapsed = time.time() - start_time
                         rate = completed / elapsed if elapsed > 0 else 0
-                        print(
-                            f"  {label} progress: {completed}/{n_total} "
-                            f"({100*completed/n_total:.1f}%) - {rate:.1f} fits/s",
-                            end="\r",
-                            flush=True,
-                        )
+                        logger.debug(f"  {label} progress: {completed}/{n_total} " f"({100*completed/n_total:.1f}%) - {rate:.1f} fits/s")
                 except Exception as e:
                     if verbose:
-                        print(f"\nWarning: {label} fit failed for index {idx}: {e}")
+                        logger.info(f"\nWarning: {label} fit failed for index {idx}: {e}")
 
         if verbose:
             elapsed = time.time() - start_time
-            print(f"\n  {label} complete: {completed}/{n_total} in {elapsed:.1f} s")
+            logger.info(f"\n  {label} complete: {completed}/{n_total} in {elapsed:.1f} s")
 
         return results
 
@@ -827,23 +825,19 @@ class NileRed_Functions:
                 from tqdm.auto import tqdm  # type: ignore
             except ImportError:
                 if verbose:
-                    print(
-                        "Warning: tqdm not installed, falling back to print-based progress"
-                    )
+                    logger.warning("Warning: tqdm not installed, falling back to print-based progress")
                 use_tqdm = False
 
         if verbose:
-            print(f"\n{'='*60}")
-            print(f"Nile Red Wavelength Precision Simulation")
-            print(f"{'='*60}")
-            print(
-                f"Wavelength range: {wavelength_range[0]}-{wavelength_range[1]} nm (step={wavelength_step} nm)"
-            )
-            print(f"Number of wavelengths: {n_wavelengths}")
-            print(f"Photon counts: {photon_counts}")
-            print(f"Bootstrap samples: {n_bootstrap}")
-            print(f"Save folder: {save_folder}")
-            print(f"{'='*60}\n")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Nile Red Wavelength Precision Simulation")
+            logger.info(f"{'='*60}")
+            logger.info(f"Wavelength range: {wavelength_range[0]}-{wavelength_range[1]} nm (step={wavelength_step} nm)")
+            logger.info(f"Number of wavelengths: {n_wavelengths}")
+            logger.info(f"Photon counts: {photon_counts}")
+            logger.info(f"Bootstrap samples: {n_bootstrap}")
+            logger.info(f"Save folder: {save_folder}")
+            logger.info(f"{'='*60}\n")
 
         # STAGE 1: Simulate and fit images for each wavelength
         wavelength_iterator = enumerate(wavelengths_true)
@@ -857,9 +851,7 @@ class NileRed_Functions:
         for i, wl_true in wavelength_iterator:
             if verbose and not use_tqdm:
                 elapsed = (time.time() - start_time) / 60.0
-                print(
-                    f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)"
-                )
+                logger.info(f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)")
 
             # Generate Nile Red spectrum for this wavelength
             spectrum = self.generate_nile_red_spectrum(
@@ -902,12 +894,10 @@ class NileRed_Functions:
 
         if verbose:
             total_elapsed = (time.time() - start_time) / 60.0
-            print(f"\n{'='*60}")
-            print(
-                f"Stage 1 complete (simulation + wavelength fitting): {total_elapsed:.1f} min"
-            )
-            print(f"{'='*60}\n")
-            print("Starting Stage 2: Calculate statistics from fitted wavelengths...")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Stage 1 complete (simulation + wavelength fitting): {total_elapsed:.1f} min")
+            logger.info(f"{'='*60}\n")
+            logger.info("Starting Stage 2: Calculate statistics from fitted wavelengths...")
 
         # STAGE 2: Calculate statistics from wavelength columns in raw results
         wavelength_precision_results = []
@@ -922,11 +912,7 @@ class NileRed_Functions:
 
         for i, wl_true in stats_iterator:
             if verbose and not use_tqdm:
-                print(
-                    f"  [{i+1}/{n_wavelengths}] Processing statistics for {wl_true:.1f} nm",
-                    end="\r",
-                    flush=True,
-                )
+                logger.debug(f"  [{i+1}/{n_wavelengths}] Processing statistics for {wl_true:.1f} nm")
 
             flag = f"{starting_flag}wl{int(wl_true)}_"
 
@@ -948,16 +934,14 @@ class NileRed_Functions:
                 # Check if wavelength columns exist
                 if "wl_fit" not in df.columns:
                     if verbose:
-                        print(f"\nWarning: No 'wl_fit' column found in {raw_file}")
-                        print(
-                            "This may be from an older simulation. Re-run simulation to add wavelength fits."
-                        )
+                        logger.info(f"\nWarning: No 'wl_fit' column found in {raw_file}")
+                        logger.info("This may be from an older simulation. Re-run simulation to add wavelength fits.")
                     continue
 
                 # Process each photon level separately
                 if "photon_level" not in df.columns:
                     if verbose:
-                        print(f"\nWarning: No 'photon_level' column found in {raw_file}")
+                        logger.info(f"\nWarning: No 'photon_level' column found in {raw_file}")
                     continue
 
                 for level in df["photon_level"].unique():
@@ -997,12 +981,12 @@ class NileRed_Functions:
             summary_df.write_csv(summary_file)
 
             if verbose:
-                print(f"\n\n{'='*60}")
-                print(f"Simulation complete!")
-                print(f"Total time: {(time.time() - start_time) / 60.0:.1f} min")
-                print(f"Results saved to: {save_folder}")
-                print(f"Wavelength precision summary: {summary_file}")
-                print(f"{'='*60}\n")
+                logger.info(f"\n\n{'='*60}")
+                logger.info(f"Simulation complete!")
+                logger.info(f"Total time: {(time.time() - start_time) / 60.0:.1f} min")
+                logger.info(f"Results saved to: {save_folder}")
+                logger.info(f"Wavelength precision summary: {summary_file}")
+                logger.info(f"{'='*60}\n")
 
     def fit_wavelengths_from_h5(
         self,
@@ -1098,25 +1082,25 @@ class NileRed_Functions:
         import multiprocessing
 
         if verbose:
-            print(f"\n{'='*60}")
-            print(f"Fitting Nile Red Wavelengths from HDF5")
-            print(f"{'='*60}")
-            print(f"Input file: {h5_path}")
-            print(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
-            print(f"{'='*60}\n")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Fitting Nile Red Wavelengths from HDF5")
+            logger.info(f"{'='*60}")
+            logger.info(f"Input file: {h5_path}")
+            logger.info(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
+            logger.info(f"{'='*60}\n")
 
         # Load HDF5 file
         if not os.path.exists(h5_path):
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
         if verbose:
-            print("Loading HDF5 file...")
+            logger.info("Loading HDF5 file...")
 
         df = self.io.read_h5_database(h5_path)
         n_locs = len(df)
 
         if verbose:
-            print(f"Loaded {n_locs} localisations")
+            logger.info(f"Loaded {n_locs} localisations")
 
         # Check required columns
         required_cols = [
@@ -1145,9 +1129,7 @@ class NileRed_Functions:
         else:
             # Extract from pixel_QYs shape - assumes standard wavelength grid
             if verbose:
-                print(
-                    "Warning: 'wavelength' not in camera_parameters, using default from getpixelefficiency()"
-                )
+                logger.warning("Warning: 'wavelength' not in camera_parameters, using default from getpixelefficiency()")
             _, _, _, wavelength_array = self.spectral_funcs.getpixelefficiency()
 
         pixel_QYs = camera_parameters["pixel_QYs"]
@@ -1158,8 +1140,8 @@ class NileRed_Functions:
         )
 
         if verbose:
-            print(f"Optical system configured with {len(filter_names)} filters")
-            print(f"Wavelength array: {len(wavelength_array)} points")
+            logger.info(f"Optical system configured with {len(filter_names)} filters")
+            logger.info(f"Wavelength array: {len(wavelength_array)} points")
 
         # Extract data from DataFrame
         R = df["A_R"].to_numpy()
@@ -1180,12 +1162,10 @@ class NileRed_Functions:
             fitted_background_photons = df["background_photons"].to_numpy()
             use_snr = True
             if verbose:
-                print("Using photon counts for SNR-based error inflation")
+                logger.info("Using photon counts for SNR-based error inflation")
         else:
             if verbose:
-                print(
-                    "Warning: 'photons' or 'background_photons' columns not found, skipping SNR error inflation"
-                )
+                logger.warning("Warning: 'photons' or 'background_photons' columns not found, skipping SNR error inflation")
             fitted_photons = None
             fitted_background_photons = None
             use_snr = False
@@ -1203,15 +1183,15 @@ class NileRed_Functions:
                 )
 
             if verbose:
-                print(f"\n--- Phase 1: Fitting aggregate-level priors ---")
-                print(f"Grouping by '{aggregate_id_column}'...")
+                logger.info(f"\n--- Phase 1: Fitting aggregate-level priors ---")
+                logger.info(f"Grouping by '{aggregate_id_column}'...")
 
             aggregate_ids = df[aggregate_id_column].unique()
             aggregate_ids = aggregate_ids[~np.isnan(aggregate_ids)]
             n_aggregates = len(aggregate_ids)
 
             if verbose:
-                print(f"Found {n_aggregates} aggregates")
+                logger.info(f"Found {n_aggregates} aggregates")
 
             # Compute weighted averages per aggregate and build fit args
             agg_fit_args = []
@@ -1269,15 +1249,15 @@ class NileRed_Functions:
 
                 if verbose and len(aggregate_wl_map) > 0:
                     agg_wls = np.array(list(aggregate_wl_map.values()))
-                    print(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
-                    print(f"  Aggregate median wavelength: {np.median(agg_wls):.1f} nm")
+                    logger.info(f"  Aggregate wavelength range: {np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
+                    logger.info(f"  Aggregate median wavelength: {np.median(agg_wls):.1f} nm")
 
             if verbose:
-                print(f"\n--- Phase 2: Fitting individual localisations with aggregate priors ---")
+                logger.info(f"\n--- Phase 2: Fitting individual localisations with aggregate priors ---")
 
         # --- Phase 2: Prepare arguments for per-localisation fitting ---
         if verbose:
-            print(f"\nPreparing {n_locs} fitting tasks...")
+            logger.info(f"\nPreparing {n_locs} fitting tasks...")
 
         fit_args = []
         valid_indices = []
@@ -1313,13 +1293,13 @@ class NileRed_Functions:
             valid_indices.append(j)
 
         if verbose:
-            print(f"Valid fitting tasks: {len(fit_args)}/{n_locs}")
+            logger.info(f"Valid fitting tasks: {len(fit_args)}/{n_locs}")
             if aggregate_id_column is not None:
                 n_with_prior = sum(
                     1 for j in valid_indices
                     if not np.isnan(loc_agg_ids[j]) and loc_agg_ids[j] in aggregate_wl_map
                 )
-                print(f"Localisations with aggregate prior: {n_with_prior}/{len(fit_args)}")
+                logger.info(f"Localisations with aggregate prior: {n_with_prior}/{len(fit_args)}")
 
         # Parallel wavelength fitting
         wl_fits = np.full(n_locs, np.nan)
@@ -1353,26 +1333,24 @@ class NileRed_Functions:
         success_rate = 100 * n_successful / n_locs
 
         if verbose:
-            print(f"\nResults:")
-            print(f"  Successful fits: {n_successful}/{n_locs} ({success_rate:.1f}%)")
-            print(
-                f"  Wavelength range: {np.nanmin(wl_fits):.1f} - {np.nanmax(wl_fits):.1f} nm"
-            )
-            print(f"  Median wavelength: {np.nanmedian(wl_fits):.1f} nm")
-            print(f"  Std wavelength: {np.nanstd(wl_fits):.1f} nm")
+            logger.info(f"\nResults:")
+            logger.info(f"  Successful fits: {n_successful}/{n_locs} ({success_rate:.1f}%)")
+            logger.info(f"  Wavelength range: {np.nanmin(wl_fits):.1f} - {np.nanmax(wl_fits):.1f} nm")
+            logger.info(f"  Median wavelength: {np.nanmedian(wl_fits):.1f} nm")
+            logger.info(f"  Std wavelength: {np.nanstd(wl_fits):.1f} nm")
 
         # Save to output file if requested
         if output_path is not None:
             if verbose:
-                print(f"\nSaving results to: {output_path}")
+                logger.info(f"\nSaving results to: {output_path}")
 
             self.io.write_h5_database(df, output_path, normalise_photons=False)
 
             if verbose:
-                print("Save complete!")
+                logger.info("Save complete!")
 
         if verbose:
-            print(f"\n{'='*60}\n")
+            logger.info(f"\n{'='*60}\n")
 
         return df
 
@@ -1464,14 +1442,14 @@ class NileRed_Functions:
         import multiprocessing
 
         if verbose:
-            print(f"\n{'='*60}")
-            print(f"Pixelated Nile Red Wavelength Fitting")
-            print(f"{'='*60}")
-            print(f"Input file: {h5_path}")
-            print(f"Grid pixel size: {pixel_size_nm} nm")
-            print(f"Min localisations per pixel: {min_localisations}")
-            print(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
-            print(f"{'='*60}\n")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Pixelated Nile Red Wavelength Fitting")
+            logger.info(f"{'='*60}")
+            logger.info(f"Input file: {h5_path}")
+            logger.info(f"Grid pixel size: {pixel_size_nm} nm")
+            logger.info(f"Min localisations per pixel: {min_localisations}")
+            logger.info(f"Wavelength bounds: {wavelength_bounds[0]}-{wavelength_bounds[1]} nm")
+            logger.info(f"{'='*60}\n")
 
         # --- Load HDF5 ---
         if not os.path.exists(h5_path):
@@ -1482,7 +1460,7 @@ class NileRed_Functions:
         n_locs = len(df)
 
         if verbose:
-            print(f"Loaded {n_locs} localisations")
+            logger.info(f"Loaded {n_locs} localisations")
 
         # --- Check required columns ---
         required_cols = [
@@ -1501,8 +1479,7 @@ class NileRed_Functions:
             wavelength_array = camera_parameters["wavelength"]
         else:
             if verbose:
-                print("Warning: 'wavelength' not in camera_parameters, "
-                      "using default from getpixelefficiency()")
+                logger.warning("Warning: 'wavelength' not in camera_parameters, " "using default from getpixelefficiency()")
             _, _, _, wavelength_array = self.spectral_funcs.getpixelefficiency()
 
         pixel_QYs = camera_parameters["pixel_QYs"]
@@ -1512,18 +1489,17 @@ class NileRed_Functions:
         )
 
         if verbose:
-            print(f"Optical system configured with {len(filter_names)} filters")
+            logger.info(f"Optical system configured with {len(filter_names)} filters")
 
         # --- Check SNR columns ---
         if "photons" in df.columns and "background_photons" in df.columns:
             use_snr = True
             if verbose:
-                print("Using photon counts for SNR-based error inflation")
+                logger.info("Using photon counts for SNR-based error inflation")
         else:
             use_snr = False
             if verbose:
-                print("Warning: 'photons' or 'background_photons' columns not found, "
-                      "skipping SNR error inflation")
+                logger.warning("Warning: 'photons' or 'background_photons' columns not found, " "skipping SNR error inflation")
 
         # --- Aggregate-level fitting (fallback for sub-threshold pixels) ---
         aggregate_wl_map = {}      # {agg_id: fitted_wavelength}
@@ -1537,15 +1513,15 @@ class NileRed_Functions:
                 )
 
             if verbose:
-                print(f"\n--- Fitting aggregate-level wavelengths ---")
-                print(f"Grouping by '{aggregate_id_column}'...")
+                logger.info(f"\n--- Fitting aggregate-level wavelengths ---")
+                logger.info(f"Grouping by '{aggregate_id_column}'...")
 
             agg_ids_unique = df[aggregate_id_column].unique()
             agg_ids_unique = agg_ids_unique[~np.isnan(agg_ids_unique)]
             n_aggregates = len(agg_ids_unique)
 
             if verbose:
-                print(f"Found {n_aggregates} aggregates")
+                logger.info(f"Found {n_aggregates} aggregates")
 
             agg_fit_args = []
             agg_ids_ordered = []
@@ -1610,11 +1586,9 @@ class NileRed_Functions:
 
                 if verbose and len(aggregate_wl_map) > 0:
                     agg_wls = np.array(list(aggregate_wl_map.values()))
-                    print(f"  Aggregate wavelength range: "
-                          f"{np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
-                    print(f"  Median: {np.median(agg_wls):.1f} nm")
-                    print(f"  Fitted: {len(aggregate_wl_map)}/{n_aggregates} "
-                          f"aggregates")
+                    logger.info(f"  Aggregate wavelength range: " f"{np.min(agg_wls):.1f} - {np.max(agg_wls):.1f} nm")
+                    logger.info(f"  Median: {np.median(agg_wls):.1f} nm")
+                    logger.info(f"  Fitted: {len(aggregate_wl_map)}/{n_aggregates} " f"aggregates")
 
         # --- Step 1: Discretise onto grid ---
         x_nm = df["xc"].to_numpy() * camera_pixel_size
@@ -1630,8 +1604,7 @@ class NileRed_Functions:
         ny = pixel_iy.max() + 1
 
         if verbose:
-            print(f"Grid dimensions: {nx} x {ny} pixels "
-                  f"({nx * pixel_size_nm:.0f} x {ny * pixel_size_nm:.0f} nm)")
+            logger.info(f"Grid dimensions: {nx} x {ny} pixels " f"({nx * pixel_size_nm:.0f} x {ny * pixel_size_nm:.0f} nm)")
 
         # --- Step 2: Build pixel groups ---
         # Pixel key includes aggregate ID when provided to avoid mixing structures
@@ -1734,13 +1707,12 @@ class NileRed_Functions:
         n_to_fit = len(fit_args)
 
         if verbose:
-            print(f"\nPixel groups: {n_total_pixels} total")
-            print(f"  Fitting: {n_to_fit} pixels (>= {min_localisations} localisations)")
-            print(f"  Skipped: {n_skipped} pixels (< {min_localisations} localisations)")
+            logger.info(f"\nPixel groups: {n_total_pixels} total")
+            logger.info(f"  Fitting: {n_to_fit} pixels (>= {min_localisations} localisations)")
+            logger.info(f"  Skipped: {n_skipped} pixels (< {min_localisations} localisations)")
             if n_to_fit > 0:
                 locs_per_pixel = [m[0] for m in pixel_metadata]
-                print(f"  Locs/pixel: median {np.median(locs_per_pixel):.0f}, "
-                      f"range [{np.min(locs_per_pixel)}-{np.max(locs_per_pixel)}]")
+                logger.info(f"  Locs/pixel: median {np.median(locs_per_pixel):.0f}, " f"range [{np.min(locs_per_pixel)}-{np.max(locs_per_pixel)}]")
 
         # --- Step 4: Parallel wavelength fitting ---
         n_cpus = multiprocessing.cpu_count()
@@ -1763,11 +1735,11 @@ class NileRed_Functions:
                     n_success += 1
 
             if verbose:
-                print(f"\nFit results: {n_success}/{n_to_fit} pixels converged")
+                logger.info(f"\nFit results: {n_success}/{n_to_fit} pixels converged")
                 if n_success > 0:
                     wls = np.array(list(pixel_wl.values()))
-                    print(f"  Wavelength range: {np.min(wls):.1f} - {np.max(wls):.1f} nm")
-                    print(f"  Median: {np.median(wls):.1f} nm, Std: {np.std(wls):.1f} nm")
+                    logger.info(f"  Wavelength range: {np.min(wls):.1f} - {np.max(wls):.1f} nm")
+                    logger.info(f"  Median: {np.median(wls):.1f} nm, Std: {np.std(wls):.1f} nm")
 
         # --- Step 5: Build output grids ---
         wl_grid = np.full((ny, nx), np.nan)
@@ -1838,22 +1810,21 @@ class NileRed_Functions:
 
         n_assigned = np.sum(~np.isnan(wl_pixel))
         if verbose:
-            print(f"\nLocalisations with pixel wavelength: "
-                  f"{n_assigned}/{n_locs} ({100*n_assigned/n_locs:.1f}%)")
+            logger.info(f"\nLocalisations with pixel wavelength: " f"{n_assigned}/{n_locs} ({100*n_assigned/n_locs:.1f}%)")
             if aggregate_id_column is not None:
-                print(f"  From pixel fits: {n_from_pixel}")
-                print(f"  From aggregate fallback: {n_from_aggregate}")
+                logger.info(f"  From pixel fits: {n_from_pixel}")
+                logger.info(f"  From aggregate fallback: {n_from_aggregate}")
 
         # --- Save ---
         if output_path is not None:
             if verbose:
-                print(f"\nSaving results to: {output_path}")
+                logger.info(f"\nSaving results to: {output_path}")
             self.io.write_h5_database(df, output_path, normalise_photons=False)
             if verbose:
-                print("Save complete!")
+                logger.info("Save complete!")
 
         if verbose:
-            print(f"\n{'='*60}\n")
+            logger.info(f"\n{'='*60}\n")
 
         if return_grid:
             grid_info = {

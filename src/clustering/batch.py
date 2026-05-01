@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 
 from Constants import FilteringConstants, FilteringCriteria
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class BatchMixin:
@@ -97,24 +100,20 @@ class BatchMixin:
 
         for fov_idx, loc_file in enumerate(localisation_files):
             if verbose:
-                print(
-                    f"Processing FOV {fov_idx + 1}/{len(localisation_files)} ({os.path.basename(loc_file)})...",
-                    end="",
-                    flush=True,
-                )
+                logger.debug(f"Processing FOV {fov_idx + 1}/{len(localisation_files)} ({os.path.basename(loc_file)})...")
 
             loc_data = self.io.read_h5_database(loc_file)
             if start_frame > 0:
                 loc_data = loc_data[loc_data["frame"] >= start_frame].reset_index(drop=True)
 
             if verbose:
-                print(f" {len(loc_data)} localizations...", end="", flush=True)
+                logger.debug(f" {len(loc_data)} localizations...")
 
             fov_name = self._extract_fov_name(loc_file)
             if fov_name is None:
                 fov_name = f"fov_{fov_idx}"
                 if verbose:
-                    print(f" (no Pos pattern, using {fov_name})...", end="", flush=True)
+                    logger.debug(f" (no Pos pattern, using {fov_name})...")
 
             if clustering_method.upper() == "HDBSCAN":
                 sm_db, sf_db = self.extract_single_molecules_HDBSCAN(
@@ -167,7 +166,7 @@ class BatchMixin:
                 )
 
             if verbose:
-                print(f" Found {len(sm_db)} molecules")
+                logger.info(f" Found {len(sm_db)} molecules")
 
             if len(sm_db) == 0:
                 continue
@@ -186,21 +185,21 @@ class BatchMixin:
             molecular_index_offset += len(sm_db)
 
         if verbose:
-            print("\nCombining databases...")
+            logger.info("\nCombining databases...")
 
         if len(all_molecule_dbs) == 0:
             if verbose:
-                print("Warning: No molecules found in any FOV. Returning empty databases.")
+                logger.warning("Warning: No molecules found in any FOV. Returning empty databases.")
             return pd.DataFrame(), pd.DataFrame()
 
         single_molecule_database = pd.concat(all_molecule_dbs, ignore_index=True)
         single_frame_database = pd.concat(all_frame_dbs, ignore_index=True)
 
         if verbose:
-            print(f"Complete! Summary:")
-            print(f"  - Total FOVs: {len(localisation_files)}")
-            print(f"  - Total molecules: {len(single_molecule_database)}")
-            print(f"  - Total localizations: {len(single_frame_database)}")
+            logger.info(f"Complete! Summary:")
+            logger.info(f"  - Total FOVs: {len(localisation_files)}")
+            logger.info(f"  - Total molecules: {len(single_molecule_database)}")
+            logger.info(f"  - Total localizations: {len(single_frame_database)}")
 
         return single_molecule_database, single_frame_database
 
@@ -239,7 +238,7 @@ class BatchMixin:
         unique_molecules = np.sort(single_frame_database["molecular_index"].unique())
 
         if verbose:
-            print(f"Building photon accumulation database for {len(unique_molecules)} molecules...")
+            logger.info(f"Building photon accumulation database for {len(unique_molecules)} molecules...")
 
         accumulation_records = []
 
@@ -255,11 +254,7 @@ class BatchMixin:
             n_frames = len(mol_data)
 
             if verbose and (mol_idx % 100 == 0 or mol_idx == unique_molecules[0]):
-                print(
-                    f"  Molecule {mol_idx + 1}/{len(unique_molecules)} ({n_frames} frames)",
-                    end="\r",
-                    flush=True,
-                )
+                logger.debug(f"  Molecule {mol_idx + 1}/{len(unique_molecules)} ({n_frames} frames)")
 
             cumsum_photons = np.cumsum(mol_data["photons"].values)
             frames_range = np.arange(1, n_frames + 1)
@@ -345,16 +340,16 @@ class BatchMixin:
                 accumulation_records.append(record)
 
         if verbose:
-            print("\n  Converting to DataFrame...")
+            logger.info("\n  Converting to DataFrame...")
 
         photon_accumulation_db = pd.DataFrame(accumulation_records)
 
         if verbose:
             total_rows = len(photon_accumulation_db)
             avg_frames_per_mol = total_rows / len(unique_molecules)
-            print(f"Complete! Photon accumulation database:")
-            print(f"  - Total rows: {total_rows}")
-            print(f"  - Average frames per molecule: {avg_frames_per_mol:.1f}")
+            logger.info(f"Complete! Photon accumulation database:")
+            logger.info(f"  - Total rows: {total_rows}")
+            logger.info(f"  - Average frames per molecule: {avg_frames_per_mol:.1f}")
 
         return photon_accumulation_db
 
@@ -407,9 +402,9 @@ class BatchMixin:
                    if build_accumulation=True, else (single_molecule_db, single_frame_db).
         """
         if verbose:
-            print("=" * 60)
-            print("Multi-FOV Single Molecule Analysis")
-            print("=" * 60)
+            logger.info("=" * 60)
+            logger.info("Multi-FOV Single Molecule Analysis")
+            logger.info("=" * 60)
 
         single_molecule_db, single_frame_db = self.extract_single_molecules_batch(
             localisation_files=localisation_files,
@@ -432,27 +427,27 @@ class BatchMixin:
         photon_accumulation_db = None
         if build_accumulation:
             if verbose:
-                print()
+                logger.info()
             photon_accumulation_db = self.build_photon_accumulation_database(
                 single_frame_db, verbose=verbose
             )
 
         if output_folder is not None:
             if verbose:
-                print(f"\nSaving databases to {output_folder}...")
+                logger.info(f"\nSaving databases to {output_folder}...")
             os.makedirs(output_folder, exist_ok=True)
 
             sm_path = os.path.join(output_folder, f"{output_prefix}_single_molecules.h5")
             self.io.write_h5_database(single_molecule_db, sm_path, normalise_photons=False)
             if verbose:
-                print(f"  Saved: {os.path.basename(sm_path)}")
+                logger.info(f"  Saved: {os.path.basename(sm_path)}")
 
             sf_path = os.path.join(output_folder, f"{output_prefix}_single_frames.h5")
             self.io.write_h5_database(
                 single_frame_db, sf_path, normalise_photons=False, append=False, verbose=verbose
             )
             if verbose:
-                print(f"  Saved: {os.path.basename(sf_path)}")
+                logger.info(f"  Saved: {os.path.basename(sf_path)}")
 
             if photon_accumulation_db is not None:
                 pa_path = os.path.join(
@@ -460,12 +455,12 @@ class BatchMixin:
                 )
                 self.io.write_h5_database(photon_accumulation_db, pa_path, normalise_photons=False)
                 if verbose:
-                    print(f"  Saved: {os.path.basename(pa_path)}")
+                    logger.info(f"  Saved: {os.path.basename(pa_path)}")
 
         if verbose:
-            print("\n" + "=" * 60)
-            print("Analysis Complete!")
-            print("=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.info("Analysis Complete!")
+            logger.info("=" * 60)
 
         if build_accumulation:
             return single_molecule_db, single_frame_db, photon_accumulation_db

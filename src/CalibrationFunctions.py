@@ -19,6 +19,9 @@ import IOFunctions
 from Constants import CalibrationConstants
 import MaskFunctions
 import HelperFunctions
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class Calibration_Functions:
@@ -104,7 +107,7 @@ class Calibration_Functions:
             if len(dark_directory) != 1:
                 raise Exception("Incorrect number of dark folders; should be 1")
         except Exception as error:
-            print("Caught this error: " + repr(error))
+            logger.warning("Caught this error: " + repr(error))
             return
         dark_directory = str(dark_directory[0])
 
@@ -128,7 +131,7 @@ class Calibration_Functions:
                     "Incorrect number of intensity values for each colour; should be equal"
                 )
         except Exception as error:
-            print("Caught this error: " + repr(error))
+            logger.warning("Caught this error: " + repr(error))
             return
 
         n_powers = int(np.unique(n_powermatrix))
@@ -198,42 +201,12 @@ class Calibration_Functions:
         self.io.write_tiff(readnoise, readnoise_file_path, bit=float, pixel_size=3.45)
         self.io.write_tiff(rqe, rqe_file_path, bit=float, pixel_size=3.45)
 
-        print(
-            "The average offset is {:.3f} +- {:.3f} ADU counts".format(
-                np.nanmean(offset), np.nanstd(offset)
-            ),
-            end="\r",
-        )
-        print(
-            "The average variance is {:.3f} +- {:.3f} ADU^2 counts".format(
-                np.nanmean(variance), np.nanstd(variance)
-            ),
-            end="\r",
-        )
-        print(
-            "The average gain is {:.3f} +- {:.3f} ADU counts/photoelectron".format(
-                np.nanmean(gain), np.nanstd(gain)
-            ),
-            end="\r",
-        )
-        print(
-            "The average read noise is {:.3f} +- {:.3f} photoelectrons".format(
-                np.nanmean(readnoise), np.nanstd(readnoise)
-            ),
-            end="\r",
-        )
-        print(
-            "The median read noise is {:.3f} photoelectrons".format(
-                np.nanmedian(readnoise)
-            ),
-            end="\r",
-        )
-        print(
-            "The RMS read noise is {:.3f} photoelectrons".format(
-                np.sqrt(np.nanmean(np.square(readnoise)))
-            ),
-            end="\r",
-        )
+        logger.debug("The average offset is {:.3f} +- {:.3f} ADU counts".format( np.nanmean(offset), np.nanstd(offset) ))
+        logger.debug("The average variance is {:.3f} +- {:.3f} ADU^2 counts".format( np.nanmean(variance), np.nanstd(variance) ))
+        logger.debug("The average gain is {:.3f} +- {:.3f} ADU counts/photoelectron".format( np.nanmean(gain), np.nanstd(gain) ))
+        logger.debug("The average read noise is {:.3f} +- {:.3f} photoelectrons".format( np.nanmean(readnoise), np.nanstd(readnoise) ))
+        logger.debug("The median read noise is {:.3f} photoelectrons".format( np.nanmedian(readnoise) ))
+        logger.debug("The RMS read noise is {:.3f} photoelectrons".format( np.sqrt(np.nanmean(np.square(readnoise))) ))
         return offset, variance, gain, readnoise, rqe
 
     def calculate_rqe(self, intensity_image, offset, gain):
@@ -313,27 +286,9 @@ class Calibration_Functions:
             elapsed_display, timestring = self.helper.format_elapsed_time(elapsed)
 
             if directory.split("/")[-1] == intensity_string:
-                print(
-                    f"Analysed {operation_name} of "
-                    + intensity_string
-                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
-                        i + 1, len(filelist), elapsed_display, timestring
-                    ),
-                    end="\r",
-                    flush=True,
-                )
+                logger.debug(f"Analysed {operation_name} of " + intensity_string + " image {}/{}    Time elapsed: {:.3f} {}".format( i + 1, len(filelist), elapsed_display, timestring ))
             else:
-                print(
-                    f"Analysed {operation_name} of "
-                    + directory.split("/")[-1]
-                    + " "
-                    + intensity_string
-                    + " image {}/{}    Time elapsed: {:.3f} {}".format(
-                        i + 1, len(filelist), elapsed_display, timestring
-                    ),
-                    end="\r",
-                    flush=True,
-                )
+                logger.debug(f"Analysed {operation_name} of " + directory.split("/")[-1] + " " + intensity_string + " image {}/{}    Time elapsed: {:.3f} {}".format( i + 1, len(filelist), elapsed_display, timestring ))
 
         return accumulator, framesCounter
 
@@ -358,20 +313,9 @@ class Calibration_Functions:
         offset = np.zeros([width, height])
 
         if directory.split("/")[-1] == intensity_string:
-            print(
-                "Starting offset analysis of " + intensity_string,
-                end="\r",
-                flush=True,
-            )
+            logger.debug("Starting offset analysis of " + intensity_string)
         else:
-            print(
-                "Starting offset analysis of "
-                + directory.split("/")[-1]
-                + " "
-                + intensity_string,
-                end="\r",
-                flush=True,
-            )
+            logger.debug("Starting offset analysis of " + directory.split("/")[-1] + " " + intensity_string)
 
         # Define processing functions for offset calculation
         def process_single(acc, frame):
@@ -431,11 +375,7 @@ class Calibration_Functions:
             if dir_label == intensity_string
             else f"{dir_label} {intensity_string}"
         )
-        print(
-            f"Starting offset+variance analysis of {display_label}",
-            end="\r",
-            flush=True,
-        )
+        logger.debug(f"Starting offset+variance analysis of {display_label}")
 
         start_t = time.time()
         for file_i, file in enumerate(filelist):
@@ -456,13 +396,7 @@ class Calibration_Functions:
 
             elapsed = time.time() - start_t
             elapsed_display, timestring = self.helper.format_elapsed_time(elapsed)
-            print(
-                f"Analysed offset+variance of {display_label} "
-                f"image {file_i + 1}/{len(filelist)}    "
-                f"Time elapsed: {elapsed_display:.3f} {timestring}",
-                end="\r",
-                flush=True,
-            )
+            logger.debug(f"Analysed offset+variance of {display_label} " f"image {file_i + 1}/{len(filelist)}    " f"Time elapsed: {elapsed_display:.3f} {timestring}")
 
         mean = sum_frames / framesCounter
         variance = sum_sq_frames / framesCounter - mean ** 2

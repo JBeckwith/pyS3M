@@ -6,6 +6,9 @@ import warnings
 from typing import Optional
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 def _safe_tight_layout(fig):
@@ -128,7 +131,7 @@ class MixtureAnalysisMixin:
         params_init = pack_params(gmm_init.means_, gmm_init.covariances_, gmm_init.weights_)
 
         if verbose:
-            print(f"  Running MLE optimization (L-BFGS-B)...")
+            logger.info(f"  Running MLE optimization (L-BFGS-B)...")
 
         # Optimize with MLE
         result = minimize(
@@ -199,7 +202,7 @@ class MixtureAnalysisMixin:
         # Iterative re-weighting
         for iteration in range(n_reweighting_iterations):
             if verbose:
-                print(f"  Re-weighting iteration {iteration + 1}/{n_reweighting_iterations}...")
+                logger.info(f"  Re-weighting iteration {iteration + 1}/{n_reweighting_iterations}...")
 
             # Get component assignments on original data
             labels = gmm.predict(X)
@@ -309,10 +312,10 @@ class MixtureAnalysisMixin:
         n_samples, n_features = X.shape
 
         if verbose:
-            print(f"  Extreme Deconvolution fitting with pygmmis...")
-            print(f"    Data: {n_samples} points, {n_features} features")
-            print(f"    Components: {n_components}")
-            print(f"    Mean errors: {X_err.mean(axis=0)}")
+            logger.info(f"  Extreme Deconvolution fitting with pygmmis...")
+            logger.info(f"    Data: {n_samples} points, {n_features} features")
+            logger.info(f"    Components: {n_components}")
+            logger.info(f"    Mean errors: {X_err.mean(axis=0)}")
 
         # Prepare per-point covariance matrices (diagonal, since A_R and A_G errors are independent)
         covar = np.zeros((n_samples, n_features, n_features))
@@ -360,8 +363,8 @@ class MixtureAnalysisMixin:
         gmm.amp = initial_weights
 
         if verbose:
-            print(f"    Initial weights: {gmm.amp}")
-            print(f"    Running extreme deconvolution (max_iter={max_iter})...")
+            logger.info(f"    Initial weights: {gmm.amp}")
+            logger.info(f"    Running extreme deconvolution (max_iter={max_iter})...")
 
         # Run extreme deconvolution
         # pygmmis returns log-likelihood and component assignments
@@ -380,13 +383,13 @@ class MixtureAnalysisMixin:
             converged = True  # pygmmis doesn't explicitly report convergence
 
             if verbose:
-                print(f"    Final log-likelihood: {logL:.2f}")
-                print(f"    Final weights: {gmm.amp}")
+                logger.info(f"    Final log-likelihood: {logL:.2f}")
+                logger.info(f"    Final weights: {gmm.amp}")
 
         except Exception as e:
             if verbose:
-                print(f"    Warning: Extreme deconvolution failed: {e}")
-                print(f"    Returning initial parameters")
+                logger.info(f"    Warning: Extreme deconvolution failed: {e}")
+                logger.info(f"    Returning initial parameters")
             converged = False
 
         # Extract results
@@ -476,9 +479,9 @@ class MixtureAnalysisMixin:
             >>> print(f"  Component 1: A_R={means[1,0]:.3f}, A_G={means[1,1]:.3f}")
         """
         if verbose:
-            print("=" * 60)
-            print("Extracting Reference Means (Analytical Approach)")
-            print("=" * 60)
+            logger.info("=" * 60)
+            logger.info("Extracting Reference Means (Analytical Approach)")
+            logger.info("=" * 60)
 
         # Detect database type and extract reference data accordingly
         is_photon_accumulation_db = "photons_accumulated" in data_db.columns
@@ -492,8 +495,8 @@ class MixtureAnalysisMixin:
                 )
 
             if verbose:
-                print("Mode: Photon Accumulation Database")
-                print(f"Using highest-photon data (threshold: {reference_photon_threshold:,.0f})")
+                logger.info("Mode: Photon Accumulation Database")
+                logger.info(f"Using highest-photon data (threshold: {reference_photon_threshold:,.0f})")
 
             # Get maximum photons accumulated for each molecule
             max_photons_per_mol = (
@@ -504,7 +507,7 @@ class MixtureAnalysisMixin:
             max_photons_per_mol.columns = ["molecular_index", "max_photons"]
 
             if verbose:
-                print(f"Total molecules in database: {len(max_photons_per_mol)}")
+                logger.info(f"Total molecules in database: {len(max_photons_per_mol)}")
 
             # Filter molecules that reach reference threshold
             qualified_molecules = max_photons_per_mol[
@@ -515,7 +518,7 @@ class MixtureAnalysisMixin:
                 n_qualified = len(qualified_molecules)
                 n_total = len(max_photons_per_mol)
                 pct_qualified = 100 * n_qualified / n_total
-                print(f"Molecules reaching threshold: {n_qualified}/{n_total} ({pct_qualified:.1f}%)")
+                logger.info(f"Molecules reaching threshold: {n_qualified}/{n_total} ({pct_qualified:.1f}%)")
 
             if len(qualified_molecules) == 0:
                 raise ValueError(
@@ -537,11 +540,11 @@ class MixtureAnalysisMixin:
         else:
             # Mode B: Single molecule database
             if verbose:
-                print("Mode: Single Molecule Database")
+                logger.info("Mode: Single Molecule Database")
                 if reference_photon_threshold is not None:
-                    print(f"Filtering molecules with photons >= {reference_photon_threshold:,.0f}")
+                    logger.info(f"Filtering molecules with photons >= {reference_photon_threshold:,.0f}")
                 else:
-                    print("Using all molecules (no photon threshold)")
+                    logger.info("Using all molecules (no photon threshold)")
 
             # Check required columns
             required_cols = ["A_R", "A_G", "A_B"]
@@ -565,8 +568,8 @@ class MixtureAnalysisMixin:
                     n_qualified = len(reference_df)
                     n_total = len(data_db)
                     pct_qualified = 100 * n_qualified / n_total if n_total > 0 else 0
-                    print(f"Total molecules in database: {n_total}")
-                    print(f"Molecules passing threshold: {n_qualified}/{n_total} ({pct_qualified:.1f}%)")
+                    logger.info(f"Total molecules in database: {n_total}")
+                    logger.info(f"Molecules passing threshold: {n_qualified}/{n_total} ({pct_qualified:.1f}%)")
 
                 if len(reference_df) == 0:
                     raise ValueError(
@@ -576,14 +579,14 @@ class MixtureAnalysisMixin:
             else:
                 reference_df = data_db.copy()
                 if verbose:
-                    print(f"Total molecules in database: {len(reference_df)}")
+                    logger.info(f"Total molecules in database: {len(reference_df)}")
 
             photon_column = "photons" if "photons" in reference_df.columns else None
 
         if verbose:
-            print(f"\nFitting {n_components}-component Gaussian Mixture Model...")
-            print(f"  Covariance type: {covariance_type}")
-            print(f"  Features: A_R, A_G")
+            logger.info(f"\nFitting {n_components}-component Gaussian Mixture Model...")
+            logger.info(f"  Covariance type: {covariance_type}")
+            logger.info(f"  Features: A_R, A_G")
 
         # Prepare data for GMM: (A_R, A_G) coordinates
         X = reference_df[["A_R", "A_G"]].values
@@ -662,24 +665,24 @@ class MixtureAnalysisMixin:
                 new_rep_counts = np.maximum(np.round(replication_counts * downsample_ratio).astype(int), 1)
                 X_weighted = np.repeat(X, new_rep_counts, axis=0)
                 if verbose:
-                    print(f"  MLE optimization: downsampled to {len(X_weighted)} samples for tractability")
+                    logger.info(f"  MLE optimization: downsampled to {len(X_weighted)} samples for tractability")
 
             if verbose:
                 if has_error_columns:
-                    print(f"  Using error-weighted GMM fitting (1/σ weighting from A_R_err, A_G_err columns)")
+                    logger.info(f"  Using error-weighted GMM fitting (1/σ weighting from A_R_err, A_G_err columns)")
                 else:
-                    print(f"  Using error-weighted GMM fitting (1/σ weighting calculated from photon statistics)")
+                    logger.info(f"  Using error-weighted GMM fitting (1/σ weighting calculated from photon statistics)")
                 if photons is not None:
-                    print(f"    Photon range: {photons.min():.0f} - {photons.max():.0f}")
-                print(f"    Uncertainty range: σ={sigma_combined.min():.4f} - {sigma_combined.max():.4f}")
-                print(f"    Weight range: {weights.min():.2f} - {weights.max():.2f}")
-                print(f"    Replication range: {replication_counts.min()} - {replication_counts.max()} copies")
-                print(f"    Original samples: {len(X)}, Weighted samples: {len(X_weighted)}")
+                    logger.info(f"    Photon range: {photons.min():.0f} - {photons.max():.0f}")
+                logger.info(f"    Uncertainty range: σ={sigma_combined.min():.4f} - {sigma_combined.max():.4f}")
+                logger.info(f"    Weight range: {weights.min():.2f} - {weights.max():.2f}")
+                logger.info(f"    Replication range: {replication_counts.min()} - {replication_counts.max()} copies")
+                logger.info(f"    Original samples: {len(X)}, Weighted samples: {len(X_weighted)}")
 
             X_fit = X_weighted
         else:
             if verbose:
-                print(f"  Using uniform weights (no photon column available)")
+                logger.info(f"  Using uniform weights (no photon column available)")
             X_fit = X
 
         # Validate fit_type parameter
@@ -728,9 +731,9 @@ class MixtureAnalysisMixin:
             initial_means[:, 1] = A_G_peaks
 
         if verbose:
-            print(f"  Histogram-based initialization:")
+            logger.info(f"  Histogram-based initialization:")
             for i in range(n_components):
-                print(f"    Component {i}: A_R={initial_means[i, 0]:.4f}, A_G={initial_means[i, 1]:.4f}")
+                logger.info(f"    Component {i}: A_R={initial_means[i, 0]:.4f}, A_G={initial_means[i, 1]:.4f}")
 
         # Fit GMM using selected method
         if fit_type.upper() == "MLE":
@@ -767,17 +770,17 @@ class MixtureAnalysisMixin:
             posteriors = gmm.predict_proba(X)
 
             if verbose:
-                print(f"  Converged: {gmm.converged_}")
-                print(f"  BIC: {gmm.bic(X):.2f}")
-                print(f"  AIC: {gmm.aic(X):.2f}")
-                print("\nGMM Component Parameters:")
+                logger.info(f"  Converged: {gmm.converged_}")
+                logger.info(f"  BIC: {gmm.bic(X):.2f}")
+                logger.info(f"  AIC: {gmm.aic(X):.2f}")
+                logger.info("\nGMM Component Parameters:")
                 for i in range(n_components):
-                    print(f"  Component {i}:")
-                    print(f"    Mean A_R: {gmm.means_[i, 0]:.4f}")
-                    print(f"    Mean A_G: {gmm.means_[i, 1]:.4f}")
-                    print(f"    Weight: {gmm.weights_[i]:.4f}")
+                    logger.info(f"  Component {i}:")
+                    logger.info(f"    Mean A_R: {gmm.means_[i, 0]:.4f}")
+                    logger.info(f"    Mean A_G: {gmm.means_[i, 1]:.4f}")
+                    logger.info(f"    Weight: {gmm.weights_[i]:.4f}")
                     n_assigned = np.sum(labels == i)
-                    print(f"    Molecules assigned: {n_assigned} ({100*n_assigned/len(labels):.1f}%)")
+                    logger.info(f"    Molecules assigned: {n_assigned} ({100*n_assigned/len(labels):.1f}%)")
 
         elif fit_type.upper() == "EM":
             # Use helper function for EM fitting
@@ -819,17 +822,17 @@ class MixtureAnalysisMixin:
             posteriors = gmm.predict_proba(X)
 
             if verbose:
-                print(f"  Converged: {gmm.converged_}")
-                print(f"  BIC: {gmm.bic(X):.2f}")
-                print(f"  AIC: {gmm.aic(X):.2f}")
-                print("\nGMM Component Parameters:")
+                logger.info(f"  Converged: {gmm.converged_}")
+                logger.info(f"  BIC: {gmm.bic(X):.2f}")
+                logger.info(f"  AIC: {gmm.aic(X):.2f}")
+                logger.info("\nGMM Component Parameters:")
                 for i in range(n_components):
-                    print(f"  Component {i}:")
-                    print(f"    Mean A_R: {gmm.means_[i, 0]:.4f}")
-                    print(f"    Mean A_G: {gmm.means_[i, 1]:.4f}")
-                    print(f"    Weight: {gmm.weights_[i]:.4f}")
+                    logger.info(f"  Component {i}:")
+                    logger.info(f"    Mean A_R: {gmm.means_[i, 0]:.4f}")
+                    logger.info(f"    Mean A_G: {gmm.means_[i, 1]:.4f}")
+                    logger.info(f"    Weight: {gmm.weights_[i]:.4f}")
                     n_assigned = np.sum(labels == i)
-                    print(f"    Molecules assigned: {n_assigned} ({100*n_assigned/len(labels):.1f}%)")
+                    logger.info(f"    Molecules assigned: {n_assigned} ({100*n_assigned/len(labels):.1f}%)")
 
 
         # Build reference database - handle both modes
@@ -862,12 +865,12 @@ class MixtureAnalysisMixin:
             reference_db["fov_name"] = reference_df["fov_name"].values
 
         if verbose:
-            print("\n" + "=" * 60)
-            print("Reference Means Extraction Complete!")
-            print("=" * 60)
-            print(f"\nExtracted {n_components} fixed mean positions:")
+            logger.info("\n" + "=" * 60)
+            logger.info("Reference Means Extraction Complete!")
+            logger.info("=" * 60)
+            logger.info(f"\nExtracted {n_components} fixed mean positions:")
             for i in range(n_components):
-                print(f"  Component {i}: A_R={gmm.means_[i, 0]:.4f}, A_G={gmm.means_[i, 1]:.4f}")
+                logger.info(f"  Component {i}: A_R={gmm.means_[i, 0]:.4f}, A_G={gmm.means_[i, 1]:.4f}")
 
             # Plot histograms with fitted means
             try:
@@ -910,12 +913,12 @@ class MixtureAnalysisMixin:
                 _safe_tight_layout(fig)
                 plotter.save_or_show(fig, save_path=None)  # Show only
 
-                print("\n  (Close the plot window to continue)")
+                logger.info("\n  (Close the plot window to continue)")
 
             except ImportError:
-                print("\n  (Plotting skipped - PlottingBase not available)")
+                logger.warning("\n  (Plotting skipped - PlottingBase not available)")
             except Exception as e:
-                print(f"\n  (Plotting skipped - error: {e})")
+                logger.warning(f"\n  (Plotting skipped - error: {e})")
 
         return gmm.means_, reference_db, gmm
 
@@ -1031,7 +1034,7 @@ class MixtureAnalysisMixin:
             params_init = pack_params_fixed_means(covariances_init, weights_init)
 
             if verbose:
-                print(f"  Running MLE optimization with fixed means...")
+                logger.info(f"  Running MLE optimization with fixed means...")
 
             # Optimize
             result = minimize(
@@ -1081,7 +1084,7 @@ class MixtureAnalysisMixin:
                 if abs(log_likelihood - log_likelihood_old) < tol:
                     converged = True
                     if verbose:
-                        print(f"  Converged at iteration {iteration+1}")
+                        logger.info(f"  Converged at iteration {iteration+1}")
                     break
                 log_likelihood_old = log_likelihood
 
@@ -1103,7 +1106,7 @@ class MixtureAnalysisMixin:
                     covariances[k] = cov_k
 
             if not converged and verbose:
-                print(f"  Warning: Did not converge after {max_iter} iterations")
+                logger.info(f"  Warning: Did not converge after {max_iter} iterations")
 
             return np.array(covariances), weights, converged
 
@@ -1164,7 +1167,7 @@ class MixtureAnalysisMixin:
         n_components = len(fixed_means)
 
         if verbose:
-            print(f"  M-estimator robust fitting (type={estimator_type}, max_iter={max_iter})")
+            logger.info(f"  M-estimator robust fitting (type={estimator_type}, max_iter={max_iter})")
 
         # Hard assignment to nearest component (Euclidean distance)
         distances = cdist(X, fixed_means, metric='euclidean')
@@ -1173,7 +1176,7 @@ class MixtureAnalysisMixin:
         if verbose:
             for k in range(n_components):
                 n_k = (assignments == k).sum()
-                print(f"  Component {k}: {n_k} points assigned")
+                logger.info(f"  Component {k}: {n_k} points assigned")
 
         # M-estimator weight functions
         def huber_weight(r, c=1.345):
@@ -1252,13 +1255,13 @@ class MixtureAnalysisMixin:
                     n_downweighted = (weights_k < 0.5).sum()
                     pct = 100 * n_downweighted / len(weights_k)
                     det_k = np.linalg.det(covariances[k])
-                    print(f"  Component {k}: {n_downweighted}/{len(weights_k)} heavily downweighted (<0.5 weight, {pct:.1f}%)")
-                    print(f"    Covariance determinant: {det_k:.6f}")
+                    logger.info(f"  Component {k}: {n_downweighted}/{len(weights_k)} heavily downweighted (<0.5 weight, {pct:.1f}%)")
+                    logger.info(f"    Covariance determinant: {det_k:.6f}")
 
                     if reference_covariances is not None:
                         det_ref = np.linalg.det(reference_covariances[k])
                         ratio = det_k / det_ref
-                        print(f"    Ratio to reference: {ratio:.2f}x")
+                        logger.info(f"    Ratio to reference: {ratio:.2f}x")
 
             all_point_weights = iteration_weights
 
@@ -1267,11 +1270,11 @@ class MixtureAnalysisMixin:
                                  for k in range(n_components)])
 
             if verbose and (iteration == 0 or iteration == max_iter - 1 or max_change < tol):
-                print(f"  Iteration {iteration + 1}: max covariance change = {max_change:.6f}")
+                logger.info(f"  Iteration {iteration + 1}: max covariance change = {max_change:.6f}")
 
             if max_change < tol:
                 if verbose:
-                    print(f"  Converged at iteration {iteration + 1}")
+                    logger.info(f"  Converged at iteration {iteration + 1}")
                 break
 
         # Compute final component weights (based on number of assigned points)
@@ -1472,14 +1475,14 @@ class MixtureAnalysisMixin:
             >>> plt.ylabel('Predicted Accuracy')
         """
         if verbose:
-            print("=" * 60)
-            print("Analytical Misidentification Analysis")
-            print("=" * 60)
-            print(f"Photon bins: {len(photon_bins)-1} bins")
-            print(f"  Range: {photon_bins[0]:,.0f} - {photon_bins[-1]:,.0f} photons")
-            print(f"Reference molecules: {len(reference_db)}")
-            print(f"Fixed means: {fixed_means.shape[0]} components")
-            print()
+            logger.info("=" * 60)
+            logger.info("Analytical Misidentification Analysis")
+            logger.info("=" * 60)
+            logger.info(f"Photon bins: {len(photon_bins)-1} bins")
+            logger.info(f"  Range: {photon_bins[0]:,.0f} - {photon_bins[-1]:,.0f} photons")
+            logger.info(f"Reference molecules: {len(reference_db)}")
+            logger.info(f"Fixed means: {fixed_means.shape[0]} components")
+            logger.info()
 
         # Filter photon accumulation data to only include reference molecules
         reference_mol_ids = set(reference_db["molecular_index"].values)
@@ -1488,7 +1491,7 @@ class MixtureAnalysisMixin:
         ]
 
         if verbose:
-            print(f"Photon accumulation rows (reference molecules only): {len(pa_filtered)}")
+            logger.info(f"Photon accumulation rows (reference molecules only): {len(pa_filtered)}")
 
         # Storage for summary results
         all_summaries = []
@@ -1500,7 +1503,7 @@ class MixtureAnalysisMixin:
             bin_max = photon_bins[i + 1]
 
             if verbose:
-                print(f"\nBin {i+1}/{len(photon_bins)-1}: [{bin_min:,.0f}, {bin_max:,.0f}) photons...")
+                logger.info(f"\nBin {i+1}/{len(photon_bins)-1}: [{bin_min:,.0f}, {bin_max:,.0f}) photons...")
 
             # Get molecules in this bin
             bin_data = pa_filtered[
@@ -1510,7 +1513,7 @@ class MixtureAnalysisMixin:
 
             if len(bin_data) == 0:
                 if verbose:
-                    print(f"  No molecules in this bin, skipping...")
+                    logger.info(f"  No molecules in this bin, skipping...")
                 continue
 
             # Get one row per molecule (earliest entry or midpoint)
@@ -1536,14 +1539,14 @@ class MixtureAnalysisMixin:
 
             n_molecules = len(bin_molecules)
             if verbose:
-                print(f"  Molecules in bin: {n_molecules}")
+                logger.info(f"  Molecules in bin: {n_molecules}")
 
             # Extract A_R, A_G data
             X = bin_molecules[["A_R", "A_G"]].values
 
             # Step 1: Robustly fit covariances with fixed means using M-estimators
             if verbose:
-                print(f"  Fitting covariances (M-estimator: {estimator_type})...")
+                logger.info(f"  Fitting covariances (M-estimator: {estimator_type})...")
             covariances, weights, point_weights = self.fit_covariances_fixed_means_mestimator(
                 X, fixed_means,
                 reference_covariances=reference_covariances,
@@ -1555,11 +1558,11 @@ class MixtureAnalysisMixin:
 
             if verbose:
                 status = "converged" if converged else "did not converge"
-                print(f"  Covariance fitting: {status}")
+                logger.info(f"  Covariance fitting: {status}")
 
             # Step 2: Analytically calculate misidentification
             if verbose:
-                print(f"  Calculating analytical error rates...")
+                logger.info(f"  Calculating analytical error rates...")
             stats = self.calculate_analytical_misidentification(
                 fixed_means, covariances, weights, n_samples=n_mc_samples, random_state=42
             )
@@ -1614,10 +1617,10 @@ class MixtureAnalysisMixin:
                     _safe_tight_layout(fig)
                     plotter.save_or_show(fig, save_path=None)
 
-                    print(f"  (Close plot to continue to next bin)")
+                    logger.info(f"  (Close plot to continue to next bin)")
 
                 except Exception as e:
-                    print(f"  (Plotting skipped for this bin - error: {e})")
+                    logger.warning(f"  (Plotting skipped for this bin - error: {e})")
 
             # Build summary row
             summary_row = {
@@ -1648,8 +1651,8 @@ class MixtureAnalysisMixin:
                 summary_row[f'weight_{k}'] = weights[k]
 
             if verbose:
-                print(f"  Overall accuracy (analytical): {stats['overall_accuracy']:.3f}")
-                print(f"  Component accuracies: {stats['accuracy_per_component']}")
+                logger.info(f"  Overall accuracy (analytical): {stats['overall_accuracy']:.3f}")
+                logger.info(f"  Component accuracies: {stats['accuracy_per_component']}")
 
             all_summaries.append(summary_row)
 
@@ -1658,19 +1661,17 @@ class MixtureAnalysisMixin:
             summary_db = pd.DataFrame(all_summaries)
 
             if verbose:
-                print("\n" + "=" * 60)
-                print("Analytical Analysis Complete!")
-                print("=" * 60)
-                print(f"Summary database: {len(summary_db)} bins")
-                print(
-                    f"Overall accuracy range: {summary_db['overall_accuracy'].min():.3f} - {summary_db['overall_accuracy'].max():.3f}"
-                )
+                logger.info("\n" + "=" * 60)
+                logger.info("Analytical Analysis Complete!")
+                logger.info("=" * 60)
+                logger.info(f"Summary database: {len(summary_db)} bins")
+                logger.info(f"Overall accuracy range: {summary_db['overall_accuracy'].min():.3f} - {summary_db['overall_accuracy'].max():.3f}")
         else:
             summary_db = pd.DataFrame()
             if verbose:
-                print("\n" + "=" * 60)
-                print("No results generated (no molecules in bins)")
-                print("=" * 60)
+                logger.info("\n" + "=" * 60)
+                logger.info("No results generated (no molecules in bins)")
+                logger.info("=" * 60)
 
         return summary_db
 
