@@ -345,8 +345,8 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 **Status:** 📋 Tier 2 — one new item added
 
 - ✅ **2.3** Split clustering logic into `src/clustering/` mixin subpackage
-- [ ] **2.4** Split GMM + channel-unmixing code out of `SM_extractionfunctions.py`
-  → `mixture_analysis.py` (~1 800 lines) + `channel_unmixing.py` (~2 000 lines)
+- ✅ **2.4** Split GMM + channel-unmixing code out of `SM_extractionfunctions.py`
+  → `src/mixture_analysis.py` (1 863 lines) + `src/channel_unmixing.py` (2 048 lines)
 
 ---
 

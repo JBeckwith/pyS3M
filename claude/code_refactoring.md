@@ -1,7 +1,7 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22
-**Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` subpackage)
+**Date:** 2026-04-22 (last updated 2026-04-30)
+**Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
 ---
@@ -10,7 +10,9 @@
 
 | File | Lines | Primary responsibility |
 |------|------:|----------------------|
-| SM_extractionfunctions.py | 5 354 | SM clustering (HDBSCAN, DBSCAN, linked), filtering, photon stats |
+| SM_extractionfunctions.py | 262 | Core `extract_SMs` class: `__init__`, `filter_quality_localisations`, `average_parameters`, `collect_traces`; inherits all methods from six mixins |
+| mixture_analysis.py | 1 863 | `MixtureAnalysisMixin`: GMM mixture analysis, `_fit_gmm_mle`, `extract_reference_means`, `fit_covariances_*`, `calculate_analytical_misidentification`, `analyze_photon_dependent_*` |
+| channel_unmixing.py | 2 048 | `ChannelUnmixingMixin`: `unmix_channels`, `unmix_channels_with_spatial_refinement`, `_cluster_seeds_spatially`, `_refine_spectral_model_from_puncta`, all helpers |
 | PlottingBase.py | 4 137 | Master plotting classes (publication, analysis, ternary, datashader) |
 | Multicolour_Simulation_Functions.py | 3 761 | Simulation, bootstrap, fitting delegation, file I/O |
 | drift_correction/_facade.py | 1 672 | Drift correction pipeline orchestration (post-split) |
@@ -47,6 +49,11 @@
 | DriftCorrectionFunctions.py | 45 | Backward-compat shim → drift_correction/ |
 | drift_correction/auto.py | 138 | AutoDriftCorrector, strategy selection |
 | drift_correction/__init__.py | 40 | Public imports only |
+| clustering/linked_clusterer.py | 304 | LinkedMixin: linked + spectral LAP linking |
+| clustering/batch.py | 286 | BatchMixin: batch, photon accumulation, multi-FOV |
+| clustering/hdbscan_clusterer.py | 95 | HDBSCANMixin: HDBSCAN extraction |
+| clustering/dbscan_clusterer.py | 90 | DBSCANMixin: DBSCAN extraction |
+| clustering/__init__.py | 22 | Public imports only |
 | CameraDefaults.py | 75 | Camera config registry |
 
 ---
@@ -59,38 +66,26 @@ All known duplication resolved — see Completed table.
 
 ## 3. Structural Problems
 
-### 3a. `SM_extractionfunctions.py` — 4 132-line file ← PARTIALLY DONE (Tier 2.3 complete)
+### 3a. `SM_extractionfunctions.py` — DONE (Tier 2.3 + Tier 2.4 complete)
 
-Tier 2.3 split the clustering algorithms into `src/clustering/`:
+The 5 354-line god-file has been fully split across six mixin subclasses:
+
 ```
 clustering/
     __init__.py             (re-exports)
-    hdbscan_clusterer.py    HDBSCANMixin — extract_single_molecules_HDBSCAN
-    dbscan_clusterer.py     DBSCANMixin  — extract_single_molecules_DBSCAN
-    linked_clusterer.py     LinkedMixin  — extract_single_molecules_linked,
-                                           flag_static_localisations,
-                                           spectral_lap_link,
-                                           extract_single_molecules_spectral_lap
-    batch.py                BatchMixin   — extract_single_molecules_batch,
-                                           build_photon_accumulation_database,
-                                           analyse_multi_fov_dataset,
-                                           _extract_fov_name
+    hdbscan_clusterer.py    HDBSCANMixin
+    dbscan_clusterer.py     DBSCANMixin
+    linked_clusterer.py     LinkedMixin
+    batch.py                BatchMixin
+
+mixture_analysis.py         MixtureAnalysisMixin  (1 863 lines)
+channel_unmixing.py         ChannelUnmixingMixin  (2 048 lines)
 ```
 
-`extract_SMs` now inherits `(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin)`.
-Shared utilities (`filter_quality_localisations`, `average_parameters`,
-`collect_traces`) remain on the host class.
-
-**Remaining bulk (~3 850 lines) — needs Tier 2.4:**
-The GMM mixture-analysis and channel-unmixing code grew far beyond what
-the original plan anticipated (it was not yet present when the plan was
-written).  It consists of two largely self-contained concerns:
-- `_fit_gmm_*`, `extract_reference_means`, `fit_covariances_*`,
-  `calculate_analytical_misidentification`, `analyze_photon_dependent_*` → `mixture_analysis.py`
-- `unmix_channels`, `unmix_channels_with_spatial_refinement`, all helpers
-  `_cluster_seeds_spatially`, `_refine_spectral_model_from_puncta`, etc. → `channel_unmixing.py`
-
-Add **Tier 2.4** to the plan below.
+`extract_SMs` (262 lines) inherits `(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
+MixtureAnalysisMixin, ChannelUnmixingMixin)`.  Core utilities
+(`filter_quality_localisations`, `average_parameters`, `collect_traces`) remain on
+the host class.  All callers unchanged; zero regressions confirmed by test suite.
 
 ---
 
@@ -157,7 +152,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | # | Action | Files touched | Effort |
 |---|---|---|---|
 | 2.3 | ✅ Split clustering logic out of `SM_extractionfunctions.py` | SM_extract + new clustering/ | done |
-| 2.4 | Split GMM/unmixing code out of `SM_extractionfunctions.py` | SM_extract + new mixture_analysis.py + channel_unmixing.py | 2 days |
+| 2.4 | ✅ Split GMM/unmixing code out of `SM_extractionfunctions.py` | SM_extract + new mixture_analysis.py + channel_unmixing.py | done |
 
 ### Tier 3 — Code quality and GUI readiness
 
@@ -176,7 +171,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 4.1 | Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | 1 day |
 | 4.2 | Package `DiffusionSimulation.py` into `simulation/` submodule | 1 day |
 
-**Estimated remaining effort:** ~12 person-days to fully GUI-ready state.
+**Estimated remaining effort:** ~11 person-days to fully GUI-ready state (2.4 = 2 days, Tier 3 = 6.5 days, Tier 4 = 3 days).
 
 ---
 
@@ -209,3 +204,4 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-04-20 | Extract `FilteringCriteria` dataclass (Tier 2.2) | Added to `Constants.py`; `filter_quality_localisations` + all `extract_single_molecules_*` methods accept `criteria=criteria` |
 | 2026-04-21 | Split `DriftCorrectionFunctions.py` into `drift_correction/` subpackage (Tier 2.1) | 3,524-line monolith → `_base.py` (218), `aim.py` (881), `fiducial.py` (368), `auto.py` (138), `_facade.py` (1,672), `__init__.py` (40); shim at 45 lines; all callers unchanged |
 | 2026-04-30 | Split clustering logic out of `SM_extractionfunctions.py` (Tier 2.3) | 5,354-line god-file → clustering mixin subpackage (`HDBSCANMixin`, `DBSCANMixin`, `LinkedMixin`, `BatchMixin`); 1,220 lines moved; SM_extractionfunctions.py now 4,132 lines; all callers unchanged |
+| 2026-05-01 | Split GMM + channel-unmixing code out of `SM_extractionfunctions.py` (Tier 2.4) | 4,132-line file → `mixture_analysis.py` (1,863 lines, `MixtureAnalysisMixin`) + `channel_unmixing.py` (2,048 lines, `ChannelUnmixingMixin`); `SM_extractionfunctions.py` now 262 lines; six-mixin inheritance; zero regressions |
