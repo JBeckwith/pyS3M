@@ -19,7 +19,7 @@ from typing import Dict, Tuple, Optional, List, Union
 import SpectralFunctions
 import PSFFunctions
 import IOFunctions
-from Constants import DriftConstants
+from Constants import DriftConstants, AnalysisConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class NileRed_Functions:
         sigma_energy: float = 0.1630104,
         alpha: float = -1.56453968,
         wavelength_center_init: float = 617.6,
+        config: AnalysisConfig = None,
     ):
         """Initialize Nile Red model with spectral parameters.
 
@@ -61,10 +62,12 @@ class NileRed_Functions:
             sigma_energy: Gaussian width in energy space (eV), default from fit
             alpha: Skewness parameter, default from fit
             wavelength_center_init: Initial guess for central wavelength (nm)
+            config: AnalysisConfig controlling progress and logging callbacks.
         """
         import CameraDefaults
-        config = CameraDefaults.get_camera_config(camera)
-        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
+        _cam = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else _cam.pixel_size
+        self.config = config if config is not None else AnalysisConfig()
 
         self.default_sigma_energy = sigma_energy
         self.default_alpha = alpha
@@ -518,7 +521,10 @@ class NileRed_Functions:
         results = [(np.nan, np.nan)] * n_total
 
         if verbose:
-            logger.info(f"{label}: {n_total} tasks with {n_workers} workers...")
+            msg = f"{label}: {n_total} tasks with {n_workers} workers..."
+            logger.info(msg)
+            if self.config.logging_callback:
+                self.config.logging_callback(msg)
             start_time = time.time()
 
         with futures.ProcessPoolExecutor(n_workers) as executor:
@@ -540,14 +546,24 @@ class NileRed_Functions:
                     ):
                         elapsed = time.time() - start_time
                         rate = completed / elapsed if elapsed > 0 else 0
-                        logger.debug(f"  {label} progress: {completed}/{n_total} " f"({100*completed/n_total:.1f}%) - {rate:.1f} fits/s")
+                        msg = (f"  {label} progress: {completed}/{n_total} "
+                               f"({100*completed/n_total:.1f}%) - {rate:.1f} fits/s")
+                        logger.debug(msg)
+                        if self.config.progress_callback:
+                            self.config.progress_callback(completed / n_total, msg)
                 except Exception as e:
                     if verbose:
-                        logger.info(f"\nWarning: {label} fit failed for index {idx}: {e}")
+                        msg = f"\nWarning: {label} fit failed for index {idx}: {e}"
+                        logger.info(msg)
+                        if self.config.logging_callback:
+                            self.config.logging_callback(msg)
 
         if verbose:
             elapsed = time.time() - start_time
-            logger.info(f"\n  {label} complete: {completed}/{n_total} in {elapsed:.1f} s")
+            msg = f"\n  {label} complete: {completed}/{n_total} in {elapsed:.1f} s"
+            logger.info(msg)
+            if self.config.logging_callback:
+                self.config.logging_callback(msg)
 
         return results
 
@@ -849,9 +865,15 @@ class NileRed_Functions:
             )
 
         for i, wl_true in wavelength_iterator:
+            if self.config.progress_callback:
+                self.config.progress_callback(i / n_wavelengths,
+                    f"Stage 1: wavelength {i+1}/{n_wavelengths} ({wl_true:.1f} nm)")
             if verbose and not use_tqdm:
                 elapsed = (time.time() - start_time) / 60.0
-                logger.info(f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)")
+                msg = f"\n[{i+1}/{n_wavelengths}] Processing wavelength {wl_true:.1f} nm (elapsed: {elapsed:.1f} min)"
+                logger.info(msg)
+                if self.config.logging_callback:
+                    self.config.logging_callback(msg)
 
             # Generate Nile Red spectrum for this wavelength
             spectrum = self.generate_nile_red_spectrum(

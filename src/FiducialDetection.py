@@ -24,7 +24,7 @@ sys.path.append(module_dir)
 
 from ImportManager import get_module, is_available
 from PlottingBase import AnalysisPlotter, PublicationPlotter
-from Constants import DriftConstants
+from Constants import DriftConstants, AnalysisConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -58,14 +58,16 @@ def _ensure_postprocess():
 class FiducialDetector:
     """Class containing fiducial detection and selection functionality."""
 
-    def __init__(self, drift_correction_instance=None):
+    def __init__(self, drift_correction_instance=None, config: AnalysisConfig = None):
         """
         Initialise with reference to main drift correction instance if needed.
 
         Args:
             drift_correction_instance: Reference to main DriftCorrectionFunctions instance
+            config: AnalysisConfig controlling display, save, and callback behaviour.
         """
         self.drift_correction = drift_correction_instance
+        self.config = config if config is not None else AnalysisConfig()
 
     def detect_high_density_regions_from_image(
         self,
@@ -328,13 +330,23 @@ class FiducialDetector:
 
             if memory_optimise and region_id % 100 == 0 and region_id > 0:
                 gc.collect()
-                logger.info(f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions " f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
+                _n = len(picked_locs_arrays)
+                msg = (f"Processed {region_id + 1}/{_n} regions "
+                       f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
+                logger.info(msg)
+                if self.config.logging_callback:
+                    self.config.logging_callback(msg)
+                if self.config.progress_callback:
+                    self.config.progress_callback((region_id + 1) / _n, msg)
 
         # Final memory cleanup
         if memory_optimise:
             del picked_locs_arrays
             gc.collect()
-            logger.info("Memory optimisation: Freed intermediate arrays after region processing")
+            msg = "Memory optimisation: Freed intermediate arrays after region processing"
+            logger.info(msg)
+            if self.config.logging_callback:
+                self.config.logging_callback(msg)
 
         # Create visualization if requested
         if create_plot:
@@ -429,7 +441,11 @@ class FiducialDetector:
         )
 
         n_removed = int((~keep).sum())
-        logger.info(f"remove_puncta_locs: removed {n_removed:,} localisations " f"({n_removed / max(len(locs), 1) * 100:.1f}% of {len(locs):,} total)")
+        msg = (f"remove_puncta_locs: removed {n_removed:,} localisations "
+               f"({n_removed / max(len(locs), 1) * 100:.1f}% of {len(locs):,} total)")
+        logger.info(msg)
+        if self.config.logging_callback:
+            self.config.logging_callback(msg)
 
         return locs[keep]
 
@@ -465,8 +481,11 @@ class FiducialDetector:
         """
         validated_fiducials = []
         validation_metadata = []
+        _n_puncta = len(selected_puncta)
 
         for i, puncta in enumerate(selected_puncta):
+            if self.config.progress_callback and _n_puncta > 0:
+                self.config.progress_callback(i / _n_puncta, f"Validating region {i}/{_n_puncta}")
             if len(puncta) == 0:
                 continue
 
@@ -536,7 +555,7 @@ class FiducialDetector:
             return
 
         try:
-            DriftPlotter().create_separate_plots(
+            DriftPlotter(config=self.config).create_separate_plots(
                 smoothed_image,
                 binary_mask,
                 region_centres,
@@ -569,7 +588,7 @@ class FiducialDetector:
             return
 
         try:
-            DriftPlotter().plot_puncta_selection_results(
+            DriftPlotter(config=self.config).plot_puncta_selection_results(
                 locs,
                 selected_puncta,
                 region_centres,
@@ -598,7 +617,7 @@ class FiducialDetector:
             return
 
         try:
-            DriftPlotter().plot_clustering_results(
+            DriftPlotter(config=self.config).plot_clustering_results(
                 selected_puncta,
                 validated_fiducials,
                 validation_metadata,
@@ -616,8 +635,9 @@ class DriftPlotter(AnalysisPlotter):
     Moved from DriftPlotting.py (2026-04-10).
     """
 
-    def __init__(self):
+    def __init__(self, config: AnalysisConfig = None):
         super().__init__()
+        self.config = config if config is not None else AnalysisConfig()
 
     def plot_fiducial_detection_steps(
         self,
@@ -734,7 +754,7 @@ class DriftPlotter(AnalysisPlotter):
                      bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.5))
 
             plt.tight_layout()
-            self.save_or_show(fig, save_path=save_path, show=True, dpi=300)
+            self.save_or_show(fig, save_path=save_path, show=self.config.display, dpi=self.config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create fiducial detection steps plot: {e}")
@@ -817,7 +837,7 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.tight_layout()
             plt.subplots_adjust(left=0.15)
-            self.save_or_show(fig, save_path=save_path, show=True, dpi=150)
+            self.save_or_show(fig, save_path=save_path, show=self.config.display, dpi=self.config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create fiducial detection plot: {e}")
@@ -953,7 +973,7 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.suptitle(title, fontsize=14, fontweight="bold")
             plt.tight_layout()
-            self.save_or_show(fig, save_path=output_figure_path, show=True, dpi=150)
+            self.save_or_show(fig, save_path=output_figure_path, show=self.config.display, dpi=self.config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create puncta selection plot: {e}")
@@ -1005,10 +1025,9 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.suptitle(f"{title} - Individual Clustering Details", fontsize=14)
             plt.tight_layout()
-            filename = f"{base_path}_details.png"
-            plt.savefig(filename, dpi=300, bbox_inches="tight")
+            filename = f"{base_path}_details.{self.config.figure_format}"
+            self.save_or_show(fig, save_path=filename, show=self.config.display, dpi=self.config.dpi)
             logger.info(f"Saved individual clustering details: {filename}")
-            plt.show()
 
         except Exception as e:
             logger.warning(f"⚠️ Error creating individual clustering details: {e}")
@@ -1097,12 +1116,12 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                filename = f"{base_path}_clustering_results.png"
-                plt.savefig(filename, dpi=300, bbox_inches="tight")
-                logger.info(f"Clustering results saved to: {filename}")
+                _save = f"{base_path}_clustering_results.{self.config.figure_format}"
             else:
-                plt.show()
-            plt.close()
+                _save = None
+            self.save_or_show(fig, save_path=_save, show=self.config.display, dpi=self.config.dpi)
+            if _save:
+                logger.info(f"Clustering results saved to: {_save}")
 
         except Exception as e:
             logger.warning(f"⚠️ Error creating clustering results plot: {e}")
@@ -1189,12 +1208,12 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                filename = f"{base_path}_clustering_summary.png"
-                plt.savefig(filename, dpi=300, bbox_inches="tight")
-                logger.info(f"Clustering summary saved to: {filename}")
+                _save = f"{base_path}_clustering_summary.{self.config.figure_format}"
             else:
-                plt.show()
-            plt.close()
+                _save = None
+            self.save_or_show(fig, save_path=_save, show=self.config.display, dpi=self.config.dpi)
+            if _save:
+                logger.info(f"Clustering summary saved to: {_save}")
 
         except Exception as e:
             logger.warning(f"⚠️ Error creating clustering summary plot: {e}")
@@ -1247,11 +1266,11 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                filename = f"{base_path}_density_detection.png"
-                self.save_or_show(fig, save_path=filename, show=False, dpi=150)
+                filename = f"{base_path}_density_detection.{self.config.figure_format}"
+                self.save_or_show(fig, save_path=filename, show=self.config.display, dpi=self.config.dpi)
                 logger.info(f"Density detection plot saved to: {filename}")
             else:
-                self.save_or_show(fig, save_path=None, show=True, dpi=150)
+                self.save_or_show(fig, save_path=None, show=self.config.display, dpi=self.config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Error creating density detection plots: {e}")

@@ -25,6 +25,7 @@ from collections import OrderedDict
 module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 from ImportManager import get_module, is_available
+from Constants import AnalysisConfig
 import lib
 import render
 from LinkingFunctions import (
@@ -44,8 +45,12 @@ logger = logging.getLogger(__name__)
 plt = get_module("matplotlib.pyplot")
 
 
-def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, display: bool = True):
+def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None,
+                         display: bool = True, config: AnalysisConfig = None):
     """Create standardized drift analysis plot using consolidated plotting."""
+    _display = config.display if config is not None else display
+    _dpi = config.dpi if config is not None else 300
+
     if not is_available("matplotlib.pyplot"):
         logger.warning("⚠️ Matplotlib not available - skipping drift plot display")
         return None, None
@@ -77,7 +82,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, displa
         ax2.plot(shift_x, shift_y, "o")
         plotter.setup_axis(ax2, xlabel="x", ylabel="y", equal_aspect=True)
 
-        plotter.save_or_show(fig, save_path=save_path)
+        plotter.save_or_show(fig, save_path=save_path, show=_display, dpi=_dpi)
         return fig, axes
 
     except ImportError:
@@ -108,8 +113,8 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None, displa
         plt.ylabel("y")
 
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        if display:
+            plt.savefig(save_path, dpi=_dpi, bbox_inches="tight")
+        if _display:
             plt.show()
         plt.close(fig)
         return fig, None
@@ -1352,6 +1357,7 @@ def segment_locs_by_rendered_image(
     blur_method="smooth",
     callback=None,
     verbose=False,
+    config: AnalysisConfig = None,
 ):
     """
     Memory-efficient aggregate detection using image-based segmentation.
@@ -1440,6 +1446,10 @@ def segment_locs_by_rendered_image(
     # Step 1: Render super-resolved image
     if callback == "console" or callback is not None:
         logger.info("Step 1/5: Rendering super-resolved image...")
+    if config is not None and config.progress_callback:
+        config.progress_callback(0.0, "Step 1/5: Rendering super-resolved image...")
+    if config is not None and config.logging_callback:
+        config.logging_callback("Step 1/5: Rendering super-resolved image...")
 
     info = [{
     "Width": width,         # Image width in pixels
@@ -1458,6 +1468,10 @@ def segment_locs_by_rendered_image(
     # Step 2: Apply thresholding
     if callback == "console" or callback is not None:
         logger.info(f"Step 2/5: Applying {threshold_method} thresholding...")
+    if config is not None and config.progress_callback:
+        config.progress_callback(0.2, f"Step 2/5: Applying {threshold_method} thresholding...")
+    if config is not None and config.logging_callback:
+        config.logging_callback(f"Step 2/5: Applying {threshold_method} thresholding...")
 
     if threshold_method == "otsu":
         threshold = filters.threshold_otsu(rendered_image)
@@ -1476,6 +1490,10 @@ def segment_locs_by_rendered_image(
     # Step 3: Label connected components
     if callback == "console" or callback is not None:
         logger.info("Step 3/5: Detecting connected regions...")
+    if config is not None and config.progress_callback:
+        config.progress_callback(0.4, "Step 3/5: Detecting connected regions...")
+    if config is not None and config.logging_callback:
+        config.logging_callback("Step 3/5: Detecting connected regions...")
 
     label_image = measure.label(binary_image)
     regions = measure.regionprops(label_image)
@@ -1483,6 +1501,10 @@ def segment_locs_by_rendered_image(
     # Step 4: Filter by area and count localisations
     if callback == "console" or callback is not None:
         logger.info("Step 4/5: Filtering aggregates by size and localisation count...")
+    if config is not None and config.progress_callback:
+        config.progress_callback(0.6, "Step 4/5: Filtering aggregates by size and localisation count...")
+    if config is not None and config.logging_callback:
+        config.logging_callback("Step 4/5: Filtering aggregates by size and localisation count...")
 
     valid_regions = []
     # Calculate super-resolved pixel size
@@ -1628,6 +1650,10 @@ def segment_locs_by_rendered_image(
     # Step 5: Extract localisations and compute statistics
     if callback == "console" or callback is not None:
         logger.info("Step 5/5: Extracting localisations and computing statistics...")
+    if config is not None and config.progress_callback:
+        config.progress_callback(0.8, "Step 5/5: Extracting localisations and computing statistics...")
+    if config is not None and config.logging_callback:
+        config.logging_callback("Step 5/5: Extracting localisations and computing statistics...")
 
     aggregate_locs_list = []
     per_aggregate_stats_list = []
@@ -1739,8 +1765,14 @@ def segment_locs_by_rendered_image(
     if "frame" not in per_aggregate_stats.columns:
         per_aggregate_stats["frame"] = 0
 
+    _done_msg = (f"✓ Complete! Extracted {len(aggregate_locs_combined)} localisations "
+                 f"in {len(valid_regions)} aggregates")
     if callback == "console" or callback is not None:
-        logger.info(f"✓ Complete! Extracted {len(aggregate_locs_combined)} localisations " f"in {len(valid_regions)} aggregates")
+        logger.info(_done_msg)
+    if config is not None and config.progress_callback:
+        config.progress_callback(1.0, _done_msg)
+    if config is not None and config.logging_callback:
+        config.logging_callback(_done_msg)
 
     return aggregate_locs_combined, per_aggregate_stats
 
@@ -1754,6 +1786,7 @@ def remove_fiducials(
     density_threshold=0.6,
     require_all=False,
     verbose=False,
+    config: AnalysisConfig = None,
 ):
     """
     Remove fiducial markers from aggregate data based on spectral and density criteria.
@@ -1913,14 +1946,20 @@ def remove_fiducials(
 
     n_fiducials = np.sum(fiducial_mask)
 
-    if verbose:
-        logger.info(f"Fiducial removal summary:")
-        logger.info(f"  Total aggregates: {n_aggregates}")
-        for name, m in criteria:
-            logger.info(f"  Flagged by {name}: {np.sum(m)}")
+    if verbose or (config is not None and config.logging_callback):
         combine_str = "ALL" if require_all else "ANY"
-        logger.info(f"  Combined ({combine_str}): {n_fiducials} fiducials")
-        logger.info(f"  Remaining: {n_aggregates - n_fiducials} aggregates")
+        summary_lines = [
+            f"Fiducial removal summary:",
+            f"  Total aggregates: {n_aggregates}",
+            *[f"  Flagged by {name}: {np.sum(m)}" for name, m in criteria],
+            f"  Combined ({combine_str}): {n_fiducials} fiducials",
+            f"  Remaining: {n_aggregates - n_fiducials} aggregates",
+        ]
+        if verbose:
+            for line in summary_lines:
+                logger.info(line)
+        if config is not None and config.logging_callback:
+            config.logging_callback("\n".join(summary_lines))
 
     # Filter out fiducial aggregates
     fiducial_ids = set(per_aggregate_stats.loc[fiducial_mask, id_col].values)
@@ -1942,8 +1981,13 @@ def remove_fiducials(
     keep_locs = ~aggregate_locs[locs_id_col].isin(fiducial_ids)
     filtered_locs = aggregate_locs[keep_locs].reset_index(drop=True)
 
-    if verbose:
+    if verbose or (config is not None and config.logging_callback):
         n_removed_locs = len(aggregate_locs) - len(filtered_locs)
-        logger.info(f"  Localisations removed: {n_removed_locs} " f"({100 * n_removed_locs / len(aggregate_locs):.1f}%)")
+        msg = (f"  Localisations removed: {n_removed_locs} "
+               f"({100 * n_removed_locs / len(aggregate_locs):.1f}%)")
+        if verbose:
+            logger.info(msg)
+        if config is not None and config.logging_callback:
+            config.logging_callback(msg)
 
     return filtered_locs, filtered_stats, fiducial_mask

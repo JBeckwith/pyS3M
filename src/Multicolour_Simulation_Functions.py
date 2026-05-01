@@ -19,7 +19,7 @@ module_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(module_dir)
 
 import IOFunctions
-from Constants import DriftConstants
+from Constants import DriftConstants, AnalysisConfig
 import PSFFunctions
 import sCMOSFunctions
 import ImageAnalysisFunctions
@@ -358,6 +358,7 @@ class MultiC_Sim_Funcs_Refactored:
         scmos_functions=None,
         image_analysis_functions=None,
         spectral_functions=None,
+        config: AnalysisConfig = None,
     ):
         """
         Initialize the simulation functions with dependency injection support.
@@ -374,9 +375,9 @@ class MultiC_Sim_Funcs_Refactored:
             spectral_functions: Spectral functions instance (default: creates new instance)
         """
         import CameraDefaults
-        config = CameraDefaults.get_camera_config(camera)
-        self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
-        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
+        _cam = CameraDefaults.get_camera_config(camera)
+        self.pixel_size = pixel_size if pixel_size is not None else _cam.pixel_size
+        self.mosaic_unit = mosaic_unit if mosaic_unit is not None else _cam.mosaic_unit
         self.result_processor = FittingResultProcessor()
 
         # Dependency injection with sensible defaults
@@ -401,6 +402,7 @@ class MultiC_Sim_Funcs_Refactored:
             if spectral_functions is not None
             else SpectralFunctions.Spectral_Funcs()
         )
+        self.config = config if config is not None else AnalysisConfig()
 
     def _validate_inputs(
         self,
@@ -3373,8 +3375,8 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
 
         plt.tight_layout()
 
-        # Use PlottingBase save/show methods for consistency (600 DPI for publication)
-        plotter.save_or_show(fig, save_path=save_path, show=show, dpi=600)
+        _show = show if show is not None else self.config.display
+        plotter.save_or_show(fig, save_path=save_path, show=_show, dpi=self.config.dpi)
 
         return fig, (ax_scatter, ax_conf, ax_acc)
 
@@ -3462,8 +3464,8 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
 
         plt.tight_layout()
 
-        # Use PlottingBase save/show methods for consistency (600 DPI for publication)
-        plotter.save_or_show(fig, save_path=save_path, show=show, dpi=600)
+        _show = show if show is not None else self.config.display
+        plotter.save_or_show(fig, save_path=save_path, show=_show, dpi=self.config.dpi)
 
         return fig, ax
 
