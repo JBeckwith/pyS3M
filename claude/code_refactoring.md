@@ -107,8 +107,8 @@ a single clear responsibility — but worth revisiting once 3a is done.
 
 | Function group | New dataclass | Home file | Status |
 |---|---|---|---|
-| `render.*` rendering args (8 params) | `RenderingConfig` | `render.py` | Pending |
-| `extract_single_molecules_*` clustering args | `ClusteringConfig` | `clustering/__init__.py` | Blocked on 3a |
+| `render.*` rendering args (8 params) | `RenderingConfig` | `render.py` | Pending (Tier 3.1) |
+| `extract_single_molecules_*` clustering args | `ClusteringConfig` | `clustering/__init__.py` | Unblocked (Tier 2.3/2.4 done) |
 
 ---
 
@@ -158,8 +158,8 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 
 | # | Action | Files touched | Effort |
 |---|---|---|---|
-| 3.1 | `RenderingConfig` dataclass in `render.py` | render.py + callers | 0.5 day |
-| 3.2 | Replace `print()` progress with `LoggingFramework` throughout | ~8 files | 1 day |
+| 3.1 | ✅ `RenderingConfig` dataclass in `render.py` | render.py | done |
+| 3.2 | ✅ Replace `print()` with `logging` throughout | 18 files | done |
 | 3.4 | Thread `AnalysisConfig` into remaining major classes; add `output_handler` callbacks | 6 classes | 2 days |
 | 3.3 | Comprehensive type hints on public methods | All | 3 days |
 
@@ -205,3 +205,6 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-04-21 | Split `DriftCorrectionFunctions.py` into `drift_correction/` subpackage (Tier 2.1) | 3,524-line monolith → `_base.py` (218), `aim.py` (881), `fiducial.py` (368), `auto.py` (138), `_facade.py` (1,672), `__init__.py` (40); shim at 45 lines; all callers unchanged |
 | 2026-04-30 | Split clustering logic out of `SM_extractionfunctions.py` (Tier 2.3) | 5,354-line god-file → clustering mixin subpackage (`HDBSCANMixin`, `DBSCANMixin`, `LinkedMixin`, `BatchMixin`); 1,220 lines moved; SM_extractionfunctions.py now 4,132 lines; all callers unchanged |
 | 2026-05-01 | Split GMM + channel-unmixing code out of `SM_extractionfunctions.py` (Tier 2.4) | 4,132-line file → `mixture_analysis.py` (1,863 lines, `MixtureAnalysisMixin`) + `channel_unmixing.py` (2,048 lines, `ChannelUnmixingMixin`); `SM_extractionfunctions.py` now 262 lines; six-mixin inheritance; zero regressions |
+| 2026-05-01 | Fix `add_colorbar` argument order in `PlottingBase.py` | `image_plot` and `contour_plot` were passing `(ax, im)` but signature is `(im, ax)`; `make_axes_locatable` received an `AxesImage` → `AttributeError` |
+| 2026-05-01 | Replace `print()` with `logging` throughout (Tier 3.2) | 581 calls across 18 files → `logger = logging.getLogger(__name__)` per module; info/progress → `logger.info()`, warnings → `logger.warning()`, end=`"\r"` loop progress → `logger.debug()`; `verbose`-gated calls preserve their guard |
+| 2026-05-01 | `RenderingConfig` dataclass in `render.py` (Tier 3.1) | `@dataclass` with 10 fields mirroring `render()` kwargs; `render()` gains `config: RenderingConfig = None`; all existing callers unchanged |

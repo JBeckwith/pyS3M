@@ -14,6 +14,8 @@
 import time
 import os
 import sys
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import numba
@@ -27,6 +29,43 @@ plt = get_module("matplotlib.pyplot")
 colors = get_module("matplotlib.colors")
 
 _DRAW_MAX_SIGMA = 3
+
+
+@dataclass
+class RenderingConfig:
+    """Parameters controlling how localisations are rendered to a super-resolution image.
+
+    Groups the rendering arguments that are passed identically on every call to
+    ``render()``.  Pass a single ``RenderingConfig`` instance instead of the
+    individual keyword arguments to reduce call-site verbosity.
+
+    Example::
+
+        cfg = RenderingConfig(oversampling=10, blur_method="gaussian", min_blur_width=1.0)
+        n, img = render(locs, info, config=cfg)
+
+        # Colour-coded render:
+        cfg = RenderingConfig(
+            oversampling=8,
+            blur_method="gaussian_colour",
+            cparam="A_R",
+            c_min=0.3,
+            c_max=0.75,
+            cmap_string="jet",
+        )
+        n, img_total, img_colour = render(locs, info, config=cfg)
+    """
+
+    oversampling: float = 1
+    blur_method: Optional[str] = None
+    min_blur_width: float = 0
+    cparam: str = "A_R"
+    c_min: float = 0.3
+    c_max: float = 0.75
+    mindensperc: float = 1
+    maxdensperc: float = 99.9
+    densitymin: float = 0.1
+    cmap_string: str = "jet"
 
 
 def render(
@@ -43,6 +82,7 @@ def render(
     maxdensperc=99.9,
     densitymin=0.1,
     cmap_string="jet",
+    config: Optional[RenderingConfig] = None,
 ):
     """
     Renders locs.
@@ -78,6 +118,18 @@ def render(
     np.array
         Rendered image
     """
+
+    if config is not None:
+        oversampling  = config.oversampling
+        blur_method   = config.blur_method
+        min_blur_width = config.min_blur_width
+        cparam        = config.cparam
+        c_min         = config.c_min
+        c_max         = config.c_max
+        mindensperc   = config.mindensperc
+        maxdensperc   = config.maxdensperc
+        densitymin    = config.densitymin
+        cmap_string   = config.cmap_string
 
     if viewport is None:
         try:
