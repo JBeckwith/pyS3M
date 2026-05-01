@@ -1002,7 +1002,7 @@ class BasePlotter(ABC):
             ax.set_title(title, fontsize=self.config.axis_label_size)
 
         if colorbar:
-            self.add_colorbar(ax, im, label=colorbar_label)
+            self.add_colorbar(im, ax, label=colorbar_label)
 
         if scalebar:
             self.add_scalebar(
@@ -1140,7 +1140,7 @@ class BasePlotter(ABC):
         self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
 
         if colorbar:
-            self.add_colorbar(ax, contours, label=colorbar_label)
+            self.add_colorbar(contours, ax, label=colorbar_label)
 
         return ax, contours
 

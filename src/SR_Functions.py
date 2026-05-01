@@ -656,7 +656,7 @@ class SuperRes_Functions:
             weights_tofit,
             relative_coords,
             list(np.zeros(len(puncta_tofit), dtype=int)),
-            FittingStrategy.STANDARD,
+            FittingStrategy.STANDARD_ITER,
             masks=masks_tofit,
         )
 
@@ -1178,7 +1178,7 @@ class SuperRes_Functions:
                 weights_tofit,
                 relative_coords,
                 list(range(len(puncta_tofit))),
-                FittingStrategy.STANDARD,
+                FittingStrategy.STANDARD_ITER,
                 masks=masks_tofit,
             )
 
@@ -1455,7 +1455,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     list(range(len(puncta_tofit))),
-                    FittingStrategy.STANDARD,
+                    FittingStrategy.STANDARD_ITER,
                     masks=masks_tofit,
                 )
 
@@ -1775,7 +1775,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     planes,
-                    FittingStrategy.STANDARD,
+                    FittingStrategy.STANDARD_ITER,
                     masks=masks_tofit,
                 )
             )
@@ -1868,7 +1868,7 @@ class SuperRes_Functions:
             strategy = FittingStrategy.ELLIPTICAL
             result_params = ResultColumns.get_elliptical_columns()
         else:
-            strategy = FittingStrategy.STANDARD
+            strategy = FittingStrategy.STANDARD_ITER
             result_params = ResultColumns.get_all_columns()
 
         if pixel_size is None:
@@ -2534,7 +2534,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     planes,
-                    FittingStrategy.STANDARD,
+                    FittingStrategy.STANDARD_ITER,
                     masks=masks_tofit,
                 )
             )
