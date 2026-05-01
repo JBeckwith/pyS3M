@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from Constants import FilteringConstants
+from ._config import ClusteringConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class HDBSCANMixin:
         min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         start_frame=0,
+        config: ClusteringConfig = None,
     ):
         """
         Extract single molecules from localisation data by HDBSCAN clustering.
@@ -57,6 +59,10 @@ class HDBSCANMixin:
                    single_frame_database includes molecular_index column and
                    excludes unassigned localisations.
         """
+        if config is not None:
+            min_cluster_size = config.min_cluster_size
+            start_frame      = config.start_frame
+
         molecular_index_offset = 0
 
         loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)

@@ -1,6 +1,6 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22 (last updated 2026-04-30)
+**Date:** 2026-04-22 (last updated 2026-05-01)
 **Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
@@ -108,7 +108,7 @@ a single clear responsibility — but worth revisiting once 3a is done.
 | Function group | New dataclass | Home file | Status |
 |---|---|---|---|
 | `render.*` rendering args (8 params) | `RenderingConfig` | `render.py` | Pending (Tier 3.1) |
-| `extract_single_molecules_*` clustering args | `ClusteringConfig` | `clustering/__init__.py` | Unblocked (Tier 2.3/2.4 done) |
+| `extract_single_molecules_*` clustering args | `ClusteringConfig` | `clustering/_config.py` | ✅ Done |
 
 ---
 
@@ -208,3 +208,4 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-05-01 | Fix `add_colorbar` argument order in `PlottingBase.py` | `image_plot` and `contour_plot` were passing `(ax, im)` but signature is `(im, ax)`; `make_axes_locatable` received an `AxesImage` → `AttributeError` |
 | 2026-05-01 | Replace `print()` with `logging` throughout (Tier 3.2) | 581 calls across 18 files → `logger = logging.getLogger(__name__)` per module; info/progress → `logger.info()`, warnings → `logger.warning()`, end=`"\r"` loop progress → `logger.debug()`; `verbose`-gated calls preserve their guard |
 | 2026-05-01 | `RenderingConfig` dataclass in `render.py` (Tier 3.1) | `@dataclass` with 10 fields mirroring `render()` kwargs; `render()` gains `config: RenderingConfig = None`; all existing callers unchanged |
+| 2026-05-01 | `ClusteringConfig` dataclass (Tier 3) | `@dataclass` in `clustering/_config.py` with 21 fields covering all four extraction methods; wired into `extract_single_molecules_HDBSCAN`, `extract_single_molecules_DBSCAN`, `extract_single_molecules_linked`, `extract_single_molecules_spectral_lap`, `extract_single_molecules_batch`; also fixed bare `logger.info()` call in `batch.py` |

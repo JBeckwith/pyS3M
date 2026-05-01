@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from Constants import FilteringConstants, FilteringCriteria
+from ._config import ClusteringConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class BatchMixin:
         epsilon_multiplier=1.0,
         start_frame=0,
         verbose=True,
+        config: ClusteringConfig = None,
     ):
         """
         Extract single molecules from multiple localisation files (FOVs).
@@ -91,6 +93,15 @@ class BatchMixin:
                 Both DataFrames include fov_index and fov_name columns.
                 molecular_index is globally unique across all FOVs.
         """
+        if config is not None:
+            clustering_method  = config.clustering_method
+            min_cluster_size   = config.min_cluster_size
+            epsilon_multiplier = config.epsilon_multiplier
+            max_distance       = config.max_distance
+            max_frames         = config.max_frames
+            start_frame        = config.start_frame
+            verbose            = config.verbose
+
         if not isinstance(localisation_files, (list, np.ndarray)):
             raise ValueError("localisation_files must be a list or array of file paths")
 
@@ -426,8 +437,6 @@ class BatchMixin:
 
         photon_accumulation_db = None
         if build_accumulation:
-            if verbose:
-                logger.info()
             photon_accumulation_db = self.build_photon_accumulation_database(
                 single_frame_db, verbose=verbose
             )

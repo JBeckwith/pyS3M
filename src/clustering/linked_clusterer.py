@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from Constants import FilteringConstants, FilteringCriteria
+from ._config import ClusteringConfig
 import postprocess
 import logging
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class LinkedMixin:
         min_photons=FilteringConstants.MIN_PHOTONS,
         max_photons=None,
         start_frame=0,
+        config: ClusteringConfig = None,
     ):
         """
         Extract single molecules using temporal linking (postprocess.get_link_groups).
@@ -56,6 +58,11 @@ class LinkedMixin:
                    single_frame_database includes molecular_index column and
                    excludes unlinked localisations.
         """
+        if config is not None:
+            max_distance = config.max_distance
+            max_frames   = config.max_frames
+            start_frame  = config.start_frame
+
         molecular_index_offset = 0
 
         loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
@@ -328,6 +335,7 @@ class LinkedMixin:
         static_eps=None,
         static_min_samples=10,
         verbose=False,
+        config: ClusteringConfig = None,
     ):
         """Extract single molecules using spectral-assisted LAP linking.
 
@@ -361,6 +369,23 @@ class LinkedMixin:
         Returns:
             tuple: (single_molecule_database, single_frame_database).
         """
+        if config is not None:
+            max_distance        = config.max_distance
+            max_dark_time       = config.max_dark_time
+            w_spatial           = config.w_spatial
+            w_spectral          = config.w_spectral
+            spectral_tol        = config.spectral_tol
+            spectral_columns    = config.spectral_columns
+            min_frames          = config.min_frames
+            D_prior             = config.D_prior
+            dt                  = config.dt
+            sigma_loc           = config.sigma_loc
+            alpha               = config.alpha
+            remove_static       = config.remove_static
+            static_eps          = config.static_eps
+            static_min_samples  = config.static_min_samples
+            verbose             = config.verbose
+
         loc_data = self.filter_quality_localisations(
             loc_data=loc_data,
             criteria=criteria,
