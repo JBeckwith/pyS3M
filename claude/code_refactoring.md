@@ -1,6 +1,6 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22 (last updated 2026-05-01)
+**Date:** 2026-04-22 (last updated 2026-05-06)
 **Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
@@ -14,12 +14,12 @@
 | mixture_analysis.py | 1 863 | `MixtureAnalysisMixin`: GMM mixture analysis, `_fit_gmm_mle`, `extract_reference_means`, `fit_covariances_*`, `calculate_analytical_misidentification`, `analyze_photon_dependent_*` |
 | channel_unmixing.py | 2 048 | `ChannelUnmixingMixin`: `unmix_channels`, `unmix_channels_with_spatial_refinement`, `_cluster_seeds_spatially`, `_refine_spectral_model_from_puncta`, all helpers |
 | PlottingBase.py | 4 137 | Master plotting classes (publication, analysis, ternary, datashader) |
-| Multicolour_Simulation_Functions.py | 3 761 | Simulation, bootstrap, fitting delegation, file I/O |
+| Multicolour_Simulation_Functions.py | 3 761 | Simulation, bootstrap, fitting delegation, file I/O → **moving to `simulation/multicolour.py`** |
 | drift_correction/_facade.py | 1 672 | Drift correction pipeline orchestration (post-split) |
 | SR_Functions.py | 2 569 | Super-resolution pipeline orchestrator |
 | postprocess.py | 1 977 | NENA, pair correlation, index blocks, linking utilities |
 | NileRedFunctions.py | 1 936 | Nile Red spectral wavelength extraction |
-| DiffusionSimulation.py | 1 884 | 2D Langevin diffusion, MSD, binding kinetics |
+| DiffusionSimulation.py | 1 884 | 2D Langevin diffusion, MSD, binding kinetics → **moving to `simulation/diffusion.py`** |
 | ImageAnalysisFunctions.py | 1 777 | Gaussian fitting (9 strategies, polymorphic) |
 | SpectralFunctions.py | 1 538 | Spectral models, filter data, pixel QYs |
 | IOFunctions.py | 1 337 | HDF5/TIFF I/O, photon normalisation |
@@ -101,6 +101,32 @@ a single clear responsibility — but worth revisiting once 3a is done.
 
 ---
 
+### 3d. `simulation/` subpackage — planned (Tier 4.2)
+
+Two simulation files will be moved into a `simulation/` subpackage, matching the
+pattern already established by `drift_correction/` and `clustering/`:
+
+```
+simulation/
+    __init__.py        (public re-exports for backward compat)
+    diffusion.py       ← DiffusionSimulation.py  (1 884 lines)
+    multicolour.py     ← Multicolour_Simulation_Functions.py  (3 761 lines)
+
+DiffusionSimulation.py                  (backward-compat shim, ~10 lines)
+Multicolour_Simulation_Functions.py     (backward-compat shim, ~10 lines)
+```
+
+Key notes:
+- `multicolour.py` will import from `.diffusion` (the sibling module) rather than
+  the shim `DiffusionSimulation.py`, eliminating the cross-shim dependency.
+- `multicolour.py` imports from `ImageAnalysisFunctions`, `IOFunctions`, etc. — the
+  same cross-`src/` pattern already used by `clustering/batch.py` and others.
+- All notebook and `src/` callers remain unchanged via the shims.
+- Internals of both files are moved as-is; no restructuring of the physics or fitting
+  logic is planned.
+
+---
+
 ## 4. Parameter-Group Dataclasses
 
 All planned dataclasses complete.
@@ -142,7 +168,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 |---|---|---|---|
 | Progress via `print()` | ~100 call sites | Route through `LoggingFramework` | 3.2 |
 | No clean result objects | Most analysis functions return recarrays | Thin result dataclasses | 3.4 |
-| File paths as bare strings | Throughout | `pathlib.Path` + `AnalysisConfig` | 4.3 |
+| ~~File paths as bare strings~~ | ~~Throughout~~ | ~~`pathlib.Path` + `AnalysisConfig`~~ | ✅ 4.3 done |
 | ~~`AnalysisConfig` not fully threaded~~ | ~~Only in `SR_Functions`~~ | ~~Wire into remaining major classes~~ | ✅ 3.4 done |
 
 ---
@@ -171,9 +197,9 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 |---|---|---|
 | 4.3 | ✅ `pathlib.Path` throughout (replace bare strings) | done |
 | 4.1 | Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | 1 day |
-| 4.2 | Package `DiffusionSimulation.py` into `simulation/` submodule | 1 day |
+| 4.2 | Package `DiffusionSimulation.py` + `Multicolour_Simulation_Functions.py` into `simulation/` submodule | 2 days |
 
-**Estimated remaining effort:** ~5 person-days (Tier 3.3 type hints = 3 days, Tier 4.1+4.2 = 2 days).
+**Estimated remaining effort:** ~6 person-days (Tier 3.3 type hints = 3 days, Tier 4.1 = 1 day, Tier 4.2 = 2 days).
 
 ---
 
@@ -183,7 +209,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 - `PlottingBase.py` — already excellent; only additive changes needed.
 - `SpotDetectionFunctions.py` — ArrayPool/KernelCache design is clean and correct.
 - `ImageAnalysisFunctions.py` — polymorphic strategy pattern is well implemented.
-- `DiffusionSimulation.py` — legitimately complex physics; 1 900 lines is appropriate.
+- `DiffusionSimulation.py` — legitimately complex physics; 1 900 lines is appropriate. Moving to `simulation/diffusion.py` as-is; no internal restructuring planned.
 - `CameraDefaults.py` — tiny and correct; just add constants as needed.
 
 ---
@@ -212,3 +238,5 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-05-01 | `RenderingConfig` dataclass in `render.py` (Tier 3.1) | `@dataclass` with 10 fields mirroring `render()` kwargs; `render()` gains `config: RenderingConfig = None`; all existing callers unchanged |
 | 2026-05-01 | `ClusteringConfig` dataclass (Tier 3) | `@dataclass` in `clustering/_config.py` with 21 fields covering all four extraction methods; wired into `extract_single_molecules_HDBSCAN`, `extract_single_molecules_DBSCAN`, `extract_single_molecules_linked`, `extract_single_molecules_spectral_lap`, `extract_single_molecules_batch`; also fixed bare `logger.info()` call in `batch.py` |
 | 2026-05-01 | Thread `AnalysisConfig` into remaining classes (Tier 3.4) | `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added at key milestones; fixed pre-existing `save_or_show` bug in `_plot_drift_analysis`; zero regressions |
+| 2026-05-06 | Remove `STANDARD_DATA` fitting strategy | `FittingStrategy.STANDARD_DATA` enum value, `StandardDataFittingProcessor` class (~95 lines), and all dispatch/registry entries removed from `ImageAnalysisFunctions.py`; matching local enum + `_fit_standard_data()` method (~85 lines) + dispatch branch removed from `Multicolour_Simulation_Functions.py`; `test_standard_data_fitting.py` deleted; `STANDARD_ITER` confirmed as default strategy throughout |
+| 2026-05-06 | `pathlib.Path` throughout src/ (Tier 4.3) | All `os.path.*`, `os.makedirs`, `os.listdir`, `os.remove`, `os.walk` calls replaced with `pathlib.Path` equivalents across 26 files; `import os` removed from all src/ files; zero remaining `os.path` calls |
