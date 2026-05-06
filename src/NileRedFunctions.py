@@ -20,6 +20,7 @@ import SpectralFunctions
 import PSFFunctions
 import IOFunctions
 from Constants import DriftConstants, AnalysisConfig
+from pathlib import Path
 import logging
 logger = logging.getLogger(__name__)
 
@@ -774,14 +775,12 @@ class NileRed_Functions:
         if pixel_size is None:
             pixel_size = self.pixel_size * 1000  # µm → nm
 
-        import os
         import time
         import Multicolour_Simulation_Functions
         import MaskFunctions
 
         # Create save folder if it doesn't exist
-        if not os.path.exists(save_folder):
-            os.makedirs(save_folder)
+        Path(save_folder).mkdir(parents=True, exist_ok=True)
 
         # Default filter configuration for Nile Red
         if filter_names is None:
@@ -940,16 +939,16 @@ class NileRed_Functions:
 
             # Find raw results h5 files for this wavelength
             raw_files = [
-                f
-                for f in os.listdir(save_folder)
-                if f.startswith(flag) and f.endswith("rawresults.h5")
+                p.name
+                for p in Path(save_folder).iterdir()
+                if p.name.startswith(flag) and p.name.endswith("rawresults.h5")
             ]
 
             for raw_file in raw_files:
                 # Load h5 file using pandas then convert to polars
                 import pandas as pd
 
-                file_path = os.path.join(save_folder, raw_file)
+                file_path = Path(save_folder) / raw_file
                 df_pandas = self.io.read_h5_database(file_path)
                 df = pl.from_pandas(df_pandas)
 
@@ -997,9 +996,7 @@ class NileRed_Functions:
         # Save wavelength precision summary
         if len(wavelength_precision_results) > 0:
             summary_df = pl.DataFrame(wavelength_precision_results)
-            summary_file = os.path.join(
-                save_folder, f"{starting_flag}wavelength_precision_summary.csv"
-            )
+            summary_file = Path(save_folder) / f"{starting_flag}wavelength_precision_summary.csv"
             summary_df.write_csv(summary_file)
 
             if verbose:
@@ -1100,7 +1097,6 @@ class NileRed_Functions:
             pixel_size = self.pixel_size * 1000  # µm → nm
 
         import pandas as pd
-        import os
         import multiprocessing
 
         if verbose:
@@ -1112,7 +1108,7 @@ class NileRed_Functions:
             logger.info(f"{'='*60}\n")
 
         # Load HDF5 file
-        if not os.path.exists(h5_path):
+        if not Path(h5_path).exists():
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
         if verbose:
@@ -1460,7 +1456,6 @@ class NileRed_Functions:
         if camera_pixel_size is None:
             camera_pixel_size = self.pixel_size * 1000  # µm → nm
 
-        import os
         import multiprocessing
 
         if verbose:
@@ -1474,7 +1469,7 @@ class NileRed_Functions:
             logger.info(f"{'='*60}\n")
 
         # --- Load HDF5 ---
-        if not os.path.exists(h5_path):
+        if not Path(h5_path).exists():
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
         df = self.io.read_h5_database(h5_path)

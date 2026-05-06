@@ -7,7 +7,7 @@ Created on Mon Sep 23 16:27:38 2024
 """
 
 import numpy as np
-import os
+from pathlib import Path
 import sys
 from concurrent import futures
 from scipy.ndimage import uniform_filter
@@ -16,8 +16,7 @@ from skimage.measure import block_reduce
 from skimage.transform import resize
 from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA_Bayer_bilinear, demosaicing_CFA_Bayer_DDFAPD, demosaicing_CFA_Bayer_Menon2007
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import HelperFunctions
 import logging
 logger = logging.getLogger(__name__)

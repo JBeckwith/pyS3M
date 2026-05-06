@@ -15,12 +15,10 @@ import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 import warnings
 import sys
-import os
+from pathlib import Path
 import gc
 
-# Add the current directory to the path for imports
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 
 from ImportManager import get_module, is_available
 from PlottingBase import AnalysisPlotter, PublicationPlotter

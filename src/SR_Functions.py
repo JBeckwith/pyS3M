@@ -6,7 +6,7 @@ jsb92, 2024/01/02
 """
 import numpy as np
 import pandas as pd
-import os
+from pathlib import Path
 import sys
 import gc
 import multiprocessing
@@ -14,8 +14,7 @@ from concurrent import futures
 
 import ruptures as rpt
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import IOFunctions
 import HelperFunctions
 import MaskFunctions
@@ -1000,7 +999,7 @@ class SuperRes_Functions:
 
         # Process each file independently
         for FOVn, file in enumerate(image_files):
-            logger.info(f"\nFile {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+            logger.info(f"\nFile {FOVn+1}/{len(image_files)}: {Path(file).name}")
 
             fit_savename = file.split(".")[0] + ".h5"
             total_frames = self.io.get_num_pages_in_TIF(file)
@@ -1210,7 +1209,7 @@ class SuperRes_Functions:
 
             # Save to HDF5 database
             self.io.write_h5_database(fit_df, fit_savename, append=False)
-            logger.info(f"  Saved {len(fit_df)} fits to {os.path.basename(fit_savename)}")
+            logger.info(f"  Saved {len(fit_df)} fits to {Path(fit_savename).name}")
 
             # Cleanup
             del (
@@ -1341,7 +1340,7 @@ class SuperRes_Functions:
 
         # Process each file independently
         for FOVn, file in enumerate(image_files):
-            logger.info(f"\nProcessing file {FOVn+1}/{len(image_files)}: {os.path.basename(file)}")
+            logger.info(f"\nProcessing file {FOVn+1}/{len(image_files)}: {Path(file).name}")
 
             fit_savename = file.split(".")[0] + ".h5"
             total_frames = self.io.get_num_pages_in_TIF(file)
@@ -1486,7 +1485,7 @@ class SuperRes_Functions:
                 )
                 gc.collect()
 
-            logger.info(f"  Saved fits to {os.path.basename(fit_savename)}")
+            logger.info(f"  Saved fits to {Path(fit_savename).name}")
 
         return
 
@@ -2361,7 +2360,7 @@ class SuperRes_Functions:
             image_folder, self.io, use_fallback=False
         )
 
-        fit_savename = os.path.join(image_folder, "Localisations.h5")
+        fit_savename = Path(image_folder) / "Localisations.h5"
         masks = self.mask.get_stacked_masks(
             start_x, start_y, width, height, self.mosaic_unit
         )

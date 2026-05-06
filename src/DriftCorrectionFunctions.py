@@ -5,10 +5,10 @@ Backward-compatibility shim. The drift correction implementation has been
 reorganised into the drift_correction/ subpackage. This module re-exports
 everything so existing callers need no changes.
 """
-import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from drift_correction._base import (
     DriftMethod,

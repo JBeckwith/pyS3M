@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import leastsq
-import os
+from pathlib import Path
 import sys
 from numba import jit
 import multiprocessing
@@ -32,8 +32,7 @@ import ProgressUtils
 import logging
 
 # Set up module paths
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import IOFunctions
 import sCMOSFunctions
 import PSFFunctions
@@ -1648,13 +1647,10 @@ def _fit_puncta_method_standalone(
     since bound methods cannot be pickled for multiprocessing.
     """
     # Import here to ensure all dependencies are available in worker process
-    import sys
-    import os
-
     # Add src to path if needed (for worker processes)
-    module_dir = os.path.abspath(os.path.dirname(__file__))
-    if module_dir not in sys.path:
-        sys.path.insert(0, module_dir)
+    _dir = str(Path(__file__).parent)
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
 
     try:
         # Create instance with proper error handling

@@ -6,8 +6,8 @@ jsb92, 2024/01/02
 """
 import numpy as np
 import polars as pl
-import os
 import fnmatch
+from pathlib import Path
 
 
 class Helper_Functions:
@@ -64,9 +64,9 @@ class Helper_Functions:
 
         # Get a list of all files containing 'string1' in their names within 'folder'
         file_list = [
-            os.path.join(dirpath, f)
-            for dirpath, dirnames, files in os.walk(folder)
-            for f in fnmatch.filter(files, "*" + string1 + "*")
+            str(p)
+            for p in Path(folder).rglob("*" + string1 + "*")
+            if p.is_file()
         ]
         file_list = np.sort([e for e in file_list if string2 in e])
         return sorted_alphanumeric(file_list)

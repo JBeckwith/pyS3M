@@ -11,10 +11,9 @@
 import numba
 import numpy as np
 import sys
-import os
+from pathlib import Path
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from numpy.lib.recfunctions import append_fields, drop_fields
 
 

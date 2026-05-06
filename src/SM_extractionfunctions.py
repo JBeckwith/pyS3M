@@ -6,12 +6,11 @@ jsb92, 2024/01/02
 """
 import numpy as np
 import pandas as pd
-import os
+from pathlib import Path
 import sys
 import gc
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import IOFunctions
 from Constants import DriftConstants, FilteringConstants, FilteringCriteria
 from clustering import HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin

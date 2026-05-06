@@ -12,7 +12,7 @@
 """
 
 import time
-import os
+from pathlib import Path
 import sys
 from dataclasses import dataclass
 from typing import Optional
@@ -21,8 +21,7 @@ import numpy as np
 import numba
 import scipy.signal as signal
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module
 
 plt = get_module("matplotlib.pyplot")

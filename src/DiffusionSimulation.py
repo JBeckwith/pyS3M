@@ -1506,10 +1506,9 @@ class CameraAdapter:
             smoothed_image: Smoothed image stack (n_frames, w, h)
         """
         # Import required module
-        import sys
-        import os
-        module_dir = os.path.abspath(os.path.dirname(__file__))
-        sys.path.insert(0, module_dir)
+        _dir = str(Path(__file__).parent)
+        if _dir not in sys.path:
+            sys.path.insert(0, _dir)
 
         import Multicolour_Simulation_Functions as MSF
         import IOFunctions
@@ -1858,10 +1857,9 @@ class CameraAdapter:
             except ImportError:
                 # Fallback: save as hyperstack with separate channels
                 print("Warning: tifffile not available, using fallback format")
-                import sys
-                import os
-                module_dir = os.path.abspath(os.path.dirname(__file__))
-                sys.path.insert(0, module_dir)
+                _dir = str(Path(__file__).parent)
+                if _dir not in sys.path:
+                    sys.path.insert(0, _dir)
 
                 import IOFunctions
                 io_funcs = IOFunctions.IO_Functions()

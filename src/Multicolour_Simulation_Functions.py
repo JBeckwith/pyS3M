@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import sys
 import numpy as np
 from copy import deepcopy
@@ -15,8 +15,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 
 import IOFunctions
 from Constants import DriftConstants, AnalysisConfig
@@ -2134,11 +2133,8 @@ class MultiC_Sim_Funcs_Refactored:
                     flag = starting_flag_fn(dye, peak_qy, rn)
 
                     # Overwrite check
-                    raw_results_h5_path = os.path.join(
-                        save_folder,
-                        f"{flag}LM_method_{dyestr}_rawresults.h5",
-                    )
-                    if not overwrite and os.path.exists(raw_results_h5_path):
+                    raw_results_h5_path = Path(save_folder) / f"{flag}LM_method_{dyestr}_rawresults.h5"
+                    if not overwrite and Path(raw_results_h5_path).exists():
                         done_count += 1
                         continue
 
@@ -2154,24 +2150,18 @@ class MultiC_Sim_Funcs_Refactored:
                     camera_params_rn = CameraParameters.validate_and_create(cam_params_rn_dict)
 
                     # Save input parameters and ground truth (once per flag)
-                    if overwrite or not os.path.exists(raw_results_h5_path):
+                    if overwrite or not Path(raw_results_h5_path).exists():
                         parameters_to_save = analysis_save_params[:-2]
                         real_params = pl.DataFrame(
                             data=np.expand_dims(setup_data["expected_parameters"], 0),
                             schema=parameters_to_save,
                         )
-                        input_params_path = os.path.join(
-                            save_folder,
-                            f"{flag}LM_method_{dyestr}_fittesting_input_parameters.csv",
-                        )
-                        if overwrite or not os.path.exists(input_params_path):
+                        input_params_path = Path(save_folder) / f"{flag}LM_method_{dyestr}_fittesting_input_parameters.csv"
+                        if overwrite or not Path(input_params_path).exists():
                             real_params.write_csv(input_params_path)
 
                         if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
-                            gt_path = os.path.join(
-                                save_folder,
-                                f"{flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
-                            )
+                            gt_path = Path(save_folder) / f"{flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv"
                             pl.DataFrame({"x0": x0, "y0": y0}).write_csv(gt_path)
 
                     # Fitting pipeline
@@ -2200,9 +2190,9 @@ class MultiC_Sim_Funcs_Refactored:
                         fit_results["photon_level"] = i_ph
                         # For the first photon level, remove any existing file (fresh write).
                         # For subsequent photon levels, append to the existing file.
-                        should_append = (i_ph > 0) and os.path.exists(raw_results_h5_path)
-                        if i_ph == 0 and overwrite and os.path.exists(raw_results_h5_path):
-                            os.remove(raw_results_h5_path)
+                        should_append = (i_ph > 0) and Path(raw_results_h5_path).exists()
+                        if i_ph == 0 and overwrite and Path(raw_results_h5_path).exists():
+                            Path(raw_results_h5_path).unlink()
                         self.io.write_h5_database(
                             fit_results,
                             raw_results_h5_path,
@@ -2338,11 +2328,8 @@ class MultiC_Sim_Funcs_Refactored:
             schema=parameters_to_save,
         )
         dyestr = dye.replace("/", "-")
-        input_params_path = os.path.join(
-            save_folder,
-            f"{starting_flag}LM_method_{dyestr}_fittesting_input_parameters.csv",
-        )
-        if overwrite or not os.path.exists(input_params_path):
+        input_params_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_fittesting_input_parameters.csv"
+        if overwrite or not Path(input_params_path).exists():
             real_params.write_csv(input_params_path)
 
         # Save ground truth positions for standard method
@@ -2350,10 +2337,7 @@ class MultiC_Sim_Funcs_Refactored:
         # The x0, y0 are randomly generated each time this function runs, so the file must be updated
         if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
             X0Y0 = {"x0": x0, "y0": y0}
-            groundtruth_path = os.path.join(
-                save_folder,
-                f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv",
-            )
+            groundtruth_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv"
             # Always write ground truth file to match current x0, y0 positions
             pl.DataFrame(X0Y0).write_csv(groundtruth_path)
 
@@ -2367,18 +2351,15 @@ class MultiC_Sim_Funcs_Refactored:
 
         if config.save_raw_results:
             # Define HDF5 database path for raw results
-            raw_results_h5_path = os.path.join(
-                save_folder,
-                f"{starting_flag}LM_method_{dyestr}_rawresults.h5",
-            )
+            raw_results_h5_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_rawresults.h5"
 
             # Handle overwrite mode
-            if overwrite and os.path.exists(raw_results_h5_path):
-                logger.info(f"Overwrite=True: Deleting existing results file: {os.path.basename(raw_results_h5_path)}")
-                os.remove(raw_results_h5_path)
+            if overwrite and Path(raw_results_h5_path).exists():
+                logger.info(f"Overwrite=True: Deleting existing results file: {Path(raw_results_h5_path).name}")
+                Path(raw_results_h5_path).unlink()
 
             # Check if we should skip existing results
-            if not overwrite and os.path.exists(raw_results_h5_path):
+            if not overwrite and Path(raw_results_h5_path).exists():
                 import pandas as pd
                 try:
                     # Read existing HDF5 file to find completed photon levels
@@ -2405,11 +2386,8 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Only write CSV if overwriting or if it doesn't exist
             if config.save_summary_csvs:
-                photon_levels_csv_path = os.path.join(
-                    save_folder,
-                    f"{starting_flag}LM_method_{dyestr}_photon_levels.csv",
-                )
-                if overwrite or not os.path.exists(photon_levels_csv_path):
+                photon_levels_csv_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_photon_levels.csv"
+                if overwrite or not Path(photon_levels_csv_path).exists():
                     photon_levels_df.write_csv(photon_levels_csv_path)
 
         start = time.time()
@@ -2486,7 +2464,7 @@ class MultiC_Sim_Funcs_Refactored:
             # Save raw images if requested
             if config.saverawimages:
                 filename = f"{starting_flag}LM_method_{dyestr}_{str(np.around(n_photon, 2)).replace('.', 'p').zfill(10)}_rawbayerimage.tiff"
-                self.io.write_tiff(bayer_image, os.path.join(save_folder, filename))
+                self.io.write_tiff(bayer_image, Path(save_folder) / filename)
 
             # Prepare fitting data
             photoelectron_data, smoothed_data, grayscale_data = (

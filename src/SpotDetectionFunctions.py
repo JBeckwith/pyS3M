@@ -9,7 +9,7 @@ localization microscopy with selected false positive probability.
 Nat Commun 16, 601 (2025).
 """
 import sys
-import os
+from pathlib import Path
 import numpy as np
 from scipy.ndimage import convolve
 from skimage.morphology import footprint_rectangle
@@ -22,8 +22,7 @@ import numba
 from functools import lru_cache
 from typing import Union, Tuple
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import PSFFunctions
 import sCMOSFunctions
 import HelperFunctions
@@ -1047,13 +1046,10 @@ def _detect_puncta_in_images_standalone(
         quality_metrics (dict): Optional, if return_quality=True
     """
     # Import here to ensure all dependencies are available in worker process
-    import sys
-    import os
-
     # Add src to path if needed (for worker processes)
-    module_dir = os.path.abspath(os.path.dirname(__file__))
-    if module_dir not in sys.path:
-        sys.path.insert(0, module_dir)
+    _dir = str(Path(__file__).parent)
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
 
     try:
         # Create instance with proper error handling

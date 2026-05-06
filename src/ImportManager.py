@@ -9,7 +9,7 @@ Handles optional dependencies, module availability checks, and consistent import
 """
 
 import sys
-import os
+from pathlib import Path
 import warnings
 from typing import Dict, Optional, Any, List, Callable
 from dataclasses import dataclass
@@ -52,9 +52,9 @@ class ImportManager:
 
     def _setup_path(self):
         """Setup sys.path for local module imports."""
-        module_dir = os.path.abspath(os.path.dirname(__file__))
-        if module_dir not in sys.path:
-            sys.path.append(module_dir)
+        _dir = str(Path(__file__).parent)
+        if _dir not in sys.path:
+            sys.path.append(_dir)
 
     def _register_core_modules(self):
         """Register core pyBayerSMLM modules and common dependencies.

@@ -14,12 +14,10 @@ import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union, Callable
 import warnings
 from concurrent.futures import ThreadPoolExecutor
-import os
+from pathlib import Path
 import sys
 
-# Add module directory to path for local imports
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module
 
 # Optional imports

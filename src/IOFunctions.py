@@ -5,7 +5,7 @@ This class contains functions pertaining to IO of files for pyBayerSMLM.
 jsb92, 2024/01/02
 """
 import json
-import os
+from pathlib import Path
 import tifffile
 from tifffile import imread, imwrite
 import numpy as np
@@ -17,8 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 
 
 class IO_Functions:
@@ -94,7 +93,7 @@ class IO_Functions:
             if "photons" not in df.columns:
                 df = self._add_photon_columns(df, normalise=normalise_photons)
 
-            if append and os.path.isfile(filepath):
+            if append and Path(filepath).is_file():
                 # Check schema compatibility before appending
                 df = self._ensure_hdf5_compatibility(df, filepath)
                 df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
@@ -102,7 +101,7 @@ class IO_Functions:
                 # Re-read entire file, sort by frame, and rewrite
                 # This ensures proper frame ordering for visualization
                 if verbose:
-                    logger.info(f"Sorting appended HDF5 file by frame: {os.path.basename(filepath)}")
+                    logger.info(f"Sorting appended HDF5 file by frame: {Path(filepath).name}")
                 with pd.HDFStore(filepath, mode="r+") as store:
                     if "data" in store:
                         # Read all data
@@ -121,7 +120,7 @@ class IO_Functions:
                         store.remove("data")
                         store.put("data", sorted_df, format="table")
                         if verbose:
-                            logger.info(f"  Rewritten sorted data to {os.path.basename(filepath)}")
+                            logger.info(f"  Rewritten sorted data to {Path(filepath).name}")
             else:
                 df.to_hdf(filepath, key="data", format="table")
 
@@ -360,7 +359,7 @@ class IO_Functions:
             # Add photon columns if amplitude columns are present
             df = self._add_photon_columns(df, normalise=normalise_photons)
 
-            if append and os.path.isfile(filepath):
+            if append and Path(filepath).is_file():
                 with open(filepath, mode="ab") as f:
                     df.write_csv(f, include_header=False)
             else:
@@ -529,10 +528,8 @@ class IO_Functions:
             height (int): height
             exposure_ms (float): exposure time in ms (only if return_exposure=True)
         """
-        import os
-
         # Check file size to decide on parsing strategy
-        file_size = os.path.getsize(filename)
+        file_size = Path(filename).stat().st_size
 
         if file_size > 10 * 1024 * 1024:  # > 10MB
             # Use streaming parser for large files
@@ -600,8 +597,7 @@ class IO_Functions:
         Args:
             directory_path (str): The path of the directory to be created.
         """
-        if not os.path.exists(directory_path):
-            os.makedirs(directory_path)
+        Path(directory_path).mkdir(parents=True, exist_ok=True)
 
     def write_json(self, data, file_name):
         """
@@ -1193,8 +1189,7 @@ class IO_Functions:
 
         dyestr = dye.replace("/", "-")
         means.write_csv(
-            os.path.join(
-                save_folder,
+            Path(save_folder) / (
                 starting_flag
                 + str(fit_function_name)
                 + "_smoothingfunction_"
@@ -1213,8 +1208,7 @@ class IO_Functions:
             )
         )
         stds.write_csv(
-            os.path.join(
-                save_folder,
+            Path(save_folder) / (
                 starting_flag
                 + str(fit_function_name)
                 + "_smoothingfunction_"
@@ -1284,8 +1278,7 @@ class IO_Functions:
         else:
             NA_save = str(np.around(NA, 2)).replace(".", "p")
         means.write_csv(
-            os.path.join(
-                save_folder,
+            Path(save_folder) / (
                 starting_flag
                 + str(fit_function_name)
                 + "_error_"
@@ -1300,8 +1293,7 @@ class IO_Functions:
             )
         )
         stds.write_csv(
-            os.path.join(
-                save_folder,
+            Path(save_folder) / (
                 starting_flag
                 + str(fit_function_name)
                 + "_error_"

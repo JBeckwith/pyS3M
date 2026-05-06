@@ -7,10 +7,10 @@ Created on Wed Sep  4 11:50:17 2024
 """
 
 import numpy as np
-import sys, os
+import sys
+from pathlib import Path
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 
 
 class Mask_Functions:

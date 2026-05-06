@@ -5,7 +5,7 @@ clustering/batch.py
 Batch extraction and multi-FOV orchestration mixin.
 Extracted from SM_extractionfunctions.py.
 """
-import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -35,9 +35,8 @@ class BatchMixin:
         Returns:
             str: Filename without extension (e.g. "Pos15_undrifted_locs").
         """
-        from pathlib import Path as _Path
         _known = {'.h5', '.hdf5', '.tif', '.tiff', '.ome', '.txt', '.csv', '.json'}
-        p = _Path(filepath)
+        p = Path(filepath)
         while p.suffix.lower() in _known:
             p = p.with_suffix('')
         return p.name
@@ -111,7 +110,7 @@ class BatchMixin:
 
         for fov_idx, loc_file in enumerate(localisation_files):
             if verbose:
-                logger.debug(f"Processing FOV {fov_idx + 1}/{len(localisation_files)} ({os.path.basename(loc_file)})...")
+                logger.debug(f"Processing FOV {fov_idx + 1}/{len(localisation_files)} ({Path(loc_file).name})...")
 
             loc_data = self.io.read_h5_database(loc_file)
             if start_frame > 0:
@@ -444,27 +443,25 @@ class BatchMixin:
         if output_folder is not None:
             if verbose:
                 logger.info(f"\nSaving databases to {output_folder}...")
-            os.makedirs(output_folder, exist_ok=True)
+            Path(output_folder).mkdir(parents=True, exist_ok=True)
 
-            sm_path = os.path.join(output_folder, f"{output_prefix}_single_molecules.h5")
+            sm_path = Path(output_folder) / f"{output_prefix}_single_molecules.h5"
             self.io.write_h5_database(single_molecule_db, sm_path, normalise_photons=False)
             if verbose:
-                logger.info(f"  Saved: {os.path.basename(sm_path)}")
+                logger.info(f"  Saved: {Path(sm_path).name}")
 
-            sf_path = os.path.join(output_folder, f"{output_prefix}_single_frames.h5")
+            sf_path = Path(output_folder) / f"{output_prefix}_single_frames.h5"
             self.io.write_h5_database(
                 single_frame_db, sf_path, normalise_photons=False, append=False, verbose=verbose
             )
             if verbose:
-                logger.info(f"  Saved: {os.path.basename(sf_path)}")
+                logger.info(f"  Saved: {Path(sf_path).name}")
 
             if photon_accumulation_db is not None:
-                pa_path = os.path.join(
-                    output_folder, f"{output_prefix}_photon_accumulation.h5"
-                )
+                pa_path = Path(output_folder) / f"{output_prefix}_photon_accumulation.h5"
                 self.io.write_h5_database(photon_accumulation_db, pa_path, normalise_photons=False)
                 if verbose:
-                    logger.info(f"  Saved: {os.path.basename(pa_path)}")
+                    logger.info(f"  Saved: {Path(pa_path).name}")
 
         if verbose:
             logger.info("\n" + "=" * 60)

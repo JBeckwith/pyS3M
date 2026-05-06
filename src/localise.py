@@ -8,7 +8,7 @@
     Updated by jsb92, 2025/08/18
 """
 
-import os
+from pathlib import Path
 import sys
 import numpy as np
 import dask.array as da
@@ -19,11 +19,9 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 from itertools import chain
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module
 import postprocess
-import os
 from datetime import datetime
 import pandas as pd
 import logging

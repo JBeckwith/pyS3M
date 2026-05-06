@@ -3,15 +3,14 @@
 This class contains functions that collect PSF simulation codes for pySMLM
 jsb92, 2024/03/04
 """
-import os
+from pathlib import Path
 import numpy as np
 import sys
 from skimage.filters import gaussian
 from scipy.special import j1
 from numba import jit
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from Constants import ProcessingConstants, DefaultParameters
 
 import pathos

@@ -17,8 +17,8 @@ from typing import Optional, List, Tuple, Union, Dict, Any
 from enum import Enum
 from abc import ABC, abstractmethod
 import numpy as np
-import os
 import sys
+from pathlib import Path
 import duckdb
 import polars as pl
 import numba
@@ -26,8 +26,8 @@ from scipy.optimize import OptimizeResult, differential_evolution
 from scipy.constants import electron_volt, Planck, c
 from scipy.special import erf
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+_MODULE_DIR = Path(__file__).parent
+sys.path.append(str(_MODULE_DIR))
 import IOFunctions
 import logging
 logger = logging.getLogger(__name__)
@@ -45,12 +45,9 @@ class SpectralConstants:
     """Constants for spectral analysis."""
 
     # File paths
-    DEFAULT_CAMERA_QE_FILE = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "Spectra/Camera_QE/CS505CU_QE.csv"
-    )
-    DEFAULT_OBJECTIVE_FILE = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv",
+    DEFAULT_CAMERA_QE_FILE = Path(__file__).parent.parent / "Spectra/Camera_QE/CS505CU_QE.csv"
+    DEFAULT_OBJECTIVE_FILE = (
+        Path(__file__).parent.parent / "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
     )
 
     # Physical constants
@@ -394,8 +391,8 @@ class Spectral_Funcs:
         self._qe_file = CameraDefaults.get_camera_config(camera).qe_file
 
         # Set up database path
-        spectra_folder = os.path.join(os.path.split(module_dir)[0], "Spectra")
-        db_path = os.path.join(spectra_folder, "spectral_data.duckdb")
+        spectra_folder = _MODULE_DIR.parent / "Spectra"
+        db_path = spectra_folder / "spectral_data.duckdb"
 
         # Initialize database handler
         self.db_handler = DatabaseQueryHandler(db_path)

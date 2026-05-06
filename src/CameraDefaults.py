@@ -14,11 +14,11 @@ To add a new camera, insert an entry in :data:`CAMERAS`::
     )
 """
 
-import os
 import numpy as np
 from dataclasses import dataclass
+from pathlib import Path
 
-_QE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Spectra", "Camera_QE")
+_QE_DIR = Path(__file__).parent.parent / "Spectra" / "Camera_QE"
 
 
 @dataclass
@@ -43,12 +43,12 @@ CAMERAS = {
     "ximea": CameraConfig(
         pixel_size=0.069,
         mosaic_unit=np.array([["B", "G"], ["G", "R"]]),
-        qe_file=os.path.join(_QE_DIR, "CS505CU_QE.csv"),
+        qe_file=_QE_DIR / "CS505CU_QE.csv",
     ),
     "zwo": CameraConfig(
         pixel_size=0.0715,
         mosaic_unit=np.array([["R", "G"], ["G", "B"]]),
-        qe_file=os.path.join(_QE_DIR, "ASI585MC_QE.csv"),
+        qe_file=_QE_DIR / "ASI585MC_QE.csv",
     ),
 }
 

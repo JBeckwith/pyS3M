@@ -7,14 +7,13 @@ Created on Mon Sep 23 16:27:38 2024
 """
 
 import numpy as np
-import os
+from pathlib import Path
 import sys
 import time
 import scipy
 import scipy.ndimage
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 import IOFunctions
 from Constants import CalibrationConstants
 import MaskFunctions
@@ -78,7 +77,7 @@ class Calibration_Functions:
         )
 
     def filesearch(self, directory, string1, string2):
-        files = os.listdir(directory)
+        files = [p.name for p in Path(directory).iterdir()]
         files = np.sort([x for x in files if string1 in x])
         files = np.sort([x for x in files if string2 in x])
         return files
@@ -100,7 +99,7 @@ class Calibration_Functions:
         """
         colours = np.unique(self.mosaic_unit)
 
-        directories = os.listdir(directory)
+        directories = [p.name for p in Path(directory).iterdir()]
         colour_directories = np.sort([x for x in directories if x in colours])
         dark_directory = np.sort([x for x in directories if "dark" in x])
         try:
@@ -113,7 +112,7 @@ class Calibration_Functions:
 
         n_powermatrix = np.zeros(len(colour_directories))
         for i, colour in enumerate(colour_directories):
-            files = np.unique(os.listdir(os.path.join(directory, colour)))
+            files = np.unique([p.name for p in (Path(directory) / colour).iterdir()])
             files = np.sort([x for x in files if imtype in x])
             intensity_strings = np.sort(
                 np.unique([x.split("Intensity_")[1].split("_")[0] for x in files])
@@ -137,7 +136,7 @@ class Calibration_Functions:
         n_powers = int(np.unique(n_powermatrix))
         # calculate dark offset and variance for all colours (single pass)
         offset, variance = self.calculate_offset_and_variance(
-            os.path.join(directory, dark_directory), "dark"
+            Path(directory) / dark_directory, "dark"
         )
 
         offset_intensities = np.zeros([offset.shape[0], offset.shape[1], n_powers])
@@ -155,7 +154,7 @@ class Calibration_Functions:
                 # together so each channel uses its own correct mean (not a
                 # partially-accumulated cross-channel offset as the old code did).
                 off_i, var_i = self.calculate_offset_and_variance(
-                    os.path.join(directory, colour), intensity
+                    Path(directory) / colour, intensity
                 )
                 offset_intensities[:, :, i] += np.multiply(off_i, masks[str(colour)])
                 variance_intensities[:, :, i] += np.multiply(var_i, masks[str(colour)])
@@ -163,8 +162,8 @@ class Calibration_Functions:
         A = np.subtract(variance_intensities, variance[:, :, np.newaxis])
         B = np.subtract(offset_intensities, offset[:, :, np.newaxis])
 
-        A_filepath = os.path.join(directory, "A.tif")
-        B_filepath = os.path.join(directory, "B.tif")
+        A_filepath = Path(directory) / "A.tif"
+        B_filepath = Path(directory) / "B.tif"
         self.io.write_tiff(
             np.swapaxes(np.swapaxes(A, -1, 0), -1, -2),
             A_filepath,
@@ -188,11 +187,11 @@ class Calibration_Functions:
         readnoise = np.divide(np.sqrt(variance), gain)
         rqe = self.calculate_rqe(offset_intensities[:, :, -1], offset, gain)
 
-        offset_file_path = os.path.join(directory, "offset.tif")
-        gain_file_path = os.path.join(directory, "gain.tif")
-        variance_file_path = os.path.join(directory, "variance.tif")
-        readnoise_file_path = os.path.join(directory, "readnoise.tif")
-        rqe_file_path = os.path.join(directory, "rqe.tif")
+        offset_file_path = Path(directory) / "offset.tif"
+        gain_file_path = Path(directory) / "gain.tif"
+        variance_file_path = Path(directory) / "variance.tif"
+        readnoise_file_path = Path(directory) / "readnoise.tif"
+        rqe_file_path = Path(directory) / "rqe.tif"
 
         # write tiffs
         self.io.write_tiff(offset, offset_file_path, bit=float, pixel_size=3.45)
@@ -258,7 +257,7 @@ class Calibration_Functions:
 
         for i, file in enumerate(filelist):
             if self.high_memory == True:
-                image = self.io.read_tiff(os.path.join(directory, file))
+                image = self.io.read_tiff(Path(directory) / file)
                 if len(image.shape) == 2:
                     n_frames = 1
                 else:
@@ -268,7 +267,7 @@ class Calibration_Functions:
                 else:
                     accumulator = process_multi_frame_fn(accumulator, image)
             else:
-                path = os.path.join(directory, file)
+                path = Path(directory) / file
                 n_frames = self.io.get_n_frames(path)
                 for chunk_start in range(0, n_frames, self.chunk_size):
                     chunk_end = min(chunk_start + self.chunk_size, n_frames)
@@ -285,10 +284,10 @@ class Calibration_Functions:
             elapsed = time.time() - start
             elapsed_display, timestring = self.helper.format_elapsed_time(elapsed)
 
-            if directory.split("/")[-1] == intensity_string:
+            if Path(directory).name == intensity_string:
                 logger.debug(f"Analysed {operation_name} of " + intensity_string + " image {}/{}    Time elapsed: {:.3f} {}".format( i + 1, len(filelist), elapsed_display, timestring ))
             else:
-                logger.debug(f"Analysed {operation_name} of " + directory.split("/")[-1] + " " + intensity_string + " image {}/{}    Time elapsed: {:.3f} {}".format( i + 1, len(filelist), elapsed_display, timestring ))
+                logger.debug(f"Analysed {operation_name} of " + Path(directory).name + " " + intensity_string + " image {}/{}    Time elapsed: {:.3f} {}".format( i + 1, len(filelist), elapsed_display, timestring ))
 
         return accumulator, framesCounter
 
@@ -307,15 +306,15 @@ class Calibration_Functions:
         """
         filelist = self.filesearch(directory, imtype, intensity_string)
 
-        frame0_shape = self.io.read_tiff(os.path.join(directory, filelist[0]), 0).shape
+        frame0_shape = self.io.read_tiff(Path(directory) / filelist[0], 0).shape
         width = frame0_shape[0]
         height = frame0_shape[1]
         offset = np.zeros([width, height])
 
-        if directory.split("/")[-1] == intensity_string:
+        if Path(directory).name == intensity_string:
             logger.debug("Starting offset analysis of " + intensity_string)
         else:
-            logger.debug("Starting offset analysis of " + directory.split("/")[-1] + " " + intensity_string)
+            logger.debug("Starting offset analysis of " + Path(directory).name + " " + intensity_string)
 
         # Define processing functions for offset calculation
         def process_single(acc, frame):
@@ -364,12 +363,12 @@ class Calibration_Functions:
         """
         filelist = self.filesearch(directory, imtype, intensity_string)
 
-        frame0_shape = self.io.read_tiff(os.path.join(directory, filelist[0]), 0).shape
+        frame0_shape = self.io.read_tiff(Path(directory) / filelist[0], 0).shape
         sum_frames = np.zeros(frame0_shape, dtype=np.float64)
         sum_sq_frames = np.zeros(frame0_shape, dtype=np.float64)
         framesCounter = 0
 
-        dir_label = directory.split("/")[-1]
+        dir_label = Path(directory).name
         display_label = (
             intensity_string
             if dir_label == intensity_string
@@ -379,7 +378,7 @@ class Calibration_Functions:
 
         start_t = time.time()
         for file_i, file in enumerate(filelist):
-            path = os.path.join(directory, file)
+            path = Path(directory) / file
             n_file_frames = self.io.get_n_frames(path)
 
             for chunk_start in range(0, n_file_frames, self.chunk_size):

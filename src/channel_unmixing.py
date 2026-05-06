@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
-import os
 import re
 import warnings
+from pathlib import Path
 from typing import Tuple, Dict, Optional
 from scipy.stats import multivariate_normal
 from sklearn.cluster import DBSCAN
@@ -1797,8 +1797,8 @@ class ChannelUnmixingMixin:
 
         if save_path:
             # Append '_spatial' to filename
-            base, ext = os.path.splitext(save_path)
-            spatial_path = f"{base}_spatial{ext}"
+            _p = Path(save_path)
+            spatial_path = _p.parent / (_p.stem + "_spatial" + _p.suffix)
             fig.savefig(spatial_path, dpi=300, bbox_inches='tight')
             logger.info(f"Saved spatial distribution to: {spatial_path}")
         elif display:
@@ -1983,15 +1983,13 @@ class ChannelUnmixingMixin:
                        columns: xc_0_crop, yc_0_crop, xc_1_crop, yc_1_crop
                        giving molecule positions relative to the crop origin.
         """
-        import glob
-
         fov_index = int(pair_row['fov_index'])
         frame_index = int(pair_row['frame'])
 
         # Collect and sort all TIFFs in the folder, then pick the Nth one.
         tif_files = sorted(
-            f for f in glob.glob(os.path.join(data_folder, "*.tif*"))
-            if not f.endswith('.h5')
+            p for p in Path(data_folder).glob("*.tif*")
+            if p.suffix != '.h5'
         )
 
         if len(tif_files) == 0:
@@ -2002,7 +2000,7 @@ class ChannelUnmixingMixin:
                 f"'{data_folder}'."
             )
         tif_path = tif_files[fov_index]
-        logger.info(f"Loading FOV {fov_index}, frame {frame_index}: {os.path.basename(tif_path)}")
+        logger.info(f"Loading FOV {fov_index}, frame {frame_index}: {Path(tif_path).name}")
 
         # Load a single frame directly via IO.read_tiff
         projected = self.io.read_tiff(tif_path, frame=frame_index)

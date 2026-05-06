@@ -8,7 +8,7 @@
     updated jsb92 2026/02/21
 """
 
-import os
+from pathlib import Path
 import sys
 import numpy as np
 import numba
@@ -22,8 +22,7 @@ import itertools
 import lmfit
 from collections import OrderedDict
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(module_dir)
+sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module, is_available
 from Constants import AnalysisConfig
 import lib
