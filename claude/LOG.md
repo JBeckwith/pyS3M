@@ -6,6 +6,31 @@
 
 ---
 
+## Session: May 6, 2026 — Refactoring: Tier 4.2 simulation/ subpackage ✅
+
+Moved `DiffusionSimulation.py` (1 885 lines) and `Multicolour_Simulation_Functions.py` (3 630 lines)
+into a new `simulation/` subpackage, following the same pattern as `drift_correction/` and `clustering/`.
+
+**Structure:**
+```
+simulation/
+    __init__.py        re-exports all public names
+    diffusion.py       ← DiffusionSimulation.py
+    multicolour.py     ← Multicolour_Simulation_Functions.py
+DiffusionSimulation.py               (shim, ~15 lines)
+Multicolour_Simulation_Functions.py  (shim, ~15 lines)
+```
+
+**Changes per file:**
+- `simulation/diffusion.py`: added missing `import sys` + `from pathlib import Path` (latent bug from Tier 4.3); both `_dir = str(Path(__file__).parent)` lazy-import blocks updated to `parent.parent` (pointing to `src/`)
+- `simulation/multicolour.py`: `sys.path.append(str(Path(__file__).parent))` → `parent.parent`
+- `simulation/__init__.py`: re-exports 11 names from diffusion + 8 from multicolour
+- Both shims: 15-line files that add `src/` to sys.path then `from simulation.X import *`
+
+**Verified:** all 7 simulation-related unit tests pass; all existing callers (notebooks, NileRedFunctions) unchanged via shims.
+
+---
+
 ## Session: May 6, 2026 — Refactoring: Tier 4.3 pathlib.Path throughout src/ ✅
 
 Replaced all `os.path.*` usage with `pathlib.Path` across 25 source files (149 insertions,

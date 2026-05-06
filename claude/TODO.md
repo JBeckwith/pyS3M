@@ -141,7 +141,10 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 - `CameraAdapter`: Trajectory → TIFF converter with Poisson/blinking
 
 **Files:**
-- src/DiffusionSimulation.py (1850+ lines, includes microscopic framework)
+- src/simulation/diffusion.py (canonical location, 1885+ lines, includes microscopic framework)
+- src/DiffusionSimulation.py (backward-compat shim → simulation/diffusion.py)
+- src/simulation/multicolour.py (canonical location, 3630+ lines)
+- src/Multicolour_Simulation_Functions.py (backward-compat shim → simulation/multicolour.py)
 - notebooks/simulation/DiffusionBinding_BasicTest.ipynb (validation)
 - notebooks/tracking/Stepwise_Assembly_Simulation.ipynb (full example)
 - unit_tests/test_simulator_microscopic_integration.py (microscopic tests)
