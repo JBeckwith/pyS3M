@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-05-06 (Tier 4.2 simulation/ subpackage complete)
+**Last Updated:** 2026-05-06 (Tier 4.2 complete; STANDARD_DATA restored for benchmarking)
 
 **Note:** For completed work, see LOG.md
 
@@ -331,20 +331,23 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 
 ### Priority 2: Codebase Refactoring (ongoing — see `claude/code_refactoring.md`)
 
-**Status:** 📋 Tier 3 in progress — Tiers 2, 3.1/3.2/3.4 complete
+**Status:** 📋 Tier 3 in progress — Tiers 2, 3.1/3.2/3.4, 4.2 complete
 
-**Completed (May 1, 2026):**
+**Completed (May 1–6, 2026):**
 - ✅ **3.1** `RenderingConfig` dataclass in `render.py`
 - ✅ **3.2** Replace `print()` with `logging` throughout (18 files, 581 calls)
 - ✅ **3 (config)** `ClusteringConfig` dataclass wired into all five extraction methods
 - ✅ **3.4** `AnalysisConfig` threaded into `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added
+- ✅ **4.2** `simulation/` subpackage — `diffusion.py` and `multicolour.py` with backward-compat shims
 
 **Remaining Tier 3:**
 - [ ] **3.3** Comprehensive type hints on public methods (all files, ~3 days)
 
 **Remaining Tier 4:**
 - [ ] **4.1** High-level `AnalysisPipeline` orchestrator (GUI entry point)
-- [ ] **4.2** Package `DiffusionSimulation.py` into `simulation/` submodule
+
+**Pending benchmark (May 2026):**
+- [ ] Run `notebooks/figures/SI/Standard_vs_ITER_vs_DATA.ipynb` to compare STANDARD / STANDARD_ITER / STANDARD_DATA across photon levels and pick default fitting strategy
 
 ---
 

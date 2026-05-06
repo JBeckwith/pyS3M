@@ -6,6 +6,27 @@
 
 ---
 
+## Session: May 6, 2026 — Restore STANDARD_DATA; fix benchmark notebook ✅
+
+Restored `FittingStrategy.STANDARD_DATA` (S4 strategy) for re-benchmarking against `STANDARD_ITER`.
+Memory file recorded STANDARD_DATA as the anticipated winner before full validation; the previous
+removal was based on one benchmark run. Restoring for a definitive head-to-head comparison.
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/ImageAnalysisFunctions.py` | Re-added `FittingStrategy.STANDARD_DATA` enum member, `PARAM_DIMENSIONS` entry, `StandardDataFittingProcessor` class, set entries, processor registry |
+| `src/simulation/multicolour.py` | Re-added `STANDARD_DATA` enum member, dispatch branch, `_fit_standard_data()` method |
+| `notebooks/figures/SI/Standard_vs_ITER_vs_DATA.ipynb` | `sys.path.append` → `sys.path.insert(0, ...)`; added `logging.basicConfig(level=logging.INFO)` before first src import |
+
+**Also created:** `claude/notebook_correction.md` — audit of post-refactoring notebook issues across
+all 151 notebooks (silent logging, fragile sys.path, STANDARD → STANDARD_ITER updates needed).
+
+**Next:** Run `Standard_vs_ITER_vs_DATA.ipynb` to benchmark all three strategies; decide the default.
+
+---
+
 ## Session: May 6, 2026 — Refactoring: Tier 4.2 simulation/ subpackage ✅
 
 Moved `DiffusionSimulation.py` (1 885 lines) and `Multicolour_Simulation_Functions.py` (3 630 lines)
