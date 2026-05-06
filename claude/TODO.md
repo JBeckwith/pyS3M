@@ -340,7 +340,6 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 - [ ] **3.3** Comprehensive type hints on public methods (all files, ~3 days)
 
 **Remaining Tier 4:**
-- [ ] **4.3** `pathlib.Path` throughout (replace bare strings)
 - [ ] **4.1** High-level `AnalysisPipeline` orchestrator (GUI entry point)
 - [ ] **4.2** Package `DiffusionSimulation.py` into `simulation/` submodule
 

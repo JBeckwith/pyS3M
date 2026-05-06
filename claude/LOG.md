@@ -6,6 +6,33 @@
 
 ---
 
+## Session: May 6, 2026 — Refactoring: Tier 4.3 pathlib.Path throughout src/ ✅
+
+Replaced all `os.path.*` usage with `pathlib.Path` across 25 source files (149 insertions,
+216 deletions net). Zero remaining `os.path` / `os.makedirs` / `os.listdir` / `os.remove`
+calls in any `src/` file. All import smoke-tests pass.
+
+**Patterns replaced across all files:**
+
+| os pattern | pathlib equivalent |
+|---|---|
+| `os.path.abspath(os.path.dirname(__file__))` | `Path(__file__).parent` |
+| `os.path.join(a, b)` | `Path(a) / b` |
+| `os.path.exists(p)` | `Path(p).exists()` |
+| `os.path.isfile(p)` | `Path(p).is_file()` |
+| `os.path.basename(p)` | `Path(p).name` |
+| `os.path.splitext(p)` | `Path(p).stem, Path(p).suffix` |
+| `os.path.getsize(p)` | `Path(p).stat().st_size` |
+| `os.makedirs(p)` | `Path(p).mkdir(parents=True, exist_ok=True)` |
+| `os.listdir(d)` | `[p.name for p in Path(d).iterdir()]` |
+| `os.walk(d) + fnmatch` | `Path(d).rglob(pattern)` |
+| `os.remove(p)` | `Path(p).unlink()` |
+| `glob.glob(os.path.join(...))` | `Path(d).glob(pattern)` |
+
+`import os` removed from all files that no longer needed it.
+
+---
+
 ## Session: May 6, 2026 — Remove STANDARD_DATA fitting strategy ✅
 
 ### Decision: STANDARD_ITER confirmed as best default

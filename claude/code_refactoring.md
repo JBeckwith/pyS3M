@@ -103,11 +103,13 @@ a single clear responsibility — but worth revisiting once 3a is done.
 
 ## 4. Parameter-Group Dataclasses
 
-`FilteringCriteria` and `AnalysisConfig` are done.  Remaining:
+All planned dataclasses complete.
 
 | Function group | New dataclass | Home file | Status |
 |---|---|---|---|
-| `render.*` rendering args (8 params) | `RenderingConfig` | `render.py` | Pending (Tier 3.1) |
+| Filtering thresholds | `FilteringCriteria` | `Constants.py` | ✅ Done |
+| Pipeline / analysis config | `AnalysisConfig` | `Constants.py` | ✅ Done |
+| `render.*` rendering args | `RenderingConfig` | `render.py` | ✅ Done (Tier 3.1) |
 | `extract_single_molecules_*` clustering args | `ClusteringConfig` | `clustering/_config.py` | ✅ Done |
 
 ---
@@ -141,7 +143,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | Progress via `print()` | ~100 call sites | Route through `LoggingFramework` | 3.2 |
 | No clean result objects | Most analysis functions return recarrays | Thin result dataclasses | 3.4 |
 | File paths as bare strings | Throughout | `pathlib.Path` + `AnalysisConfig` | 4.3 |
-| `AnalysisConfig` not fully threaded | Only in `SR_Functions` | Wire into remaining major classes | 3.4 |
+| ~~`AnalysisConfig` not fully threaded~~ | ~~Only in `SR_Functions`~~ | ~~Wire into remaining major classes~~ | ✅ 3.4 done |
 
 ---
 
@@ -160,18 +162,18 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 |---|---|---|---|
 | 3.1 | ✅ `RenderingConfig` dataclass in `render.py` | render.py | done |
 | 3.2 | ✅ Replace `print()` with `logging` throughout | 18 files | done |
-| 3.4 | Thread `AnalysisConfig` into remaining major classes; add `output_handler` callbacks | 6 classes | 2 days |
+| 3.4 | ✅ Thread `AnalysisConfig` into remaining major classes; add `output_handler` callbacks | 6 classes | done |
 | 3.3 | Comprehensive type hints on public methods | All | 3 days |
 
 ### Tier 4 — Polish
 
 | # | Action | Effort |
 |---|---|---|
-| 4.3 | `pathlib.Path` throughout (replace bare strings) | 1 day |
+| 4.3 | ✅ `pathlib.Path` throughout (replace bare strings) | done |
 | 4.1 | Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | 1 day |
 | 4.2 | Package `DiffusionSimulation.py` into `simulation/` submodule | 1 day |
 
-**Estimated remaining effort:** ~11 person-days to fully GUI-ready state (2.4 = 2 days, Tier 3 = 6.5 days, Tier 4 = 3 days).
+**Estimated remaining effort:** ~5 person-days (Tier 3.3 type hints = 3 days, Tier 4.1+4.2 = 2 days).
 
 ---
 
@@ -209,3 +211,4 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-05-01 | Replace `print()` with `logging` throughout (Tier 3.2) | 581 calls across 18 files → `logger = logging.getLogger(__name__)` per module; info/progress → `logger.info()`, warnings → `logger.warning()`, end=`"\r"` loop progress → `logger.debug()`; `verbose`-gated calls preserve their guard |
 | 2026-05-01 | `RenderingConfig` dataclass in `render.py` (Tier 3.1) | `@dataclass` with 10 fields mirroring `render()` kwargs; `render()` gains `config: RenderingConfig = None`; all existing callers unchanged |
 | 2026-05-01 | `ClusteringConfig` dataclass (Tier 3) | `@dataclass` in `clustering/_config.py` with 21 fields covering all four extraction methods; wired into `extract_single_molecules_HDBSCAN`, `extract_single_molecules_DBSCAN`, `extract_single_molecules_linked`, `extract_single_molecules_spectral_lap`, `extract_single_molecules_batch`; also fixed bare `logger.info()` call in `batch.py` |
+| 2026-05-01 | Thread `AnalysisConfig` into remaining classes (Tier 3.4) | `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added at key milestones; fixed pre-existing `save_or_show` bug in `_plot_drift_analysis`; zero regressions |
