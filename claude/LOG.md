@@ -1,8 +1,154 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** April 30, 2026
+**Last Updated:** May 6, 2026
 **Status:** 🟢 **ACTIVE DEVELOPMENT** - Tracking pipeline / methods writing
+
+---
+
+## Session: May 6, 2026 — Remove STANDARD_DATA fitting strategy ✅
+
+### Decision: STANDARD_ITER confirmed as best default
+
+Full notebook validation (`Demosaicing_vs_Fullfit.ipynb`) compared `STANDARD_DATA` (S4) against
+`STANDARD_ITER` (S2) across photon levels.  STANDARD_ITER gives better G-channel amplitude
+precision (lower log-log slope error).  STANDARD_DATA was removed.
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/ImageAnalysisFunctions.py` | Removed `FittingStrategy.STANDARD_DATA` enum member, `PARAM_DIMENSIONS` entry, `StandardDataFittingProcessor` class (~95 lines), all set/dict references |
+| `src/Multicolour_Simulation_Functions.py` | Removed local `STANDARD_DATA` enum member, `_fit_standard_data()` method (~85 lines), dispatch branch; `test_fit_method` compat wrapper default changed from `STANDARD` → `STANDARD_ITER` |
+| `unit_tests/test_standard_data_fitting.py` | Deleted (strategy no longer exists) |
+
+**Outcome:** `STANDARD_ITER` is now the sole iterative default strategy.  `STANDARD` (single-pass)
+is retained for internal use in `STANDARD_IG` seeding.
+
+---
+
+## Session: May 1, 2026 — Refactoring: Tier 3.4 AnalysisConfig threading ✅
+
+### Tier 3.4 — Thread `AnalysisConfig` into remaining major classes ✅
+
+`AnalysisConfig` (from `Constants.py`) wired into four major classes and three module-level
+functions.  All changes backwards-compatible: `config=None` defaults to `AnalysisConfig()` which
+reproduces current interactive behaviour.  Standard pattern throughout:
+
+```python
+def __init__(self, ..., config: AnalysisConfig = None):
+    self.config = config if config is not None else AnalysisConfig()
+```
+
+**Files modified:**
+
+| File | Class / function | Changes |
+|---|---|---|
+| `FiducialDetection.py` | `FiducialDetector.__init__` | `config=` param; `DriftPlotter()` → `DriftPlotter(config=self.config)` in 3 plot methods |
+| `FiducialDetection.py` | `DriftPlotter.__init__` | `config=` param; all 7 plot methods use `self.config.display` / `self.config.dpi`; 4 bare `plt.savefig`+`plt.show()` replaced with `save_or_show()` |
+| `FiducialDetection.py` | `select_puncta_from_regions` | Progress + logging callbacks every 100 regions |
+| `FiducialDetection.py` | `remove_puncta_locs` | Logging callback alongside `logger.info` |
+| `FiducialDetection.py` | `identify_real_fiducials_with_clustering` | Progress callback in validation loop |
+| `Multicolour_Simulation_Functions.py` | `MultiC_Sim_Funcs_Refactored.__init__` | `config=` param; renamed local `config = CameraDefaults.get_camera_config(camera)` → `_cam` to avoid shadowing |
+| `Multicolour_Simulation_Functions.py` | `plot_dye_selection_results`, `plot_dye_color_distributions` | `dpi=600` → `self.config.dpi`; `show=show` → `_show = show if show is not None else self.config.display` |
+| `NileRedFunctions.py` | `NileRed_Functions.__init__` | Same `config=` + `_cam` rename pattern |
+| `NileRedFunctions.py` | Parallel fitting loop | Progress + logging callbacks at completion |
+| `NileRedFunctions.py` | `simulate_precision` | Progress callback per wavelength; logging callback on each `logger.info` |
+| `postprocess.py` | `_plot_drift_analysis` | `config=` param; `display`/`dpi` derived from config; **fixed pre-existing bug** — `save_or_show` was missing `show=display` arg |
+| `postprocess.py` | `segment_locs_by_rendered_image` | `config=` param; progress callbacks at 5 milestones (0 → 1.0) |
+| `postprocess.py` | `remove_fiducials` | `config=` param; logging callback on verbose summary lines |
+
+**Smoke-test result:**
+```
+FiducialDetector.config.display=False, dpi=150  ✓
+DriftPlotter.config.display=False, dpi=150       ✓
+NileRed_Functions.config.display=False           ✓
+Default FiducialDetector.config.display=True     ✓
+```
+
+**Test suite:** Zero new failures.  All pre-existing failures confirmed unchanged via `git stash` baseline comparison.
+
+**Commit:** `93c0e36 feat(config): thread AnalysisConfig into FiducialDetection, MultiC_Sim_Funcs, NileRedFunctions, postprocess`
+
+---
+
+## Session: May 1, 2026 — Refactoring: Tier 3.1, 3.2, ClusteringConfig, colourbar fix ✅
+
+### PlottingBase colourbar bug fix ✅
+
+`add_colorbar(self, im, ax, label, ...)` was being called with arguments transposed in two methods.
+`make_axes_locatable` requires an `Axes` not an `AxesImage`; receiving an image object caused `AttributeError`.
+
+**Files modified:**
+- `src/PlottingBase.py` line 1005: `self.add_colorbar(ax, im, ...)` → `self.add_colorbar(im, ax, ...)`
+- `src/PlottingBase.py` line 1143: `self.add_colorbar(ax, contours, ...)` → `self.add_colorbar(contours, ax, ...)`
+
+**Commit:** (part of May 1 session)
+
+---
+
+### Tier 3.2 — Replace all `print()` with `logging` ✅
+
+581 `print()` calls replaced across 18 files.  Every file received
+`import logging` + `logger = logging.getLogger(__name__)` at module level.
+
+**Replacement rules applied:**
+
+| Old pattern | New pattern |
+|---|---|
+| `print("Warning…")` | `logger.warning(…)` |
+| `print(…)` (progress/info) | `logger.info(…)` |
+| `print(…, end="\r", flush=True)` | `logger.debug(…)` |
+| `if verbose: print(…)` | guard kept, body → `logger.info(…)` |
+
+**Files transformed:** `SM_extractionfunctions.py`, `mixture_analysis.py`, `channel_unmixing.py`,
+`SR_Functions.py`, `postprocess.py`, `ImageAnalysisFunctions.py`, `NileRedFunctions.py`,
+`IOFunctions.py`, `FiducialDetection.py`, `SpotDetectionFunctions.py`, `FRCFunctions.py`,
+`render.py`, `SpectralFunctions.py`, `CoordinateProcessing.py`, `HelperFunctions.py`,
+`CalibrationFunctions.py`, `LinkingFunctions.py`, `clustering/batch.py`
+
+**Files left untouched:** `PlottingBase.py`, `DiffusionSimulation.py`, `ImportManager.py`, `ProgressUtils.py`
+
+**Bug encountered and fixed:** bulk transformation script was inserting the logger setup after
+the last `import` line found *anywhere* in the file, including inline imports inside method bodies.
+Fixed by restricting the scan to top-level (column-0) import lines only.
+A second bug in `SR_Functions.py` (inline `import logging` inside two methods caused the top-level
+check to skip adding `import logging`) was fixed manually.
+
+---
+
+### Tier 3.1 — `RenderingConfig` dataclass in `render.py` ✅
+
+Added `@dataclass class RenderingConfig` with 10 fields mirroring all kwargs of `render()`.
+`render()` gains `config: Optional[RenderingConfig] = None` as last parameter; existing callers unchanged.
+
+**Fields:** `oversampling`, `blur_method`, `min_blur_width`, `cparam`, `c_min`, `c_max`,
+`mindensperc`, `maxdensperc`, `densitymin`, `cmap_string`
+
+---
+
+### `ClusteringConfig` dataclass (Tier 3) ✅
+
+`@dataclass` with 21 fields placed in `src/clustering/_config.py` to avoid circular imports
+(`__init__.py` imports from mixins; mixins import from `_config.py` via relative import).
+
+**Fields cover all four extraction methods:**
+- All methods: `start_frame`, `verbose`
+- HDBSCAN / DBSCAN / batch: `min_cluster_size`, `epsilon_multiplier`, `clustering_method`
+- Linked / batch: `max_distance`, `max_frames`
+- Spectral LAP: `max_dark_time`, `w_spatial`, `w_spectral`, `spectral_tol`, `spectral_columns`, `min_frames`, `D_prior`, `dt`, `sigma_loc`, `alpha`, `remove_static`, `static_eps`, `static_min_samples`
+
+**Files updated:**
+- `src/clustering/_config.py` — new file
+- `src/clustering/__init__.py` — re-exports `ClusteringConfig`
+- `src/clustering/hdbscan_clusterer.py` — `config=` param + unpack block (2 fields)
+- `src/clustering/dbscan_clusterer.py` — `config=` param + unpack block (3 fields)
+- `src/clustering/linked_clusterer.py` — `config=` param + unpack block in both `extract_single_molecules_linked` (3 fields) and `extract_single_molecules_spectral_lap` (16 fields)
+- `src/clustering/batch.py` — `config=` param + unpack block (7 fields); also fixed bare `logger.info()` call
+
+All 6 clustering submodules import cleanly in the `pyBayerSMLM` virtualenv.
+
+**Commit:** `229e814 feat(clustering): add ClusteringConfig dataclass and wire into all extraction methods`
 
 ---
 

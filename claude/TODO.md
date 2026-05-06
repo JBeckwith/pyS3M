@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-04-10 (refactoring session)
+**Last Updated:** 2026-05-06
 
 **Note:** For completed work, see LOG.md
 
@@ -155,20 +155,6 @@ DiffusionSimulator2D → CameraAdapter → Multicolour_Simulation_Functions → 
 ---
 
 ## Pending Tasks
-
-### Priority 1: Promote STANDARD_DATA if full Monte Carlo confirms improvement
-
-**Status:** 📋 PENDING — S4 unit-tested (2026-04-08); default already switched to STANDARD_ITER (2026-04-22)
-**Plan:** `claude/new_fitting_plan.md`
-
-S4 median χ² = 0.979 vs S2 = 0.883 in unit-test Monte Carlo (N=150, 1000 pe).
-
-- [ ] Run `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` with `FittingStrategy.STANDARD_DATA`
-  and compare G-channel amplitude precision log-log slope vs STANDARD_ITER across photon levels
-- [ ] If confirmed better: change default in `SR_Functions.py` from `STANDARD_ITER` → `STANDARD_DATA`
-- [ ] Update any analysis notebooks that pass `strategy=FittingStrategy.STANDARD_ITER` explicitly
-
----
 
 ### Priority 2: Spot Detection Validation & Documentation
 
@@ -342,11 +328,21 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 
 ### Priority 2: Codebase Refactoring (ongoing — see `claude/code_refactoring.md`)
 
-**Status:** 📋 Tier 2 — one new item added
+**Status:** 📋 Tier 3 in progress — Tiers 2, 3.1/3.2/3.4 complete
 
-- ✅ **2.3** Split clustering logic into `src/clustering/` mixin subpackage
-- ✅ **2.4** Split GMM + channel-unmixing code out of `SM_extractionfunctions.py`
-  → `src/mixture_analysis.py` (1 863 lines) + `src/channel_unmixing.py` (2 048 lines)
+**Completed (May 1, 2026):**
+- ✅ **3.1** `RenderingConfig` dataclass in `render.py`
+- ✅ **3.2** Replace `print()` with `logging` throughout (18 files, 581 calls)
+- ✅ **3 (config)** `ClusteringConfig` dataclass wired into all five extraction methods
+- ✅ **3.4** `AnalysisConfig` threaded into `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added
+
+**Remaining Tier 3:**
+- [ ] **3.3** Comprehensive type hints on public methods (all files, ~3 days)
+
+**Remaining Tier 4:**
+- [ ] **4.3** `pathlib.Path` throughout (replace bare strings)
+- [ ] **4.1** High-level `AnalysisPipeline` orchestrator (GUI entry point)
+- [ ] **4.2** Package `DiffusionSimulation.py` into `simulation/` submodule
 
 ---
 
