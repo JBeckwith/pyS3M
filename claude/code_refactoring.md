@@ -1,6 +1,6 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22 (last updated 2026-05-06)
+**Date:** 2026-04-22 (last updated 2026-05-06 — Tier 4.2 complete)
 **Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
@@ -101,7 +101,7 @@ a single clear responsibility — but worth revisiting once 3a is done.
 
 ---
 
-### 3d. `simulation/` subpackage — planned (Tier 4.2)
+### 3d. `simulation/` subpackage — DONE (Tier 4.2)
 
 Two simulation files will be moved into a `simulation/` subpackage, matching the
 pattern already established by `drift_correction/` and `clustering/`:
@@ -196,10 +196,10 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | # | Action | Effort |
 |---|---|---|
 | 4.3 | ✅ `pathlib.Path` throughout (replace bare strings) | done |
+| 4.2 | ✅ Package `DiffusionSimulation.py` + `Multicolour_Simulation_Functions.py` into `simulation/` submodule | done |
 | 4.1 | Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | 1 day |
-| 4.2 | Package `DiffusionSimulation.py` + `Multicolour_Simulation_Functions.py` into `simulation/` submodule | 2 days |
 
-**Estimated remaining effort:** ~6 person-days (Tier 3.3 type hints = 3 days, Tier 4.1 = 1 day, Tier 4.2 = 2 days).
+**Estimated remaining effort:** ~4 person-days (Tier 3.3 type hints = 3 days, Tier 4.1 = 1 day).
 
 ---
 
@@ -209,7 +209,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 - `PlottingBase.py` — already excellent; only additive changes needed.
 - `SpotDetectionFunctions.py` — ArrayPool/KernelCache design is clean and correct.
 - `ImageAnalysisFunctions.py` — polymorphic strategy pattern is well implemented.
-- `DiffusionSimulation.py` — legitimately complex physics; 1 900 lines is appropriate. Moving to `simulation/diffusion.py` as-is; no internal restructuring planned.
+- `simulation/diffusion.py` — legitimately complex physics; 1 900 lines is appropriate. Moved as-is from `DiffusionSimulation.py`; no internal restructuring.
 - `CameraDefaults.py` — tiny and correct; just add constants as needed.
 
 ---
@@ -240,3 +240,4 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-05-01 | Thread `AnalysisConfig` into remaining classes (Tier 3.4) | `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added at key milestones; fixed pre-existing `save_or_show` bug in `_plot_drift_analysis`; zero regressions |
 | 2026-05-06 | Remove `STANDARD_DATA` fitting strategy | `FittingStrategy.STANDARD_DATA` enum value, `StandardDataFittingProcessor` class (~95 lines), and all dispatch/registry entries removed from `ImageAnalysisFunctions.py`; matching local enum + `_fit_standard_data()` method (~85 lines) + dispatch branch removed from `Multicolour_Simulation_Functions.py`; `test_standard_data_fitting.py` deleted; `STANDARD_ITER` confirmed as default strategy throughout |
 | 2026-05-06 | `pathlib.Path` throughout src/ (Tier 4.3) | All `os.path.*`, `os.makedirs`, `os.listdir`, `os.remove`, `os.walk` calls replaced with `pathlib.Path` equivalents across 26 files; `import os` removed from all src/ files; zero remaining `os.path` calls |
+| 2026-05-06 | `simulation/` subpackage (Tier 4.2) | `DiffusionSimulation.py` (1 885 lines) → `simulation/diffusion.py`; `Multicolour_Simulation_Functions.py` (3 630 lines) → `simulation/multicolour.py`; `simulation/__init__.py` re-exports all 19 public names; both originals replaced with 15-line backward-compat shims; fixed latent missing `import sys` / `from pathlib import Path` in `DiffusionSimulation.py`; all 7 simulation unit tests pass; zero regressions |

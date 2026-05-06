@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-06 (Tier 4.2 simulation/ subpackage complete)
 
 **Note:** For completed work, see LOG.md
 
