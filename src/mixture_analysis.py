@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import warnings
-from typing import Optional
+from typing import Any, Optional
+from numpy.typing import NDArray
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
 import logging
@@ -26,13 +29,13 @@ class MixtureAnalysisMixin:
     """Mixin providing GMM mixture-analysis methods for extract_SMs."""
     def _fit_gmm_mle(
         self,
-        X,
-        initial_means,
-        n_components,
-        covariance_type="full",
-        max_iter=500,
-        verbose=False,
-    ):
+        X: NDArray[np.float64],
+        initial_means: NDArray[np.float64],
+        n_components: int,
+        covariance_type: str = "full",
+        max_iter: int = 500,
+        verbose: bool = False,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], bool]:
         """
         Fit Gaussian Mixture Model using Maximum Likelihood Estimation (MLE).
 
@@ -148,20 +151,20 @@ class MixtureAnalysisMixin:
 
     def _fit_gmm_em(
         self,
-        X,
-        initial_means,
-        n_components,
-        covariance_type="full",
-        max_iter=100,
-        n_reweighting_iterations=2,
-        photons=None,
-        A_R=None,
-        A_G=None,
-        has_error_columns=False,
-        sigma_A_R=None,
-        sigma_A_G=None,
-        verbose=False,
-    ):
+        X: NDArray[np.float64],
+        initial_means: NDArray[np.float64],
+        n_components: int,
+        covariance_type: str = "full",
+        max_iter: int = 100,
+        n_reweighting_iterations: int = 2,
+        photons: NDArray[np.float64] | None = None,
+        A_R: NDArray[np.float64] | None = None,
+        A_G: NDArray[np.float64] | None = None,
+        has_error_columns: bool = False,
+        sigma_A_R: NDArray[np.float64] | None = None,
+        sigma_A_G: NDArray[np.float64] | None = None,
+        verbose: bool = False,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], bool]:
         """
         Fit Gaussian Mixture Model using Expectation-Maximization (EM) with iterative re-weighting.
 
@@ -401,14 +404,14 @@ class MixtureAnalysisMixin:
 
     def extract_reference_means(
         self,
-        data_db,
-        reference_photon_threshold=None,
-        n_components=2,
-        covariance_type="full",
-        fit_type="MLE",
-        random_state=42,
-        verbose=True,
-    ):
+        data_db: pd.DataFrame,
+        reference_photon_threshold: float | None = None,
+        n_components: int = 2,
+        covariance_type: str = "full",
+        fit_type: str = "MLE",
+        random_state: int = 42,
+        verbose: bool = True,
+    ) -> tuple[NDArray[np.float64], pd.DataFrame, Any]:
         """
         Extract reference means from molecule data using GMM (analytical approach).
 
@@ -924,13 +927,13 @@ class MixtureAnalysisMixin:
 
     def fit_covariances_fixed_means(
         self,
-        X,
-        fixed_means,
-        fit_type="EM",
-        max_iter=100,
-        tol=1e-6,
-        verbose=False,
-    ):
+        X: NDArray[np.float64],
+        fixed_means: NDArray[np.float64],
+        fit_type: str = "EM",
+        max_iter: int = 100,
+        tol: float = 1e-6,
+        verbose: bool = False,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], bool]:
         """
         Fit covariance matrices with fixed means using either MLE or EM algorithm.
 
@@ -1112,14 +1115,14 @@ class MixtureAnalysisMixin:
 
     def fit_covariances_fixed_means_mestimator(
         self,
-        X,
-        fixed_means,
-        reference_covariances=None,
-        estimator_type="tukey",
-        max_iter=20,
-        tol=1e-4,
-        verbose=False,
-    ):
+        X: NDArray[np.float64],
+        fixed_means: NDArray[np.float64],
+        reference_covariances: NDArray[np.float64] | None = None,
+        estimator_type: str = "tukey",
+        max_iter: int = 20,
+        tol: float = 1e-4,
+        verbose: bool = False,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], list[NDArray[np.float64]]]:
         """
         Robustly fit covariances using M-estimators with iterative re-weighting.
 
@@ -1285,12 +1288,12 @@ class MixtureAnalysisMixin:
 
     def calculate_analytical_misidentification(
         self,
-        fixed_means,
-        covariances,
-        weights,
-        n_samples=10000,
-        random_state=42,
-    ):
+        fixed_means: NDArray[np.float64],
+        covariances: NDArray[np.float64],
+        weights: NDArray[np.float64],
+        n_samples: int = 10000,
+        random_state: int = 42,
+    ) -> dict[str, Any]:
         """
         Analytically calculate misidentification rates from Gaussian overlap.
 
@@ -1396,17 +1399,17 @@ class MixtureAnalysisMixin:
 
     def analyze_photon_dependent_misidentification_analytical(
         self,
-        photon_accumulation_db,
-        fixed_means,
-        reference_db,
-        photon_bins,
-        reference_covariances=None,
-        use_earliest_entry=True,
-        n_mc_samples=10000,
-        estimator_type="tukey",
-        max_iter=20,
-        verbose=True,
-    ):
+        photon_accumulation_db: pd.DataFrame,
+        fixed_means: NDArray[np.float64],
+        reference_db: pd.DataFrame,
+        photon_bins: NDArray[np.float64] | list[float],
+        reference_covariances: NDArray[np.float64] | None = None,
+        use_earliest_entry: bool = True,
+        n_mc_samples: int = 10000,
+        estimator_type: str = "tukey",
+        max_iter: int = 20,
+        verbose: bool = True,
+    ) -> pd.DataFrame:
         """
         Analytically analyze misidentification rates across photon bins using robust M-estimator fitting.
 

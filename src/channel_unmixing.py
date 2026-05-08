@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -6,7 +8,8 @@ import matplotlib.pyplot as plt
 import re
 import warnings
 from pathlib import Path
-from typing import Tuple, Dict, Optional
+from typing import Any, Optional
+from numpy.typing import NDArray
 from scipy.stats import multivariate_normal
 from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
@@ -38,22 +41,22 @@ class ChannelUnmixingMixin:
     """Mixin providing channel-unmixing methods for extract_SMs."""
     def unmix_channels(
         self,
-        loc_data,
-        n_channels,
-        channels_to_use=["A_R", "A_G"],
-        confidence_threshold=0.95,
-        false_positive_rate=None,
-        initial_guess_method="histogram_peaks",
-        gmm_fit_method="EM",
-        covariance_type="full",
-        max_iter=500,
-        outlier_rejection="mahalanobis",
-        mestimator_type="tukey",
-        initial_guess_percentile=50,
-        initial_guess_scale=0.7,
-        verbose=True,
-        plot_results=False,
-    ):
+        loc_data: pd.DataFrame,
+        n_channels: int,
+        channels_to_use: list[str] = ["A_R", "A_G"],
+        confidence_threshold: float = 0.95,
+        false_positive_rate: float | None = None,
+        initial_guess_method: str = "histogram_peaks",
+        gmm_fit_method: str = "EM",
+        covariance_type: str = "full",
+        max_iter: int = 500,
+        outlier_rejection: str = "mahalanobis",
+        mestimator_type: str = "tukey",
+        initial_guess_percentile: float = 50,
+        initial_guess_scale: float = 0.7,
+        verbose: bool = True,
+        plot_results: bool = False,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """
         Separate SMLM localizations into N channels based on RGB amplitude ratios.
 
@@ -920,7 +923,7 @@ class ChannelUnmixingMixin:
         # Diagnostic parameters
         verbose: bool = True,
         plot_results: bool = False,
-    ) -> Tuple[pd.DataFrame, Dict]:
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """
         Perform channel unmixing with iterative hierarchical spatial-spectral refinement.
 
@@ -1806,16 +1809,16 @@ class ChannelUnmixingMixin:
 
     def find_exemplar_dye_pair(
         self,
-        sf_db,
-        mean_0,
-        mean_1,
+        sf_db: pd.DataFrame,
+        mean_0: NDArray[np.float64],
+        mean_1: NDArray[np.float64],
         spectral_tol: float = 0.05,
         min_spatial_dist_nm: float = 500.0,
         max_spatial_dist_nm: float | None = None,
         min_photons: float = 2000.0,
-        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
+        pixel_size: float | None = None,
         n_top: int = 10,
-    ):
+    ) -> pd.DataFrame | None:
         """Find a co-localised pair of single-frame localisations representing two dye classes.
 
         Searches the **single-frame** database so that both localisations must
@@ -1959,10 +1962,10 @@ class ChannelUnmixingMixin:
 
     def get_exemplar_crop(
         self,
-        pair_row,
-        data_folder: str,
+        pair_row: pd.Series,
+        data_folder: str | Path,
         crop_size_px: int = 30,
-    ):
+    ) -> tuple[NDArray[np.float32], pd.DataFrame]:
         """Load the raw TIFF for the FOV in pair_row and return a single-frame crop.
 
         The TIFF is located by sorting all TIFFs in data_folder and picking the

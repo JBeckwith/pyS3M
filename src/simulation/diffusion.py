@@ -27,6 +27,8 @@ from typing import Optional, Tuple, List, Dict, Set
 from dataclasses import dataclass, field
 from numba import jit
 from Constants import DriftConstants
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -1260,11 +1262,11 @@ def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
 
     if n_d > 1:
         if coordinates.shape[1] != n_d:
-            print(f"Error: Dimension mismatch. Expected {n_d}, got {coordinates.shape[1]}")
+            logger.error("Dimension mismatch. Expected %d, got %d", n_d, coordinates.shape[1])
             return np.nan, np.nan
 
     if coordinates.shape[0] < min_points:
-        print(f"Error: Not enough points ({coordinates.shape[0]} < {min_points})")
+        logger.error("Not enough points (%d < %d)", coordinates.shape[0], min_points)
         return np.nan, np.nan
 
     NXM = len(coordinates.ravel())
@@ -1284,7 +1286,7 @@ def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
             doneb = True
             D = np.nan
             var = np.nan
-            print(f"OLSF did not converge in {maxiter} iterations")
+            logger.warning("OLSF did not converge in %d iterations", maxiter)
             break
 
         if np.max(np.hstack([pa, pb])) > len(rho):
@@ -1299,7 +1301,7 @@ def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
                 doneb = True
                 D = np.nan
                 var = np.nan
-                print(f"OLSF did not converge in {maxiter} iterations")
+                logger.warning("OLSF did not converge in %d iterations", maxiter)
                 break
 
             X = np.linalg.lstsq(A, B, rcond=None)[0]
@@ -1320,7 +1322,7 @@ def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
                 doneb = True
                 D = np.nan
                 var = np.nan
-                print(f"OLSF did not converge in {maxiter} iterations")
+                logger.warning("OLSF did not converge in %d iterations", maxiter)
                 break
 
             X = np.linalg.lstsq(A, B, rcond=None)[0]
@@ -1595,7 +1597,7 @@ class CameraAdapter:
         # Since gen_camera_image_stack expects single photon count per dye per frame,
         # we need to call it frame-by-frame with individual molecules
 
-        print(f"Generating {n_frames} frames with {merged_positions.shape[2]} molecules...")
+        logger.info("Generating %d frames with %d molecules...", n_frames, merged_positions.shape[2])
 
         w, h = camera_parameters['gain'].shape
         bayer_image_stack = np.zeros((n_frames, w, h))
@@ -1639,14 +1641,14 @@ class CameraAdapter:
             smoothed_image_stack[frame_idx] = smoothed_frame
 
             if frame_idx % 10 == 0:
-                print(f"  Frame {frame_idx}/{n_frames} complete", end='\r')
+                logger.debug("  Frame %d/%d complete", frame_idx, n_frames)
 
-        print(f"\nImage generation complete!")
+        logger.info("Image generation complete!")
 
         # Save TIFF if requested
         if save_tiff:
             io_funcs.write_tiff(bayer_image_stack.astype(np.uint16), output_path)
-            print(f"Saved TIFF stack to: {output_path}")
+            logger.info("Saved TIFF stack to: %s", output_path)
 
         return bayer_image_stack, smoothed_image_stack
 
@@ -1719,7 +1721,7 @@ class CameraAdapter:
         # Convert Gaussian width to pixels
         sigma_pixels = gaussian_width_nm / pixel_size_nm
 
-        print(f"Generating ground truth RGB video: {n_frames} frames, {width_pixels}×{height_pixels} pixels")
+        logger.info("Generating ground truth RGB video: %d frames, %d×%d pixels", n_frames, width_pixels, height_pixels)
 
         # First pass: render all frames to float arrays
         rgb_video_float = np.zeros((n_frames, height_pixels, width_pixels, 3), dtype=np.float32)
@@ -1806,9 +1808,9 @@ class CameraAdapter:
             rgb_video_float[frame_idx, :, :, 2] = b_channel
 
             if frame_idx % 100 == 0:
-                print(f"  Frame {frame_idx}/{n_frames} complete", end='\r')
+                logger.debug("  Frame %d/%d complete", frame_idx, n_frames)
 
-        print(f"\nRendering complete, applying intensity scaling...")
+        logger.info("Rendering complete, applying intensity scaling...")
 
         # Second pass: apply global intensity scaling
         if scale_intensity:
@@ -1817,30 +1819,30 @@ class CameraAdapter:
             if intensity_percentile >= 100.0:
                 # Use absolute max (original behavior)
                 scale_target = rgb_video_float.max()
-                print(f"  Using absolute max intensity: {scale_target:.6f}")
+                logger.debug("  Using absolute max intensity: %.6f", scale_target)
             else:
                 # Use percentile (makes video brighter by allowing some saturation)
                 scale_target = np.percentile(rgb_video_float, intensity_percentile)
                 actual_max = rgb_video_float.max()
-                print(f"  Using {intensity_percentile}th percentile: {scale_target:.6f} (max: {actual_max:.6f})")
+                logger.debug("  Using %gth percentile: %.6f (max: %.6f)", intensity_percentile, scale_target, actual_max)
 
             if scale_target > 0:
                 # Scale so target intensity → (max_intensity - background_value)
                 scale_factor = (max_intensity - background_value) / scale_target
                 rgb_video_float = rgb_video_float * scale_factor
-                print(f"  Applied scale factor: {scale_factor:.2f}")
+                logger.debug("  Applied scale factor: %.2f", scale_factor)
         else:
             # No scaling: use raw Gaussian intensities
             # Multiply by a reasonable factor to make visible
             # (Each Gaussian has peak ~1.0, need to scale to 0-255 range)
             scale_factor = max_intensity - background_value
             rgb_video_float = rgb_video_float * scale_factor
-            print(f"  No auto-scaling: using fixed scale factor {scale_factor:.2f}")
+            logger.debug("  No auto-scaling: using fixed scale factor %.2f", scale_factor)
 
         # Convert to uint8 with background
         rgb_video = np.clip(rgb_video_float + background_value, 0, max_intensity).astype(np.uint8)
 
-        print(f"Ground truth video generation complete!")
+        logger.info("Ground truth video generation complete!")
 
         # Save if requested
         if save_video:
@@ -1855,12 +1857,12 @@ class CameraAdapter:
                     photometric='rgb',
                     metadata={'axes': 'TYXC'}
                 )
-                print(f"Saved ground truth RGB video to: {output_path}")
-                print(f"Format: RGB TIFF, {n_frames} frames × {height_pixels}×{width_pixels} pixels")
-                print(f"  → Open in ImageJ/Fiji as RGB composite")
+                logger.info("Saved ground truth RGB video to: %s", output_path)
+                logger.info("Format: RGB TIFF, %d frames × %d×%d pixels — open in ImageJ/Fiji as RGB composite",
+                            n_frames, height_pixels, width_pixels)
             except ImportError:
                 # Fallback: save as hyperstack with separate channels
-                print("Warning: tifffile not available, using fallback format")
+                logger.warning("tifffile not available, using fallback format")
                 _dir = str(Path(__file__).parent.parent)
                 if _dir not in sys.path:
                     sys.path.insert(0, _dir)
@@ -1879,8 +1881,8 @@ class CameraAdapter:
                 # Reshape to (n_frames * 3, height, width) for write_tiff
                 tiff_stack = tiff_stack.reshape(n_frames * 3, height_pixels, width_pixels)
                 io_funcs.write_tiff(tiff_stack, output_path)
-                print(f"Saved ground truth RGB video to: {output_path}")
-                print(f"Format: {n_frames} frames × 3 channels = {n_frames * 3} slices")
-                print(f"  → In ImageJ: Image → Color → Make Composite, set Display Mode to Composite")
+                logger.info("Saved ground truth RGB video to: %s", output_path)
+                logger.info("Format: %d frames × 3 channels = %d slices — in ImageJ: Image → Color → Make Composite",
+                            n_frames, n_frames * 3)
 
         return rgb_video

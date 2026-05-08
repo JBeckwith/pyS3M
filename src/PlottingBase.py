@@ -7,6 +7,8 @@ Consolidates common functionality from PlottingFunctions.py and DriftPlotting.py
 :authors: jsb92
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Dict, Any, Union
@@ -21,6 +23,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.animation import FuncAnimation, PillowWriter
 from Constants import DriftConstants
+import logging
+logger = logging.getLogger(__name__)
 
 # Import mpltern to register ternary projection with matplotlib
 # This allows using projection="ternary" in add_subplot()
@@ -1033,7 +1037,7 @@ class BasePlotter(ABC):
         sbar: str = "on",
         scalebarsize: float = 10000.0,
         scalebarlabel: str = "10 μm",
-    ):
+    ) -> matplotlib.axes.Axes:
         """Plot a pre-rendered RGB image with a colorbar reflecting the colour parameter.
 
         Designed for images produced by ``render.render()`` with
@@ -1312,7 +1316,7 @@ class BasePlotter(ABC):
                 facecolor=facecolor,
                 edgecolor=edgecolor,
             )
-            print(f"✅ Plot saved to: {save_path}")
+            logger.info("Plot saved to: %s", save_path)
 
         if show:
             plt.show()
@@ -1443,7 +1447,7 @@ class ImagePlotMixin:
         cbar: str = "off",
         cbarlabels: Optional[List[str]] = None,
         background_color: str = "black",
-    ):
+    ) -> matplotlib.axes.Axes:
         """Create multichannel overlay plot of rendered super-resolution images.
 
         Overlays multiple grayscale images with different colormaps using additive RGB
@@ -2134,7 +2138,7 @@ class TernaryPlotMixin:
             R = R / totals
             G = G / totals
             B = B / totals
-            print(f"Warning: RGB values were not normalized. Automatically normalized to sum=1")
+            logger.warning("RGB values were not normalized. Automatically normalized to sum=1")
 
         # Create figure with ternary projection
         fig = plt.figure(figsize=figsize)
@@ -2315,19 +2319,19 @@ class TernaryPlotMixin:
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
             n_invalid = (~valid_mask).sum()
-            print(f"Warning: Removed {n_invalid} invalid values from KDE calculation")
+            logger.warning("Removed %d invalid values from KDE calculation", n_invalid)
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]
 
         if len(R) < 10:
-            print(f"Warning: Only {len(R)} valid points for KDE. Skipping contour plot.")
+            logger.warning("Only %d valid points for KDE. Skipping contour plot.", len(R))
             return
 
         # Check normalization (should sum to 1)
         totals = R + G + B
         if not np.allclose(totals, 1.0, atol=1e-3):
-            print(f"Warning: RGB values not normalized (sum={np.mean(totals):.3f}). Normalizing...")
+            logger.warning("RGB values not normalized (sum=%.3f). Normalizing...", np.mean(totals))
             R = R / totals
             G = G / totals
             B = B / totals
@@ -2346,8 +2350,8 @@ class TernaryPlotMixin:
             else:
                 raise ValueError(f"Invalid bandwidth: {bandwidth}")
         except Exception as e:
-            print(f"Error creating KDE: {e}")
-            print(f"Data shape: {data.shape}, R range: [{R.min():.3f}, {R.max():.3f}], G range: [{G.min():.3f}, {G.max():.3f}]")
+            logger.error("Error creating KDE: %s. Data shape: %s, R range: [%.3f, %.3f], G range: [%.3f, %.3f]",
+                         e, data.shape, R.min(), R.max(), G.min(), G.max())
             return
 
         # Create evaluation grid in (R, G) space
@@ -2368,7 +2372,7 @@ class TernaryPlotMixin:
         try:
             kde_values_valid = kde(grid_points_valid)
         except Exception as e:
-            print(f"Error evaluating KDE: {e}")
+            logger.error("Error evaluating KDE: %s", e)
             return
 
         # Create full KDE array with zeros for invalid points
@@ -2384,7 +2388,7 @@ class TernaryPlotMixin:
             nonzero_kde = valid_kde[valid_kde > 1e-10]  # Exclude numerical zeros
 
             if len(nonzero_kde) < 10:
-                print(f"Warning: Only {len(nonzero_kde)} non-zero KDE values. Skipping contour plot.")
+                logger.warning("Only %d non-zero KDE values. Skipping contour plot.", len(nonzero_kde))
                 return
 
             # Use logarithmic spacing for better contour distribution
@@ -2409,7 +2413,7 @@ class TernaryPlotMixin:
             nonzero_kde = valid_kde[valid_kde > 0]
 
             if len(nonzero_kde) < 10:
-                print(f"Warning: Only {len(nonzero_kde)} non-zero KDE values. Using all valid values.")
+                logger.warning("Only %d non-zero KDE values. Using all valid values.", len(nonzero_kde))
                 nonzero_kde = valid_kde
 
             # Sort KDE values (highest to lowest)
@@ -2493,9 +2497,8 @@ class TernaryPlotMixin:
                 ax._kde_legend_handles.append(legend_line)
 
         except Exception as e:
-            print(f"Error plotting contours: {e}")
-            print(f"Levels: {levels_to_plot}")
-            print(f"KDE values range: [{np.nanmin(kde_values):.6f}, {np.nanmax(kde_values):.6f}]")
+            logger.error("Error plotting contours: %s. Levels: %s, KDE range: [%.6f, %.6f]",
+                         e, levels_to_plot, np.nanmin(kde_values), np.nanmax(kde_values))
             return
 
     def plot_ternary_hexbin(
@@ -2678,13 +2681,13 @@ class TernaryPlotMixin:
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
             n_invalid = (~valid_mask).sum()
-            print(f"Warning: Removed {n_invalid} invalid values from KDE calculation")
+            logger.warning("Removed %d invalid values from KDE calculation", n_invalid)
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]
 
         if len(R) < 10:
-            print(f"Warning: Only {len(R)} valid points for KDE. Returning None.")
+            logger.warning("Only %d valid points for KDE. Returning None.", len(R))
             return None
 
         # Check normalization (should sum to 1)
@@ -2708,7 +2711,7 @@ class TernaryPlotMixin:
             else:
                 raise ValueError(f"Invalid bandwidth: {bandwidth}")
         except Exception as e:
-            print(f"Error creating KDE: {e}")
+            logger.error("Error creating KDE: %s", e)
             return None
 
         # Create evaluation grid in (R, G) space
@@ -2728,7 +2731,7 @@ class TernaryPlotMixin:
         try:
             kde_values_valid = kde(grid_points_valid)
         except Exception as e:
-            print(f"Error evaluating KDE: {e}")
+            logger.error("Error evaluating KDE: %s", e)
             return None
 
         # Create full KDE array with zeros for invalid points
@@ -2749,7 +2752,7 @@ class TernaryPlotMixin:
                 **kwargs
             )
         except Exception as e:
-            print(f"Error plotting filled contours: {e}")
+            logger.error("Error plotting filled contours: %s", e)
             return None
 
         # Label the axes with colors
@@ -2872,7 +2875,7 @@ class TernaryPlotMixin:
         # Remove NaN/Inf values
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
-            print(f"Warning: Removing {np.sum(~valid_mask)} invalid points (NaN/Inf)")
+            logger.warning("Removing %d invalid points (NaN/Inf)", np.sum(~valid_mask))
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]
@@ -2881,7 +2884,7 @@ class TernaryPlotMixin:
                 color = color[valid_mask]
 
         if len(R) == 0:
-            print("Warning: No valid points to plot")
+            logger.warning("No valid points to plot")
             return None
 
         # Check for and handle normalization

@@ -1,8 +1,153 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** May 6, 2026
+**Last Updated:** May 8, 2026
 **Status:** 🟢 **ACTIVE DEVELOPMENT** - Tracking pipeline / methods writing
+
+---
+
+## Session: May 8, 2026 — Codebase refactoring complete ✅ (all tiers done)
+
+### Remaining `print()` calls routed to logging
+
+**Summary:** Replaced the last 44 `print()` calls across two files that were missed in Tier 3.2 (PlottingBase.py — skipped in original pass) and carried over as-is when simulation files were moved during Tier 4.2.
+
+**Files modified:**
+- `src/PlottingBase.py` — added `logger = logging.getLogger(__name__)`; replaced 21 prints: `save_or_show` info, ternary RGB normalisation warnings, KDE computation warnings/errors (invalid values, too few points, KDE fit failure, contour plotting failure) across `plot_ternary_kde_contours`, `plot_ternary_kde_filled`, `plot_ternary_scatter`
+- `src/simulation/diffusion.py` — added `logger = logging.getLogger(__name__)`; replaced 23 prints: OLSF dimension/convergence errors (`logger.error`/`logger.warning`), frame-progress loops (`logger.debug`), image generation milestones and save confirmations (`logger.info`), intensity scaling details (`logger.debug`)
+
+**Remaining intentional `print()` calls (3 total, not changed):**
+- `ImportManager.py:308` — emoji warning for missing optional dependency (bootstrap user output)
+- `ImportManager.py:439` — `print(get_status_report())` at module level (user-facing status)
+- `ProgressUtils.py:70` — fallback path when tqdm unavailable
+
+**Verification:** 0 remaining `print()` in `PlottingBase.py` and `simulation/diffusion.py`; `mypy src/` → 0 errors
+
+### Refactoring scorecard (all tiers complete)
+
+| Tier | Action | Date |
+|---|---|---|
+| 1.1 | Replace `plt.show()` with display-gated calls | 2026-04-20 |
+| 1.2 | Eliminate magic numbers (`DriftConstants`, `FilteringConstants`) | 2026-04-10 |
+| 1.3 | `AnalysisConfig` dataclass | 2026-04-20 |
+| 2.0 | Remove all RCC code | 2026-04-10 |
+| 2.1 | Split `DriftCorrectionFunctions.py` → `drift_correction/` subpackage | 2026-04-21 |
+| 2.2 | `FilteringCriteria` dataclass | 2026-04-20 |
+| 2.3 | Split clustering mixins out of `SM_extractionfunctions.py` | 2026-04-30 |
+| 2.4 | Split GMM + channel-unmixing out of `SM_extractionfunctions.py` | 2026-05-01 |
+| 3.1 | `RenderingConfig` dataclass in `render.py` | 2026-05-01 |
+| 3.2 | Replace `print()` with `logging` throughout (625 calls, 20 files) | 2026-05-01 / 2026-05-08 |
+| 3.3 | Comprehensive type hints — 4 batches, all 32 src/ files | 2026-05-08 |
+| 3.4 | Thread `AnalysisConfig` + callbacks into remaining classes | 2026-05-01 |
+| 4.1 | `AnalysisPipeline` high-level orchestrator | 2026-05-08 |
+| 4.2 | `simulation/` subpackage (`diffusion.py`, `multicolour.py`) | 2026-05-06 |
+| 4.3 | `pathlib.Path` throughout (remove all `os.path`) | 2026-05-06 |
+
+---
+
+## Session: May 8, 2026 — AnalysisPipeline orchestrator complete ✅ (Tier 4.1)
+
+### `src/AnalysisPipeline.py` — new file (270 lines)
+
+**Summary:** Created a high-level pipeline orchestrator that wires together calibration loading, fitting, quality filtering, clustering, and drift correction into a single stateful class suitable for GUI and headless-script use.
+
+**Design:**
+- `FittingConfig` dataclass — groups the 8 detection/fitting parameters shared across all 5 pipeline modes (pfa, ROI_size, peak_wavelength, NA, sigma, fraction_true, image_type, use_variance_aware_demosaic)
+- `AnalysisPipeline` — holds calibration maps and camera state; lazy-initialised `sr` / `sm` / `dcf` sub-function properties; `AnalysisConfig` threaded throughout
+
+**Public API:**
+- `load_calibration(cal_dir)` — reads pre-computed gain/offset/variance/readnoise/rqe .tif files
+- `calibrate(cal_dir)` — runs `CalibrationFunctions.calibrate_multicolour_camera` and caches maps
+- `make_smoothing_function(sigma)` — builds the `SimpleNamespace` consumed by `IOFunctions.apply_smoothing`
+- `fit(image_folder, mode, fitting_config, **kwargs)` — dispatches to `fit_SM_data` / `fit_FRET_data` / `fit_QD_data` / `fit_tracking_data` / `fit_imaging_data` via a `mode` literal
+- `load_localisations(folder, pattern, start_frame)` — glob + concat HDF5 result files
+- `filter_and_cluster(locs, criteria, clustering_config)` — delegates to `extract_single_molecules_HDBSCAN/DBSCAN/LINKED` based on `ClusteringConfig.clustering_method`
+- `undrift(locs, info, method, **params)` — thin delegation to `DriftCorrectionFunctions.undrift`
+
+**Verification:** `ast.parse` OK; all construction / lazy-property / calibration-guard paths exercised; `mypy src/ --ignore-missing-imports --no-strict-optional` → 0 errors
+
+---
+
+## Session: May 8, 2026 — Type hints Batch D complete ✅ (all batches done)
+
+### Type hint Batch D — NileRedFunctions, _facade, multicolour, SpotDetectionFunctions, PlottingBase
+
+**Summary:** Completed final batch of type hint annotations across 5 files. All `Tuple/Dict/List/Union` old-style typing replaced with built-in generics, `from __future__ import annotations` added to all files, `float = None` defaults fixed to `float | None = None`, and bare method returns annotated. mypy reports 0 errors across all of `src/`.
+
+**Files modified:**
+- `src/NileRedFunctions.py` — added future annotations, NDArray import; updated 10+ old-style annotations; fixed 4× `pixel_size: float | None`
+- `src/drift_correction/_facade.py` — added future annotations, NDArray; updated Union/Dict/List/Tuple; annotated non-shim bare methods
+- `src/SpotDetectionFunctions.py` — added future annotations, NDArray; fixed injected deps to `Any | None`; annotated all public spot detection returns
+- `src/simulation/multicolour.py` — added future annotations, NDArray; updated CameraParameters/SimulationConfig fields; fixed __init__ injected deps
+- `src/PlottingBase.py` — added future annotations; annotated `colour_image_plot` and `multichannel_overlay_plot` returns
+
+**Verification:** `mypy src/ --ignore-missing-imports --no-strict-optional --follow-imports=silent` → 0 errors
+
+---
+
+## Session: May 8, 2026 — Type hints Batch C complete ✅
+
+Annotated 7 files: 4 clustering mixins + `mixture_analysis.py`, `channel_unmixing.py`, `postprocess.py`.
+
+**Changes per file:**
+
+| File | Signatures annotated |
+|---|---|
+| `clustering/batch.py` | `_extract_fov_name`, `extract_single_molecules_batch`, `build_photon_accumulation_database`, `analyse_multi_fov_dataset` |
+| `clustering/linked_clusterer.py` | `extract_single_molecules_linked`, `flag_static_localisations`, `spectral_lap_link`, `extract_single_molecules_spectral_lap` |
+| `clustering/hdbscan_clusterer.py` | `extract_single_molecules_HDBSCAN`; added `FilteringCriteria` import |
+| `clustering/dbscan_clusterer.py` | `extract_single_molecules_DBSCAN`; added `FilteringCriteria` import |
+| `mixture_analysis.py` | `_fit_gmm_mle`, `_fit_gmm_em`, `extract_reference_means`, `fit_covariances_fixed_means`, `fit_covariances_fixed_means_mestimator`, `calculate_analytical_misidentification`, `analyze_photon_dependent_misidentification_analytical` |
+| `channel_unmixing.py` | `unmix_channels`, `unmix_channels_with_spatial_refinement` (updated `Tuple/Dict` → `tuple/dict`), `find_exemplar_dye_pair`, `get_exemplar_crop` |
+| `postprocess.py` | `get_index_blocks`, `index_blocks_shape`, `get_block_locs_at`, `picked_locs`, `nena`, `next_frame_neighbor_distance_histogram`, `link`, `link_loc_groups`, `undrift_from_picked`, `segment_locs_by_rendered_image`, `remove_fiducials` |
+
+**Key decisions:**
+- `analyse_multi_fov_dataset` → `tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[pd.DataFrame, pd.DataFrame]` (conditional on `build_accumulation`)
+- `spectral_lap_link` → `NDArray[np.int32]` (track ID array)
+- `extract_reference_means` → `tuple[NDArray[np.float64], pd.DataFrame, Any]` (third element is `GaussianMixture`)
+- `fit_covariances_fixed_means_mestimator` → `tuple[..., list[NDArray[np.float64]]]` (per-point weights list)
+- `remove_fiducials` → `tuple[pd.DataFrame, pd.DataFrame, NDArray[np.bool_]]` (3-tuple including fiducial mask)
+- `A_R_threshold`/`A_G_threshold` in `remove_fiducials` → `float | tuple[float, str] | None` (accepts direction qualifier)
+- `from __future__ import annotations` added to all 7 files; `Tuple/Dict` legacy imports replaced with built-in generics
+
+---
+
+## Session: May 8, 2026 — Type hints Batch B complete ✅
+
+Added `from __future__ import annotations` + full public-method signatures to `localise.py`,
+`IOFunctions.py`, `render.py`, and `SR_Functions.py`.
+
+**Changes per file:**
+
+| File | Signatures annotated |
+|---|---|
+| `src/localise.py` | `identify_in_frame`, `identify_frame`, `identify_by_frame_number`, `identifications_from_futures`, `get_spots`, `locs_from_fits`, `check_nena`, `check_kinetics` |
+| `src/render.py` | `render`, `render_hist`, `render_gaussian_colour`, `render_gaussian`, `render_gaussian_iso`, `render_convolve`, `render_smooth` |
+| `src/IOFunctions.py` | All 20 public methods on `IO_Functions`; `float \| NDArray[np.float32]` union for gain/offset/rqe/read_noise scalars-or-maps |
+| `src/SR_Functions.py` | `__init__` (injected deps `Any \| None`); `_postprocess_fit_results → pd.DataFrame`; `_filter_fit_results → pd.DataFrame`; `example_spots_singleframe → tuple[Any, Any]`; `fit_SM_data → None`; `fit_tracking_data → None`; `fit_imaging_data → None` |
+
+**Key decisions:**
+- High-level fitting methods (`fit_SM_data`, `fit_tracking_data`, `fit_imaging_data`) annotate
+  calibration maps as `NDArray[np.float32]` (not `float | NDArray`) — they always require real 2D maps.
+- Injected dependency parameters use `Any | None` (not `object | None`) to silence Pylance
+  "Cannot access attribute" diagnostics on `self.io`, `self.helper`, etc.
+- Numba `@jit`/`@njit`-decorated functions left unannotated (Numba ignores annotations).
+
+---
+
+## Session: May 8, 2026 — STANDARD_DATA promoted to production default ✅
+
+Benchmark (`Standard_vs_ITER_vs_DATA.ipynb`) confirmed STANDARD_DATA (S4) is better than
+STANDARD_ITER. Switched every hardcoded default in the fitting pipeline.
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/SR_Functions.py` | 6 `FittingStrategy.STANDARD_ITER` call sites → `STANDARD_DATA`; fallback assignment in `fit_tracking_data` → `STANDARD_DATA` |
+| `src/simulation/multicolour.py` | Compatibility wrapper `test_fit_method` default → `STANDARD_DATA`; ground-truth CSV save conditions now include `STANDARD_DATA` (2 sites) |
+
+STANDARD_ITER remains a valid enum member and can still be chosen explicitly.
 
 ---
 

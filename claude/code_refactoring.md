@@ -1,6 +1,6 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22 (last updated 2026-05-06 — Tier 4.2 complete)
+**Date:** 2026-04-22 (last updated 2026-05-08 — Tier 3.3 type hints complete)
 **Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
@@ -189,7 +189,7 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 3.1 | ✅ `RenderingConfig` dataclass in `render.py` | render.py | done |
 | 3.2 | ✅ Replace `print()` with `logging` throughout | 18 files | done |
 | 3.4 | ✅ Thread `AnalysisConfig` into remaining major classes; add `output_handler` callbacks | 6 classes | done |
-| 3.3 | Comprehensive type hints on public methods | All | 3 days |
+| 3.3 | ✅ Comprehensive type hints on public methods | All | done |
 
 ### Tier 4 — Polish
 
@@ -197,9 +197,9 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 |---|---|---|
 | 4.3 | ✅ `pathlib.Path` throughout (replace bare strings) | done |
 | 4.2 | ✅ Package `DiffusionSimulation.py` + `Multicolour_Simulation_Functions.py` into `simulation/` submodule | done |
-| 4.1 | Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | 1 day |
+| 4.1 | ✅ Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | done |
 
-**Estimated remaining effort:** ~4 person-days (Tier 3.3 type hints = 3 days, Tier 4.1 = 1 day).
+**Estimated remaining effort:** none — all planned refactoring tiers complete.
 
 ---
 
@@ -234,10 +234,12 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 2026-04-30 | Split clustering logic out of `SM_extractionfunctions.py` (Tier 2.3) | 5,354-line god-file → clustering mixin subpackage (`HDBSCANMixin`, `DBSCANMixin`, `LinkedMixin`, `BatchMixin`); 1,220 lines moved; SM_extractionfunctions.py now 4,132 lines; all callers unchanged |
 | 2026-05-01 | Split GMM + channel-unmixing code out of `SM_extractionfunctions.py` (Tier 2.4) | 4,132-line file → `mixture_analysis.py` (1,863 lines, `MixtureAnalysisMixin`) + `channel_unmixing.py` (2,048 lines, `ChannelUnmixingMixin`); `SM_extractionfunctions.py` now 262 lines; six-mixin inheritance; zero regressions |
 | 2026-05-01 | Fix `add_colorbar` argument order in `PlottingBase.py` | `image_plot` and `contour_plot` were passing `(ax, im)` but signature is `(im, ax)`; `make_axes_locatable` received an `AxesImage` → `AttributeError` |
-| 2026-05-01 | Replace `print()` with `logging` throughout (Tier 3.2) | 581 calls across 18 files → `logger = logging.getLogger(__name__)` per module; info/progress → `logger.info()`, warnings → `logger.warning()`, end=`"\r"` loop progress → `logger.debug()`; `verbose`-gated calls preserve their guard |
+| 2026-05-01/08 | Replace `print()` with `logging` throughout (Tier 3.2) | 625 calls across 20 files → `logger = logging.getLogger(__name__)` per module; info/progress → `logger.info()`, warnings → `logger.warning()`, end=`"\r"` loop progress → `logger.debug()`; `verbose`-gated calls preserve their guard; 3 intentional `print()` retained in `ImportManager.py` (user-facing bootstrap) and `ProgressUtils.py` (fallback) |
 | 2026-05-01 | `RenderingConfig` dataclass in `render.py` (Tier 3.1) | `@dataclass` with 10 fields mirroring `render()` kwargs; `render()` gains `config: RenderingConfig = None`; all existing callers unchanged |
 | 2026-05-01 | `ClusteringConfig` dataclass (Tier 3) | `@dataclass` in `clustering/_config.py` with 21 fields covering all four extraction methods; wired into `extract_single_molecules_HDBSCAN`, `extract_single_molecules_DBSCAN`, `extract_single_molecules_linked`, `extract_single_molecules_spectral_lap`, `extract_single_molecules_batch`; also fixed bare `logger.info()` call in `batch.py` |
 | 2026-05-01 | Thread `AnalysisConfig` into remaining classes (Tier 3.4) | `FiducialDetector`, `DriftPlotter`, `MultiC_Sim_Funcs_Refactored`, `NileRed_Functions`, `_plot_drift_analysis`, `segment_locs_by_rendered_image`, `remove_fiducials`; progress/logging callbacks added at key milestones; fixed pre-existing `save_or_show` bug in `_plot_drift_analysis`; zero regressions |
 | 2026-05-06 | Remove `STANDARD_DATA` fitting strategy | `FittingStrategy.STANDARD_DATA` enum value, `StandardDataFittingProcessor` class (~95 lines), and all dispatch/registry entries removed from `ImageAnalysisFunctions.py`; matching local enum + `_fit_standard_data()` method (~85 lines) + dispatch branch removed from `Multicolour_Simulation_Functions.py`; `test_standard_data_fitting.py` deleted; `STANDARD_ITER` confirmed as default strategy throughout |
 | 2026-05-06 | `pathlib.Path` throughout src/ (Tier 4.3) | All `os.path.*`, `os.makedirs`, `os.listdir`, `os.remove`, `os.walk` calls replaced with `pathlib.Path` equivalents across 26 files; `import os` removed from all src/ files; zero remaining `os.path` calls |
 | 2026-05-06 | `simulation/` subpackage (Tier 4.2) | `DiffusionSimulation.py` (1 885 lines) → `simulation/diffusion.py`; `Multicolour_Simulation_Functions.py` (3 630 lines) → `simulation/multicolour.py`; `simulation/__init__.py` re-exports all 19 public names; both originals replaced with 15-line backward-compat shims; fixed latent missing `import sys` / `from pathlib import Path` in `DiffusionSimulation.py`; all 7 simulation unit tests pass; zero regressions |
+| 2026-05-08 | `AnalysisPipeline` orchestrator (Tier 4.1) | `src/AnalysisPipeline.py` (new, 270 lines); `FittingConfig` dataclass groups all shared fit params; lazy-property `sr`/`sm`/`dcf` instances; `load_calibration()` / `calibrate()` / `fit(mode=...)` / `load_localisations()` / `filter_and_cluster()` / `undrift()` public API; 0 mypy errors |
+| 2026-05-08 | Comprehensive type hints on public methods (Tier 3.3) | `from __future__ import annotations` + `NDArray[np.dtype]` + built-in generics across all 32 src/ files in 4 batches (A: core modules; B: SR_Functions/IOFunctions/postprocess; C: drift_correction/clustering/mixture/channel_unmixing; D: NileRedFunctions/_facade/multicolour/SpotDetectionFunctions/PlottingBase); 0 mypy errors verified |

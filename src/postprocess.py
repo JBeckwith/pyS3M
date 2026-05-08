@@ -7,11 +7,14 @@
     :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
     updated jsb92 2026/02/21
 """
+from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Callable, Optional
 import sys
 import numpy as np
 import numba
+from numpy.typing import NDArray
 
 from scipy import interpolate
 from scipy.special import iv
@@ -119,7 +122,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None,
         return fig, None
 
 
-def get_index_blocks(locs, width, height, size, callback=None):
+def get_index_blocks(locs: np.recarray, width: float, height: float, size: float, callback: Callable | None = None) -> tuple[np.recarray, float, NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32], int, int]:
     # Sort locs by indices
     x_index = np.uint32(locs.xc / size)
     y_index = np.uint32(locs.yc / size)
@@ -142,14 +145,14 @@ def get_index_blocks(locs, width, height, size, callback=None):
     return locs, size, x_index, y_index, block_starts, block_ends, K, L
 
 
-def index_blocks_shape(width, height, size):
+def index_blocks_shape(width: float, height: float, size: float) -> tuple[int, int]:
     """Returns the shape of the index grid, given the movie and grid sizes"""
     n_blocks_x = int(np.ceil(width / size))
     n_blocks_y = int(np.ceil(height / size))
     return n_blocks_y, n_blocks_x
 
 
-def get_block_locs_at(x, y, index_blocks):
+def get_block_locs_at(x: float, y: float, index_blocks: tuple) -> np.recarray:
     locs, size, _, _, block_starts, block_ends, K, L = index_blocks
     x_index = np.uint32(x / size)
     y_index = np.uint32(y / size)
@@ -185,16 +188,16 @@ def _fill_index_block(block_starts, block_ends, N, x_index, y_index, i, j, k):
 
 
 def picked_locs(
-    locs,
-    width,
-    height,
-    picks,
-    pick_shape,
-    pick_size=None,
-    add_group=True,
-    callback=None,
-    parallel=False,
-):
+    locs: np.recarray,
+    width: float,
+    height: float,
+    picks: list,
+    pick_shape: str,
+    pick_size: float | None = None,
+    add_group: bool = True,
+    callback: Callable | None = None,
+    parallel: bool = False,
+) -> np.recarray:
     """Finds picked localisations.
 
     Parameters
@@ -336,7 +339,7 @@ def picked_locs(
         return picked_locs
 
 
-def nena(locs, info, callback=None):
+def nena(locs: np.recarray, info: list[dict[str, Any]], callback: Callable | None = None) -> tuple[Any, float]:
     bin_centers, dnfl_ = next_frame_neighbor_distance_histogram(locs, callback)
 
     def func(d, delta_a, s, ac, dc, sc):
@@ -360,7 +363,7 @@ def nena(locs, info, callback=None):
     return result, result.best_values["s"]
 
 
-def next_frame_neighbor_distance_histogram(locs, callback=None):
+def next_frame_neighbor_distance_histogram(locs: np.recarray, callback: Callable | None = None) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     locs.sort(kind="mergesort", order="frame")
     frame = locs.frame
     x = locs.xc
@@ -417,13 +420,13 @@ def _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size):
 
 
 def link(
-    locs,
-    info,
-    r_max=0.05,
-    max_dark_time=1,
-    combine_mode="average",
-    remove_ambiguous_lengths=True,
-):
+    locs: np.recarray,
+    info: list[dict[str, Any]],
+    r_max: float = 0.05,
+    max_dark_time: int = 1,
+    combine_mode: str = "average",
+    remove_ambiguous_lengths: bool = True,
+) -> np.recarray:
     if len(locs) == 0:
         linked_locs = locs.copy()
         if hasattr(locs, "frame"):
@@ -541,7 +544,7 @@ def _link_group_last(column, link_group, n_locs, n_groups):
     return result
 
 
-def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
+def link_loc_groups(locs: np.recarray, info: list[dict[str, Any]], link_group: NDArray[np.int32], remove_ambiguous_lengths: bool = True) -> np.recarray:
     n_locs = len(link_group)
     n_groups = link_group.max() + 1
     n_ = _link_group_count(link_group, n_locs, n_groups)
@@ -613,7 +616,7 @@ def link_loc_groups(locs, info, link_group, remove_ambiguous_lengths=True):
     return linked_locs
 
 
-def undrift_from_picked(picked_locs, n_frames):
+def undrift_from_picked(picked_locs: list[np.recarray], n_frames: int) -> np.recarray:
     """Finds drift from picked localisations. Note that unlike other
     undrifting functions, this function does not return undrifted
     localisations but only drift."""
@@ -1345,19 +1348,19 @@ def _serial_picked_locs_rectangle(
 
 
 def segment_locs_by_rendered_image(
-    locs,
-    width,
-    height,
-    oversampling=8,
-    pixel_size_nm=69.0,
-    min_area_nm2=100.0,
-    min_localisations=100,
-    threshold_method="otsu",
-    blur_method="smooth",
-    callback=None,
-    verbose=False,
+    locs: pd.DataFrame | np.recarray,
+    width: float,
+    height: float,
+    oversampling: int = 8,
+    pixel_size_nm: float = 69.0,
+    min_area_nm2: float = 100.0,
+    min_localisations: int = 100,
+    threshold_method: str = "otsu",
+    blur_method: str | None = "smooth",
+    callback: Callable | str | None = None,
+    verbose: bool = False,
     config: AnalysisConfig = None,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Memory-efficient aggregate detection using image-based segmentation.
 
@@ -1777,16 +1780,16 @@ def segment_locs_by_rendered_image(
 
 
 def remove_fiducials(
-    aggregate_locs,
-    per_aggregate_stats,
-    n_frames,
-    A_R_threshold=None,
-    A_G_threshold=None,
-    density_threshold=0.6,
-    require_all=False,
-    verbose=False,
+    aggregate_locs: pd.DataFrame,
+    per_aggregate_stats: pd.DataFrame,
+    n_frames: int,
+    A_R_threshold: float | tuple[float, str] | None = None,
+    A_G_threshold: float | tuple[float, str] | None = None,
+    density_threshold: float = 0.6,
+    require_all: bool = False,
+    verbose: bool = False,
     config: AnalysisConfig = None,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, NDArray[np.bool_]]:
     """
     Remove fiducial markers from aggregate data based on spectral and density criteria.
 

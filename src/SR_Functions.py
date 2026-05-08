@@ -4,13 +4,18 @@ This class contains functions pertaining to analysis of images,
 relating to the bayerSMLM concept.
 jsb92, 2024/01/02
 """
-import numpy as np
-import pandas as pd
+from __future__ import annotations
+
 from pathlib import Path
-import sys
+from typing import Any, Optional
 import gc
 import multiprocessing
+import sys
 from concurrent import futures
+
+import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
 
 import ruptures as rpt
 
@@ -39,17 +44,17 @@ class SuperRes_Functions:
     def __init__(
         self,
         camera: str = "ximea",
-        mosaic_unit=None,
-        pixel_size: float = None,
-        io_functions=None,
-        helper_functions=None,
-        mask_functions=None,
-        image_analysis_functions=None,
-        spot_detection_functions=None,
-        plotter=None,
-        scmos=None,
-        config: AnalysisConfig = None,
-    ):
+        mosaic_unit: NDArray | None = None,
+        pixel_size: float | None = None,
+        io_functions: Any | None = None,
+        helper_functions: Any | None = None,
+        mask_functions: Any | None = None,
+        image_analysis_functions: Any | None = None,
+        spot_detection_functions: Any | None = None,
+        plotter: Any | None = None,
+        scmos: Any | None = None,
+        config: AnalysisConfig | None = None,
+    ) -> None:
         """Initialize SuperRes_Functions class.
 
         Args:
@@ -105,14 +110,14 @@ class SuperRes_Functions:
 
     def _postprocess_fit_results(
         self,
-        fit_results_array,
-        fit_errors_array,
-        result_columns,
-        planes,
-        width,
-        height,
-        quality_metrics=None,  # NEW: Optional quality metrics dict
-    ):
+        fit_results_array: NDArray[np.float64],
+        fit_errors_array: NDArray[np.float64],
+        result_columns: list[str],
+        planes: list[int] | NDArray[np.int_],
+        width: int,
+        height: int,
+        quality_metrics: dict[str, NDArray] | None = None,
+    ) -> pd.DataFrame:
         """Post-process fitting results into filtered DataFrame.
 
         Args:
@@ -153,7 +158,7 @@ class SuperRes_Functions:
 
         return fit_results
 
-    def _filter_fit_results(self, fit_results, width, height):
+    def _filter_fit_results(self, fit_results: pd.DataFrame, width: int, height: int) -> pd.DataFrame:
         """Filter localization results based on physical and quality constraints.
 
         Applies multiple quality filters in a single pass for optimal performance:
@@ -446,28 +451,28 @@ class SuperRes_Functions:
 
     def example_spots_singleframe(
         self,
-        image_folder,
-        image_type=".tif",
-        smoothing_function=None,
-        gain_map=None,
-        offset_map=None,
-        rqe=None,
-        read_noise=None,
-        variance=None,
-        pfa=1e-3,
+        image_folder: Path | str,
+        image_type: str = ".tif",
+        smoothing_function: Any | None = None,
+        gain_map: NDArray[np.float32] | None = None,
+        offset_map: NDArray[np.float32] | None = None,
+        rqe: NDArray[np.float32] | None = None,
+        read_noise: NDArray[np.float32] | None = None,
+        variance: NDArray[np.float32] | None = None,
+        pfa: float = 1e-3,
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
-        ROI_size=16,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size: float = None,
-        s=5,
+        ROI_size: int = 16,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float | None = None,
+        s: int = 5,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         use_variance_aware_demosaic: bool = True,
         frame_index: int = 0,
         n_frames_sum: int = 1,
-    ):
+    ) -> tuple[Any, Any]:
         """Example spot detection and fitting on a single frame with visualization.
 
         Demonstrates the complete workflow: spot detection, ROI extraction, fitting,
@@ -658,7 +663,7 @@ class SuperRes_Functions:
             weights_tofit,
             relative_coords,
             list(np.zeros(len(puncta_tofit), dtype=int)),
-            FittingStrategy.STANDARD_ITER,
+            FittingStrategy.STANDARD_DATA,
             masks=masks_tofit,
         )
 
@@ -1180,7 +1185,7 @@ class SuperRes_Functions:
                 weights_tofit,
                 relative_coords,
                 list(range(len(puncta_tofit))),
-                FittingStrategy.STANDARD_ITER,
+                FittingStrategy.STANDARD_DATA,
                 masks=masks_tofit,
             )
 
@@ -1457,7 +1462,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     list(range(len(puncta_tofit))),
-                    FittingStrategy.STANDARD_ITER,
+                    FittingStrategy.STANDARD_DATA,
                     masks=masks_tofit,
                 )
 
@@ -1561,23 +1566,23 @@ class SuperRes_Functions:
 
     def fit_SM_data(
         self,
-        image_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance,
-        pfa=1e-3,
-        ROI_size=16,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size=None,
+        image_folder: Path | str,
+        smoothing_function: Any,
+        gain_map: NDArray[np.float32],
+        offset_map: NDArray[np.float32],
+        rqe: NDArray[np.float32],
+        read_noise: NDArray[np.float32],
+        variance: NDArray[np.float32],
+        pfa: float = 1e-3,
+        ROI_size: int = 16,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float | None = None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-        image_type=".tif",
+        image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
-    ):
+    ) -> None:
         """Single-molecule data fitting function.
 
         Analyzes single-molecule localization microscopy data by detecting puncta
@@ -1775,7 +1780,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     planes,
-                    FittingStrategy.STANDARD_ITER,
+                    FittingStrategy.STANDARD_DATA,
                     masks=masks_tofit,
                 )
             )
@@ -1808,24 +1813,24 @@ class SuperRes_Functions:
 
     def fit_tracking_data(
         self,
-        image_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance,
-        pfa=1e-3,
-        ROI_size=16,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size=None,
+        image_folder: Path | str,
+        smoothing_function: Any,
+        gain_map: NDArray[np.float32],
+        offset_map: NDArray[np.float32],
+        rqe: NDArray[np.float32],
+        read_noise: NDArray[np.float32],
+        variance: NDArray[np.float32],
+        pfa: float = 1e-3,
+        ROI_size: int = 16,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float | None = None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-        image_type=".tif",
+        image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
         use_elliptical: bool = True,
-    ):
+    ) -> None:
         """Single-molecule tracking data fitting function.
 
         Identical pipeline to fit_SM_data but fits each localisation with an
@@ -1868,7 +1873,7 @@ class SuperRes_Functions:
             strategy = FittingStrategy.ELLIPTICAL
             result_params = ResultColumns.get_elliptical_columns()
         else:
-            strategy = FittingStrategy.STANDARD_ITER
+            strategy = FittingStrategy.STANDARD_DATA
             result_params = ResultColumns.get_all_columns()
 
         if pixel_size is None:
@@ -2306,23 +2311,23 @@ class SuperRes_Functions:
 
     def fit_imaging_data(
         self,
-        image_folder,
-        smoothing_function,
-        gain_map,
-        offset_map,
-        rqe,
-        read_noise,
-        variance,
-        pfa=1e-3,
-        ROI_size=20,
-        peak_wavelength=0.638,
-        NA=1.49,
-        pixel_size=None,
+        image_folder: Path | str,
+        smoothing_function: Any,
+        gain_map: NDArray[np.float32],
+        offset_map: NDArray[np.float32],
+        rqe: NDArray[np.float32],
+        read_noise: NDArray[np.float32],
+        variance: NDArray[np.float32],
+        pfa: float = 1e-3,
+        ROI_size: int = 20,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float | None = None,
         sigma: float = 1.5,
         fraction_true: float = 0.2,
-        image_type=".tif",
+        image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
-    ):
+    ) -> None:
         """Cross-file imaging data fitting function.
 
         Analyzes imaging data across multiple files by detecting puncta and fitting them
@@ -2529,7 +2534,7 @@ class SuperRes_Functions:
                     weights_tofit,
                     relative_coords,
                     planes,
-                    FittingStrategy.STANDARD_ITER,
+                    FittingStrategy.STANDARD_DATA,
                     masks=masks_tofit,
                 )
             )

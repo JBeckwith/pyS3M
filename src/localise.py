@@ -8,16 +8,21 @@
     Updated by jsb92, 2025/08/18
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, Callable, Optional
+import ctypes
 import sys
-import numpy as np
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from itertools import chain
+import multiprocessing as mp
+
 import dask.array as da
 import numba
-import multiprocessing as mp
-import ctypes
-from concurrent.futures import ThreadPoolExecutor
-import threading
-from itertools import chain
+import numpy as np
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module
@@ -135,7 +140,7 @@ def identify_in_image(image, minimum_ng, box):
     return y, x, ng
 
 
-def identify_in_frame(frame, minimum_ng, box, roi=None):
+def identify_in_frame(frame: NDArray[np.float32], minimum_ng: float, box: int, roi: tuple[tuple[int, int], tuple[int, int]] | None = None) -> tuple[NDArray[np.int_], NDArray[np.int_], NDArray[np.float32]]:
     if roi is not None:
         frame = frame[roi[0][0] : roi[1][0], roi[0][1] : roi[1][1]]
     image = np.float32(frame)  # otherwise numba goes crazy
@@ -146,7 +151,7 @@ def identify_in_frame(frame, minimum_ng, box, roi=None):
     return y, x, net_gradient
 
 
-def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=None):
+def identify_frame(frame: NDArray[np.float32], minimum_ng: float, box: int, frame_number: int, roi: tuple[tuple[int, int], tuple[int, int]] | None = None, resultqueue: Any | None = None) -> np.recarray:
     y, x, net_gradient = identify_in_frame(frame, minimum_ng, box, roi)
     frame = frame_number * np.ones(len(x))
     result = np.rec.array(
@@ -163,7 +168,7 @@ def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=N
     return result
 
 
-def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None, lock=None):
+def identify_by_frame_number(movie: NDArray | Any, minimum_ng: float, box: int, frame_number: int, roi: tuple[tuple[int, int], tuple[int, int]] | None = None, lock: threading.Lock | None = None) -> np.recarray:
     if lock is not None:
         with lock:
             frame = movie[frame_number]
@@ -196,7 +201,7 @@ def _identify_worker(movie, current, minimum_ng, box, roi, lock):
         )
 
 
-def identifications_from_futures(futures):
+def identifications_from_futures(futures: list[Any]) -> np.recarray:
     ids_list_of_lists = [_.result() for _ in futures]
     ids_list = list(chain(*ids_list_of_lists))
     ids = np.hstack(ids_list).view(np.recarray)
@@ -329,12 +334,12 @@ def _to_photons(spots, camera_info):
     return (spots - baseline) * sensitivity / (gain)
 
 
-def get_spots(movie, identifications, box, camera_info):
+def get_spots(movie: NDArray | Any, identifications: np.recarray, box: int, camera_info: dict[str, float]) -> NDArray[np.float32]:
     spots = _cut_spots(movie, identifications, box)
     return _to_photons(spots, camera_info)
 
 
-def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
+def locs_from_fits(identifications: np.recarray, theta: NDArray[np.float32], CRLBs: NDArray[np.float32], likelihoods: NDArray[np.float32], iterations: NDArray[np.int32], box: int) -> np.recarray:
     box_offset = int(box / 2)
     y = theta[:, 0] + identifications.yc - box_offset  # Changed from .y to .yc
     x = theta[:, 1] + identifications.xc - box_offset  # Changed from .x to .xc
@@ -361,7 +366,7 @@ def locs_from_fits(identifications, theta, CRLBs, likelihoods, iterations, box):
     return locs
 
 
-def check_nena(locs, info, callback=None):
+def check_nena(locs: np.recarray, info: list[dict[str, Any]], callback: Callable[[float], None] | None = None) -> float:
     # Nena
     logger.debug("Calculating NeNA.. ")
     locs = locs[0:MAX_LOCS]
@@ -377,7 +382,7 @@ def check_nena(locs, info, callback=None):
     return nena_px
 
 
-def check_kinetics(locs, info):
+def check_kinetics(locs: np.recarray, info: list[dict[str, Any]]) -> float:
     logger.debug("Linking.. ")
     locs = locs[0:MAX_LOCS]
     locs = postprocess.link(locs, info=info)

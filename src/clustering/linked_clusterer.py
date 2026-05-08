@@ -5,8 +5,11 @@ clustering/linked_clusterer.py
 Temporal-linking and spectral-LAP single-molecule extraction mixins.
 Extracted from SM_extractionfunctions.py.
 """
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from Constants import FilteringConstants, FilteringCriteria
 from ._config import ClusteringConfig
@@ -25,21 +28,21 @@ class LinkedMixin:
 
     def extract_single_molecules_linked(
         self,
-        loc_data,
-        max_distance=1.0,
-        max_frames=10,
+        loc_data: pd.DataFrame,
+        max_distance: float = 1.0,
+        max_frames: int = 10,
         criteria: FilteringCriteria = None,
-        chi_val=None,
-        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
-        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
-        min_sigma=None,
-        max_sigma=None,
-        max_sigma_error=None,
-        min_photons=FilteringConstants.MIN_PHOTONS,
-        max_photons=None,
-        start_frame=0,
+        chi_val: float | None = None,
+        max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX,
+        max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma: float | None = None,
+        max_sigma: float | None = None,
+        max_sigma_error: float | None = None,
+        min_photons: float = FilteringConstants.MIN_PHOTONS,
+        max_photons: float | None = None,
+        start_frame: int = 0,
         config: ClusteringConfig = None,
-    ):
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Extract single molecules using temporal linking (postprocess.get_link_groups).
 
@@ -101,7 +104,7 @@ class LinkedMixin:
     # Spectral-assisted LAP linking (Jaqaman et al. 2008)
     # ------------------------------------------------------------------
 
-    def flag_static_localisations(self, loc_data, eps, min_samples):
+    def flag_static_localisations(self, loc_data: pd.DataFrame, eps: float, min_samples: int) -> NDArray[np.bool_]:
         """Identify static (non-diffusing) emitters via DBSCAN.
 
         Localisations belonging to a dense spatial cluster (≥ ``min_samples``
@@ -127,19 +130,19 @@ class LinkedMixin:
 
     def spectral_lap_link(
         self,
-        loc_data,
-        max_distance=1.0,
-        max_dark_time=1,
-        w_spatial=1.0,
-        w_spectral=0.5,
-        spectral_tol=FilteringConstants.MAX_COLOUR_ERROR,
-        spectral_columns=("A_R", "A_G", "A_B"),
-        D_prior=None,
-        dt=1.0,
-        sigma_loc=0.0,
-        alpha=3.0,
-        verbose=False,
-    ):
+        loc_data: pd.DataFrame,
+        max_distance: float = 1.0,
+        max_dark_time: int = 1,
+        w_spatial: float = 1.0,
+        w_spectral: float = 0.5,
+        spectral_tol: float = FilteringConstants.MAX_COLOUR_ERROR,
+        spectral_columns: tuple[str, ...] = ("A_R", "A_G", "A_B"),
+        D_prior: float | None = None,
+        dt: float = 1.0,
+        sigma_loc: float = 0.0,
+        alpha: float = 3.0,
+        verbose: bool = False,
+    ) -> NDArray[np.int32]:
         """Link localisations across frames using LAP with spectral cost.
 
         Builds a combined spatial + spectral cost matrix per frame and solves
@@ -310,33 +313,33 @@ class LinkedMixin:
 
     def extract_single_molecules_spectral_lap(
         self,
-        loc_data,
-        max_distance=1.0,
-        max_dark_time=1,
-        w_spatial=1.0,
-        w_spectral=0.5,
-        spectral_tol=FilteringConstants.MAX_COLOUR_ERROR,
-        spectral_columns=("A_R", "A_G", "A_B"),
-        min_frames=3,
+        loc_data: pd.DataFrame,
+        max_distance: float = 1.0,
+        max_dark_time: int = 1,
+        w_spatial: float = 1.0,
+        w_spectral: float = 0.5,
+        spectral_tol: float = FilteringConstants.MAX_COLOUR_ERROR,
+        spectral_columns: tuple[str, ...] = ("A_R", "A_G", "A_B"),
+        min_frames: int = 3,
         criteria: FilteringCriteria = None,
-        chi_val=None,
-        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
-        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
-        min_sigma=None,
-        max_sigma=None,
-        max_sigma_error=None,
-        min_photons=FilteringConstants.MIN_PHOTONS,
-        max_photons=None,
-        D_prior=None,
-        dt=1.0,
-        sigma_loc=0.0,
-        alpha=3.0,
-        remove_static=True,
-        static_eps=None,
-        static_min_samples=10,
-        verbose=False,
+        chi_val: float | None = None,
+        max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX,
+        max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma: float | None = None,
+        max_sigma: float | None = None,
+        max_sigma_error: float | None = None,
+        min_photons: float = FilteringConstants.MIN_PHOTONS,
+        max_photons: float | None = None,
+        D_prior: float | None = None,
+        dt: float = 1.0,
+        sigma_loc: float = 0.0,
+        alpha: float = 3.0,
+        remove_static: bool = True,
+        static_eps: float | None = None,
+        static_min_samples: int = 10,
+        verbose: bool = False,
         config: ClusteringConfig = None,
-    ):
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Extract single molecules using spectral-assisted LAP linking.
 
         Same interface and output format as extract_single_molecules_linked()

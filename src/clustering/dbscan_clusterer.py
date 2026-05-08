@@ -5,10 +5,12 @@ clustering/dbscan_clusterer.py
 DBSCAN-based single-molecule extraction mixin.
 Extracted from SM_extractionfunctions.py.
 """
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
-from Constants import FilteringConstants
+from Constants import FilteringConstants, FilteringCriteria
 from ._config import ClusteringConfig
 from sklearn.cluster import DBSCAN
 import logging
@@ -21,21 +23,21 @@ class DBSCANMixin:
 
     def extract_single_molecules_DBSCAN(
         self,
-        loc_data,
-        min_cluster_size=10,
-        criteria=None,
-        chi_val=None,
-        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
-        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
-        min_sigma=None,
-        max_sigma=None,
-        max_sigma_error=None,
-        min_photons=FilteringConstants.MIN_PHOTONS,
-        max_photons=None,
-        epsilon_multiplier=1.0,
-        start_frame=0,
+        loc_data: pd.DataFrame,
+        min_cluster_size: int = 10,
+        criteria: FilteringCriteria = None,
+        chi_val: float | None = None,
+        max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX,
+        max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma: float | None = None,
+        max_sigma: float | None = None,
+        max_sigma_error: float | None = None,
+        min_photons: float = FilteringConstants.MIN_PHOTONS,
+        max_photons: float | None = None,
+        epsilon_multiplier: float = 1.0,
+        start_frame: int = 0,
         config: ClusteringConfig = None,
-    ):
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Extract single molecules from localisation data by DBSCAN clustering.
 

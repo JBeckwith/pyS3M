@@ -12,10 +12,13 @@ Author: jsb92
 Date: October 7, 2025
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
-from typing import Dict, Tuple, Optional, List, Union
+from typing import Any, Optional
+from numpy.typing import NDArray
 import SpectralFunctions
 import PSFFunctions
 import IOFunctions
@@ -48,7 +51,7 @@ class NileRed_Functions:
     def __init__(
         self,
         camera: str = "ximea",
-        pixel_size: float = None,
+        pixel_size: float | None = None,
         sigma_energy: float = 0.1630104,
         alpha: float = -1.56453968,
         wavelength_center_init: float = 617.6,
@@ -96,7 +99,7 @@ class NileRed_Functions:
 
     def setup_optical_system(
         self, filter_names: list
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """Setup optical system by loading filter spectra and pixel efficiencies.
 
         Args:
@@ -262,7 +265,7 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Complete forward model: wavelength_center → (R, G, B, σ_PSF).
 
         Args:
@@ -306,8 +309,8 @@ class NileRed_Functions:
     def chi_squared_nile_red(
         self,
         wavelength_center: float,
-        observed_data: Dict[str, float],
-        errors: Dict[str, float],
+        observed_data: dict[str, float],
+        errors: dict[str, float],
         filter_spectra: np.ndarray,
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
@@ -345,13 +348,13 @@ class NileRed_Functions:
     def residuals_nile_red(
         self,
         wavelength_center: np.ndarray,
-        observed_data: Dict[str, float],
-        errors: Dict[str, float],
+        observed_data: dict[str, float],
+        errors: dict[str, float],
         filter_spectra: np.ndarray,
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Residual vector for least-squares fitting of Nile Red wavelength.
 
         This function returns the vector of weighted residuals rather than chi-squared,
@@ -447,7 +450,7 @@ class NileRed_Functions:
     @staticmethod
     def _normalize_rgb_with_errors(
         rgb: np.ndarray, rgb_err: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Normalize RGB values to unit sum and propagate errors via quadrature.
 
         Args:
@@ -478,7 +481,7 @@ class NileRed_Functions:
     @staticmethod
     def _weighted_average_with_error(
         values: np.ndarray, errors: np.ndarray
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Compute inverse-error-weighted average and propagated error.
 
         Args:
@@ -501,7 +504,7 @@ class NileRed_Functions:
         verbose: bool = True,
         label: str = "Fitting",
         progress_interval: int = 100,
-    ) -> List[Tuple[float, float]]:
+    ) -> list[tuple[float, float]]:
         """Run wavelength fits in parallel with progress tracking.
 
         Args:
@@ -580,12 +583,12 @@ class NileRed_Functions:
         wavelength_array: np.ndarray,
         pixel_QYs: np.ndarray,
         NA: float = 1.49,
-        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+        wavelength_bounds: tuple[float, float] = (500.0, 750.0),
         total_photons: Optional[float] = None,
         background_photons: float = 40.0,
         apply_snr_inflation: bool = True,
         wavelength_initial_guess: Optional[float] = None,
-    ) -> Tuple[float, Dict[str, float]]:
+    ) -> tuple[float, dict[str, float]]:
         """Fit central wavelength of Nile Red emission from experimental data.
 
         Uses all three RGB channels for wavelength fitting. Implements SNR-based error
@@ -722,13 +725,13 @@ class NileRed_Functions:
     def simulate_wavelength_precision(
         self,
         save_folder: str,
-        wavelength_range: Tuple[float, float] = (560.0, 620.0),
+        wavelength_range: tuple[float, float] = (560.0, 620.0),
         wavelength_step: float = 5.0,
         photon_counts: np.ndarray = np.array([1000, 2000, 5000, 10000]),
         n_bootstrap: int = 1000,
         filter_names: Optional[list] = None,
         NA: float = 1.49,
-        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
+        pixel_size: float | None = None,  # nm; None → self.pixel_size * 1000
         camera_parameters: Optional[dict] = None,
         image_size: int = 16,
         smoothing_function=None,
@@ -1010,11 +1013,11 @@ class NileRed_Functions:
     def fit_wavelengths_from_h5(
         self,
         h5_path: str,
-        filter_names: List[str],
-        camera_parameters: Dict,
-        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+        filter_names: list[str],
+        camera_parameters: dict,
+        wavelength_bounds: tuple[float, float] = (500.0, 750.0),
         NA: float = 1.49,
-        pixel_size: float = None,  # nm; None → self.pixel_size * 1000
+        pixel_size: float | None = None,  # nm; None → self.pixel_size * 1000
         output_path: Optional[str] = None,
         cpu_fraction: float = 0.9,
         verbose: bool = True,
@@ -1375,19 +1378,19 @@ class NileRed_Functions:
     def fit_wavelengths_pixelated(
         self,
         h5_path: str,
-        filter_names: List[str],
-        camera_parameters: Dict,
+        filter_names: list[str],
+        camera_parameters: dict,
         pixel_size_nm: float = 50.0,
-        wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+        wavelength_bounds: tuple[float, float] = (500.0, 750.0),
         NA: float = 1.49,
-        camera_pixel_size: float = None,  # nm; None → self.pixel_size * 1000
+        camera_pixel_size: float | None = None,  # nm; None → self.pixel_size * 1000
         min_localisations: int = 3,
         output_path: Optional[str] = None,
         cpu_fraction: float = 0.9,
         verbose: bool = True,
         aggregate_id_column: Optional[str] = None,
         return_grid: bool = True,
-    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict]]:
+    ) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, Any]]:
         """Fit Nile Red wavelengths on a spatial pixel grid.
 
         Discretises localisations onto a regular grid of user-defined pixel size,
@@ -1875,9 +1878,9 @@ def _fit_nile_red_wavelength_standalone(
     NA: float,
     total_photons: Optional[float] = None,
     background_photons: Optional[float] = None,
-    wavelength_bounds: Tuple[float, float] = (500.0, 750.0),
+    wavelength_bounds: tuple[float, float] = (500.0, 750.0),
     wavelength_initial_guess: Optional[float] = None,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Standalone function for fitting Nile Red wavelength from a single localization.
 
     Must be a module-level function (not a method) to be pickleable for multiprocessing.

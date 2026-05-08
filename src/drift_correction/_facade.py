@@ -10,9 +10,12 @@ in aim.py, fiducial.py, and auto.py.
 :copyright: Copyright (c) 2025 pyBayerSMLM
 """
 
+from __future__ import annotations
+
 import gc
 import warnings
-from typing import Optional, Callable, Tuple, Union, Dict, Any, List
+from typing import Optional, Any
+from numpy.typing import NDArray
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -50,7 +53,7 @@ class Drift_Correction_Functions:
     organizing functions within a class structure.
     """
 
-    def __init__(self, camera: str = "ximea", pixel_size: float = None):
+    def __init__(self, camera: str = "ximea", pixel_size: float | None = None):
         """Initialize drift correction functions.
 
         Args:
@@ -92,9 +95,9 @@ class Drift_Correction_Functions:
         self,
         locs: np.recarray,
         info: list,
-        method: Union[str, DriftMethod] = "auto",
+        method: str | DriftMethod = "auto",
         **params,
-    ) -> Tuple[np.recarray, DriftResult]:
+    ) -> tuple[np.recarray, DriftResult]:
         """Universal drift correction interface.
 
         Args:
@@ -122,11 +125,11 @@ class Drift_Correction_Functions:
         corrector = self.factory.create_corrector(method)
         return corrector.correct_drift(locs, info, drift_params)
 
-    def available_methods(self) -> list:
+    def available_methods(self) -> list[str]:
         """Get available drift correction methods."""
         return [method.value for method in self.factory.available_methods()]
 
-    def method_info(self, method: Union[str, DriftMethod]) -> Dict[str, Any]:
+    def method_info(self, method: str | DriftMethod) -> dict[str, Any]:
         """Get information about a drift correction method.
 
         Args:
@@ -338,7 +341,7 @@ class Drift_Correction_Functions:
         return result
 
     def _add_group_field(
-        self, locs: np.recarray, picked_locs: list, picks: list
+        self, locs: np.recarray, picked_locs: list[np.recarray], picks: list
     ) -> np.recarray:
         """Add group field to localisations based on fiducial assignments.
 
@@ -751,7 +754,7 @@ class Drift_Correction_Functions:
                 raise DriftCorrectionError(f"Fiducial detection failed: {str(e)}")
 
     def _add_group_field_to_locs(
-        self, locs: np.recarray, picked_locs_list: List[np.recarray]
+        self, locs: np.recarray, picked_locs_list: list[np.recarray]
     ) -> np.recarray:
         """Add group field to localisations based on fiducial assignments."""
         group = np.full(len(locs), -1, dtype=np.int32)
@@ -792,7 +795,7 @@ class Drift_Correction_Functions:
 
     def _find_indices_in_original_locs(
         self, locs: np.recarray, fiducial_locs: np.recarray
-    ) -> np.ndarray:
+    ) -> NDArray[np.int64]:
         """Find indices of fiducial localisations in the original localisation array."""
         round_factor = 1e6
 
@@ -859,7 +862,7 @@ class Drift_Correction_Functions:
         output_figure_path: Optional[str] = None,
         title: str = "High-Density Region Detection",
         create_plot: bool = True,
-    ) -> Tuple[List[Tuple[int, int]], np.ndarray, float, Dict[str, Any]]:
+    ) -> tuple[list[tuple[int, int]], NDArray[np.float64], float, dict[str, Any]]:
         """Detect high-density regions from a smoothed image using histogram analysis."""
         image_flat = smoothed_image.ravel()
         image_flat = image_flat[image_flat > 0]
@@ -938,7 +941,7 @@ class Drift_Correction_Functions:
     def select_puncta_from_regions(
         self,
         locs: np.recarray,
-        region_centres: List[Tuple[int, int]],
+        region_centres: list[tuple[int, int]],
         binary_mask: np.ndarray,
         pixelsize: float = 100.0,
         selection_box_size_nm: float = 600.0,
@@ -949,7 +952,7 @@ class Drift_Correction_Functions:
         plot_individual_regions: bool = True,
         use_datashader_threshold: int = 1000,
         memory_optimize: bool = True,
-    ) -> Tuple[List[np.recarray], Dict[str, Any]]:
+    ) -> tuple[list[np.recarray], dict[str, Any]]:
         """Select puncta (localisations) from detected high-density regions."""
         if postprocess is None:
             raise RuntimeError(
@@ -1111,11 +1114,11 @@ class Drift_Correction_Functions:
         retention_percentage: float = 0.9,
         min_samples_factor: float = 0.7,
         frame_count: int = 100000,
-        pixelsize: float = None,  # nm; None → self.pixel_size * 1000
+        pixelsize: float | None = None,  # nm; None → self.pixel_size * 1000
         output_figure_path: Optional[str] = None,
         title: str = "Fiducial Gaussian Fitting Analysis",
         create_plot: bool = True,
-    ) -> Tuple[List[np.recarray], Dict[str, Any]]:
+    ) -> tuple[list[np.recarray], dict[str, Any]]:
         """Identify real fiducials from selected puncta using single Gaussian distribution fitting."""
         if pixelsize is None:
             pixelsize = self.pixel_size * 1000  # µm → nm
@@ -1449,10 +1452,10 @@ class Drift_Correction_Functions:
     def apply_validated_fiducial_drift_correction(
         self,
         locs: np.recarray,
-        validated_fiducials: List[np.recarray],
+        validated_fiducials: list[np.recarray],
         x_err_field: str = "xc_err",
         y_err_field: str = "yc_err",
-    ) -> Tuple[np.recarray, Dict[str, np.ndarray]]:
+    ) -> tuple[np.recarray, dict[str, NDArray]]:
         """Apply drift correction using validated fiducials."""
         if not validated_fiducials:
             raise ValueError("No validated fiducials provided")

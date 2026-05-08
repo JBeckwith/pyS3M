@@ -8,6 +8,8 @@ Hekrdla, M. et al. Optimized molecule detection in
 localization microscopy with selected false positive probability.
 Nat Commun 16, 601 (2025).
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 import numpy as np
@@ -20,7 +22,8 @@ from tqdm import tqdm
 import ProgressUtils
 import numba
 from functools import lru_cache
-from typing import Union, Tuple
+from typing import Any
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 import PSFFunctions
@@ -81,8 +84,9 @@ class SpotDetection_Functions:
     REFACTORED: Uses dependency injection instead of global object instantiation.
     """
 
-    def __init__(self, camera: str = "ximea", pixel_size: float = None,
-                 psf_functions=None, scmos_functions=None, helper_functions=None):
+    def __init__(self, camera: str = "ximea", pixel_size: float | None = None,
+                 psf_functions: Any | None = None, scmos_functions: Any | None = None,
+                 helper_functions: Any | None = None):
         """Initialize SpotDetection_Functions class with dependency injection.
 
         Args:
@@ -131,7 +135,7 @@ class SpotDetection_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         return_quality: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
+    ) -> NDArray[np.int32] | tuple[NDArray[np.int32], dict[str, NDArray]]:
         """
         function to fit puncta in parallel
 
@@ -197,7 +201,7 @@ class SpotDetection_Functions:
             return self.spots_and_quality_from_futures(fs)
         return self.spots_from_futures(fs)
 
-    def spots_from_futures(self, fs):
+    def spots_from_futures(self, fs: list[Any]) -> NDArray[np.int32]:
         """
         function to return fits and errors from a futures object
 
@@ -210,7 +214,7 @@ class SpotDetection_Functions:
         detected_puncta = [np.concatenate(_.result()) for _ in fs]
         return np.vstack(detected_puncta)
 
-    def spots_and_quality_from_futures(self, fs):
+    def spots_and_quality_from_futures(self, fs: list[Any]) -> tuple[NDArray[np.int32], dict[str, NDArray]]:
         """
         function to return spots and quality metrics from a futures object
 
@@ -275,7 +279,7 @@ class SpotDetection_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         return_quality: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
+    ) -> list[NDArray[np.int32]] | tuple[list[NDArray[np.int32]], dict[str, NDArray]]:
         """detect_puncta_in_image: Returns spots from an image supplied
 
         Args:
@@ -379,7 +383,7 @@ class SpotDetection_Functions:
         sigma: float = 1.5,
         fraction_true: float = 0.2,
         return_quality: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
+    ) -> NDArray[np.int32] | tuple[NDArray[np.int32], dict[str, NDArray]]:
         """detect_puncta_in_image: Returns spots from an image supplied
 
         Args:
@@ -491,7 +495,7 @@ class SpotDetection_Functions:
         sigma=1.5,
         fraction_true=0.2,
         return_quality=False,
-    ):
+    ) -> NDArray[np.bool_] | tuple[NDArray[np.bool_], dict[str, NDArray]]:
         """
         Estimate intensity values for each centroid in the image.
 

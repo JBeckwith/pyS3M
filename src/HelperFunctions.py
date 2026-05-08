@@ -4,10 +4,15 @@ This class contains helper functions pertaining to analysis of images based on t
 radiality, relating to the RASP concept.
 jsb92, 2024/01/02
 """
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+import fnmatch
+
 import numpy as np
 import polars as pl
-import fnmatch
-from pathlib import Path
+from numpy.typing import NDArray
 
 
 class Helper_Functions:
@@ -18,11 +23,11 @@ class Helper_Functions:
     Single-molecule Positions) concept.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Helper_Functions class."""
         pass
 
-    def clean_database(self, database, columns):
+    def clean_database(self, database: pl.DataFrame, columns: list[str]) -> pl.DataFrame:
         """
 
         clean_database function replaces columns that are not filename (assumed last)
@@ -42,7 +47,7 @@ class Helper_Functions:
             )
         return database
 
-    def file_search(self, folder, string1, string2):
+    def file_search(self, folder: Path | str, string1: str, string2: str) -> list[str]:
         """
         Search for files containing 'string1' in their names within 'folder',
         and then filter the results to include only those containing 'string2'.
@@ -71,7 +76,7 @@ class Helper_Functions:
         file_list = np.sort([e for e in file_list if string2 in e])
         return sorted_alphanumeric(file_list)
 
-    def crop_calibration_maps(self, maps_dict, start_x, start_y, width, height):
+    def crop_calibration_maps(self, maps_dict: dict[str, NDArray[np.float32]], start_x: int, start_y: int, width: int, height: int) -> dict[str, NDArray[np.float32]]:
         """Crop all calibration maps to ROI using correct numpy indexing [y, x].
 
         Args:
@@ -90,8 +95,8 @@ class Helper_Functions:
         }
 
     def calculate_roi_bounds(
-        self, xcentre, ycentre, roi_size, width, height, min_roi_size=4
-    ):
+        self, xcentre: float, ycentre: float, roi_size: int, width: int, height: int, min_roi_size: int = 4
+    ) -> tuple[int, int, int, int] | None:
         """Calculate square ROI boundaries within image bounds.
 
         Computes xmin, xmax, ymin, ymax for a square ROI centered at (xcentre, ycentre),
@@ -127,8 +132,8 @@ class Helper_Functions:
         return xmin, xmax, ymin, ymax
 
     def calculate_parallel_chunks(
-        self, total_items, max_workers=60, worker_ratio=0.9, tasks_per_worker=100
-    ):
+        self, total_items: int, max_workers: int = 60, worker_ratio: float = 0.9, tasks_per_worker: int = 100
+    ) -> tuple[int, int, list[int], NDArray[np.intp]]:
         """Calculate optimal chunk distribution for parallel processing.
 
         Distributes items across parallel workers with load balancing to ensure
@@ -178,7 +183,7 @@ class Helper_Functions:
 
         return n_workers, n_tasks, items_per_task, start_indices
 
-    def load_metadata_roi(self, image_folder, io_functions, use_fallback=True):
+    def load_metadata_roi(self, image_folder: Path | str, io_functions: Any, use_fallback: bool = True) -> tuple[int, int, int | None, int | None]:
         """
         Load ROI information from metadata files.
 
@@ -211,7 +216,7 @@ class Helper_Functions:
             # No metadata and no fallback allowed
             raise FileNotFoundError(f"No metadata files found in {image_folder}")
 
-    def format_elapsed_time(self, elapsed_seconds):
+    def format_elapsed_time(self, elapsed_seconds: float) -> tuple[float, str]:
         """
         Format elapsed time in seconds to human-readable format.
 

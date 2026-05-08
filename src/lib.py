@@ -8,16 +8,20 @@
     :copyright: Copyright (c) 2016 Jungmann Lab, MPI of Biochemistry
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
 import numba
 import numpy as np
-import sys
-from pathlib import Path
+from numpy.lib.recfunctions import append_fields, drop_fields
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
-from numpy.lib.recfunctions import append_fields, drop_fields
 
 
-def append_to_rec(rec_array, data, name):
+def append_to_rec(rec_array: np.recarray, data: NDArray, name: str) -> np.recarray:
     """Appends a new column to the existing np.recarray.
 
     Parameters
@@ -49,7 +53,7 @@ def append_to_rec(rec_array, data, name):
 
 
 
-def is_loc_at(x, y, locs, r):
+def is_loc_at(x: float, y: float, locs: np.recarray, r: float) -> NDArray[np.bool_]:
     """Checks if localizations are at position (x, y) within radius r.
 
     Parameters
@@ -76,7 +80,7 @@ def is_loc_at(x, y, locs, r):
     return is_picked
 
 
-def locs_at(x, y, locs, r):
+def locs_at(x: float, y: float, locs: np.recarray, r: float) -> np.recarray:
     """Returns localizations at position (x, y) within radius r.
 
     Parameters
@@ -142,7 +146,7 @@ def check_if_in_polygon(x, y, X, Y):
     return is_in_polygon
 
 
-def locs_in_polygon(locs, X, Y):
+def locs_in_polygon(locs: np.recarray, X: list[float], Y: list[float]) -> np.recarray:
     """Returns localizations in polygon defined by corners (X, Y).
 
     Parameters
@@ -217,7 +221,7 @@ def check_if_in_rectangle(x, y, X, Y):
     return is_in_rectangle
 
 
-def locs_in_rectangle(locs, X, Y):
+def locs_in_rectangle(locs: np.recarray, X: list[float], Y: list[float]) -> np.recarray:
     """Returns localizations in rectangle defined by corners (X, Y).
 
     Parameters
@@ -240,7 +244,7 @@ def locs_in_rectangle(locs, X, Y):
     return picked_locs
 
 
-def remove_from_rec(rec_array, name):
+def remove_from_rec(rec_array: np.recarray, name: str) -> np.recarray:
     """Removes a column from the existing np.recarray.
 
     Parameters
@@ -260,7 +264,7 @@ def remove_from_rec(rec_array, name):
     return rec_array
 
 
-def get_pick_polygon_corners(pick):
+def get_pick_polygon_corners(pick: list[tuple[float, float]]) -> tuple[list[float] | None, list[float] | None]:
     """Returns X and Y coordinates of a pick polygon.
 
     Returns None, None if the pick is not a closed polygon."""
@@ -273,7 +277,7 @@ def get_pick_polygon_corners(pick):
         return X, Y
 
 
-def get_pick_rectangle_corners(start_x, start_y, end_x, end_y, width):
+def get_pick_rectangle_corners(start_x: float, start_y: float, end_x: float, end_y: float, width: float) -> tuple[list[float], list[float]]:
     """Finds the positions of corners of a rectangular pick.
     Rectangular pick is defined by:
         [(start_x, start_y), (end_x, end_y)]

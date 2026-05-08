@@ -4,16 +4,22 @@ This class contains functions pertaining to IO of files for pyBayerSMLM.
 @author: jbeckwith
 jsb92, 2024/01/02
 """
+from __future__ import annotations
+
 import json
+from copy import copy
 from pathlib import Path
-import tifffile
-from tifffile import imread, imwrite
+from typing import Any, Optional
+import sys
+import logging
+
 import numpy as np
 import pandas as pd
 import polars as pl
-import sys
-from copy import copy
-import logging
+import tifffile
+from numpy.typing import NDArray
+from tifffile import imread, imwrite
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +33,7 @@ class IO_Functions:
     used in single-molecule localization microscopy analysis.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize IO_Functions class."""
         pass
 
@@ -60,7 +66,7 @@ class IO_Functions:
 
         return df
 
-    def read_h5_database(self, filepath, key="data"):
+    def read_h5_database(self, filepath: Path | str, key: str = "data") -> pd.DataFrame:
         """Read localisation database from HDF5 file.
 
         Args:
@@ -72,7 +78,7 @@ class IO_Functions:
         """
         return pd.read_hdf(filepath, key=key)
 
-    def write_h5_database(self, df, filepath, append=False, normalise_photons=True, verbose=True):
+    def write_h5_database(self, df: pd.DataFrame, filepath: Path | str, append: bool = False, normalise_photons: bool = True, verbose: bool = True) -> None:
         """Write localisation DataFrame to HDF5 with optional photon normalisation and frame sorting.
 
         Args:
@@ -196,7 +202,7 @@ class IO_Functions:
 
         return df
 
-    def sort_h5_by_frame(self, filepath, backup=True):
+    def sort_h5_by_frame(self, filepath: Path | str, backup: bool = True) -> None:
         """Sort existing HDF5 file by frame number.
 
         Useful for fixing files where frame numbers are not in order due to
@@ -365,7 +371,7 @@ class IO_Functions:
             else:
                 df.write_csv(filepath)
 
-    def read_json(self, filename, encoding="ISO-8859-1"):
+    def read_json(self, filename: Path | str, encoding: str = "ISO-8859-1") -> dict[str, Any]:
         """
         read data from a JSON file.
 
@@ -416,7 +422,7 @@ class IO_Functions:
                 ) from e
         return data
 
-    def read_json_streaming_first_framekey(self, filename, encoding="ISO-8859-1"):
+    def read_json_streaming_first_framekey(self, filename: Path | str, encoding: str = "ISO-8859-1") -> dict[str, Any]:
         """
         Stream-parse a large ImageJ JSON file to find the first FrameKey entry without loading the entire file.
 
@@ -495,7 +501,7 @@ class IO_Functions:
 
         raise ValueError("No FrameKey found in JSON file")
 
-    def get_num_pages_in_TIF(self, filename):
+    def get_num_pages_in_TIF(self, filename: Path | str) -> int:
         """
         Get the number of frames in a TIFF file without loading the entire file.
 
@@ -510,7 +516,7 @@ class IO_Functions:
         ) as tif:
             return len(tif.pages)
 
-    def metadata_reader_imageJ(self, filename, return_exposure: bool = False):
+    def metadata_reader_imageJ(self, filename: Path | str, return_exposure: bool = False) -> tuple[int, int, int, int] | tuple[int, int, int, int, float]:
         """
         Loads metadata from an imageJ json file.
         NB ImageJ starts its ROIs at (0,0), like Python
@@ -555,7 +561,7 @@ class IO_Functions:
 
         return x_coord, y_coord, width, height
 
-    def metadata_nframes_reader_imageJ(self, filename):
+    def metadata_nframes_reader_imageJ(self, filename: Path | str) -> int:
         """
         Loads metadata from an imageJ json file.
         NB ImageJ starts its ROIs at (0,0), like Python
@@ -570,7 +576,7 @@ class IO_Functions:
         n_frames = int(data["Summary"]["IntendedDimensions"]["time"])
         return n_frames
 
-    def metadata_reader_Thorlabs(self, filename):
+    def metadata_reader_Thorlabs(self, filename: Path | str) -> tuple[int, int, int, int]:
         """
         Loads metadata from a json file.
 
@@ -590,7 +596,7 @@ class IO_Functions:
         height = int(data["ROIHeight_pixels"])
         return x_coord, y_coord, width, height
 
-    def make_directory(self, directory_path):
+    def make_directory(self, directory_path: Path | str) -> None:
         """
         Creates a directory if it doesn't exist.
 
@@ -599,7 +605,7 @@ class IO_Functions:
         """
         Path(directory_path).mkdir(parents=True, exist_ok=True)
 
-    def write_json(self, data, file_name):
+    def write_json(self, data: dict[str, Any], file_name: Path | str) -> None:
         """
         Saves data to a JSON file.
 
@@ -690,7 +696,7 @@ class IO_Functions:
 
             return images
 
-    def read_hyperstack(self, file_path, dtype="float32"):
+    def read_hyperstack(self, file_path: Path | str, dtype: str = "float32") -> tuple[NDArray[np.float32], str | None]:
         """Read an ImageJ hyperstack TIFF preserving TZCYX dimensions.
 
         Unlike read_tiff (which disables ImageJ metadata parsing), this reads
@@ -710,7 +716,7 @@ class IO_Functions:
             axes = tif.series[0].axes if tif.series else None
             return data.astype(dtype), axes
 
-    def read_tiff(self, file_path, frame=None, dtype="float32", memmap=True):
+    def read_tiff(self, file_path: Path | str, frame: int | list[int] | None = None, dtype: str = "float32", memmap: bool = True) -> NDArray[np.float32]:
         """
         Read a TIFF file using the tifffile library with memory mapping support.
 
@@ -833,7 +839,7 @@ class IO_Functions:
                         image = self._read_tiff_robust(file_path, [int(frame)], dtype)
         return image
 
-    def get_n_frames(self, file_path):
+    def get_n_frames(self, file_path: Path | str) -> int:
         """Return the number of frames in a TIFF file without loading pixel data.
 
         Args:
@@ -849,13 +855,13 @@ class IO_Functions:
 
     def read_tiff_tophotoelectrons(
         self,
-        file_path,
-        dtype="double",
-        gain_map=1.0,
-        offset_map=0.0,
-        rqe=1.0,
-        frame=None,
-    ):
+        file_path: Path | str,
+        dtype: str = "double",
+        gain_map: float | NDArray[np.float32] = 1.0,
+        offset_map: float | NDArray[np.float32] = 0.0,
+        rqe: float | NDArray[np.float32] = 1.0,
+        frame: int | list[int] | None = None,
+    ) -> NDArray:
         """
         Read a TIFF file using the skimage library.
         Use camera parameters to convert output to photoelectrons
@@ -909,11 +915,11 @@ class IO_Functions:
 
     def convert_to_photoelectrons(
         self,
-        raw_data,
-        gain_map=1.0,
-        offset_map=0.0,
-        rqe=1.0,
-    ):
+        raw_data: NDArray,
+        gain_map: float | NDArray[np.float32] = 1.0,
+        offset_map: float | NDArray[np.float32] = 0.0,
+        rqe: float | NDArray[np.float32] = 1.0,
+    ) -> NDArray:
         """
         Convert raw ADU data to photoelectrons using camera parameters.
         Memory-efficient version that processes data in-place when possible.
@@ -964,7 +970,7 @@ class IO_Functions:
 
         return result
 
-    def apply_smoothing(self, data, smoothing_function, dtype="double"):
+    def apply_smoothing(self, data: NDArray, smoothing_function: Any, dtype: str = "double") -> NDArray:
         """
         Apply smoothing function to data.
 
@@ -989,8 +995,8 @@ class IO_Functions:
         return smoothed_data.astype(dtype)
 
     def generate_weights(
-        self, smoothed_data, read_noise=1.0, hot_pixel_threshold=20, dtype="double"
-    ):
+        self, smoothed_data: NDArray, read_noise: float | NDArray[np.float32] = 1.0, hot_pixel_threshold: float = 20, dtype: str = "double"
+    ) -> NDArray[np.float64]:
         """
         Generate weights map for fitting from smoothed photoelectron data.
 
@@ -1027,15 +1033,15 @@ class IO_Functions:
 
     def process_roi_to_photoelectrons(
         self,
-        raw_roi,
-        smoothing_function,
-        gain_map=1.0,
-        offset_map=0.0,
-        rqe=1.0,
-        read_noise=1.0,
-        hot_pixel_threshold=20,
-        dtype="double",
-    ):
+        raw_roi: NDArray,
+        smoothing_function: Any,
+        gain_map: float | NDArray[np.float32] = 1.0,
+        offset_map: float | NDArray[np.float32] = 0.0,
+        rqe: float | NDArray[np.float32] = 1.0,
+        read_noise: float | NDArray[np.float32] = 1.0,
+        hot_pixel_threshold: float = 20,
+        dtype: str = "double",
+    ) -> tuple[NDArray, NDArray, NDArray]:
         """
         Memory-efficient conversion of a single ROI from raw data to photoelectrons,
         smoothed data, and weights. This is the core function for the new workflow.
@@ -1070,7 +1076,7 @@ class IO_Functions:
 
         return photoelectron_roi, smoothed_roi, weights_roi
 
-    def write_tiff(self, volume, file_path, bit="double", pixel_size=0.069, photometric=None):
+    def write_tiff(self, volume: NDArray, file_path: Path | str, bit: str | type = "double", pixel_size: float = 0.069, photometric: str | None = None) -> None:
         """
         Write a TIFF file using tifffile.
 
@@ -1125,20 +1131,20 @@ class IO_Functions:
 
     def save_simulation_results(
         self,
-        save_folder,
-        starting_flag,
-        default_params,
-        n_photon_space,
-        fit_RMSE_mean,
-        fit_RMSE_std,
-        pixel_size,
-        NA,
-        background_photons,
-        fit_function_name,
-        smoothing_function_name,
-        smoothing_function_extent,
-        dye,
-    ):
+        save_folder: Path | str,
+        starting_flag: str,
+        default_params: NDArray,
+        n_photon_space: NDArray[np.float64],
+        fit_RMSE_mean: NDArray[np.float64],
+        fit_RMSE_std: NDArray[np.float64],
+        pixel_size: float,
+        NA: float,
+        background_photons: float,
+        fit_function_name: Any,
+        smoothing_function_name: str,
+        smoothing_function_extent: float,
+        dye: str,
+    ) -> None:
         """
         Saves simulation analysis.
 
@@ -1230,18 +1236,18 @@ class IO_Functions:
 
     def save_simulation_results_pixelsize(
         self,
-        save_folder,
-        starting_flag,
-        default_params,
-        pixel_size_space,
-        fit_RMSE_mean,
-        fit_RMSE_std,
-        n_photon,
-        NA,
-        fit_function_name,
-        error_type,
-        dye,
-    ):
+        save_folder: Path | str,
+        starting_flag: str,
+        default_params: NDArray,
+        pixel_size_space: NDArray[np.float64],
+        fit_RMSE_mean: NDArray[np.float64],
+        fit_RMSE_std: NDArray[np.float64],
+        n_photon: float,
+        NA: float,
+        fit_function_name: Any,
+        error_type: Any,
+        dye: str,
+    ) -> None:
         """
         Saves simulation analysis.
 

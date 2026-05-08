@@ -5,7 +5,10 @@ clustering/batch.py
 Batch extraction and multi-FOV orchestration mixin.
 Extracted from SM_extractionfunctions.py.
 """
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
 import numpy as np
 import pandas as pd
 
@@ -23,7 +26,7 @@ class BatchMixin:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _extract_fov_name(self, filepath):
+    def _extract_fov_name(self, filepath: Path | str) -> str:
         """Extract FOV identifier from filename, stripping all known suffixes.
 
         Returns the full filename (without directory or extension) to ensure
@@ -47,25 +50,25 @@ class BatchMixin:
 
     def extract_single_molecules_batch(
         self,
-        localisation_files,
-        clustering_method="HDBSCAN",
-        min_cluster_size=10,
+        localisation_files: list[str | Path],
+        clustering_method: str = "HDBSCAN",
+        min_cluster_size: int = 10,
         criteria: FilteringCriteria = None,
-        chi_val=None,
-        max_localisation_error=FilteringConstants.MAX_LOCALISATION_ERROR_PX,
-        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
-        min_sigma=None,
-        max_sigma=None,
-        max_sigma_error=None,
-        min_photons=FilteringConstants.MIN_PHOTONS,
-        max_photons=1e6,
-        max_distance=0.5,
-        max_frames=10,
-        epsilon_multiplier=1.0,
-        start_frame=0,
-        verbose=True,
+        chi_val: float | None = None,
+        max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX,
+        max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma: float | None = None,
+        max_sigma: float | None = None,
+        max_sigma_error: float | None = None,
+        min_photons: float = FilteringConstants.MIN_PHOTONS,
+        max_photons: float = 1e6,
+        max_distance: float = 0.5,
+        max_frames: int = 10,
+        epsilon_multiplier: float = 1.0,
+        start_frame: int = 0,
+        verbose: bool = True,
         config: ClusteringConfig = None,
-    ):
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Extract single molecules from multiple localisation files (FOVs).
 
@@ -217,7 +220,7 @@ class BatchMixin:
     # Photon accumulation
     # ------------------------------------------------------------------
 
-    def build_photon_accumulation_database(self, single_frame_database, verbose=True):
+    def build_photon_accumulation_database(self, single_frame_database: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         """
         Build cumulative photon accumulation database for precision analysis.
 
@@ -369,25 +372,25 @@ class BatchMixin:
 
     def analyse_multi_fov_dataset(
         self,
-        localisation_files,
-        clustering_method="HDBSCAN",
-        build_accumulation=True,
-        min_cluster_size=10,
-        chi_val=None,
-        max_localisation_error=1.0,
-        max_colour_error=FilteringConstants.MAX_COLOUR_ERROR,
-        min_sigma=None,
-        max_sigma=None,
-        max_sigma_error=None,
-        min_photons=FilteringConstants.MIN_PHOTONS,
-        max_photons=1e6,
-        max_distance=0.5,
-        max_frames=10,
-        epsilon_multiplier=0.5,
-        output_folder=None,
-        output_prefix="analysis",
-        verbose=True,
-    ):
+        localisation_files: list[str | Path],
+        clustering_method: str = "HDBSCAN",
+        build_accumulation: bool = True,
+        min_cluster_size: int = 10,
+        chi_val: float | None = None,
+        max_localisation_error: float = 1.0,
+        max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR,
+        min_sigma: float | None = None,
+        max_sigma: float | None = None,
+        max_sigma_error: float | None = None,
+        min_photons: float = FilteringConstants.MIN_PHOTONS,
+        max_photons: float = 1e6,
+        max_distance: float = 0.5,
+        max_frames: int = 10,
+        epsilon_multiplier: float = 0.5,
+        output_folder: Path | str | None = None,
+        output_prefix: str = "analysis",
+        verbose: bool = True,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[pd.DataFrame, pd.DataFrame]:
         """
         Complete workflow: extract single molecules from multiple FOVs and
         optionally build photon accumulation database.

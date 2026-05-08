@@ -6,9 +6,14 @@ Created on Wed Sep  4 11:50:17 2024
 @author: jbeckwith
 """
 
-import numpy as np
-import sys
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
+import sys
+
+import numpy as np
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 
@@ -20,7 +25,7 @@ class Mask_Functions:
     spatial filtering, and mask operations for multicolour SMLM.
     """
 
-    def __init__(self, camera: str = "ximea", mosaic_unit=None):
+    def __init__(self, camera: str = "ximea", mosaic_unit: NDArray | None = None) -> None:
         """Initialize Mask_Functions class.
 
         Args:
@@ -34,7 +39,7 @@ class Mask_Functions:
         config = CameraDefaults.get_camera_config(camera)
         self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
 
-    def optimise_matrix_symmetry(self, numbers, N):
+    def optimise_matrix_symmetry(self, numbers: NDArray, N: int) -> NDArray[np.float64]:
         """
         optimise_matrix_symmetry to get most symmetric bayer-type pattern.
         Things that come at the start of the matrix will be placed preferentially
@@ -121,7 +126,7 @@ class Mask_Functions:
             matrix = matrix.reshape(N, N)
         return np.array(matrix)
 
-    def return_custom_bayer_patterns(self, colours):
+    def return_custom_bayer_patterns(self, colours: NDArray[np.int_]) -> NDArray[np.float64]:
         """
         Return a custom bayer pattern based on colours (represented by integers).
         See Figure 3a of Parmar, M. & Reeves, S. J. IEEE Transactions
@@ -139,7 +144,7 @@ class Mask_Functions:
         )
         return bayer_pattern
 
-    def return_diagonal_patterns(self, colours, image_size):
+    def return_diagonal_patterns(self, colours: NDArray[np.int_], image_size: int) -> NDArray[np.float64]:
         """
         Return a diagonal pattern based on colours for an image of image_size.
         See Figure 3e of Parmar, M. & Reeves, S. J. IEEE Transactions
@@ -165,12 +170,12 @@ class Mask_Functions:
 
     def get_ROI_mask(
         self,
-        ROI_x_start,
-        ROI_y_start,
-        width,
-        height,
-        mosaic_unit=None,
-    ):
+        ROI_x_start: int,
+        ROI_y_start: int,
+        width: int,
+        height: int,
+        mosaic_unit: NDArray | None = None,
+    ) -> dict[Any, NDArray[np.bool_]]:
         """
         Generates a mask and then reshapes based on ROI.
 
@@ -196,8 +201,8 @@ class Mask_Functions:
         return masks
 
     def get_stacked_masks(
-        self, ROI_x_start, ROI_y_start, width, height, mosaic_unit=None
-    ):
+        self, ROI_x_start: int, ROI_y_start: int, width: int, height: int, mosaic_unit: NDArray | None = None
+    ) -> NDArray[np.bool_]:
         """Get ROI masks and stack into 3D array for fitting.
 
         Convenience method that combines get_ROI_mask() with np.dstack() to create
@@ -225,7 +230,7 @@ class Mask_Functions:
         )
         return np.dstack([masks[x] for x in masks.keys()])
 
-    def get_masks(self, size_x, size_y, mosaic_unit=None):
+    def get_masks(self, size_x: int, size_y: int, mosaic_unit: NDArray | None = None) -> dict[Any, NDArray[np.bool_]]:
         """
         Assigns the appropriate masks based on the mosaic unit values.
 

@@ -6,12 +6,16 @@ Created on Mon Sep 23 16:27:38 2024
 @author: jbeckwith
 """
 
-import numpy as np
+from __future__ import annotations
+
 from pathlib import Path
 import sys
 import time
+
+import numpy as np
 import scipy
 import scipy.ndimage
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 import IOFunctions
@@ -33,13 +37,13 @@ class Calibration_Functions:
     def __init__(
         self,
         camera: str = "ximea",
-        mosaic_unit=None,
-        high_memory=False,
-        chunk_size=50,
-        io_functions=None,
-        mask_functions=None,
-        helper_functions=None,
-    ):
+        mosaic_unit: NDArray | None = None,
+        high_memory: bool = False,
+        chunk_size: int = 50,
+        io_functions: object | None = None,
+        mask_functions: object | None = None,
+        helper_functions: object | None = None,
+    ) -> None:
         """Initialize Calibration_Functions class.
 
         Args:
@@ -76,13 +80,13 @@ class Calibration_Functions:
             else HelperFunctions.Helper_Functions()
         )
 
-    def filesearch(self, directory, string1, string2):
+    def filesearch(self, directory: Path | str, string1: str, string2: str) -> list[str]:
         files = [p.name for p in Path(directory).iterdir()]
         files = np.sort([x for x in files if string1 in x])
         files = np.sort([x for x in files if string2 in x])
         return files
 
-    def calibrate_multicolour_camera(self, directory, imtype=".tif"):
+    def calibrate_multicolour_camera(self, directory: Path | str, imtype: str = ".tif") -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]] | None:
         """
         Calibrates multicolour camera.
 
@@ -208,7 +212,7 @@ class Calibration_Functions:
         logger.debug("The RMS read noise is {:.3f} photoelectrons".format( np.sqrt(np.nanmean(np.square(readnoise))) ))
         return offset, variance, gain, readnoise, rqe
 
-    def calculate_rqe(self, intensity_image, offset, gain):
+    def calculate_rqe(self, intensity_image: NDArray[np.float32], offset: NDArray[np.float32], gain: NDArray[np.float32]) -> NDArray[np.float32]:
         """
         Calibrates relative QE. Given an intensity image, an offset and a gain, calculate a relative QE.
 
@@ -291,7 +295,7 @@ class Calibration_Functions:
 
         return accumulator, framesCounter
 
-    def calculate_offset(self, directory, intensity_string, imtype=".tif"):
+    def calculate_offset(self, directory: Path | str, intensity_string: str, imtype: str = ".tif") -> NDArray[np.float32]:
         """
         Calibrates offset. Given a directory, looks for a particular intensity
         string and loads these images. Then gets an offset.
@@ -337,7 +341,7 @@ class Calibration_Functions:
         offset = offset / framesCounter
         return offset
 
-    def calculate_offset_and_variance(self, directory, intensity_string, imtype=".tif"):
+    def calculate_offset_and_variance(self, directory: Path | str, intensity_string: str, imtype: str = ".tif") -> tuple[NDArray[np.float32], NDArray[np.float32]]:
         """
         Compute offset (mean) and variance in a single pass over calibration files.
 

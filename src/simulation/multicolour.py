@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 import sys
 import numpy as np
@@ -6,7 +8,8 @@ import time
 from scipy.spatial.distance import cdist
 import gc
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, Union, Any
+from typing import Any, Optional
+from numpy.typing import NDArray
 from enum import Enum
 from dataclasses import dataclass
 import logging
@@ -68,14 +71,14 @@ class CameraParameters:
     variance: np.ndarray
     readnoise: float
     rqe: np.ndarray
-    masks: Dict[str, np.ndarray]
+    masks: dict[str, np.ndarray]
     pixel_QYs: np.ndarray
-    pixel_order: List[str]
-    pixel_order_indices: Dict[str, int]
+    pixel_order: list[str]
+    pixel_order_indices: dict[str, int]
 
     @classmethod
     def validate_and_create(
-        cls, camera_parameters: Dict[str, Any]
+        cls, camera_parameters: dict[str, Any]
     ) -> "CameraParameters":
         """
         Validate camera parameters dictionary and create dataclass instance.
@@ -121,7 +124,7 @@ class SimulationConfig:
     Attributes:
         n_bootstrap (int): Number of bootstrap simulations to run (default: 100000)
         background_photons (float): Background photons per pixel (default: 40.0)
-        background_colour (List[float]): RGB background colour weights (default: [1,1,1])
+        background_colour (list[float]): RGB background colour weights (default: [1,1,1])
         NA (float): Numerical aperture of objective lens (default: 1.49)
         pixel_size (float): Camera pixel size in nanometers (default: 69)
         cpu_fraction (float): Fraction of CPU cores to use for parallel processing (default: 0.9)
@@ -137,7 +140,7 @@ class SimulationConfig:
 
     n_bootstrap: int = 100000
     background_photons: float = 40.0
-    background_colour: List[float] = None
+    background_colour: list[float] | None = None
     NA: float = 1.49
     pixel_size: float = DriftConstants.XIMEA_PIXEL_SIZE_NM
     cpu_fraction: float = 0.9
@@ -350,13 +353,13 @@ class MultiC_Sim_Funcs_Refactored:
     def __init__(
         self,
         camera: str = "ximea",
-        pixel_size: float = None,
-        mosaic_unit=None,
-        io_functions=None,
-        psf_functions=None,
-        scmos_functions=None,
-        image_analysis_functions=None,
-        spectral_functions=None,
+        pixel_size: float | None = None,
+        mosaic_unit: Any | None = None,
+        io_functions: Any | None = None,
+        psf_functions: Any | None = None,
+        scmos_functions: Any | None = None,
+        image_analysis_functions: Any | None = None,
+        spectral_functions: Any | None = None,
         config: AnalysisConfig = None,
     ):
         """
@@ -406,9 +409,9 @@ class MultiC_Sim_Funcs_Refactored:
     def _validate_inputs(
         self,
         wavelength: np.ndarray,
-        camera_parameters: Dict[str, Any],
-        dye_pixel_efficiency: Optional[np.ndarray],
-        x0y0: Dict[str, np.ndarray],
+        camera_parameters: dict[str, Any],
+        dye_pixel_efficiency: np.ndarray | None,
+        x0y0: dict[str, np.ndarray],
     ) -> None:
         """
         Validate common input parameters for simulation consistency.
@@ -468,7 +471,7 @@ class MultiC_Sim_Funcs_Refactored:
         dye_pixel_efficiency: np.ndarray,
         average_emission_wavelength: float,
         dye: str,
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """
         Set up common simulation parameters including positions and expected values.
 
@@ -530,7 +533,7 @@ class MultiC_Sim_Funcs_Refactored:
         camera_params: CameraParameters,
         strategy: FittingStrategy,
         config: SimulationConfig,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Prepare data for fitting based on the chosen fitting strategy.
 
@@ -2250,7 +2253,7 @@ class MultiC_Sim_Funcs_Refactored:
                         if overwrite or not Path(input_params_path).exists():
                             real_params.write_csv(input_params_path)
 
-                        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
+                        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA):
                             gt_path = Path(save_folder) / f"{flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv"
                             pl.DataFrame({"x0": x0, "y0": y0}).write_csv(gt_path)
 
@@ -2425,7 +2428,7 @@ class MultiC_Sim_Funcs_Refactored:
         # Save ground truth positions for standard method
         # CRITICAL: Always save ground truth to ensure it matches the x0, y0 positions used in simulation
         # The x0, y0 are randomly generated each time this function runs, so the file must be updated
-        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
+        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA):
             X0Y0 = {"x0": x0, "y0": y0}
             groundtruth_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv"
             # Always write ground truth file to match current x0, y0 positions
@@ -2658,7 +2661,7 @@ class MultiC_Sim_Funcs_Compatibility(MultiC_Sim_Funcs_Refactored):
     def test_fit_method(self, *args, **kwargs):
         """Compatibility wrapper for original test_fit_method."""
         return self.test_simulation_method(
-            *args, strategy=FittingStrategy.STANDARD_ITER, **kwargs
+            *args, strategy=FittingStrategy.STANDARD_DATA, **kwargs
         )
 
     def test_demosaic_fit_method(self, *args, **kwargs):

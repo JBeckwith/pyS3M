@@ -11,15 +11,18 @@
     :copyright: Copyright (c) MIT License
 """
 
-import time
-from pathlib import Path
-import sys
-from dataclasses import dataclass
-from typing import Optional
+from __future__ import annotations
 
-import numpy as np
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+import sys
+
 import numba
+import numpy as np
 import scipy.signal as signal
+from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 from ImportManager import get_module
@@ -68,21 +71,21 @@ class RenderingConfig:
 
 
 def render(
-    locs,
-    info=None,
-    oversampling=1,
-    viewport=None,
-    blur_method=None,
-    min_blur_width=0,
-    cparam="A_R",
-    c_min=0.3,
-    c_max=0.75,
-    mindensperc=1,
-    maxdensperc=99.9,
-    densitymin=0.1,
-    cmap_string="jet",
+    locs: np.recarray,
+    info: list[dict] | None = None,
+    oversampling: float = 1,
+    viewport: tuple[tuple[float, float], tuple[float, float]] | None = None,
+    blur_method: str | None = None,
+    min_blur_width: float = 0,
+    cparam: str = "A_R",
+    c_min: float = 0.3,
+    c_max: float = 0.75,
+    mindensperc: float = 1,
+    maxdensperc: float = 99.9,
+    densitymin: float = 0.1,
+    cmap_string: str = "jet",
     config: Optional[RenderingConfig] = None,
-):
+) -> tuple[int, NDArray[np.float32]] | tuple[int, NDArray[np.float32], NDArray[np.float32]]:
     """
     Renders locs.
 
@@ -469,13 +472,13 @@ def _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y):
 
 
 def render_hist(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+) -> tuple[int, NDArray[np.float32]]:
     """
     Renders locs with no blur.
 
@@ -515,21 +518,21 @@ def render_hist(
 
 
 def render_gaussian_colour(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-    min_blur_width,
-    cparam,
-    c_min,
-    c_max,
-    mindensperc,
-    maxdensperc,
-    densitymin,
-    cmap_string,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+    min_blur_width: float,
+    cparam: str,
+    c_min: float,
+    c_max: float,
+    mindensperc: float,
+    maxdensperc: float,
+    densitymin: float,
+    cmap_string: str,
+) -> tuple[int, NDArray[np.float32], NDArray[np.float32]]:
     """
     Renders locs with with individual localization precision which
     differs in x and y. Renders a spectral image based on a colour parameter.
@@ -623,14 +626,14 @@ def render_gaussian_colour(
 
 
 def render_gaussian(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-    min_blur_width,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+    min_blur_width: float,
+) -> tuple[int, NDArray[np.float32]]:
     """
     Renders locs with with individual localization precision which
     differs in x and y.
@@ -689,14 +692,14 @@ def render_gaussian(
 
 
 def render_gaussian_iso(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-    min_blur_width,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+    min_blur_width: float,
+) -> tuple[int, NDArray[np.float32]]:
     """
     Renders locs with with individual localization precision which
     is the same in x and y.
@@ -755,14 +758,14 @@ def render_gaussian_iso(
 
 
 def render_convolve(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-    min_blur_width,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+    min_blur_width: float,
+) -> tuple[int, NDArray[np.float32]]:
     """
     Renders locs with with global localization precision, i.e. each
     localization is blurred by the median localization precision in x
@@ -817,13 +820,13 @@ def render_convolve(
 
 
 def render_smooth(
-    locs,
-    oversampling,
-    y_min,
-    x_min,
-    y_max,
-    x_max,
-):
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+) -> tuple[int, NDArray[np.float32]]:
     """
     Renders locs with with blur of one display pixel (set by
     oversampling)

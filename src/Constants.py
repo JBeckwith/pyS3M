@@ -17,6 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
+from numpy.typing import NDArray
+
+# Shared array type alias used throughout the package
+ImageArray = NDArray[np.float32]
+
 from LoggingFramework import setup_logger
 from CameraDefaults import CAMERAS as _CAMERAS
 
@@ -179,7 +185,7 @@ class ResultColumns:
     ]
 
     @classmethod
-    def get_all_columns(cls):
+    def get_all_columns(cls) -> list[str]:
         """Get all column names (parameters + errors).
 
         Returns:
@@ -188,7 +194,7 @@ class ResultColumns:
         return cls.STANDARD_FIT_PARAMS + cls.STANDARD_FIT_ERRORS
 
     @classmethod
-    def get_elliptical_columns(cls):
+    def get_elliptical_columns(cls) -> list[str]:
         """Get all column names for elliptical fitting (parameters + errors).
 
         Returns:
