@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-05-08 (all codebase refactoring complete — see LOG.md)
+**Last Updated:** 2026-05-08 (notebook audit complete — GUI back to Priority 1)
 
 **Note:** For completed work, see LOG.md
 
@@ -8,7 +8,31 @@
 
 ## Active Projects
 
-### Priority 1: FRET Post-Hoc Analysis (ACTIVE)
+### Priority 1: PyQt6 GUI (NEW)
+
+**Status:** 📋 PLANNED — design doc at `claude/gui.md`
+**Scope:** ~13 h for MVP (calibration load, smlm/imaging fitting, HDBSCAN clustering, results display, log panel)
+
+**MVP tasks:**
+- [ ] Project scaffold — `src/gui/` package, `app.py` entry point, `MainWindow` skeleton with dock layout
+- [ ] `SetupPanel` — camera selector, calibration dir picker, `load_calibration()` worker
+- [ ] `FittingPanel` — mode selector, `FittingConfig` form, Preview button, Run Fitting button
+- [ ] `PostProcPanel` — `FilteringCriteria` + `ClusteringConfig` (HDBSCAN) form, Filter & Cluster button
+- [ ] `ResultsPanel` — `FigureCanvasQTAgg` tabs: Preview + Localisations
+- [ ] `LogWidget` + `QtLogHandler` + `ProgressWidget`
+- [ ] `AnalysisWorker` QThread + `AnalysisConfig` signal wiring
+- [ ] `QSettings` persistence for directories and `FittingConfig`
+- [ ] State machine (IDLE → CALIBRATED → FITTED → CLUSTERED) with button enable/disable
+
+**Post-MVP (not in scope yet):**
+- DriftPanel, SpectralPanel
+- FRET / QD / tracking modes
+- Calibrate-from-frames mode
+- Batch multi-folder scheduling
+
+---
+
+### Priority 2: FRET Post-Hoc Analysis (ACTIVE)
 
 **Status:** 🔨 IN PROGRESS - Validation
 **Notebook:** `notebooks/fret/DNA_HJ_PostHoc_Changepoints.ipynb`
@@ -27,7 +51,7 @@
 
 ---
 
-### Priority 1: Diffusion-Binding Simulation (ACTIVE)
+### Priority 2: Diffusion-Binding Simulation (ACTIVE)
 
 **Status:** 🔨 IN PROGRESS - Stepwise Assembly Simulation notebook
 **Goal:** Simulate multicolor molecules with binding/unbinding for testing pyBayerSMLM pipeline

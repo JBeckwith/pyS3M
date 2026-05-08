@@ -2,7 +2,55 @@
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
 **Last Updated:** May 8, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - Tracking pipeline / methods writing
+**Status:** 🟢 **ACTIVE DEVELOPMENT** - GUI implementation
+
+---
+
+## Session: May 8, 2026 — Notebook audit complete; IOFunctions PosixPath bug fixed
+
+### Notebook audit — two broken notebooks fixed
+
+**Scope:** 151 notebooks scanned; two needed code fixes, two needed markdown corrections. Results documented in `claude/notebook_correction.md` (20 notebooks need `logging.basicConfig` added; 10 notebooks still use `FittingStrategy.STANDARD` where `STANDARD_ITER` is preferred — these are deferred to the notebook work queue).
+
+**`IOFunctions.py` — trailing-comma tuple bug**
+
+`save_simulation_results()` constructed CSV save paths as `Path(folder) / ("string",)` (one-element tuple) instead of `Path(folder) / "string"`. Python's line-continuation parentheses + trailing comma created tuples silently. Fixed by removing the trailing commas on lines 1213 and 1232. This caused the `unsupported operand type(s) for /: 'PosixPath' and 'tuple'` error visible in `Standard_vs_ITER_vs_DATA.ipynb` cell 10 (with `overwrite=True`); `Demosaicing_vs_Fullfit.ipynb` was unaffected because `overwrite=False` skips the save path entirely.
+
+**`Standard_vs_ITER_vs_DATA.ipynb`**
+
+- Cell 0 markdown: "four fitting strategies" → "three fitting strategies" (notebook compares STANDARD, STANDARD_ITER, STANDARD_DATA — three, not four)
+- Cell 9 markdown: "Four strategies × four dyes" → "Three strategies × three dyes"
+- No code changes needed — `FittingStrategy.STANDARD_DATA` was restored in commit `cf97f56`
+
+**`Demosaicing_vs_Fullfit.ipynb`**
+
+- Cell 0 markdown: "four fitting strategies" → "three fitting strategies"; table updated to list STANDARD, STANDARD_ITER, DEMOSAIC_FAST (removed stale DEMOSAIC row)
+- Cell 9 markdown: "Four strategies × four dyes" → "Three strategies × three dyes"
+- Cell 10 code: `(FittingStrategy.STANDARD_DATA, "standard_data_")` → `(FittingStrategy.DEMOSAIC_FAST, "demosaic_fast_")` — cell 12 expects `demosaic_fast_` flag; STANDARD_DATA belongs in `Standard_vs_ITER_vs_DATA.ipynb` not here
+
+**Files modified:**
+- `src/IOFunctions.py` — removed 2 trailing commas (lines 1213, 1232)
+- `notebooks/figures/SI/Standard_vs_ITER_vs_DATA.ipynb` — cells 0 and 9 markdown
+- `notebooks/figures/SI/Demosaicing_vs_Fullfit.ipynb` — cells 0, 9 (markdown) and 10 (code)
+
+**GUI implementation promoted back to Priority 1 in TODO.md.**
+
+---
+
+## Session: May 8, 2026 — GUI planning document written
+
+**File created:** `claude/gui.md`
+
+**Key decisions:**
+- **Framework:** PyQt6 + `matplotlib.backends.backend_qtagg` — existing `(fig, ax)` pairs from `PlottingBase` embed directly via `FigureCanvasQTAgg`; `AnalysisConfig.progress_callback` and `logging_callback` wire to Qt signals with no adaptation
+- **Model:** `AnalysisPipeline` (`src/AnalysisPipeline.py`) — GUI never calls `src/` code directly
+- **Threading:** `AnalysisWorker(QThread)` for every call > 0.5 s; results/exceptions posted back via signals
+- **State machine:** IDLE → CALIBRATED → FITTED → CLUSTERED (→ DRIFT_CORRECTED, SPECTRAL_DONE post-MVP) drives button enable/disable
+- **Panels:** SetupPanel, FittingPanel, PostProcPanel, DriftPanel, SpectralPanel, ResultsPanel, LogWidget + ProgressWidget
+- **Settings:** `QSettings` persists directories and `FittingConfig` values across sessions
+- **MVP scope:** ~13 h — calibration loading, smlm/imaging fitting, HDBSCAN clustering, Preview + Localisations result tabs, log panel; drift/spectral/FRET/QD/tracking post-MVP
+
+**GUI promoted to Priority 1 in TODO.md; FRET and Diffusion-Binding demoted to Priority 2.**
 
 ---
 

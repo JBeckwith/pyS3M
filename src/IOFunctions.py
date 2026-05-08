@@ -1210,7 +1210,7 @@ class IO_Functions:
                 + NA_save
                 + "_NA_"
                 + b_save
-                + "_background_RMSE_mean_bootstrapping.csv",
+                + "_background_RMSE_mean_bootstrapping.csv"
             )
         )
         stds.write_csv(
@@ -1229,7 +1229,7 @@ class IO_Functions:
                 + NA_save
                 + "_NA_"
                 + b_save
-                + "_background_RMSE_std_bootstrapping.csv",
+                + "_background_RMSE_std_bootstrapping.csv"
             )
         )
         return
