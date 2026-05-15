@@ -2,6 +2,9 @@ import enum
 import logging
 from pathlib import Path
 
+import numpy as np
+from matplotlib.figure import Figure
+
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QVBoxLayout,
     QScrollArea, QLabel, QMessageBox,
@@ -36,7 +39,8 @@ class MainWindow(QMainWindow):
 
         self._state = AppState.IDLE
         self.pipeline = None
-        self._worker: AnalysisWorker | None = None
+        self._worker: AnalysisWorker | None = None      # main pipeline worker
+        self._aux_worker: AnalysisWorker | None = None  # viz-only worker (non-blocking)
         self._fitted_data_dir: str | None = None
         self._sm_db = None
         self._sf_db = None
@@ -112,6 +116,7 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.postproc_panel.on_state_changed)
 
         self.setup_panel.calibration_requested.connect(self._on_load_calibration)
+        self.fitting_panel.preview_requested.connect(self._on_preview_fitting)
         self.fitting_panel.fit_requested.connect(self._on_run_fitting)
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
 
@@ -172,6 +177,37 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Pipeline error", msg[:600])
 
     # ------------------------------------------------------------------
+    # Figure helpers (thread-safe: use Figure directly, not pyplot)
+    # ------------------------------------------------------------------
+
+    def _make_scatter_figure(self, locs, title: str = "Localisations") -> Figure:
+        pixel_size_nm = self.pipeline.pixel_size * 1000
+        x = locs["xc"].values * pixel_size_nm
+        y = locs["yc"].values * pixel_size_nm
+
+        fig = Figure(figsize=(6, 6), dpi=100)
+        ax = fig.add_subplot(111)
+
+        spectral_cols = ("A_R", "A_G", "A_B")
+        if all(c in locs.columns for c in spectral_cols):
+            total = locs["A_R"].values + locs["A_G"].values + locs["A_B"].values
+            total = np.where(total == 0, 1.0, total)
+            c = locs["A_R"].values / total
+            sc = ax.scatter(x, y, c=c, s=1, cmap="RdYlBu_r",
+                            vmin=0, vmax=1, rasterized=True, alpha=0.5, linewidths=0)
+            fig.colorbar(sc, ax=ax, label="A_R fraction", shrink=0.8)
+        else:
+            ax.scatter(x, y, s=1, rasterized=True, alpha=0.5)
+
+        ax.set_xlabel("x (nm)")
+        ax.set_ylabel("y (nm)")
+        ax.set_title(f"{title}  ({len(locs):,})")
+        ax.set_aspect("equal")
+        ax.invert_yaxis()
+        fig.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
     # Calibration
     # ------------------------------------------------------------------
 
@@ -214,6 +250,52 @@ class MainWindow(QMainWindow):
         self._update_state(AppState.CALIBRATED)
 
     # ------------------------------------------------------------------
+    # Preview fitting (single frame)
+    # ------------------------------------------------------------------
+
+    def _on_preview_fitting(self, data_dir: str, fitting_config):
+        if self._worker_running() or self.pipeline is None:
+            return
+
+        def _do():
+            sf = self.pipeline.make_smoothing_function(fitting_config.sigma)
+            return self.pipeline.sr.example_spots_singleframe(
+                image_folder=Path(data_dir),
+                smoothing_function=sf,
+                gain_map=self.pipeline.gain_map,
+                offset_map=self.pipeline.offset_map,
+                rqe=self.pipeline.rqe,
+                read_noise=self.pipeline.read_noise,
+                variance=self.pipeline.variance,
+                pfa=fitting_config.pfa,
+                ROI_size=fitting_config.ROI_size,
+                peak_wavelength=fitting_config.peak_wavelength,
+                NA=fitting_config.NA,
+                pixel_size=self.pipeline.pixel_size,
+                sigma=fitting_config.sigma,
+                fraction_true=fitting_config.fraction_true,
+                use_variance_aware_demosaic=fitting_config.use_variance_aware_demosaic,
+            )
+
+        worker = AnalysisWorker(_do)
+        self._worker = worker
+        worker.progress.connect(self.progress_widget.update)
+        worker.log.connect(self.log_widget.append)
+        worker.result.connect(self._on_preview_done)
+        worker.error.connect(self._on_worker_error)
+        self.fitting_panel.set_preview_busy(True)
+        self.progress_widget.update(0.0, "Running preview…")
+        worker.start()
+
+    def _on_preview_done(self, result):
+        self._worker = None
+        self.fitting_panel.set_preview_busy(False)
+        if result is not None:
+            fig, _ = result
+            self.results_panel.set_preview_figure(fig)
+        self.progress_widget.update(1.0, "Preview ready")
+
+    # ------------------------------------------------------------------
     # Fitting
     # ------------------------------------------------------------------
 
@@ -232,15 +314,40 @@ class MainWindow(QMainWindow):
         worker.log.connect(self.log_widget.append)
         worker.result.connect(lambda _: self._on_fitting_done(data_dir))
         worker.error.connect(self._on_worker_error)
-        self.fitting_panel.set_busy(True)
+        self.fitting_panel.set_fit_busy(True)
         worker.start()
 
     def _on_fitting_done(self, data_dir: str):
         self._worker = None
         self._fitted_data_dir = data_dir
-        self.fitting_panel.set_busy(False)
+        self.fitting_panel.set_fit_busy(False)
         self.progress_widget.update(1.0, "Fitting complete")
         self._update_state(AppState.FITTED)
+        self._refresh_locs_figure(data_dir)
+
+    # ------------------------------------------------------------------
+    # Locs scatter (aux worker — non-blocking, viz only)
+    # ------------------------------------------------------------------
+
+    def _refresh_locs_figure(self, data_dir: str):
+        def _do():
+            locs = self.pipeline.load_localisations(data_dir)
+            if locs.empty:
+                return None
+            return self._make_scatter_figure(locs, title="Localisations")
+
+        aux = AnalysisWorker(_do)
+        self._aux_worker = aux
+        aux.result.connect(self._on_locs_figure_ready)
+        aux.error.connect(
+            lambda msg: self.log_widget.append(f"Warning: locs scatter failed: {msg[:120]}")
+        )
+        aux.start()
+
+    def _on_locs_figure_ready(self, fig):
+        self._aux_worker = None
+        if fig is not None:
+            self.results_panel.set_localisations_figure(fig)
 
     # ------------------------------------------------------------------
     # Clustering
@@ -274,14 +381,18 @@ class MainWindow(QMainWindow):
         self.postproc_panel.show_result(len(sm_db), len(sf_db))
         self.progress_widget.update(1.0, "Clustering complete")
         self._update_state(AppState.CLUSTERED)
+        if not sm_db.empty:
+            fig = self._make_scatter_figure(sm_db, title="Single molecules")
+            self.results_panel.set_localisations_figure(fig)
 
     # ------------------------------------------------------------------
     # Qt lifecycle
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
-        if self._worker_running():
-            self._worker.quit()
-            self._worker.wait(2000)
+        for w in (self._worker, self._aux_worker):
+            if w is not None and w.isRunning():
+                w.quit()
+                w.wait(2000)
         logging.getLogger().removeHandler(self._log_handler)
         super().closeEvent(event)

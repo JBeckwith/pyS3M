@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLineEdit, QCheckBox,
 )
 from PyQt6.QtCore import pyqtSignal
@@ -8,7 +8,8 @@ from gui.widgets.folder_picker import FolderPicker
 
 
 class FittingPanel(QWidget):
-    fit_requested = pyqtSignal(str, str, object)  # data_dir, mode, FittingConfig
+    fit_requested     = pyqtSignal(str, str, object)  # data_dir, mode, FittingConfig
+    preview_requested = pyqtSignal(str, object)        # data_dir, FittingConfig
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,7 +24,7 @@ class FittingPanel(QWidget):
         form = QFormLayout(grp)
 
         self._data_dir = FolderPicker("Select data folder…")
-        self._data_dir.path_changed.connect(self._update_run_btn)
+        self._data_dir.path_changed.connect(self._update_btns)
         form.addRow("Data folder:", self._data_dir)
 
         self._mode = QComboBox()
@@ -73,23 +74,33 @@ class FittingPanel(QWidget):
         self._var_demosaic.setChecked(True)
         form.addRow(self._var_demosaic)
 
+        # Preview + Run buttons side by side
+        btn_row = QWidget()
+        btn_lay = QHBoxLayout(btn_row)
+        btn_lay.setContentsMargins(0, 0, 0, 0)
+        btn_lay.setSpacing(6)
+        self._preview_btn = QPushButton("Preview Fit")
+        self._preview_btn.setEnabled(False)
+        self._preview_btn.setToolTip("Run spot detection + fitting on one frame")
+        self._preview_btn.clicked.connect(self._on_preview_clicked)
         self._run_btn = QPushButton("Run Fitting")
         self._run_btn.setEnabled(False)
         self._run_btn.clicked.connect(self._on_run_clicked)
-        form.addRow(self._run_btn)
+        btn_lay.addWidget(self._preview_btn)
+        btn_lay.addWidget(self._run_btn)
+        form.addRow(btn_row)
 
         outer.addWidget(grp)
 
-    def _update_run_btn(self):
-        self._run_btn.setEnabled(self._enabled_by_state and bool(self._data_dir.path))
+    # ── helpers ──────────────────────────────────────────────────────
 
-    def _on_run_clicked(self):
+    def _make_fitting_config(self):
         from AnalysisPipeline import FittingConfig
         try:
             pfa = float(self._pfa.text())
         except ValueError:
             pfa = 1e-3
-        fc = FittingConfig(
+        return FittingConfig(
             pfa=pfa,
             ROI_size=self._roi_size.value(),
             peak_wavelength=self._wavelength.value(),
@@ -98,7 +109,21 @@ class FittingPanel(QWidget):
             fraction_true=self._frac_true.value(),
             use_variance_aware_demosaic=self._var_demosaic.isChecked(),
         )
-        self.fit_requested.emit(self._data_dir.path, self._mode.currentText(), fc)
+
+    def _update_btns(self):
+        ok = self._enabled_by_state and bool(self._data_dir.path)
+        if not self._preview_btn.text().startswith("Preview…"):
+            self._preview_btn.setEnabled(ok)
+        if not self._run_btn.text().startswith("Running"):
+            self._run_btn.setEnabled(ok)
+
+    def _on_preview_clicked(self):
+        self.preview_requested.emit(self._data_dir.path, self._make_fitting_config())
+
+    def _on_run_clicked(self):
+        self.fit_requested.emit(
+            self._data_dir.path, self._mode.currentText(), self._make_fitting_config()
+        )
 
     # ── public interface ──────────────────────────────────────────────
 
@@ -108,13 +133,27 @@ class FittingPanel(QWidget):
 
     def set_data_dir(self, path: str):
         self._data_dir.set_path(path)
-        self._update_run_btn()
+        self._update_btns()
 
-    def set_busy(self, busy: bool):
+    def set_preview_busy(self, busy: bool):
+        self._preview_btn.setEnabled(not busy)
+        self._preview_btn.setText("Preview…" if busy else "Preview Fit")
+        self._run_btn.setEnabled(not busy and self._enabled_by_state and bool(self._data_dir.path))
+
+    def set_fit_busy(self, busy: bool):
         self._run_btn.setEnabled(not busy)
         self._run_btn.setText("Running…" if busy else "Run Fitting")
+        self._preview_btn.setEnabled(not busy and self._enabled_by_state and bool(self._data_dir.path))
+
+    def set_busy(self, busy: bool):
+        """Reset both buttons (used by error handler)."""
+        self._preview_btn.setEnabled(not busy)
+        self._preview_btn.setText("Preview Fit")
+        self._run_btn.setEnabled(not busy)
+        self._run_btn.setText("Run Fitting")
+        if not busy:
+            self._update_btns()
 
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("calibrated", "fitted", "clustered")
-        if not self._run_btn.text().startswith("Running"):
-            self._update_run_btn()
+        self._update_btns()
