@@ -954,159 +954,24 @@ class Drift_Correction_Functions:
         memory_optimize: bool = True,
     ) -> tuple[list[np.recarray], dict[str, Any]]:
         """Select puncta (localisations) from detected high-density regions."""
-        if postprocess is None:
+        if self.fiducial_detector is None:
             raise RuntimeError(
-                "postprocess module not available - cannot use picked_locs function"
+                "FiducialDetector not available — cannot select puncta from regions."
             )
-
-        if not region_centres:
-            metadata = {
-                "n_regions_input": 0,
-                "n_regions_selected": 0,
-                "selection_criteria": {
-                    "min_localisations": min_localisations_per_region,
-                    "selection_box_size_nm": selection_box_size_nm,
-                    "selection_box_size_pixels": 0.0,
-                },
-                "rejection_reasons": {"too_few_localisations": 0, "accepted": 0},
-                "region_statistics": [],
-            }
-            return [], metadata
-
-        box_size_pixels = selection_box_size_nm / pixelsize
-        half_box = box_size_pixels / 2.0
-
-        picks = []
-        for centre_y, centre_x in region_centres:
-            picks.append(
-                ((centre_x - half_box, centre_y), (centre_x + half_box, centre_y))
-            )
-
-        width = max(locs.xc.max() + 10, 100)
-        height = max(locs.yc.max() + 10, 100)
-
-        picked_locs_arrays = postprocess.picked_locs(
+        return self.fiducial_detector.select_puncta_from_regions(
             locs=locs,
-            width=width,
-            height=height,
-            picks=picks,
-            pick_shape="Rectangle",
-            pick_size=box_size_pixels,
-            add_group=False,
-            callback="console",
-            parallel=len(picks) >= 8,
+            region_centres=region_centres,
+            binary_mask=binary_mask,
+            pixelsize=pixelsize,
+            selection_box_size_nm=selection_box_size_nm,
+            min_localisations_per_region=min_localisations_per_region,
+            output_figure_path=output_figure_path,
+            title=title,
+            create_plot=create_plot,
+            plot_individual_regions=plot_individual_regions,
+            use_datashader_threshold=use_datashader_threshold,
+            memory_optimise=memory_optimize,
         )
-
-        if memory_optimize:
-            del picks
-            gc.collect()
-
-        selected_puncta = []
-        region_stats = []
-
-        if picked_locs_arrays is None:
-            picked_locs_arrays = []
-
-        rejected_count = 0
-        for region_id, (region_locs, (centre_y, centre_x)) in enumerate(
-            zip(picked_locs_arrays, region_centres)
-        ):
-            n_locs = len(region_locs)
-
-            if n_locs >= min_localisations_per_region:
-                selected_puncta.append(region_locs)
-
-                region_stat = {
-                    "region_id": region_id,
-                    "centre_y": centre_y,
-                    "centre_x": centre_x,
-                    "n_localisations": n_locs,
-                    "mean_x": np.mean(region_locs.xc),
-                    "mean_y": np.mean(region_locs.yc),
-                    "std_x": np.std(region_locs.xc),
-                    "std_y": np.std(region_locs.yc),
-                    "frame_range": [
-                        int(region_locs.frame.min()),
-                        int(region_locs.frame.max()),
-                    ],
-                    "frame_span": int(
-                        region_locs.frame.max() - region_locs.frame.min() + 1
-                    ),
-                    "selection_box_size_nm": selection_box_size_nm,
-                    "selection_box_size_pixels": box_size_pixels,
-                    "box_boundaries": {
-                        "x_min": centre_x - half_box,
-                        "x_max": centre_x + half_box,
-                        "y_min": centre_y - half_box,
-                        "y_max": centre_y + half_box,
-                    },
-                }
-
-                if hasattr(region_locs, "photons"):
-                    region_stat["mean_photons"] = np.mean(region_locs.photons)
-                    region_stat["std_photons"] = np.std(region_locs.photons)
-
-                region_stats.append(region_stat)
-            else:
-                rejected_count += 1
-                if memory_optimize:
-                    del region_locs
-
-            if memory_optimize and region_id % 100 == 0 and region_id > 0:
-                gc.collect()
-                logger.info(f"Processed {region_id + 1}/{len(picked_locs_arrays)} regions " f"({len(selected_puncta)} accepted, {rejected_count} rejected)")
-
-        if memory_optimize:
-            del picked_locs_arrays
-            gc.collect()
-            logger.info(f"Memory optimisation: Freed intermediate arrays after region processing")
-
-        if create_plot:
-            if self.plotter is not None:
-                self.plotter.plot_puncta_selection_results(
-                    locs,
-                    selected_puncta,
-                    region_centres,
-                    binary_mask,
-                    region_stats,
-                    box_size_pixels,
-                    pixelsize,
-                    output_figure_path,
-                    title,
-                    plot_individual_regions,
-                    use_datashader_threshold,
-                )
-            else:
-                logger.warning("⚠️ DriftPlotter not available, skipping puncta selection plots")
-
-            if memory_optimize:
-                plt.close("all")
-                gc.collect()
-
-        total_locs_selected = sum(len(puncta) for puncta in selected_puncta)
-
-        metadata = {
-            "n_regions_input": len(region_centres),
-            "n_regions_selected": len(selected_puncta),
-            "n_regions_rejected": rejected_count,
-            "selection_rate": (
-                len(selected_puncta) / len(region_centres) if region_centres else 0
-            ),
-            "selection_criteria": {
-                "min_localisations": min_localisations_per_region,
-                "selection_box_size_nm": selection_box_size_nm,
-                "selection_box_size_pixels": box_size_pixels,
-            },
-            "region_statistics": region_stats,
-            "total_selected_localisations": total_locs_selected,
-            "memory_optimized": memory_optimize,
-            "rejection_reasons": {
-                "too_few_localisations": rejected_count,
-                "accepted": len(selected_puncta),
-            },
-        }
-
-        return selected_puncta, metadata
 
     def identify_real_fiducials_with_clustering(
         self,
