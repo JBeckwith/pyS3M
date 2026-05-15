@@ -6,7 +6,7 @@ from PyQt6.QtCore import pyqtSignal
 
 from gui.widgets.folder_picker import FolderPicker
 
-_CAMERA_PIXEL_SIZES = {"ximea": 0.069, "zwo": 0.0715}
+_CAMERA_PIXEL_SIZES_NM = {"ximea": 69.0, "zwo": 71.5}
 
 
 class SetupPanel(QWidget):
@@ -29,10 +29,10 @@ class SetupPanel(QWidget):
         form.addRow("Camera:", self._camera)
 
         self._pixel_size = QDoubleSpinBox()
-        self._pixel_size.setRange(0.001, 10.0)
-        self._pixel_size.setDecimals(4)
-        self._pixel_size.setSingleStep(0.001)
-        self._pixel_size.setSuffix(" µm")
+        self._pixel_size.setRange(1.0, 1000.0)
+        self._pixel_size.setDecimals(1)
+        self._pixel_size.setSingleStep(0.5)
+        self._pixel_size.setSuffix(" nm")
         form.addRow("Pixel size:", self._pixel_size)
 
         self._cal_dir = FolderPicker("Select calibration folder…")
@@ -51,7 +51,7 @@ class SetupPanel(QWidget):
         self._on_camera_changed(self._camera.currentText())
 
     def _on_camera_changed(self, name: str):
-        self._pixel_size.setValue(_CAMERA_PIXEL_SIZES.get(name, 0.069))
+        self._pixel_size.setValue(_CAMERA_PIXEL_SIZES_NM.get(name, 69.0))
 
     def _update_load_btn(self):
         self._load_btn.setEnabled(bool(self._cal_dir.path))
@@ -59,7 +59,7 @@ class SetupPanel(QWidget):
     def _on_load_clicked(self):
         self.calibration_requested.emit(
             self._camera.currentText(),
-            self._pixel_size.value(),
+            self._pixel_size.value() / 1000.0,  # nm → µm for pipeline
             self._cal_dir.path,
         )
 
