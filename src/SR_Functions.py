@@ -33,7 +33,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
 class SuperRes_Functions:
     """Super-resolution microscopy analysis functions.
 
@@ -695,7 +694,6 @@ class SuperRes_Functions:
 
         if plotter is not None:
             # Use new PlottingBase infrastructure
-            import matplotlib.pyplot as plt
             import matplotlib.patches as patches
             from PlottingBase import PublicationPlotter
 
@@ -775,7 +773,7 @@ class SuperRes_Functions:
             )
 
             # Add zoom rectangle
-            rect = patches.Rectangle(
+            rect_00 = patches.Rectangle(
                 (min_x, min_y),
                 max_x - min_x,
                 max_y - min_y,
@@ -783,7 +781,7 @@ class SuperRes_Functions:
                 edgecolor="cyan",
                 facecolor="none",
             )
-            axs[0, 0].add_patch(rect)
+            axs[0, 0].add_patch(rect_00)
 
             # [0,1] Fitted spots on raw image
             im = plotter.create_image_plot(
@@ -807,7 +805,7 @@ class SuperRes_Functions:
             )
 
             # Add zoom rectangle
-            rect = patches.Rectangle(
+            rect_01 = patches.Rectangle(
                 (min_x, min_y),
                 max_x - min_x,
                 max_y - min_y,
@@ -815,7 +813,7 @@ class SuperRes_Functions:
                 edgecolor="cyan",
                 facecolor="none",
             )
-            axs[0, 1].add_patch(rect)
+            axs[0, 1].add_patch(rect_01)
 
             # Bottom row: Zoomed views
             # [1,0] Detected spots zoomed
@@ -876,7 +874,16 @@ class SuperRes_Functions:
                 color="white",
             )
 
-            plt.tight_layout()
+            # Store drag config; handler is wired up by the GUI after the Qt canvas is created
+            fig._zoom_drag_data = ([rect_00, rect_01], [axs[1, 0], axs[1, 1]], image_to_analyse.shape)
+
+            engine = fig.get_layout_engine()
+            if engine is not None and hasattr(engine, 'set'):
+                # constrained/compressed — ask the engine to widen the row gap
+                engine.set(h_pad=0.4, hspace=0.15)
+            else:
+                # no layout engine — direct grid spacing is safe
+                fig.subplots_adjust(hspace=0.45, top=0.92)
 
         else:
             # Fallback to old plotting method

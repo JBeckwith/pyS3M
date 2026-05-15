@@ -8,8 +8,9 @@ from gui.widgets.folder_picker import FolderPicker
 
 
 class FittingPanel(QWidget):
-    fit_requested     = pyqtSignal(str, str, object)  # data_dir, mode, FittingConfig
-    preview_requested = pyqtSignal(str, object)        # data_dir, FittingConfig
+    fit_requested          = pyqtSignal(str, str, object)  # data_dir, mode, FittingConfig
+    preview_requested      = pyqtSignal(str, object)        # data_dir, FittingConfig
+    stats_refresh_requested = pyqtSignal(tuple)             # (min_photons, max_photons)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,7 +29,8 @@ class FittingPanel(QWidget):
         form.addRow("Data folder:", self._data_dir)
 
         self._mode = QComboBox()
-        self._mode.addItems(["smlm", "imaging"])
+        self._mode.addItem("Single-FOV folder", userData="smlm")
+        self._mode.addItem("Multi-FOV folder", userData="imaging")
         form.addRow("Mode:", self._mode)
 
         self._pfa = QLineEdit("1e-3")
@@ -92,6 +94,29 @@ class FittingPanel(QWidget):
 
         outer.addWidget(grp)
 
+        # ── Statistics filter ─────────────────────────────────────────
+        flt_grp = QGroupBox("Statistics Filter")
+        flt_form = QFormLayout(flt_grp)
+
+        self._min_photons = QSpinBox()
+        self._min_photons.setRange(0, 100_000_000)
+        self._min_photons.setValue(100)
+        self._min_photons.setSingleStep(100)
+        flt_form.addRow("Min photons:", self._min_photons)
+
+        self._max_photons = QSpinBox()
+        self._max_photons.setRange(0, 100_000_000)
+        self._max_photons.setValue(1_000_000)
+        self._max_photons.setSingleStep(10_000)
+        flt_form.addRow("Max photons:", self._max_photons)
+
+        self._refresh_stats_btn = QPushButton("Refresh Stats")
+        self._refresh_stats_btn.setEnabled(False)
+        self._refresh_stats_btn.clicked.connect(self._on_refresh_stats_clicked)
+        flt_form.addRow(self._refresh_stats_btn)
+
+        outer.addWidget(flt_grp)
+
     # ── helpers ──────────────────────────────────────────────────────
 
     def _make_fitting_config(self):
@@ -120,12 +145,19 @@ class FittingPanel(QWidget):
     def _on_preview_clicked(self):
         self.preview_requested.emit(self._data_dir.path, self._make_fitting_config())
 
+    def _on_refresh_stats_clicked(self):
+        self.stats_refresh_requested.emit(self.photon_range)
+
     def _on_run_clicked(self):
         self.fit_requested.emit(
-            self._data_dir.path, self._mode.currentText(), self._make_fitting_config()
+            self._data_dir.path, self._mode.currentData(), self._make_fitting_config()
         )
 
     # ── public interface ──────────────────────────────────────────────
+
+    @property
+    def photon_range(self) -> tuple:
+        return (self._min_photons.value(), self._max_photons.value())
 
     @property
     def data_dir(self) -> str:
@@ -157,3 +189,4 @@ class FittingPanel(QWidget):
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("calibrated", "fitted", "clustered")
         self._update_btns()
+        self._refresh_stats_btn.setEnabled(state in ("fitted", "clustered"))

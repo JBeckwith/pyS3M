@@ -6,6 +6,38 @@
 
 ---
 
+## Session: May 8, 2026 — All notebook issues fully resolved ✅
+
+**Scope:** Three categories of post-refactoring notebook issues, all cleared. 22 notebooks modified across two commits.
+
+### Issue 1 — Silent logging (21 notebooks)
+
+All `print()` calls in `src/` were replaced with `logging` in Tier 3.2. Python's default level is WARNING, so `logger.info`/`logger.debug` calls were invisible unless notebooks called `logging.basicConfig(level=INFO)` before importing `src/`. Inserted the following as cell 0 in every affected notebook:
+
+```python
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(name)s — %(levelname)s — %(message)s',
+)
+```
+
+Notebooks fixed: `calibration/QDot_Variance_Test`, `demosaicing/Demosaicing_then_Fitting`, `demosaicing/Variance_Weighted_Demosaic`, `demosaicing/Variance_Weighted_Demosaic_Updated`, `figures/Figure1_3Dyes_PatternedvsNon`, `figures/Figure1_ResultantPSFs`, `figures/Figure1_maximum_readnoise`, `figures/SI/Debug_Sigma`, `figures/SI/Demosaicing_vs_Fullfit`, `figures/SI/Figure1_3camerapatterns`, `figures/SI/Figure1_CYYMFilter`, `figures/SI/Figure1_DifferentMaskPattern`, `figures/SI/ZWO_vs_Ximea`, `fret/3way_FRET_ImageSim_Cascade`, `fret/FRETFluor_Simulation`, `fret/FRETFluor_TernaryPlot`, `simulation/Pixelsize_FineGrid`, `simulation/Pixelsize_Test`, `testing_notebooks/test_covariance_snr`, `testing_notebooks/testing_initial_guess_fit`, `simulation/DiffusionBinding_BasicTest`, `tracking/Stepwise_Assembly_Simulation`.
+
+### Issue 2 — Default fitting strategy (9 notebooks)
+
+`FittingStrategy.STANDARD` (no re-weighting) updated to `FittingStrategy.STANDARD_DATA` (smooth→model→data weights, the validated production default) in all notebooks that used the old bare default. Also deleted a commented-out skeleton cell in `Debug_Sigma.ipynb` that referenced the unimplemented `STANDARD_FIXEDSIGMA` strategy.
+
+Notebooks fixed: `Demosaicing_then_Fitting`, `Figure1_ResultantPSFs`, `Figure1_maximum_readnoise`, `Figure1_3camerapatterns`, `Figure1_CYYMFilter`, `Figure1_DifferentMaskPattern`, `FRETFluor_Simulation`, `Pixelsize_FineGrid`, `Pixelsize_Test`.
+
+### Issue 3 — Fragile sys.path / import ordering (2 notebooks)
+
+`DiffusionBinding_BasicTest` and `Stepwise_Assembly_Simulation` already have `sys.path.insert(0, '../../src')` in the same cell as their bare-name imports (`from DiffusionSimulation import ...`), so no structural fix was needed. The logging insert (Issue 1) was also applied to both.
+
+**Commits:** `10222d2` (IOFunctions + 2 SI notebooks), `9ea3217` (21 notebooks: logging + strategy)
+
+---
+
 ## Session: May 8, 2026 — Notebook audit complete; IOFunctions PosixPath bug fixed
 
 ### Notebook audit — two broken notebooks fixed

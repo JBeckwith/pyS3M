@@ -1,12 +1,14 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox,
-    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
+    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLabel, QLineEdit,
+    QFileDialog,
 )
 from PyQt6.QtCore import pyqtSignal
 
 
 class PostProcPanel(QWidget):
-    cluster_requested = pyqtSignal(object, object)  # FilteringCriteria, ClusteringConfig
+    cluster_requested  = pyqtSignal(object, object)  # FilteringCriteria, ClusteringConfig
+    load_locs_requested = pyqtSignal(str)             # path to .h5 file
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -17,6 +19,30 @@ class PostProcPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(4)
+
+        # Load localisations group
+        lgrp = QGroupBox("Load Localisations")
+        lform = QFormLayout(lgrp)
+
+        h5_row = QWidget()
+        h5_lay = QHBoxLayout(h5_row)
+        h5_lay.setContentsMargins(0, 0, 0, 0)
+        h5_lay.setSpacing(4)
+        self._h5_path = QLineEdit()
+        self._h5_path.setPlaceholderText("Select .h5 file…")
+        self._h5_path.setReadOnly(True)
+        self._h5_browse = QPushButton("Browse…")
+        self._h5_browse.clicked.connect(self._on_h5_browse)
+        h5_lay.addWidget(self._h5_path)
+        h5_lay.addWidget(self._h5_browse)
+        lform.addRow("H5 file:", h5_row)
+
+        self._load_btn = QPushButton("Load")
+        self._load_btn.setEnabled(False)
+        self._load_btn.clicked.connect(self._on_load_clicked)
+        lform.addRow(self._load_btn)
+
+        outer.addWidget(lgrp)
 
         # Filtering group
         fgrp = QGroupBox("Filtering")
@@ -70,6 +96,19 @@ class PostProcPanel(QWidget):
         outer.addWidget(cgrp)
         outer.addWidget(self._cluster_btn)
         outer.addWidget(self._result_label)
+
+    def _on_h5_browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select localisation file", "", "HDF5 files (*.h5 *.hdf5)"
+        )
+        if path:
+            self._h5_path.setText(path)
+            self._load_btn.setEnabled(True)
+
+    def _on_load_clicked(self):
+        path = self._h5_path.text().strip()
+        if path:
+            self.load_locs_requested.emit(path)
 
     def _on_cluster_clicked(self):
         from Constants import FilteringCriteria

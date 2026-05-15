@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-05-08 (notebook audit complete — GUI back to Priority 1)
+**Last Updated:** 2026-05-08 (notebook audit fully resolved — GUI is Priority 1)
 
 **Note:** For completed work, see LOG.md
 
@@ -353,9 +353,9 @@ Continue using `variance_aware_malvar_demosaic()` with confidence. The math is c
 
 ---
 
-### Priority 2: Codebase Refactoring — ✅ COMPLETE (see `claude/code_refactoring.md`)
+### Codebase Refactoring + Notebook Audit — ✅ COMPLETE
 
-All planned refactoring tiers finished May 8, 2026. See LOG.md for full details.
+All planned refactoring tiers finished May 8, 2026. All notebook issues (silent logging, STANDARD→STANDARD_DATA, fragile imports) resolved May 8, 2026. See LOG.md and `claude/code_refactoring.md` for full details.
 
 ---
 
