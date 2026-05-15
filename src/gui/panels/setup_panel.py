@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QGroupBox,
     QComboBox, QDoubleSpinBox, QPushButton, QLabel,
@@ -6,11 +8,35 @@ from PyQt6.QtCore import pyqtSignal
 
 from gui.widgets.folder_picker import FolderPicker
 
+# Project root is four levels up from this file (src/gui/panels/setup_panel.py)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
 _CAMERA_PIXEL_SIZES_NM = {"ximea": 69.0, "zwo": 71.5}
+
+# Ordered candidate calibration dirs per camera (first valid one wins)
+_CAL_CANDIDATES: dict[str, list[Path]] = {
+    "ximea": [
+        _PROJECT_ROOT / "Camera_Calibrations" / "Ximea_Camera",
+        _PROJECT_ROOT / "Camera_Calibrations" / "CS505CU_Camera",
+    ],
+    "zwo": [
+        _PROJECT_ROOT / "Camera_Calibrations" / "ZWO_Camera",
+    ],
+}
+
+_REQUIRED_FILES = ("gain.tif", "offset.tif", "variance.tif", "readnoise.tif", "rqe.tif")
+
+
+def _find_default_cal_dir(camera: str) -> Path | None:
+    """Return the first candidate directory that contains all required calibration files."""
+    for candidate in _CAL_CANDIDATES.get(camera, []):
+        if all((candidate / f).exists() for f in _REQUIRED_FILES):
+            return candidate
+    return None
 
 
 class SetupPanel(QWidget):
-    calibration_requested = pyqtSignal(str, float, str)  # camera, pixel_size, cal_dir
+    calibration_requested = pyqtSignal(str, float, str)  # camera, pixel_size_um, cal_dir
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -48,10 +74,20 @@ class SetupPanel(QWidget):
         form.addRow("Status:", self._status)
 
         outer.addWidget(grp)
+
+        # Trigger auto-fill for the default camera on construction
         self._on_camera_changed(self._camera.currentText())
 
     def _on_camera_changed(self, name: str):
         self._pixel_size.setValue(_CAMERA_PIXEL_SIZES_NM.get(name, 69.0))
+        default = _find_default_cal_dir(name)
+        if default is not None:
+            self._cal_dir.set_path(str(default))
+            self._status.setText("—")
+        else:
+            self._cal_dir.set_path("")
+            self._status.setText("Default not found — please Browse")
+        self._update_load_btn()
 
     def _update_load_btn(self):
         self._load_btn.setEnabled(bool(self._cal_dir.path))
@@ -70,6 +106,7 @@ class SetupPanel(QWidget):
         return self._cal_dir.path
 
     def set_cal_dir(self, path: str):
+        """Called by MainWindow to restore a saved path (overrides auto-fill)."""
         self._cal_dir.set_path(path)
         self._update_load_btn()
 
