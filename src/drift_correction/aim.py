@@ -19,37 +19,6 @@ from ._base import DriftCorrector, DriftParameters, DriftResult, DriftMethod
 
 import ProgressUtils
 
-try:
-    from AIMAlgorithm import AIMAlgorithm
-    _aim_algorithm = AIMAlgorithm()
-except ImportError:
-    warnings.warn(
-        "Could not import AIMAlgorithm. AIM algorithm features may be limited."
-    )
-    _aim_algorithm = None
-
-try:
-    from CoordinateProcessing import (
-        CoordinateProcessor,
-        SegmentationHandler,
-    )
-    _coordinate_processor = CoordinateProcessor()
-    _segmentation_handler = SegmentationHandler()
-except ImportError:
-    warnings.warn(
-        "Could not import CoordinateProcessing. Coordinate processing features may be limited."
-    )
-    _coordinate_processor = None
-    _segmentation_handler = None
-
-try:
-    import render
-    import postprocess
-except ImportError:
-    warnings.warn("Could not import render/postprocess modules.")
-    render = None
-    postprocess = None
-
 
 class AIMDriftCorrector(DriftCorrector):
     """AIM (Adaptive Intersection Maximization) drift correction implementation.

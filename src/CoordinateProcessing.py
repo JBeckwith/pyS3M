@@ -21,16 +21,7 @@ from typing import List, Tuple, Optional, Dict, Any, Union
 from scipy.interpolate import InterpolatedUnivariateSpline
 import warnings
 
-
-class DriftCorrectionError(Exception):
-    """Custom exception for drift correction errors.
-
-    Intentionally duplicated here to avoid a circular import:
-    drift_correction.__init__ → aim.py → CoordinateProcessing.
-    Canonical definition is drift_correction._base.DriftCorrectionError.
-    """
-
-    pass
+from drift_correction._base import DriftCorrectionError  # noqa: F401 — re-exported for callers
 
 
 class SegmentationHandler:
