@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QVBoxLayout,
-    QScrollArea, QLabel, QMessageBox,
+    QScrollArea, QLabel, QMessageBox, QApplication,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 
@@ -59,7 +59,6 @@ class MainWindow(QMainWindow):
         self.results_panel = ResultsPanel(self)
         self.setCentralWidget(self.results_panel)
 
-        # ── Left dock: control panels ──────────────────────────────────
         self.setup_panel = SetupPanel(self)
         self.fitting_panel = FittingPanel(self)
         self.postproc_panel = PostProcPanel(self)
@@ -88,7 +87,6 @@ class MainWindow(QMainWindow):
         ctrl_dock.setMaximumWidth(440)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, ctrl_dock)
 
-        # ── Bottom dock: progress + log ────────────────────────────────
         bottom = QWidget()
         blay = QVBoxLayout(bottom)
         blay.setContentsMargins(4, 4, 4, 4)
@@ -135,10 +133,8 @@ class MainWindow(QMainWindow):
 
     def _update_state(self, new_state: AppState):
         self._state = new_state
-        label = new_state.value.replace("_", " ").title()
-        self._status_label.setText(label)
+        self._status_label.setText(new_state.value.replace("_", " ").title())
         self.state_changed.emit(new_state.value)
-        logger.debug("State → %s", new_state.value)
 
     # ------------------------------------------------------------------
     # Settings persistence
@@ -157,7 +153,7 @@ class MainWindow(QMainWindow):
         s.setValue("data_dir", self.fitting_panel.data_dir)
 
     # ------------------------------------------------------------------
-    # Worker helpers
+    # Worker lifecycle helpers
     # ------------------------------------------------------------------
 
     def _worker_running(self) -> bool:
@@ -169,15 +165,34 @@ class MainWindow(QMainWindow):
         self.postproc_panel.set_busy(False)
         self.progress_widget.reset()
 
+    def _start_worker(self, fn) -> AnalysisWorker:
+        """Create, store, and wire a main-pipeline worker.
+
+        The worker clears ``self._worker`` via ``finished`` (after the thread
+        has fully exited) rather than inside result/error slots, which would
+        drop the Python reference while the C++ QThread is still cleaning up.
+        """
+        worker = AnalysisWorker(fn)
+        self._worker = worker
+        worker.progress.connect(self.progress_widget.update)
+        worker.log.connect(self.log_widget.append)
+        worker.error.connect(self._on_worker_error)
+        # Clear the reference only after the OS thread is fully done.
+        worker.finished.connect(lambda w=worker: self._on_main_worker_finished(w))
+        return worker
+
+    def _on_main_worker_finished(self, w: AnalysisWorker):
+        if self._worker is w:
+            self._worker = None
+
     def _on_worker_error(self, msg: str):
-        self._worker = None
         self._reset_busy()
         self.log_widget.append(f"ERROR:\n{msg}")
         self._status_label.setText("Error")
         QMessageBox.critical(self, "Pipeline error", msg[:600])
 
     # ------------------------------------------------------------------
-    # Figure helpers (thread-safe: use Figure directly, not pyplot)
+    # Figure helpers (use Figure directly — no pyplot, thread-safe)
     # ------------------------------------------------------------------
 
     def _make_scatter_figure(self, locs, title: str = "Localisations") -> Figure:
@@ -220,7 +235,6 @@ class MainWindow(QMainWindow):
             _sys.path.insert(0, str(Path(__file__).parent.parent))
             from AnalysisPipeline import AnalysisPipeline
             from Constants import AnalysisConfig
-
             cfg = AnalysisConfig(
                 display=False,
                 progress_callback=lambda f, m: worker.progress.emit(f, m),
@@ -230,17 +244,12 @@ class MainWindow(QMainWindow):
             pipe.load_calibration(Path(cal_dir))
             return pipe
 
-        worker = AnalysisWorker(_do)
-        self._worker = worker
-        worker.progress.connect(self.progress_widget.update)
-        worker.log.connect(self.log_widget.append)
+        worker = self._start_worker(_do)
         worker.result.connect(self._on_calibration_done)
-        worker.error.connect(self._on_worker_error)
         self.setup_panel.set_busy(True)
         worker.start()
 
     def _on_calibration_done(self, pipe):
-        self._worker = None
         self.pipeline = pipe
         self._save_settings()
         self.setup_panel.set_busy(False)
@@ -250,16 +259,24 @@ class MainWindow(QMainWindow):
         self._update_state(AppState.CALIBRATED)
 
     # ------------------------------------------------------------------
-    # Preview fitting (single frame)
+    # Preview fitting — runs on the main thread because example_spots_singleframe
+    # calls plt.subplots() via PlottingBase, which creates a Qt canvas.
+    # Qt widgets must be created on the main thread.
     # ------------------------------------------------------------------
 
     def _on_preview_fitting(self, data_dir: str, fitting_config):
         if self._worker_running() or self.pipeline is None:
             return
 
-        def _do():
+        self.fitting_panel.set_preview_busy(True)
+        self.progress_widget.update(0.0, "Running preview…")
+        self._status_label.setText("Preview running…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()   # flush UI updates before blocking
+
+        try:
             sf = self.pipeline.make_smoothing_function(fitting_config.sigma)
-            return self.pipeline.sr.example_spots_singleframe(
+            result = self.pipeline.sr.example_spots_singleframe(
                 image_folder=Path(data_dir),
                 smoothing_function=sf,
                 gain_map=self.pipeline.gain_map,
@@ -276,24 +293,18 @@ class MainWindow(QMainWindow):
                 fraction_true=fitting_config.fraction_true,
                 use_variance_aware_demosaic=fitting_config.use_variance_aware_demosaic,
             )
-
-        worker = AnalysisWorker(_do)
-        self._worker = worker
-        worker.progress.connect(self.progress_widget.update)
-        worker.log.connect(self.log_widget.append)
-        worker.result.connect(self._on_preview_done)
-        worker.error.connect(self._on_worker_error)
-        self.fitting_panel.set_preview_busy(True)
-        self.progress_widget.update(0.0, "Running preview…")
-        worker.start()
-
-    def _on_preview_done(self, result):
-        self._worker = None
-        self.fitting_panel.set_preview_busy(False)
-        if result is not None:
-            fig, _ = result
-            self.results_panel.set_preview_figure(fig)
-        self.progress_widget.update(1.0, "Preview ready")
+            if result is not None:
+                fig, _ = result
+                self.results_panel.set_preview_figure(fig)
+            self.progress_widget.update(1.0, "Preview ready")
+        except Exception:
+            import traceback as _tb
+            self.log_widget.append(f"Preview error:\n{_tb.format_exc()}")
+            self.progress_widget.update(0.0, "Preview failed")
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.fitting_panel.set_preview_busy(False)
+            self._update_state(self._state)  # restore status bar label
 
     # ------------------------------------------------------------------
     # Fitting
@@ -308,17 +319,12 @@ class MainWindow(QMainWindow):
             self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
             self.pipeline.fit(Path(data_dir), mode=mode, fitting_config=fitting_config)
 
-        worker = AnalysisWorker(_do)
-        self._worker = worker
-        worker.progress.connect(self.progress_widget.update)
-        worker.log.connect(self.log_widget.append)
+        worker = self._start_worker(_do)
         worker.result.connect(lambda _: self._on_fitting_done(data_dir))
-        worker.error.connect(self._on_worker_error)
         self.fitting_panel.set_fit_busy(True)
         worker.start()
 
     def _on_fitting_done(self, data_dir: str):
-        self._worker = None
         self._fitted_data_dir = data_dir
         self.fitting_panel.set_fit_busy(False)
         self.progress_widget.update(1.0, "Fitting complete")
@@ -326,7 +332,7 @@ class MainWindow(QMainWindow):
         self._refresh_locs_figure(data_dir)
 
     # ------------------------------------------------------------------
-    # Locs scatter (aux worker — non-blocking, viz only)
+    # Locs scatter (aux worker — non-blocking visualisation)
     # ------------------------------------------------------------------
 
     def _refresh_locs_figure(self, data_dir: str):
@@ -342,10 +348,14 @@ class MainWindow(QMainWindow):
         aux.error.connect(
             lambda msg: self.log_widget.append(f"Warning: locs scatter failed: {msg[:120]}")
         )
+        aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
         aux.start()
 
+    def _on_aux_worker_finished(self, w: AnalysisWorker):
+        if self._aux_worker is w:
+            self._aux_worker = None
+
     def _on_locs_figure_ready(self, fig):
-        self._aux_worker = None
         if fig is not None:
             self.results_panel.set_localisations_figure(fig)
 
@@ -363,17 +373,12 @@ class MainWindow(QMainWindow):
                 locs, criteria=criteria, clustering_config=clustering_config
             )
 
-        worker = AnalysisWorker(_do)
-        self._worker = worker
-        worker.progress.connect(self.progress_widget.update)
-        worker.log.connect(self.log_widget.append)
+        worker = self._start_worker(_do)
         worker.result.connect(self._on_clustering_done)
-        worker.error.connect(self._on_worker_error)
         self.postproc_panel.set_busy(True)
         worker.start()
 
     def _on_clustering_done(self, result):
-        self._worker = None
         sm_db, sf_db = result
         self._sm_db = sm_db
         self._sf_db = sf_db
