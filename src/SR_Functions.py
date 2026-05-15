@@ -761,10 +761,17 @@ class SuperRes_Functions:
             plotter.setup_axis(
                 axs[0, 0],
                 title="Detected Spots (Full Field)",
-                xlabel="X (px)",
-                ylabel="Y (px)",
                 grid=False,
                 equal_aspect=True,
+            )
+            axs[0, 0].set_xticks([])
+            axs[0, 0].set_yticks([])
+            plotter.add_scalebar(
+                axs[0, 0],
+                pixelsize=pixel_size * 1000,
+                length_nm=10000,
+                label="10 μm",
+                color="white",
             )
 
             # Add zoom rectangle
@@ -786,10 +793,17 @@ class SuperRes_Functions:
             plotter.setup_axis(
                 axs[0, 1],
                 title="Fitted Spots (Full Field)",
-                xlabel="X (px)",
-                ylabel="Y (px)",
                 grid=False,
                 equal_aspect=True,
+            )
+            axs[0, 1].set_xticks([])
+            axs[0, 1].set_yticks([])
+            plotter.add_scalebar(
+                axs[0, 1],
+                pixelsize=pixel_size * 1000,
+                length_nm=10000,
+                label="10 μm",
+                color="white",
             )
 
             # Add zoom rectangle
@@ -826,11 +840,11 @@ class SuperRes_Functions:
             plotter.setup_axis(
                 axs[1, 0],
                 title="Detected Spots (Zoom)",
-                xlabel="X (px)",
-                ylabel="Y (px)",
                 grid=False,
                 equal_aspect=True,
             )
+            axs[1, 0].set_xticks([])
+            axs[1, 0].set_yticks([])
             plotter.add_scalebar(
                 axs[1, 0],
                 pixelsize=pixel_size * 1000,
@@ -849,11 +863,11 @@ class SuperRes_Functions:
             plotter.setup_axis(
                 axs[1, 1],
                 title="Fitted Spots (Zoom)",
-                xlabel="X (px)",
-                ylabel="Y (px)",
                 grid=False,
                 equal_aspect=True,
             )
+            axs[1, 1].set_xticks([])
+            axs[1, 1].set_yticks([])
             plotter.add_scalebar(
                 axs[1, 1],
                 pixelsize=pixel_size * 1000,
