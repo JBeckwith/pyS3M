@@ -10,19 +10,8 @@ from numpy.typing import NDArray
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
 import logging
+from PlottingBase import _safe_tight_layout
 logger = logging.getLogger(__name__)
-
-
-
-def _safe_tight_layout(fig):
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore',
-                              message='The figure layout has changed to tight',
-                              category=UserWarning)
-        try:
-            fig.tight_layout()
-        except Exception:
-            pass
 
 
 class MixtureAnalysisMixin:

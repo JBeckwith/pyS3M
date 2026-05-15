@@ -1,6 +1,6 @@
 # pyBayerSMLM TODO
 
-**Last Updated:** 2026-05-08 (notebook audit fully resolved — GUI is Priority 1)
+**Last Updated:** 2026-05-15 (GUI MVP complete — small improvements ongoing)
 
 **Note:** For completed work, see LOG.md
 
@@ -8,27 +8,44 @@
 
 ## Active Projects
 
-### Priority 1: PyQt6 GUI (NEW)
+### Priority 1: Codebase Deduplication (Tier 5 — all items)
 
-**Status:** 📋 PLANNED — design doc at `claude/gui.md`
-**Scope:** ~13 h for MVP (calibration load, smlm/imaging fitting, HDBSCAN clustering, results display, log panel)
+**Status:** 📋 PLANNED — full analysis in `claude/code_refactoring.md` §2 (D1–D6) / Tier 5.1–5.6
+**Est. effort:** ~4 h total
 
-**MVP tasks:**
-- [ ] Project scaffold — `src/gui/` package, `app.py` entry point, `MainWindow` skeleton with dock layout
-- [ ] `SetupPanel` — camera selector, calibration dir picker, `load_calibration()` worker
-- [ ] `FittingPanel` — mode selector, `FittingConfig` form, Preview button, Run Fitting button
-- [ ] `PostProcPanel` — `FilteringCriteria` + `ClusteringConfig` (HDBSCAN) form, Filter & Cluster button
-- [ ] `ResultsPanel` — `FigureCanvasQTAgg` tabs: Preview + Localisations
-- [ ] `LogWidget` + `QtLogHandler` + `ProgressWidget`
-- [ ] `AnalysisWorker` QThread + `AnalysisConfig` signal wiring
-- [ ] `QSettings` persistence for directories and `FittingConfig`
-- [ ] State machine (IDLE → CALIBRATED → FITTED → CLUSTERED) with button enable/disable
+#### D1 — Unify `fit_SM_data` / `fit_imaging_data` → `_fit_files()` (~2 h)
+- [ ] Implement `_fit_files(self, ..., accumulate_frame_numbers: bool, combined_output: bool)` in `SR_Functions.py`
+- [ ] Delete `fit_SM_data` and `fit_imaging_data`
+- [ ] Update `AnalysisPipeline.fit()` dispatch table
+- [ ] Find and rewrite all callers in `src/` and notebooks
 
-**Post-MVP (not in scope yet):**
-- DriftPanel, SpectralPanel
-- FRET / QD / tracking modes
-- Calibrate-from-frames mode
-- Batch multi-folder scheduling
+#### D2 — Extract shared clustering boilerplate (~1 h)
+- [ ] Add `_prepare_locs()` + `_finish_clustering()` helpers to a `ClusteringBaseMixin` or `_clustering_utils.py`
+- [ ] Refactor `dbscan_clusterer.py`, `hdbscan_clusterer.py`, `linked_clusterer.py` to use them
+
+#### D3 — Remove parallel AIM implementation in `drift_correction/aim.py` (~30 min)
+- [ ] Delete `_intersection_max`, `_intersection_max_z`, `_point_intersect_2d` from `AIMDriftCorrector`
+- [ ] Remove dead `_aim_algorithm` module-level singleton
+- [ ] Have `AIMDriftCorrector` delegate to `AIMAlgorithm` (same pattern as `_facade.py`)
+
+#### D4 — Delete duplicate `select_puncta_from_regions` from `_facade.py` (~20 min)
+- [ ] Remove the standalone implementation at `drift_correction/_facade.py:941`
+- [ ] Route callers through the existing `self.fiducial_detector` delegation
+
+#### D5 — Remove redundant `PublicationPlotter` method overrides ✅
+- [x] Added height warning to `BasePlotter.one_column_plot` and `two_column_plot`
+- [x] Deleted both overrides from `PublicationPlotter`; inheritance now serves `BasePlotter`
+
+#### D6 — Deduplicate trivial copy-pastes
+- [x] Move `_safe_tight_layout` to `PlottingBase.py`; import from there in `mixture_analysis.py` and `channel_unmixing.py`
+- [ ] ~~Remove `DriftCorrectionError` from `CoordinateProcessing.py`~~ — blocked: circular import (`drift_correction.__init__` → `aim.py` → `CoordinateProcessing`). Left with explanatory comment.
+
+---
+
+### PyQt6 GUI ✅ COMPLETE (MVP — May 2026)
+
+**Status:** ✅ DONE — small improvements ongoing, see LOG.md for details
+**Entry point:** `run_gui.py`; source under `src/gui/`
 
 ---
 

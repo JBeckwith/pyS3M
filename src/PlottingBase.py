@@ -39,6 +39,20 @@ except ImportError:
         ImportWarning
     )
 
+def _safe_tight_layout(fig) -> None:
+    """Call fig.tight_layout() suppressing the harmless layout-changed warning."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="The figure layout has changed to tight",
+            category=UserWarning,
+        )
+        try:
+            fig.tight_layout()
+        except Exception:
+            pass
+
+
 def plot_bayer_pattern(
     ax,
     pattern: str = "BGGR",
@@ -349,6 +363,12 @@ class BasePlotter(ABC):
 
         if height is not None:
             ysize = height
+            if height > PublicationConstants.MAX_HEIGHT:
+                warnings.warn(
+                    f"Height {height:.2f}\" exceeds maximum "
+                    f"({PublicationConstants.MAX_HEIGHT}\")",
+                    UserWarning,
+                )
         else:
             ysize = min(
                 PublicationConstants.DEFAULT_PANEL_HEIGHT_RATIO * npanels,
@@ -426,6 +446,12 @@ class BasePlotter(ABC):
 
         if height is not None:
             ysize = height
+            if height > PublicationConstants.MAX_HEIGHT:
+                warnings.warn(
+                    f"Height {height:.2f}\" exceeds maximum "
+                    f"({PublicationConstants.MAX_HEIGHT}\")",
+                    UserWarning,
+                )
         else:
             if big:
                 ysize = min(5.0 * nrows, PublicationConstants.MAX_HEIGHT)
@@ -3441,216 +3467,6 @@ class PublicationPlotter(TernaryPlotMixin, BasePlotter, ImagePlotMixin):
         # Store mode for helper methods
         self.poster = poster
         self.dark_background = dark_background
-
-    def one_column_plot(
-        self,
-        npanels: int = 1,
-        ratios: Optional[List[float]] = None,
-        height: Optional[float] = None,
-        width: Optional[float] = None,
-    ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
-        """Create a one-column width publication-quality figure.
-
-        Follows journal standards:
-        - Default width: 3.33 inches (240 pt) - one-column max
-        - Default height: 3.5 inches per panel (capped at 8.25 inches)
-        - Proper font hierarchy: 7pt ticks, 8pt axis labels, 6pt legends
-        - Line width: 0.5pt (standard) or 1.0pt (poster)
-
-        Args:
-            npanels: Number of vertical panels (rows)
-            ratios: Height ratios for panels. If None, uses equal heights.
-            height: Override total height in inches (capped at 8.25")
-            width: Override width in inches (capped at 3.33" for publications)
-
-        Returns:
-            Tuple of (figure, axes). If npanels=1, returns single axis; otherwise array.
-
-        Example:
-            >>> plotter = PublicationPlotter()
-            >>> fig, ax = plotter.one_column_plot()  # Single panel, 3.33" × 3.5"
-            >>> fig, axs = plotter.one_column_plot(npanels=2, ratios=[2, 1])  # Two panels
-        """
-        # Default to equal ratios
-        if ratios is None:
-            ratios = [1] * npanels
-
-        # Validate ratios
-        if len(ratios) != npanels:
-            raise ValueError(
-                f"Number of ratios ({len(ratios)}) must match npanels ({npanels})"
-            )
-
-        # Calculate dimensions with publication standards
-        if width is not None:
-            xsize = width
-            if width > PublicationConstants.ONE_COLUMN_WIDTH:
-                warnings.warn(
-                    f"Width {width:.2f}\" exceeds one-column standard "
-                    f"({PublicationConstants.ONE_COLUMN_WIDTH}\")",
-                    UserWarning
-                )
-        else:
-            xsize = PublicationConstants.ONE_COLUMN_WIDTH
-
-        if height is not None:
-            ysize = height
-            if height > PublicationConstants.MAX_HEIGHT:
-                warnings.warn(
-                    f"Height {height:.2f}\" exceeds maximum "
-                    f"({PublicationConstants.MAX_HEIGHT}\")",
-                    UserWarning
-                )
-        else:
-            # Default: 3.5 inches per panel, capped at max height
-            ysize = min(
-                PublicationConstants.DEFAULT_PANEL_HEIGHT_RATIO * npanels,
-                PublicationConstants.MAX_HEIGHT
-            )
-
-        # Create figure with proper dimensions and DPI
-        fig, axs = plt.subplots(
-            nrows=npanels,
-            ncols=1,
-            figsize=(xsize, ysize),
-            height_ratios=ratios,
-            frameon=False,
-            squeeze=False,
-            dpi=self.config.DEFAULT_DPI,
-        )
-
-        # Configure tick parameters for all axes
-        for ax in axs.flat:
-            ax.xaxis.set_tick_params(
-                width=self.config.line_width,
-                length=self.config.tick_length
-            )
-            ax.yaxis.set_tick_params(
-                width=self.config.line_width,
-                length=self.config.tick_length
-            )
-
-        # Return axes with appropriate squeeze behavior
-        if npanels == 1:
-            return fig, axs[0, 0]
-        else:
-            return fig, axs[:, 0]
-
-    def two_column_plot(
-        self,
-        nrows: int = 1,
-        ncols: int = 1,
-        height_ratios: Optional[List[float]] = None,
-        width_ratios: Optional[List[float]] = None,
-        width: Optional[float] = None,
-        height: Optional[float] = None,
-        big: bool = False,
-    ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
-        """Create a two-column width publication-quality figure.
-
-        Follows journal standards:
-        - Default width: 6.69 inches (17 cm) - two-column max
-        - Default height: 3.0 inches per row (5.0 if big=True)
-        - Proper font hierarchy: 7pt ticks, 8pt axis labels, 6pt legends
-        - Line width: 0.5pt (standard) or 1.0pt (poster)
-
-        Args:
-            nrows: Number of rows
-            ncols: Number of columns
-            height_ratios: Height ratios for rows. If None, uses equal heights.
-            width_ratios: Width ratios for columns. If None, uses equal widths.
-            width: Override total width in inches (capped at 6.69" for publications)
-            height: Override total height in inches (capped at 8.25")
-            big: Use larger default sizing (5" per row/col) for posters
-
-        Returns:
-            Tuple of (figure, axes). Returns appropriately squeezed array based on dimensions.
-
-        Example:
-            >>> plotter = PublicationPlotter()
-            >>> fig, axs = plotter.two_column_plot(nrows=2, ncols=2)  # 2×2 grid
-            >>> fig, (ax1, ax2) = plotter.two_column_plot(nrows=1, ncols=2)  # 1×2 row
-        """
-        # Default to equal ratios
-        if height_ratios is None:
-            height_ratios = [1] * nrows
-        if width_ratios is None:
-            width_ratios = [1] * ncols
-
-        # Validate ratios
-        if len(height_ratios) != nrows:
-            raise ValueError(
-                f"Number of height_ratios ({len(height_ratios)}) must match nrows ({nrows})"
-            )
-        if len(width_ratios) != ncols:
-            raise ValueError(
-                f"Number of width_ratios ({len(width_ratios)}) must match ncols ({ncols})"
-            )
-
-        # Calculate dimensions
-        if width is not None:
-            xsize = width
-            if width > PublicationConstants.TWO_COLUMN_WIDTH and not big:
-                warnings.warn(
-                    f"Width {width:.2f}\" exceeds two-column standard "
-                    f"({PublicationConstants.TWO_COLUMN_WIDTH}\")",
-                    UserWarning
-                )
-        else:
-            if big:
-                xsize = 5.0 * ncols
-            else:
-                xsize = PublicationConstants.TWO_COLUMN_WIDTH
-
-        if height is not None:
-            ysize = height
-            if height > PublicationConstants.MAX_HEIGHT:
-                warnings.warn(
-                    f"Height {height:.2f}\" exceeds maximum "
-                    f"({PublicationConstants.MAX_HEIGHT}\")",
-                    UserWarning
-                )
-        else:
-            if big:
-                ysize = min(5.0 * nrows, PublicationConstants.MAX_HEIGHT)
-            else:
-                ysize = min(
-                    PublicationConstants.DEFAULT_TWO_COLUMN_ROW_HEIGHT * nrows,
-                    PublicationConstants.MAX_HEIGHT
-                )
-
-        # Create figure with proper dimensions and DPI
-        fig, axs = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(xsize, ysize),
-            height_ratios=height_ratios,
-            width_ratios=width_ratios,
-            frameon=False,
-            squeeze=False,
-            dpi=self.config.DEFAULT_DPI,
-        )
-
-        # Configure tick parameters for all axes
-        for ax in axs.flat:
-            ax.xaxis.set_tick_params(
-                width=self.config.line_width,
-                length=self.config.tick_length
-            )
-            ax.yaxis.set_tick_params(
-                width=self.config.line_width,
-                length=self.config.tick_length
-            )
-
-        # Return axes with appropriate squeeze behavior
-        if nrows == 1 and ncols == 1:
-            return fig, axs[0, 0]
-        elif nrows == 1:
-            return fig, axs[0, :]
-        elif ncols == 1:
-            return fig, axs[:, 0]
-        else:
-            return fig, axs
 
     # ------------------------------------------------------------------
     # Legacy-compatible methods migrated from PlottingFunctions.Plotter

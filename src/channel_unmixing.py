@@ -15,6 +15,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import KDTree
 import logging
+from PlottingBase import _safe_tight_layout
 logger = logging.getLogger(__name__)
 
 
@@ -24,17 +25,6 @@ try:
 except ImportError:
     from sklearn.cluster import HDBSCAN
     HDBSCAN_BACKEND = "sklearn"
-
-
-def _safe_tight_layout(fig):
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore',
-                              message='The figure layout has changed to tight',
-                              category=UserWarning)
-        try:
-            fig.tight_layout()
-        except Exception:
-            pass
 
 
 class ChannelUnmixingMixin:

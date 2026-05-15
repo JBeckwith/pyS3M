@@ -1,6 +1,6 @@
 # pyBayerSMLM — Refactoring Analysis & Plan
 
-**Date:** 2026-04-22 (last updated 2026-05-08 — Tier 3.3 type hints complete)
+**Date:** 2026-04-22 (last updated 2026-05-15 — full duplication audit, 6 issues catalogued)
 **Scope:** Full `src/` codebase (~37 100 lines across 32 files + `drift_correction/` + `clustering/` subpackages)
 **Goal:** Compact, production-ready code that can be driven by a GUI without re-architecture
 
@@ -60,7 +60,101 @@
 
 ## 2. Duplication
 
-All known duplication resolved — see Completed table.
+Programmatic analysis (2026-05-15) found six duplications. Ordered by severity:
+
+---
+
+### D1 (Critical) — `fit_SM_data` vs `fit_imaging_data` in `SR_Functions.py`  ← **Tier 5.1**
+
+`fit_SM_data` (≈ 245 lines) and `fit_imaging_data` (≈ 260 lines) are ~95% identical.
+Both share: file search, ROI/metadata load, mask + calibration-map crop, chunked
+demosaic → detect → ROI-extract loop, quality-metric accumulation, parallel Gaussian
+fitting, and `_postprocess_fit_results`.
+
+The **only** behavioural differences are:
+
+| | `fit_SM_data` | `fit_imaging_data` |
+|---|---|---|
+| `frame_offset` to `_process_detected_puncta_batch` | `chunk_start` (resets per file) | `total_frames + chunk_start` (global) |
+| Output H5 name | `<tif_stem>.h5` per file | `Localisations.h5` for whole folder |
+| H5 `append` flag | always `False` | `False` for first file, `True` thereafter |
+
+**Fix:** collapse into one private `_fit_files(accumulate_frame_numbers, combined_output)` method.
+
+---
+
+### D2 (High) — DBSCAN vs HDBSCAN clustering pipelines
+
+`clustering/dbscan_clusterer.py` and `clustering/hdbscan_clusterer.py` share ~85 lines of
+identical pre/post-processing (load → filter → empty checks → XY extraction →
+precision calc → `average_parameters`). Only the ~12-line algorithm block differs:
+
+```python
+# DBSCAN:  DBSCAN(min_samples=min_cluster_size, eps=loc_precision * epsilon_multiplier)
+# HDBSCAN: HDBSCAN(min_cluster_size=min_cluster_size, cluster_selection_epsilon=loc_precision)
+```
+
+`extract_single_molecules_linked` in `clustering/linked_clusterer.py` shares the same
+load/filter/average_parameters boilerplate (~55 lines overlap with each of the above).
+
+**Fix:** Extract `_prepare_locs(loc_data, config, criteria, ...)` and `_finish_clustering(loc_data_assigned, labels)` into a `ClusteringBaseMixin` or `_clustering_utils.py`. The three method bodies then each reduce to ~15 lines.
+
+---
+
+### D3 (High) — `AIMDriftCorrector` contains parallel AIM implementation alongside `AIMAlgorithm.py`
+
+`drift_correction/aim.py` has its own `_intersection_max` (line 295), `_intersection_max_z`
+(line 559), and `_point_intersect_2d` (line 162) methods — duplicating the same three methods
+in `AIMAlgorithm.py` (lines 361, 526, 664). Additionally, `_aim_algorithm = AIMAlgorithm()`
+imported at module level in `drift_correction/aim.py` is **never referenced** after line 29
+(dead import). Meanwhile `drift_correction/_facade.py` delegates `run_aim_2d`/`run_aim_3d`
+directly to its own `self.aim_algorithm = AIMAlgorithm(...)` instance.
+
+**Status:** `AIMAlgorithm.py` is still the live path for `_facade.py`. The `AIMDriftCorrector`
+class in `drift_correction/aim.py` is a parallel re-implementation that is not currently
+called by `_facade.py`.
+
+**Fix:** Delete the three helper methods from `drift_correction/aim.py`; have `AIMDriftCorrector`
+delegate to `AIMAlgorithm` (same pattern as `_facade.py`). Remove the dead `_aim_algorithm`
+module-level singleton.
+
+---
+
+### D4 (High) — `select_puncta_from_regions` in two places
+
+`FiducialDetection.py:182` has the full ~100-line implementation (with plotting).
+`drift_correction/_facade.py:941` has its own ~100-line implementation (no plotting,
+`memory_optimize` spelling vs `memory_optimise`). The box-picking and stats-building
+logic is essentially the same.
+
+**Fix:** `_facade.py` already delegates to `self.fiducial_detector` for other fiducial
+methods (line 268 calls `self.fiducial_detector.select_puncta_from_regions`). The
+standalone method at line 941 should be deleted; callers should use the `fiducial_detector`
+delegation path instead.
+
+---
+
+### D5 (Low) — `one_column_plot` / `two_column_plot` overridden on `PublicationPlotter`
+
+Both methods are defined on `BasePlotter` (lines 313, 378) and overridden with nearly
+identical bodies on `PublicationPlotter` (lines 3445, 3539), which inherits from
+`BasePlotter`. The overrides add a height warning and slightly expanded docstrings but
+execute the same logic.
+
+**Fix:** Delete the `PublicationPlotter` overrides; let inheritance serve the base versions.
+If the height warning is needed, add it to the `BasePlotter` implementations instead.
+
+---
+
+### D6 (Trivial) — `_safe_tight_layout` and `DriftCorrectionError` copy-pasted
+
+- `_safe_tight_layout(fig)` — 8-line module-level function defined identically in
+  `mixture_analysis.py:17` and `channel_unmixing.py:29`.
+  **Fix:** Move to `PlottingBase.py` (or a small `_plot_utils.py`), import from there.
+
+- `class DriftCorrectionError(Exception)` — 4-line class defined identically in
+  `CoordinateProcessing.py:25` and `drift_correction/_base.py:31`.
+  **Fix:** Remove from `CoordinateProcessing.py`; import from `drift_correction._base`.
 
 ---
 
@@ -199,7 +293,18 @@ for embedding in a GUI canvas.  Tracking under Tier 3.4.
 | 4.2 | ✅ Package `DiffusionSimulation.py` + `Multicolour_Simulation_Functions.py` into `simulation/` submodule | done |
 | 4.1 | ✅ Create a high-level `AnalysisPipeline` orchestrator (GUI entry point) | done |
 
-**Estimated remaining effort:** none — all planned refactoring tiers complete.
+### Tier 5 — Deduplication
+
+| # | Duplication (see §2) | Files touched | Effort |
+|---|---|---|---|
+| 5.1 | D1: Collapse `fit_SM_data` + `fit_imaging_data` → `_fit_files(accumulate_frame_numbers, combined_output)` | `SR_Functions.py`, `AnalysisPipeline.py`, all callers in `src/` + notebooks | ~2 h |
+| 5.2 | D2: Extract clustering pre/post-processing into `ClusteringBaseMixin` or `_clustering_utils.py` | `clustering/dbscan_clusterer.py`, `hdbscan_clusterer.py`, `linked_clusterer.py` | ~1 h |
+| 5.3 | D3: Remove parallel AIM implementation from `AIMDriftCorrector`; delete dead `_aim_algorithm` singleton | `drift_correction/aim.py`, `AIMAlgorithm.py` | ~30 min |
+| 5.4 | D4: Delete `select_puncta_from_regions` from `_facade.py`; route through `fiducial_detector` delegation | `drift_correction/_facade.py` | ~20 min |
+| 5.5 | D5: Delete `one_column_plot`/`two_column_plot` overrides from `PublicationPlotter` | `PlottingBase.py` | ~10 min |
+| 5.6 | D6: Deduplicate `_safe_tight_layout` and `DriftCorrectionError` | `mixture_analysis.py`, `channel_unmixing.py`, `CoordinateProcessing.py` | ~15 min |
+
+**Estimated remaining effort:** ~4 h total (Tier 5.1 dominates).
 
 ---
 

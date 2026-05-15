@@ -1,8 +1,47 @@
 # pyBayerSMLM Development Log
 
 **Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** May 8, 2026
-**Status:** 🟢 **ACTIVE DEVELOPMENT** - GUI implementation
+**Last Updated:** May 15, 2026
+**Status:** 🟢 **ACTIVE DEVELOPMENT**
+
+---
+
+## Session: May 15, 2026 — PyQt6 GUI MVP ✅ COMPLETE
+
+### Summary
+Full PyQt6 desktop GUI built for pyBayerSMLM. Wraps `AnalysisPipeline` with a dock-based layout, background workers, and live results display. Small improvements are ongoing.
+
+### Architecture
+- **Entry point:** `run_gui.py` (sets `matplotlib.use("QtAgg")` before any other import)
+- **Package:** `src/gui/` — `app.py`, `main_window.py`, `worker.py`, `panels/`, `widgets/`
+- **State machine:** `AppState` enum: IDLE → CALIBRATED → FITTED → CLUSTERED
+- **Threading:** `AnalysisWorker(QThread)` for all pipeline calls; preview runs synchronously on main thread (required — `plt.subplots` creates Qt canvas)
+
+### Panels & Widgets
+| Component | File | Notes |
+|---|---|---|
+| `SetupPanel` | `panels/setup_panel.py` | Camera selector, pixel size (nm), auto-fills calibration dir |
+| `FittingPanel` | `panels/fitting_panel.py` | Mode ("Single-FOV" / "Multi-FOV"), FittingConfig form, Preview + Run buttons, Statistics Filter with Refresh |
+| `PostProcPanel` | `panels/postproc_panel.py` | Load H5 directly (skip fitting), FilteringCriteria + ClusteringConfig |
+| `ResultsPanel` | `panels/results_panel.py` | QTabWidget: Preview · Localisations · Statistics; draggable zoom rect on Preview |
+| `LogWidget` | `widgets/log_widget.py` | Thread-safe `QtLogHandler` → `QPlainTextEdit` |
+| `ProgressWidget` | `widgets/progress_widget.py` | QProgressBar + label |
+| `FolderPicker` | `widgets/folder_picker.py` | QLineEdit + Browse button |
+
+### Key Implementation Details
+- Worker lifetime: `worker.finished` + `lambda w=worker:` default-arg capture clears `self._worker` only after OS thread exits — avoids "QThread destroyed while running" crash
+- Scatter figures use `Figure(layout='constrained')` (not `plt.figure`) — thread-safe, no Qt canvas created in worker
+- Preview panel: `_DraggableZoomRect` in `results_panel.py` wired to `fig.canvas` **after** `FigureCanvasQTAgg(fig)` — event connections must target the live Qt canvas, not the pyplot canvas created during fitting
+- Stats histograms: A_R/G/B stored as normalised fractions in H5; use `photons` column for the total, multiply fraction × photons for per-channel counts
+- Fitting mode labels renamed in GUI only (`currentData()` returns original `"smlm"` / `"imaging"` strings)
+
+### Files Created / Modified
+- `run_gui.py` — entry point (new)
+- `src/gui/__init__.py`, `app.py`, `worker.py` (new)
+- `src/gui/panels/setup_panel.py`, `fitting_panel.py`, `postproc_panel.py`, `results_panel.py` (new)
+- `src/gui/widgets/folder_picker.py`, `log_widget.py`, `progress_widget.py` (new)
+- `src/gui/main_window.py` (new)
+- `src/SR_Functions.py` — `example_spots_singleframe`: removed axis labels, added 10 µm scale bars to full-field panels, zoom-rect drag data stored as `fig._zoom_drag_data`
 
 ---
 

@@ -23,7 +23,12 @@ import warnings
 
 
 class DriftCorrectionError(Exception):
-    """Custom exception for drift correction errors."""
+    """Custom exception for drift correction errors.
+
+    Intentionally duplicated here to avoid a circular import:
+    drift_correction.__init__ → aim.py → CoordinateProcessing.
+    Canonical definition is drift_correction._base.DriftCorrectionError.
+    """
 
     pass
 
