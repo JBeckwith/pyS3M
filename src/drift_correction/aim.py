@@ -499,9 +499,10 @@ class AIMDriftCorrector(DriftCorrector):
         total_frames = track_num * track_interval
         target_frames = np.arange(1, total_frames + 1)
 
-        # Perform cubic spline interpolation
-        spline_x = InterpolatedUnivariateSpline(x_coords, drift_x_extended, k=3)
-        spline_y = InterpolatedUnivariateSpline(x_coords, drift_y_extended, k=3)
+        # Perform cubic spline interpolation (fall back to lower order when m ≤ k)
+        spline_order = min(3, max(1, len(x_coords) - 1))
+        spline_x = InterpolatedUnivariateSpline(x_coords, drift_x_extended, k=spline_order)
+        spline_y = InterpolatedUnivariateSpline(x_coords, drift_y_extended, k=spline_order)
 
         drift_x_interp = spline_x(target_frames)
         drift_y_interp = spline_y(target_frames)

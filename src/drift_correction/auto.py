@@ -39,9 +39,9 @@ class AutoDriftCorrector(DriftCorrector):
     ) -> DriftResult:
         """Apply AIM drift correction."""
         meta = CoordinateProcessor.extract_metadata(info)
-        n_segments = SegmentationHandler.n_segments(
+        n_segments = max(1, SegmentationHandler.n_segments(
             int(meta["n_frames"]), params.segmentation
-        )
+        ))
         avg_locs_per_segment = len(locs) / n_segments
 
         result = self.aim_corrector.calculate_drift(locs, info, params)

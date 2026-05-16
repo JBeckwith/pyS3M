@@ -77,12 +77,8 @@ class Drift_Correction_Functions:
             self.plotter = None
             self.fiducial_detector = None
 
-        try:
-            from AIMAlgorithm import AIMAlgorithm
-
-            self.aim_algorithm = AIMAlgorithm(drift_correction_instance=self)
-        except ImportError:
-            self.aim_algorithm = None
+        from .aim import AIMDriftCorrector
+        self.aim_corrector = AIMDriftCorrector()
 
         try:
             from CoordinateProcessing import CoordinateProcessor
@@ -166,17 +162,45 @@ class Drift_Correction_Functions:
         )
 
     # AIM Algorithm delegation methods
-    def run_aim_2d(self, *args, **kwargs):
-        """Delegate to AIMAlgorithm.run_aim_2d"""
-        if self.aim_algorithm is None:
-            raise RuntimeError("AIMAlgorithm module not available")
-        return self.aim_algorithm.run_aim_2d(*args, **kwargs)
+    def run_aim_2d(
+        self,
+        locs: np.recarray,
+        info: list,
+        segmentation: int | None = None,
+        intersect_d: float | None = None,
+        roi_r: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
+        """Run 2D AIM drift correction via AIMDriftCorrector."""
+        params_kwargs: dict = {"pixel_size_nm": self.pixel_size * 1000}
+        if segmentation is not None:
+            params_kwargs["segmentation"] = segmentation
+        if intersect_d is not None:
+            params_kwargs["intersect_d"] = intersect_d
+        if roi_r is not None:
+            params_kwargs["roi_r"] = roi_r
+        params = DriftParameters(**params_kwargs)
+        result = self.aim_corrector.calculate_drift(locs, info, params)
+        return result.drift_x, result.drift_y, result.metadata
 
-    def run_aim_3d(self, *args, **kwargs):
-        """Delegate to AIMAlgorithm.run_aim_3d"""
-        if self.aim_algorithm is None:
-            raise RuntimeError("AIMAlgorithm module not available")
-        return self.aim_algorithm.run_aim_3d(*args, **kwargs)
+    def run_aim_3d(
+        self,
+        locs: np.recarray,
+        info: list,
+        segmentation: int | None = None,
+        intersect_d: float | None = None,
+        roi_r: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+        """Run 3D AIM drift correction via AIMDriftCorrector."""
+        params_kwargs: dict = {"pixel_size_nm": self.pixel_size * 1000}
+        if segmentation is not None:
+            params_kwargs["segmentation"] = segmentation
+        if intersect_d is not None:
+            params_kwargs["intersect_d"] = intersect_d
+        if roi_r is not None:
+            params_kwargs["roi_r"] = roi_r
+        params = DriftParameters(**params_kwargs)
+        result = self.aim_corrector.calculate_drift(locs, info, params)
+        return result.drift_x, result.drift_y, result.drift_z, result.metadata
 
     # Coordinate Processing delegation methods
     def convert_pixels_to_nm(self, *args, **kwargs):

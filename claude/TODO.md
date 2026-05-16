@@ -23,22 +23,29 @@
 - [ ] Add `_prepare_locs()` + `_finish_clustering()` helpers to a `ClusteringBaseMixin` or `_clustering_utils.py`
 - [ ] Refactor `dbscan_clusterer.py`, `hdbscan_clusterer.py`, `linked_clusterer.py` to use them
 
-#### D3 — Remove parallel AIM implementation in `drift_correction/aim.py` (~30 min)
-- [ ] Delete `_intersection_max`, `_intersection_max_z`, `_point_intersect_2d` from `AIMDriftCorrector`
-- [ ] Remove dead `_aim_algorithm` module-level singleton
-- [ ] Have `AIMDriftCorrector` delegate to `AIMAlgorithm` (same pattern as `_facade.py`)
+#### D3 — Remove dead module-level singletons from `drift_correction/aim.py` ✅
+- [x] Removed dead `_aim_algorithm` singleton (AIMAlgorithm, never used)
+- [x] Removed dead `_coordinate_processor`/`_segmentation_handler` singletons (never used; `calculate_drift` already lazy-imports them)
+- [x] Removed dead `render`/`postprocess` imports (never used in class)
+- Note: `AIMDriftCorrector`'s own algorithm methods are *not* duplicates — they are a superior multithreaded reimplementation vs `AIMAlgorithm.py`'s sequential versions
 
-#### D4 — Delete duplicate `select_puncta_from_regions` from `_facade.py` (~20 min)
-- [ ] Remove the standalone implementation at `drift_correction/_facade.py:941`
-- [ ] Route callers through the existing `self.fiducial_detector` delegation
+#### D3 (remainder) — Delete `AIMAlgorithm.py` entirely (~30 min)
+- [ ] Rewrite `_facade.py` `run_aim_2d`/`run_aim_3d` to call `AIMDriftCorrector.calculate_drift` instead of delegating to `self.aim_algorithm`
+- [ ] Update `unit_tests/test_drift_correction.py` to test `AIMDriftCorrector` instead of `AIMAlgorithm`
+- [ ] Update `unit_tests/test_drift_correction_simple.py` smoke test
+- [ ] Delete `AIMAlgorithm.py`
+
+#### D4 — Delete duplicate `select_puncta_from_regions` from `_facade.py` ✅
+- [x] Replaced 170-line standalone implementation with 15-line delegation to `self.fiducial_detector`
+- [x] `memory_optimize` → `memory_optimise` spelling difference handled at call site
 
 #### D5 — Remove redundant `PublicationPlotter` method overrides ✅
 - [x] Added height warning to `BasePlotter.one_column_plot` and `two_column_plot`
 - [x] Deleted both overrides from `PublicationPlotter`; inheritance now serves `BasePlotter`
 
-#### D6 — Deduplicate trivial copy-pastes
+#### D6 — Deduplicate trivial copy-pastes ✅
 - [x] Move `_safe_tight_layout` to `PlottingBase.py`; import from there in `mixture_analysis.py` and `channel_unmixing.py`
-- [ ] ~~Remove `DriftCorrectionError` from `CoordinateProcessing.py`~~ — blocked: circular import (`drift_correction.__init__` → `aim.py` → `CoordinateProcessing`). Left with explanatory comment.
+- [x] Remove `DriftCorrectionError` from `CoordinateProcessing.py`; import from `drift_correction._base` (circular import resolved by D3)
 
 ---
 
