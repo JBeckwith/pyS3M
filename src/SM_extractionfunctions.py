@@ -13,7 +13,7 @@ import gc
 sys.path.append(str(Path(__file__).parent))
 import IOFunctions
 from Constants import DriftConstants, FilteringConstants, FilteringCriteria
-from clustering import HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
+from clustering import ClusteringBaseMixin, HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
 from mixture_analysis import MixtureAnalysisMixin
 from channel_unmixing import ChannelUnmixingMixin
 import logging
@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
-                  MixtureAnalysisMixin, ChannelUnmixingMixin):
+                  MixtureAnalysisMixin, ChannelUnmixingMixin,
+                  ClusteringBaseMixin):
     def __init__(self, camera: str = "ximea", pixel_size: float = None, io_functions=None) -> None:
         """Single molecule extraction functions for clustering localizations into single molecules.
 

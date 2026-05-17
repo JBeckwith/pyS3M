@@ -65,25 +65,14 @@ class HDBSCANMixin:
             min_cluster_size = config.min_cluster_size
             start_frame      = config.start_frame
 
-        molecular_index_offset = 0
-
-        loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
-
-        loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, criteria=criteria,
-            chi_val=chi_val, max_localisation_error=max_localisation_error,
-            min_photons=min_photons, max_photons=max_photons,
-            max_colour_error=max_colour_error,
-            min_sigma=min_sigma, max_sigma=max_sigma,
-            max_sigma_error=max_sigma_error,
+        loc_data = self._prepare_locs(
+            loc_data, start_frame, criteria, chi_val,
+            max_localisation_error, max_colour_error,
+            min_sigma, max_sigma, max_sigma_error,
+            min_photons, max_photons,
         )
 
-        if len(loc_data) == 0:
-            logger.warning("Warning: No localizations remaining after filtering. Returning empty databases.")
-            return pd.DataFrame(), pd.DataFrame()
-
-        if len(loc_data) < min_cluster_size:
-            logger.warning(f"Warning: Only {len(loc_data)} localizations remaining after filtering, " f"but min_cluster_size={min_cluster_size}. Need at least {min_cluster_size} points. " f"Returning empty databases.")
+        if not self._check_min_locs(loc_data, min_cluster_size):
             return pd.DataFrame(), pd.DataFrame()
 
         X = np.vstack([loc_data["xc"], loc_data["yc"]]).T
@@ -98,13 +87,4 @@ class HDBSCANMixin:
         )
         hdb.fit(X)
 
-        assigned_mask = hdb.labels_ >= 0
-        loc_data_assigned = loc_data[assigned_mask].copy()
-        labels_assigned = hdb.labels_[assigned_mask]
-
-        loc_data_assigned["molecular_index"] = labels_assigned + molecular_index_offset
-
-        df = self.average_parameters(loc_data_assigned, labels_assigned)
-        df["molecular_index"] = df.index + molecular_index_offset
-
-        return df, loc_data_assigned
+        return self._finish_clustering(loc_data, hdb.labels_)

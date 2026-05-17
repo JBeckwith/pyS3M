@@ -66,17 +66,11 @@ class LinkedMixin:
             max_frames   = config.max_frames
             start_frame  = config.start_frame
 
-        molecular_index_offset = 0
-
-        loc_data = self._load_localisation_files(loc_data, start_frame=start_frame)
-
-        loc_data = self.filter_quality_localisations(
-            loc_data=loc_data, criteria=criteria,
-            chi_val=chi_val, max_localisation_error=max_localisation_error,
-            min_photons=min_photons, max_photons=max_photons,
-            max_colour_error=max_colour_error,
-            min_sigma=min_sigma, max_sigma=max_sigma,
-            max_sigma_error=max_sigma_error,
+        loc_data = self._prepare_locs(
+            loc_data, start_frame, criteria, chi_val,
+            max_localisation_error, max_colour_error,
+            min_sigma, max_sigma, max_sigma_error,
+            min_photons, max_photons,
         )
 
         loc_data_sorted = loc_data.sort_values("frame")
@@ -87,18 +81,7 @@ class LinkedMixin:
             loc_array, max_distance, max_frames, group
         )
 
-        linked_mask = link_groups >= 0
-        loc_data_linked = loc_data_sorted[linked_mask].copy()
-        link_groups_linked = link_groups[linked_mask]
-
-        loc_data_linked["molecular_index"] = link_groups_linked + molecular_index_offset
-
-        df = self.average_parameters(loc_data_linked, link_groups_linked)
-        df["molecular_index"] = df.index + molecular_index_offset
-
-        molecular_index_offset += len(df)
-
-        return df, loc_data_linked
+        return self._finish_clustering(loc_data_sorted, link_groups)
 
     # ------------------------------------------------------------------
     # Spectral-assisted LAP linking (Jaqaman et al. 2008)

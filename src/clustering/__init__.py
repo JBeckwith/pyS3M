@@ -12,6 +12,7 @@ the host class supplies:
 """
 
 from ._config import ClusteringConfig
+from ._base import ClusteringBaseMixin
 from .hdbscan_clusterer import HDBSCANMixin
 from .dbscan_clusterer import DBSCANMixin
 from .linked_clusterer import LinkedMixin
@@ -19,6 +20,7 @@ from .batch import BatchMixin
 
 __all__ = [
     "ClusteringConfig",
+    "ClusteringBaseMixin",
     "HDBSCANMixin",
     "DBSCANMixin",
     "LinkedMixin",
