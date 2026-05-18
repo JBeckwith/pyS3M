@@ -1,5 +1,5 @@
 """
-clustering — clustering subpackage for pyBayerSMLM.
+clustering — clustering subpackage for pyS3M.
 
 Provides algorithm-specific mixins that are composed into the main
 extract_SMs class in SM_extractionfunctions.py.  Each mixin assumes

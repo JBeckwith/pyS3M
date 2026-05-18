@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Global Constants for pyBayerSMLM
+Global Constants for pyS3M
 
 This module contains all magic numbers and constants used throughout the codebase
 to improve maintainability and avoid hard-coded values scattered across files.

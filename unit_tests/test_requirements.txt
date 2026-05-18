@@ -1,4 +1,4 @@
-# Testing requirements for pyBayerSMLM unit tests
+# Testing requirements for pyS3M unit tests
 
 # Core testing framework
 pytest>=6.0.0

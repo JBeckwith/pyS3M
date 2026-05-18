@@ -13,7 +13,7 @@ This module handles:
 - Drift interpolation
 
 :authors: Claude Code (refactored from DriftCorrectionFunctions.py)
-:copyright: Copyright (c) 2025 pyBayerSMLM
+:copyright: Copyright (c) 2025 pyS3M
 """
 
 import numpy as np

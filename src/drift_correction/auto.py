@@ -5,7 +5,7 @@ AutoDriftCorrector, DriftCorrectionFactory, and backward-compatible
 module-level convenience functions.
 
 :authors: Claude Code (based on Joerg Schnitzbauer, Maximilian Thomas Strauss, Hongqiang Ma, Maomao Chen)
-:copyright: Copyright (c) 2025 pyBayerSMLM
+:copyright: Copyright (c) 2025 pyS3M
 """
 
 import warnings

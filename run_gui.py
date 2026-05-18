@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for the pyBayerSMLM desktop GUI."""
+"""Entry point for the pyS3M desktop GUI."""
 import sys
 import os
 

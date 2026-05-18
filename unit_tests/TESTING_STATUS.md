@@ -1,4 +1,4 @@
-# Testing Status for pyBayerSMLM
+# Testing Status for pyS3M
 
 **Last Updated:** August 21, 2025  
 **Initial Setup:** Complete  
@@ -129,7 +129,7 @@ python unit_tests/run_tests.py --list
 
 ### **Project Structure Integration**
 ```
-pyBayerSMLM/
+pyS3M/
 ├── src/                     # Source modules
 ├── unit_tests/             # Unit test suite ← NEW
 ├── notebooks/              # Analysis notebooks
@@ -164,7 +164,7 @@ pyBayerSMLM/
 
 ## 🔄 **Integration with Existing Workflow**
 
-The unit testing infrastructure integrates seamlessly with the existing pyBayerSMLM development workflow:
+The unit testing infrastructure integrates seamlessly with the existing pyS3M development workflow:
 
 - **Refactoring Support**: Ready to test newly refactored modules
 - **Regression Prevention**: Catch issues during ongoing improvements  
@@ -178,4 +178,4 @@ The unit testing infrastructure integrates seamlessly with the existing pyBayerS
 **Documentation: COMPREHENSIVE** ✅  
 **Ready for Extension: YES** ✅  
 
-The unit testing infrastructure is now ready to support the ongoing refactoring efforts and ensure code quality as the pyBayerSMLM package continues to evolve.
+The unit testing infrastructure is now ready to support the ongoing refactoring efforts and ensure code quality as the pyS3M package continues to evolve.

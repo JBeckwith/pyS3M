@@ -21,7 +21,7 @@ collapsed into a single improved localisation:
 
 :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
                    (from Picasso / Eva_Wong_Code linking_functions.py)
-:adapted for pyBayerSMLM: jsb92, 2026-03-11
+:adapted for pyS3M: jsb92, 2026-03-11
 """
 
 import numpy as np

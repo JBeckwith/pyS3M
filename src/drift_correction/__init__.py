@@ -1,5 +1,5 @@
 """
-drift_correction — drift correction subpackage for pyBayerSMLM.
+drift_correction — drift correction subpackage for pyS3M.
 
 Public API re-exported here for convenience; the canonical import path
 remains ``import DriftCorrectionFunctions`` for backward compatibility.

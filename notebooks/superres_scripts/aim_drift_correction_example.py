@@ -29,7 +29,7 @@ try:
     import IOFunctions
 except ImportError as e:
     print(f"❌ Import error: {e}")
-    print("Make sure you're running from the pyBayerSMLM directory with src/ available")
+    print("Make sure you're running from the pyS3M directory with src/ available")
     sys.exit(1)
 
 

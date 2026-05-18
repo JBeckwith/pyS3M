@@ -1,11 +1,11 @@
 """
 ImportManager.py
 
-Centralised import management for pyBayerSMLM.
+Centralised import management for pyS3M.
 Handles optional dependencies, module availability checks, and consistent import patterns.
 
 :authors: Claude Code
-:copyright: Copyright (c) 2025 pyBayerSMLM
+:copyright: Copyright (c) 2025 pyS3M
 """
 
 import sys
@@ -37,7 +37,7 @@ class ModuleInfo:
 
 
 class ImportManager:
-    """Centralised manager for handling imports across pyBayerSMLM.
+    """Centralised manager for handling imports across pyS3M.
 
     This class provides a single point of control for managing optional
     dependencies, handling import failures gracefully, and providing
@@ -57,7 +57,7 @@ class ImportManager:
             sys.path.append(_dir)
 
     def _register_core_modules(self):
-        """Register core pyBayerSMLM modules and common dependencies.
+        """Register core pyS3M modules and common dependencies.
 
         NOTE: Only registers external packages here. Local modules are registered
         lazily on-demand to avoid circular imports.
@@ -97,7 +97,7 @@ class ImportManager:
         # Register numpy submodules
         self.register_module("numpy.fft", required=True)
 
-        # NOTE: Local pyBayerSMLM modules (PlottingFunctions, render, imageprocess, etc.)
+        # NOTE: Local pyS3M modules (PlottingFunctions, render, imageprocess, etc.)
         # are NOT registered here to avoid circular imports. They will be loaded
         # lazily on first access via get_module().
 
@@ -356,7 +356,7 @@ class ImportManager:
         }
 
 
-# Global instance for use across pyBayerSMLM
+# Global instance for use across pyS3M
 _import_manager = ImportManager()
 
 

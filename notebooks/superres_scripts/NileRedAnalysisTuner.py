@@ -65,9 +65,9 @@ try:
     import matplotlib.pyplot as plt
 
 except ImportError as e:
-    print(f"Error importing pyBayerSMLM modules: {e}")
+    print(f"Error importing pyS3M modules: {e}")
     print("Please ensure the virtual environment is activated:")
-    print("source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate")
+    print("source /home/jbeckwith/.virtualenvs/pyS3M/bin/activate")
     sys.exit(1)
 
 
@@ -1178,10 +1178,10 @@ class NileRedThresholdTuner:
 
 if __name__ == "__main__":
     # Check if virtual environment is activated
-    if "/pyBayerSMLM/" not in sys.executable:
-        print("Warning: pyBayerSMLM virtual environment may not be activated")
+    if "/pyS3M/" not in sys.executable:
+        print("Warning: pyS3M virtual environment may not be activated")
         print(
-            "Please run: source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate"
+            "Please run: source /home/jbeckwith/.virtualenvs/pyS3M/bin/activate"
         )
 
     # Parse command-line arguments

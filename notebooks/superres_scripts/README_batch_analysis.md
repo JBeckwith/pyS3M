@@ -1,4 +1,4 @@
-# pyBayerSMLM Batch Analysis Scripts
+# pyS3M Batch Analysis Scripts
 
 ## Overview
 
@@ -96,7 +96,7 @@ Detailed timestamped log saved to `batch_analysis_YYYYMMDD_HHMMSS.log`:
 - Run on analysis PC where data is stored, not local development machine
 
 ### Python import errors
-- Ensure virtual environment is activated: `workon pyBayerSMLM`
+- Ensure virtual environment is activated: `workon pyS3M`
 - Check that all required packages are installed: `pip install -r requirements.txt`
 
 ### Permission errors

@@ -1629,7 +1629,45 @@ class SuperRes_Functions:
         Returns:
             bayer_image (np.ndarray): colour images imaged through the bayer filter supplied
         """
+        return self._fit_files(
+            image_folder, smoothing_function, gain_map, offset_map, rqe, read_noise, variance,
+            pfa=pfa, ROI_size=ROI_size, peak_wavelength=peak_wavelength, NA=NA,
+            pixel_size=pixel_size, sigma=sigma, fraction_true=fraction_true,
+            image_type=image_type, use_variance_aware_demosaic=use_variance_aware_demosaic,
+            accumulate_frame_numbers=False, combined_output=False,
+        )
 
+    def _fit_files(
+        self,
+        image_folder: Path | str,
+        smoothing_function: Any,
+        gain_map: NDArray[np.float32],
+        offset_map: NDArray[np.float32],
+        rqe: NDArray[np.float32],
+        read_noise: NDArray[np.float32],
+        variance: NDArray[np.float32],
+        pfa: float = 1e-3,
+        ROI_size: int = 16,
+        peak_wavelength: float = 0.638,
+        NA: float = 1.49,
+        pixel_size: float | None = None,
+        sigma: float = 1.5,
+        fraction_true: float = 0.2,
+        image_type: str = ".tif",
+        use_variance_aware_demosaic: bool = True,
+        accumulate_frame_numbers: bool = False,
+        combined_output: bool = False,
+    ) -> None:
+        """Unified file-fitting pipeline shared by fit_SM_data and fit_imaging_data.
+
+        Args:
+            accumulate_frame_numbers: If True, frame indices accumulate across files
+                (imaging mode). If False, each file resets to frame 0 (SM mode).
+            combined_output: If True, all files append to one shared HDF5
+                (Localisations.h5 in image_folder). If False, each file gets its
+                own HDF5 alongside the TIFF.
+            All other args: see fit_SM_data / fit_imaging_data.
+        """
         if pixel_size is None:
             pixel_size = self.pixel_size
 
@@ -1641,7 +1679,6 @@ class SuperRes_Functions:
         masks = self.mask.get_stacked_masks(
             start_x, start_y, width, height, self.mosaic_unit
         )
-        # Crop calibration maps to ROI
         cropped_maps = self.helper.crop_calibration_maps(
             {
                 "gain_map": gain_map,
@@ -1663,11 +1700,15 @@ class SuperRes_Functions:
 
         result_params = ResultColumns.get_all_columns()
 
-        for FOVn, file in enumerate(image_files):
-            fit_savename = file.split(".")[0] + ".h5"
+        if combined_output:
+            fit_savename = Path(image_folder) / "Localisations.h5"
 
-            # Get total frame count without loading entire file
-            total_frames = self.io.get_num_pages_in_TIF(file)
+        total_frames = 0
+        for FOVn, file in enumerate(image_files):
+            if not combined_output:
+                fit_savename = file.split(".")[0] + ".h5"
+
+            file_frames = self.io.get_num_pages_in_TIF(file)
 
             chunk_size = 1000
             all_puncta_tofit = []
@@ -1676,25 +1717,20 @@ class SuperRes_Functions:
             all_weights_tofit = []
             all_relative_coords = []
             all_planes = []
-            all_quality_metrics = []  # NEW: Accumulate quality metrics
+            all_quality_metrics = []
 
-            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {total_frames} frames in chunks of {chunk_size}")
+            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}")
 
-            # Process file in chunks
-            for chunk_start in range(0, total_frames, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, total_frames)
+            for chunk_start in range(0, file_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, file_frames)
                 chunk_frames = list(range(chunk_start, chunk_end))
 
                 logger.info(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
 
-                # Load chunk of raw data
                 raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
-
-                # Ensure raw_data is 3D even for single frame chunks
                 if raw_data.ndim == 2:
                     raw_data = raw_data[np.newaxis, :, :]
 
-                # Demosaic the raw Bayer image
                 image_to_analyse = self._demosaic_image(
                     raw_data,
                     use_variance_aware=use_variance_aware_demosaic,
@@ -1703,7 +1739,6 @@ class SuperRes_Functions:
                     variance=variance,
                 )
 
-                # Detect puncta with quality metrics
                 detected_puncta, quality_metrics = self.spot_detection.detect_puncta_in_stack_parallel(
                     image_to_analyse,
                     pfa=pfa,
@@ -1713,11 +1748,11 @@ class SuperRes_Functions:
                     NA=NA,
                     sigma=sigma,
                     fraction_true=fraction_true,
-                    return_quality=True,  # Enable quality metrics
+                    return_quality=True,
                 )
 
-                # Process ROIs for this chunk (keep original frame indices for raw_data access)
-                # Pass quality_metrics so they get filtered to match ROIs that passed processing
+                frame_offset = (total_frames if accumulate_frame_numbers else 0) + chunk_start
+
                 (
                     chunk_puncta,
                     chunk_smoothed,
@@ -1725,10 +1760,10 @@ class SuperRes_Functions:
                     chunk_weights,
                     chunk_coords,
                     chunk_planes,
-                    filtered_quality_metrics,  # Returns filtered metrics matching processed ROIs
+                    filtered_quality_metrics,
                 ) = self._process_detected_puncta_batch(
                     raw_data,
-                    detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
+                    detected_puncta,
                     width,
                     height,
                     ROI_size,
@@ -1738,99 +1773,79 @@ class SuperRes_Functions:
                     gain_map=gain_map,
                     offset_map=offset_map,
                     rqe=rqe,
-                    frame_offset=chunk_start,  # Frame offset for this chunk
+                    frame_offset=frame_offset,
                     is_multi_frame=True,
-                    quality_metrics=quality_metrics,  # Pass quality metrics to be filtered
+                    quality_metrics=quality_metrics,
                 )
 
-                # Accumulate results from this chunk
                 all_puncta_tofit.extend(chunk_puncta)
                 all_smoothed_puncta_tofit.extend(chunk_smoothed)
                 all_masks_tofit.extend(chunk_masks)
                 all_weights_tofit.extend(chunk_weights)
                 all_relative_coords.extend(chunk_coords)
                 all_planes.extend(chunk_planes)
-                # Use FILTERED quality metrics (already matched to processed ROIs)
                 if filtered_quality_metrics is not None:
                     all_quality_metrics.append(filtered_quality_metrics)
 
-                # Clean up chunk data
                 del raw_data, detected_puncta, quality_metrics, image_to_analyse
-                if "buffer_data" in locals() and buffer_data is not None:
-                    del buffer_data
                 gc.collect()
 
             logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
 
-            # Move all data to final arrays for fitting
-            puncta_tofit = all_puncta_tofit
-            smoothed_puncta_tofit = all_smoothed_puncta_tofit
-            masks_tofit = all_masks_tofit
-            weights_tofit = all_weights_tofit
-            relative_coords = all_relative_coords
-            planes = all_planes
-
-            # NEW: Combine quality metrics from all chunks
             combined_quality_metrics = {}
-            if len(all_quality_metrics) > 0:
-                # Get keys from first non-empty quality dict
+            if all_quality_metrics:
                 for quality_dict in all_quality_metrics:
-                    if len(quality_dict) > 0:
+                    if quality_dict:
                         for key in quality_dict.keys():
                             combined_quality_metrics[key] = []
                         break
-
-                # Concatenate arrays for each metric
                 for quality_dict in all_quality_metrics:
-                    if len(quality_dict) > 0:
+                    if quality_dict:
                         for key in combined_quality_metrics.keys():
                             if key in quality_dict:
                                 combined_quality_metrics[key].append(quality_dict[key])
-
-                # Convert lists to arrays
                 for key in combined_quality_metrics.keys():
-                    if len(combined_quality_metrics[key]) > 0:
+                    if combined_quality_metrics[key]:
                         combined_quality_metrics[key] = np.concatenate(combined_quality_metrics[key])
 
-            # ROI processing already done in chunks above
-
-            fit_results_array, fit_errors_array = (
-                self.image_analysis.fit_puncta_parallel_method(
-                    puncta_tofit,
-                    smoothed_puncta_tofit,
-                    weights_tofit,
-                    relative_coords,
-                    planes,
-                    FittingStrategy.STANDARD_DATA,
-                    masks=masks_tofit,
-                )
+            fit_results_array, fit_errors_array = self.image_analysis.fit_puncta_parallel_method(
+                all_puncta_tofit,
+                all_smoothed_puncta_tofit,
+                all_weights_tofit,
+                all_relative_coords,
+                all_planes,
+                FittingStrategy.STANDARD_DATA,
+                masks=all_masks_tofit,
             )
 
-            # Post-process results: stack, create DataFrame, fix frames, sort, filter
             fit_results = self._postprocess_fit_results(
                 fit_results_array,
                 fit_errors_array,
                 result_params,
-                planes,
+                all_planes,
                 width,
                 height,
-                quality_metrics=combined_quality_metrics,  # NEW: Pass quality metrics
+                quality_metrics=combined_quality_metrics,
             )
 
-            self.io.write_h5_database(fit_results, fit_savename, append=False)
+            append = combined_output and FOVn > 0
+            self.io.write_h5_database(fit_results, fit_savename, append=append)
+
+            if accumulate_frame_numbers:
+                total_frames += file_frames
+
             del (
                 fit_results_array,
                 fit_results,
                 fit_errors_array,
-                puncta_tofit,
-                smoothed_puncta_tofit,
-                masks_tofit,
-                weights_tofit,
-                relative_coords,
-                planes,
+                all_puncta_tofit,
+                all_smoothed_puncta_tofit,
+                all_masks_tofit,
+                all_weights_tofit,
+                all_relative_coords,
+                all_planes,
             )
             gc.collect()
-        return
 
     def fit_tracking_data(
         self,
@@ -2377,214 +2392,10 @@ class SuperRes_Functions:
             None: Writes results to HDF5 file:
                 - image_folder/Localisations.h5
         """
-
-        if pixel_size is None:
-            pixel_size = self.pixel_size
-
-        image_files = self.helper.file_search(image_folder, image_type, "")
-        start_x, start_y, width, height = self.helper.load_metadata_roi(
-            image_folder, self.io, use_fallback=False
+        return self._fit_files(
+            image_folder, smoothing_function, gain_map, offset_map, rqe, read_noise, variance,
+            pfa=pfa, ROI_size=ROI_size, peak_wavelength=peak_wavelength, NA=NA,
+            pixel_size=pixel_size, sigma=sigma, fraction_true=fraction_true,
+            image_type=image_type, use_variance_aware_demosaic=use_variance_aware_demosaic,
+            accumulate_frame_numbers=True, combined_output=True,
         )
-
-        fit_savename = Path(image_folder) / "Localisations.h5"
-        masks = self.mask.get_stacked_masks(
-            start_x, start_y, width, height, self.mosaic_unit
-        )
-        # Crop calibration maps to ROI
-        cropped_maps = self.helper.crop_calibration_maps(
-            {
-                "gain_map": gain_map,
-                "offset_map": offset_map,
-                "read_noise": read_noise,
-                "rqe": rqe,
-                "variance": variance,
-            },
-            start_x,
-            start_y,
-            width,
-            height,
-        )
-        gain_map = cropped_maps["gain_map"]
-        offset_map = cropped_maps["offset_map"]
-        read_noise = cropped_maps["read_noise"]
-        rqe = cropped_maps["rqe"]
-        variance = cropped_maps["variance"]
-
-        result_params = ResultColumns.get_all_columns()
-
-        total_frames = 0
-        for FOVn, file in enumerate(image_files):
-            file_frames = self.io.get_num_pages_in_TIF(file)
-
-            chunk_size = 1000
-            all_puncta_tofit = []
-            all_smoothed_puncta_tofit = []
-            all_masks_tofit = []
-            all_weights_tofit = []
-            all_relative_coords = []
-            all_planes = []
-
-            logger.info(f"Processing file {FOVn+1}/{len(image_files)}: {file_frames} frames in chunks of {chunk_size}")
-
-            # NEW: Accumulate quality metrics across chunks
-            all_quality_metrics = []
-
-            # Process file in chunks
-            for chunk_start in range(0, file_frames, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, file_frames)
-                chunk_frames = list(range(chunk_start, chunk_end))
-
-                logger.info(f"  Processing chunk: frames {chunk_start}-{chunk_end-1}")
-
-                # Load chunk of raw data
-                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
-
-                # Ensure raw_data is 3D even for single frame chunks
-                if raw_data.ndim == 2:
-                    raw_data = raw_data[np.newaxis, :, :]
-
-                # Demosaic the raw Bayer image for detection
-                image_to_analyse = self._demosaic_image(
-                    raw_data,
-                    use_variance_aware=use_variance_aware_demosaic,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    variance=variance,
-                )
-
-                # NEW: Capture quality metrics during detection
-                detected_puncta, quality_metrics = self.spot_detection.detect_puncta_in_stack_parallel(
-                    image_to_analyse,
-                    pfa=pfa,
-                    wavelength=peak_wavelength,
-                    variance=variance,
-                    pixel_size=pixel_size,
-                    NA=NA,
-                    sigma=sigma,
-                    fraction_true=fraction_true,
-                    return_quality=True,  # NEW: Enable quality metrics
-                )
-
-                # Process ROIs for this chunk
-                # Detection uses original data, fitting uses temporal median subtracted if enabled
-                # Pass quality_metrics so they get filtered to match ROIs that passed processing
-                (
-                    chunk_puncta,
-                    chunk_smoothed,
-                    chunk_masks,
-                    chunk_weights,
-                    chunk_coords,
-                    chunk_planes,
-                    filtered_quality_metrics,  # Returns filtered metrics matching processed ROIs
-                ) = self._process_detected_puncta_batch(
-                    raw_data,
-                    detected_puncta,  # Keep original frame indices (0-999, 0-999, etc.)
-                    width,
-                    height,
-                    ROI_size,
-                    smoothing_function,
-                    read_noise,
-                    masks,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    rqe=rqe,
-                    frame_offset=total_frames
-                    + chunk_start,  # Global frame offset including chunk
-                    is_multi_frame=True,
-                    quality_metrics=quality_metrics,  # Pass quality metrics to be filtered
-                )
-
-                # Accumulate results from this chunk
-                all_puncta_tofit.extend(chunk_puncta)
-                all_smoothed_puncta_tofit.extend(chunk_smoothed)
-                all_masks_tofit.extend(chunk_masks)
-                all_weights_tofit.extend(chunk_weights)
-                all_relative_coords.extend(chunk_coords)
-                all_planes.extend(chunk_planes)
-                # Use FILTERED quality metrics (already matched to processed ROIs)
-                if filtered_quality_metrics is not None:
-                    all_quality_metrics.append(filtered_quality_metrics)
-
-                # Clean up chunk data
-                del raw_data, detected_puncta, image_to_analyse
-                gc.collect()
-
-            logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
-
-            # Move all data to final arrays for fitting
-            puncta_tofit = all_puncta_tofit
-            smoothed_puncta_tofit = all_smoothed_puncta_tofit
-            masks_tofit = all_masks_tofit
-            weights_tofit = all_weights_tofit
-            relative_coords = all_relative_coords
-            planes = all_planes
-
-            # ROI processing already done in chunks above
-            total_frames += file_frames
-
-            # NEW: Combine quality metrics from all chunks
-            combined_quality_metrics = {}
-            if len(all_quality_metrics) > 0:
-                # Get keys from first non-empty quality dict
-                for quality_dict in all_quality_metrics:
-                    if len(quality_dict) > 0:
-                        for key in quality_dict.keys():
-                            combined_quality_metrics[key] = []
-                        break
-
-                # Concatenate arrays for each metric
-                for quality_dict in all_quality_metrics:
-                    if len(quality_dict) > 0:
-                        for key in combined_quality_metrics.keys():
-                            if key in quality_dict:
-                                combined_quality_metrics[key].append(quality_dict[key])
-
-                # Convert lists to arrays
-                for key in combined_quality_metrics.keys():
-                    if len(combined_quality_metrics[key]) > 0:
-                        combined_quality_metrics[key] = np.concatenate(
-                            combined_quality_metrics[key]
-                        )
-            else:
-                logger.info("  WARNING: No quality metrics collected!")
-
-            fit_results_array, fit_errors_array = (
-                self.image_analysis.fit_puncta_parallel_method(
-                    puncta_tofit,
-                    smoothed_puncta_tofit,
-                    weights_tofit,
-                    relative_coords,
-                    planes,
-                    FittingStrategy.STANDARD_DATA,
-                    masks=masks_tofit,
-                )
-            )
-
-            # Post-process results: stack, create DataFrame, fix frames, sort, filter
-            fit_results = self._postprocess_fit_results(
-                fit_results_array,
-                fit_errors_array,
-                result_params,
-                planes,
-                width,
-                height,
-                quality_metrics=combined_quality_metrics,  # NEW: Pass quality metrics
-            )
-
-            if FOVn == 0:
-                self.io.write_h5_database(fit_results, fit_savename, append=False)
-            else:
-                self.io.write_h5_database(fit_results, fit_savename, append=True)
-            del (
-                fit_results_array,
-                fit_results,
-                fit_errors_array,
-                puncta_tofit,
-                smoothed_puncta_tofit,
-                masks_tofit,
-                weights_tofit,
-                relative_coords,
-                planes,
-            )
-            gc.collect()
-        return

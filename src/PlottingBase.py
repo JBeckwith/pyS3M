@@ -1,7 +1,7 @@
 """
 PlottingBase.py
 
-Base plotting utilities and common patterns for pyBayerSMLM.
+Base plotting utilities and common patterns for pyS3M.
 Consolidates common functionality from PlottingFunctions.py and DriftPlotting.py.
 
 :authors: jsb92
@@ -177,7 +177,7 @@ class PublicationConstants:
 
 @dataclass
 class PlottingConfig:
-    """Configuration class for consistent plotting styles across pyBayerSMLM.
+    """Configuration class for consistent plotting styles across pyS3M.
 
     This class now properly implements publication standards from PlottingFunctions.
     Default values follow journal requirements for single-molecule microscopy papers.
@@ -276,7 +276,7 @@ class PlottingConfig:
 
 
 class BasePlotter(ABC):
-    """Base class for all plotting functionality in pyBayerSMLM.
+    """Base class for all plotting functionality in pyS3M.
 
     This class provides common plotting utilities and patterns that are shared
     across different plotting modules in the codebase. It follows the DRY principle

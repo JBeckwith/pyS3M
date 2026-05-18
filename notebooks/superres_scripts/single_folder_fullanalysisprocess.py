@@ -29,9 +29,9 @@ try:
     from IOFunctions import IO_Functions
     from HelperFunctions import Helper_Functions
 except ImportError as e:
-    print(f"Error importing pyBayerSMLM modules: {e}")
+    print(f"Error importing pyS3M modules: {e}")
     print("Please ensure the virtual environment is activated:")
-    print("source /home/jbeckwith/.virtualenvs/pyBayerSMLM/bin/activate")
+    print("source /home/jbeckwith/.virtualenvs/pyS3M/bin/activate")
     sys.exit(1)
 
 
@@ -57,7 +57,7 @@ class SingleFolderAnalyzer:
         """Initialize log file"""
         with open(self.log_file, 'w') as f:
             f.write("=" * 80 + "\n")
-            f.write(f"pyBayerSMLM Single Folder Analysis - {datetime.now()}\n")
+            f.write(f"pyS3M Single Folder Analysis - {datetime.now()}\n")
             f.write("=" * 80 + "\n")
             f.write(f"Folder: {self.folder_path}\n")
             f.write(f"Script: {Path(__file__).name}\n")
@@ -307,7 +307,7 @@ class SingleFolderTuner(InteractiveThresholdTuner):
     def run_single_folder(self):
         """Run threshold tuning for a single folder"""
         print("=" * 80)
-        print("pyBayerSMLM Single Folder Threshold Tuner")
+        print("pyS3M Single Folder Threshold Tuner")
         print("=" * 80)
         print(f"Folder: {self.single_folder_path}")
         print(f"Type: {self.single_folder_type}")

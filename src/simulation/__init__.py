@@ -1,5 +1,5 @@
 """
-simulation — simulation subpackage for pyBayerSMLM.
+simulation — simulation subpackage for pyS3M.
 
 Provides:
     diffusion    — 2D Langevin diffusion, MSD, binding kinetics (DiffusionSimulation)

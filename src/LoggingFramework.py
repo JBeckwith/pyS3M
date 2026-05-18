@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Comprehensive Logging Framework for pyBayerSMLM
+Comprehensive Logging Framework for pyS3M
 
 Provides standardised logging functionality for scientific computing workflows
 with support for both console and file output, performance monitoring,
@@ -28,7 +28,7 @@ _log_lock = threading.RLock()
 
 
 class PyBayerSMLMFormatter(logging.Formatter):
-    """Custom formatter for pyBayerSMLM with scientific analysis context."""
+    """Custom formatter for pyS3M with scientific analysis context."""
 
     def __init__(self):
         super().__init__()
@@ -123,7 +123,7 @@ def setup_logger(
     console_output: bool = True,
 ) -> logging.Logger:
     """
-    Set up a standardised logger for pyBayerSMLM modules.
+    Set up a standardised logger for pyS3M modules.
 
     Args:
         name: Logger name (typically module name)
@@ -266,7 +266,7 @@ def log_analysis_block(analysis_name: str, logger_name: Optional[str] = None):
 
 # Global configuration
 def set_global_log_level(level: int):
-    """Set logging level for all pyBayerSMLM loggers."""
+    """Set logging level for all pyS3M loggers."""
     with _log_lock:
         for logger in _loggers.values():
             logger.setLevel(level)

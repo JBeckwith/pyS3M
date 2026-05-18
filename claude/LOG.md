@@ -1,15 +1,62 @@
-# pyBayerSMLM Development Log
+# pyS3M Development Log
 
-**Project:** pyBayerSMLM - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** May 15, 2026
+**Project:** pyS3M - Python package for multicolour single-molecule localization microscopy
+**Last Updated:** May 17, 2026
 **Status:** 🟢 **ACTIVE DEVELOPMENT**
+
+---
+
+## Session: May 16–17, 2026 — Codebase Deduplication D1–D6 ✅ COMPLETE
+
+All six Tier-5 deduplication items resolved.  Net effect: ~1 300 lines deleted;
+three new shared-helper files added; public APIs unchanged.
+
+### D3 — Delete `AIMAlgorithm.py` and dead singletons in `aim.py`
+
+**Files modified:**
+- `src/drift_correction/aim.py` — removed dead `_aim_algorithm`, `_coordinate_processor`, `_segmentation_handler` singletons; added adaptive spline-order guard (`spline_order = min(3, max(1, len(x_coords) - 1))`) to survive < 4 segments
+- `src/drift_correction/auto.py` — `n_segments = max(1, ...)` guard prevents `ZeroDivisionError` when `n_frames < segmentation`
+- `src/drift_correction/_facade.py` — `run_aim_2d` / `run_aim_3d` rewritten to call `AIMDriftCorrector.calculate_drift(locs, info, DriftParameters(...))`; result fields accessed via `.drift_x`, `.drift_y`, `.drift_z`, `.metadata`
+- `src/AIMAlgorithm.py` — **DELETED** (785 lines)
+- `unit_tests/test_drift_correction.py` — updated to new API: `xc`/`yc` fields added to test recarrays; `fiducial_detection` → `fiducial_detector`; dict access `['drift_x']` → `.drift_x`; `min_localizations` kwarg removed; 3 tests skipped (need rendered images or removed methods); final: 18 passed, 3 skipped
+- `unit_tests/test_drift_correction_simple.py` — `aim_algorithm` → `aim_corrector` in smoke test; import updated to `AIMDriftCorrector`
+
+### D4 — Delete duplicate `select_puncta_from_regions` from `_facade.py`
+
+- `src/drift_correction/_facade.py` — 170-line standalone `select_puncta_from_regions` replaced with 15-line delegation to `self.fiducial_detector.select_puncta_from_regions`
+
+### D5 — Remove `PublicationPlotter` method overrides
+
+- `src/PlottingBase.py` — height warning added to `BasePlotter.one_column_plot` and `two_column_plot`; both `PublicationPlotter` overrides deleted
+
+### D6 — Deduplicate `_safe_tight_layout` and `DriftCorrectionError`
+
+- `src/PlottingBase.py` — `_safe_tight_layout(fig)` added as module-level function
+- `src/mixture_analysis.py` — local definition removed; imports from `PlottingBase`
+- `src/channel_unmixing.py` — local definition removed; imports from `PlottingBase`
+- `src/CoordinateProcessing.py` — `DriftCorrectionError` class removed; imports from `drift_correction._base`
+
+### D2 — Extract `ClusteringBaseMixin`
+
+- `src/clustering/_base.py` — **NEW** (65 lines): `_prepare_locs`, `_check_min_locs`, `_finish_clustering`
+- `src/clustering/__init__.py` — `ClusteringBaseMixin` added to imports and `__all__`
+- `src/clustering/dbscan_clusterer.py` — load+filter, empty-check, assign+average blocks replaced with helper calls
+- `src/clustering/hdbscan_clusterer.py` — same refactoring
+- `src/clustering/linked_clusterer.py` — load+filter and assign+average blocks replaced; `spectral_lap` left unchanged (divergent load/finish pattern)
+- `src/SM_extractionfunctions.py` — `ClusteringBaseMixin` added to MRO (last position)
+
+### D1 — Unify `fit_SM_data` / `fit_imaging_data` → `_fit_files()`
+
+- `src/SR_Functions.py` — `_fit_files(self, ..., accumulate_frame_numbers: bool, combined_output: bool)` added (~130 lines); `fit_SM_data` body replaced with 9-line delegation (`accumulate_frame_numbers=False, combined_output=False`); `fit_imaging_data` body replaced with 9-line delegation (`accumulate_frame_numbers=True, combined_output=True`); latent `quality_metrics` cleanup bug fixed in the unified path
+- `src/AnalysisPipeline.py` — docstring note updated to reflect delegation
+- `claude/SR_Functions_Notebook_Corrections_20260517.md` — **NEW**: catalogues all 24 executable notebook call sites across 12 notebooks; public wrappers retained so these are non-urgent
 
 ---
 
 ## Session: May 15, 2026 — PyQt6 GUI MVP ✅ COMPLETE
 
 ### Summary
-Full PyQt6 desktop GUI built for pyBayerSMLM. Wraps `AnalysisPipeline` with a dock-based layout, background workers, and live results display. Small improvements are ongoing.
+Full PyQt6 desktop GUI built for pyS3M. Wraps `AnalysisPipeline` with a dock-based layout, background workers, and live results display. Small improvements are ongoing.
 
 ### Architecture
 - **Entry point:** `run_gui.py` (sets `matplotlib.use("QtAgg")` before any other import)
@@ -483,7 +530,7 @@ Added `@dataclass class RenderingConfig` with 10 fields mirroring all kwargs of 
 - `src/clustering/linked_clusterer.py` — `config=` param + unpack block in both `extract_single_molecules_linked` (3 fields) and `extract_single_molecules_spectral_lap` (16 fields)
 - `src/clustering/batch.py` — `config=` param + unpack block (7 fields); also fixed bare `logger.info()` call
 
-All 6 clustering submodules import cleanly in the `pyBayerSMLM` virtualenv.
+All 6 clustering submodules import cleanly in the `pyS3M` virtualenv.
 
 **Commit:** `229e814 feat(clustering): add ClusteringConfig dataclass and wire into all extraction methods`
 
@@ -3627,7 +3674,7 @@ Removed debug print statements from quality metrics pipeline after successful va
 ### 4. Production Deployment Note
 
 **Issue Identified:**
-- Analysis PC (`/home/jsb92/Documents/pyBayerSMLM/`) has outdated code
+- Analysis PC (`/home/jsb92/Documents/pyS3M/`) has outdated code
 - Running batch analysis produces `NameError: name 'combined_quality_metrics' is not defined`
 - Requires `git pull origin main` to sync commit `28c9296`
 
@@ -13470,7 +13517,7 @@ Dataset Size    Matplotlib    Datashader    Preview (density)
 ### Infrastructure and Development Tools Completed (August 29, 2025)
 - ✅ **Import standardization completed** - StandardImports.py and ImportStandards.py created with consistent patterns:
   - Maintained numpy `_np` pattern for legacy Picasso modules (compatibility)
-  - Standard `np` pattern for all modern pyBayerSMLM modules
+  - Standard `np` pattern for all modern pyS3M modules
   - Consistent matplotlib backend configuration (`Agg` for batch processing)
   - Module path setup utilities for clean imports
 - ✅ **Comprehensive logging framework implemented** - LoggingFramework.py with:
@@ -13676,7 +13723,7 @@ class Configuration:
 
 ---
 
-*This log represents the completion of a comprehensive codebase modernization effort, transforming pyBayerSMLM from a research prototype into a production-ready scientific computing platform with established architectural patterns, robust error handling, and modern development practices.*
+*This log represents the completion of a comprehensive codebase modernization effort, transforming pyS3M from a research prototype into a production-ready scientific computing platform with established architectural patterns, robust error handling, and modern development practices.*
 ---
 
 ## Session: 2025-11-18 - Multi-Emitter Fitting for Bacterial Analysis

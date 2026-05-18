@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-This class contains functions pertaining to IO of files for pyBayerSMLM.
+This class contains functions pertaining to IO of files for pyS3M.
 @author: jbeckwith
 jsb92, 2024/01/02
 """

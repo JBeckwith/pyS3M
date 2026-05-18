@@ -4,7 +4,7 @@
 Multicolor Diffusion-Binding Simulation
 
 Simulates molecules of different colors diffusing on a 2D surface with
-binding/unbinding kinetics. Designed for testing pyBayerSMLM analysis pipeline.
+binding/unbinding kinetics. Designed for testing pyS3M analysis pipeline.
 
 Based on:
 - Michalet, X.; Berglund, A. J. Phys. Rev. E 2012, 85 (6), 061916.
@@ -776,7 +776,7 @@ class DiffusionSimulator2D:
     - Multiple molecules with different diffusion coefficients
     - Boundary conditions (periodic, reflective, absorbing)
     - Realistic camera imaging effects
-    - Compatible with pyBayerSMLM analysis
+    - Compatible with pyS3M analysis
     """
 
     def __init__(self, area: Tuple[float, float], dt: float, t_exposure: float,
@@ -1355,7 +1355,7 @@ class CameraAdapter:
     - Poisson brightness sampling per frame
     - Spectral profile handling for multicolor imaging
     - Blinking support (future extension)
-    - Compatible with existing pyBayerSMLM analysis pipeline
+    - Compatible with existing pyS3M analysis pipeline
     """
 
     def __init__(self, simulator: DiffusionSimulator2D):

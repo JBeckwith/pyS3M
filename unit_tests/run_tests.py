@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test runner for pyBayerSMLM unit tests.
+Test runner for pyS3M unit tests.
 
 This script provides a convenient way to run all unit tests
 and generate coverage reports.
@@ -22,7 +22,7 @@ def run_all_tests(verbose=False, coverage=False):
     """Run all unit tests in the unit_tests directory."""
 
     print("=" * 60)
-    print("Running pyBayerSMLM Unit Tests")
+    print("Running pyS3M Unit Tests")
     print("=" * 60)
 
     # Get all test files
@@ -127,7 +127,7 @@ def setup_pytest():
 def main():
     """Main test runner."""
 
-    parser = argparse.ArgumentParser(description="Run pyBayerSMLM unit tests")
+    parser = argparse.ArgumentParser(description="Run pyS3M unit tests")
     parser.add_argument("test", nargs="?", help="Specific test file to run")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(

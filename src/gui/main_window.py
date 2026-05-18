@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("pyBayerSMLM")
+        self.setWindowTitle("pyS3M")
         self.resize(1400, 900)
 
         self._state = AppState.IDLE

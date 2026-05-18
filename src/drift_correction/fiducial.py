@@ -5,7 +5,7 @@ Fiducial-based drift corrector.
 Extracted from DriftCorrectionFunctions.py for better code organisation.
 
 :authors: Claude Code (based on Joerg Schnitzbauer, Maximilian Thomas Strauss, Hongqiang Ma, Maomao Chen)
-:copyright: Copyright (c) 2025 pyBayerSMLM
+:copyright: Copyright (c) 2025 pyS3M
 """
 
 import warnings

@@ -7,7 +7,7 @@ from gui.main_window import MainWindow
 
 def run():
     app = QApplication(sys.argv)
-    app.setApplicationName("pyBayerSMLM")
+    app.setApplicationName("pyS3M")
     app.setOrganizationName("LeeGroup")
     QSettings.setDefaultFormat(QSettings.Format.IniFormat)
 

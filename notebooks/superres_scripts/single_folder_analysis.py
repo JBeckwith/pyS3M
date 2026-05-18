@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Single Folder Analysis Script for pyBayerSMLM
+Single Folder Analysis Script for pyS3M
 
 Processes one folder and exits - called by batch_analysis.sh for complete isolation.
 Each invocation gets a fresh Python interpreter to prevent memory leaks.
@@ -17,7 +17,7 @@ Usage:
     fraction_true: fraction true parameter (e.g., 0.2)
     use_variance_aware_demosaic: use variance-aware demosaicing (true/false)
 
-Created for pyBayerSMLM super-resolution microscopy analysis pipeline.
+Created for pyS3M super-resolution microscopy analysis pipeline.
 """
 
 import sys
@@ -56,7 +56,7 @@ def main():
     )
     print(f"Variance-aware demosaicing: {use_variance_aware_demosaic}")
 
-    print(f"=== pyBayerSMLM Single Folder Analysis ===")
+    print(f"=== pyS3M Single Folder Analysis ===")
     print(f"Processing: {scratch_folder_path}")
     print(f"Original folder: {original_folder_path}")
     print(f"Type: {folder_type}, Wavelength: {peak_wavelength}")

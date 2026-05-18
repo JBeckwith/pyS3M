@@ -1,7 +1,7 @@
 """
-Unit Tests for pyBayerSMLM
+Unit Tests for pyS3M
 
-This package contains unit tests for the pyBayerSMLM codebase.
+This package contains unit tests for the pyS3M codebase.
 Tests are organized by module and functionality.
 
 Usage:

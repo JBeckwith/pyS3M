@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Camera configuration defaults for pyBayerSMLM.
+"""Camera configuration defaults for pyS3M.
 
 Provides pixel size and Bayer mosaic unit for each supported camera.
 Pass ``camera="ximea"`` or ``camera="zwo"`` to any class ``__init__``

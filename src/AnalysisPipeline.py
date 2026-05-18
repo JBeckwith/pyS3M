@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AnalysisPipeline — high-level orchestrator for pyBayerSMLM experiments.
+AnalysisPipeline — high-level orchestrator for pyS3M experiments.
 
 Wires together calibration, fitting, quality filtering, clustering, and
 drift correction into a single interface suitable for GUI and script use.
@@ -53,7 +53,7 @@ class FittingConfig:
 
 
 class AnalysisPipeline:
-    """High-level orchestrator for pyBayerSMLM analysis workflows.
+    """High-level orchestrator for pyS3M analysis workflows.
 
     Holds shared state (calibration maps, camera configuration, sub-function
     instances) and dispatches to the appropriate fitting, filtering, and
@@ -279,11 +279,11 @@ class AnalysisPipeline:
             image_folder: Folder containing the TIFF image files.
             mode: Pipeline variant:
 
-                * ``"smlm"``     → :meth:`~SR_Functions.SuperRes_Functions.fit_SM_data`
+                * ``"smlm"``     → :meth:`~SR_Functions.SuperRes_Functions.fit_SM_data` (delegates to ``_fit_files``)
                 * ``"fret"``     → :meth:`~SR_Functions.SuperRes_Functions.fit_FRET_data`
                 * ``"qd"``       → :meth:`~SR_Functions.SuperRes_Functions.fit_QD_data`
                 * ``"tracking"`` → :meth:`~SR_Functions.SuperRes_Functions.fit_tracking_data`
-                * ``"imaging"``  → :meth:`~SR_Functions.SuperRes_Functions.fit_imaging_data`
+                * ``"imaging"``  → :meth:`~SR_Functions.SuperRes_Functions.fit_imaging_data` (delegates to ``_fit_files``)
 
             fitting_config: Shared detection / fitting parameters.  ``None``
                 uses :class:`FittingConfig` defaults.

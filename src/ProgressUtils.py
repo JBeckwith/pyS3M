@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Progress bar utilities for pyBayerSMLM.
+Progress bar utilities for pyS3M.
 
 This module provides clean, consistent progress bar functionality across the
-entire pyBayerSMLM package using tqdm with proper cleanup and context management.
+entire pyS3M package using tqdm with proper cleanup and context management.
 
 Created on August 21, 2025
 @author: Claude Code Assistant

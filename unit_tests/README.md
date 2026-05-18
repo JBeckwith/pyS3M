@@ -1,6 +1,6 @@
-# pyBayerSMLM Unit Tests
+# pyS3M Unit Tests
 
-This directory contains unit tests for the pyBayerSMLM package. The tests are designed to validate functionality, catch regressions, and ensure code quality.
+This directory contains unit tests for the pyS3M package. The tests are designed to validate functionality, catch regressions, and ensure code quality.
 
 ## Test Structure
 

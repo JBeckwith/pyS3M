@@ -2,7 +2,7 @@
 """
 Parallel fitting benchmark to test real-world performance with multiprocessing.
 This compares single-threaded vs parallel fitting speeds using the actual
-pyBayerSMLM parallel processing infrastructure.
+pyS3M parallel processing infrastructure.
 """
 
 import numpy as np
