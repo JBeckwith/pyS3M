@@ -1,8 +1,28 @@
 # pyS3M Development Log
 
 **Project:** pyS3M - Python package for multicolour single-molecule localization microscopy
-**Last Updated:** May 17, 2026
+**Last Updated:** May 18, 2026
 **Status:** 🟢 **ACTIVE DEVELOPMENT**
+
+---
+
+## Session: May 18, 2026 — Repository rename: pyBayerSMLM → pyS3M ✅
+
+**Summary:** Renamed project from pyBayerSMLM to pyS3M. Full git history pushed to the new remote; all internal references updated in a single commit.
+
+**Steps completed:**
+1. Added `git@github.com:JBeckwith/pyS3M.git` as remote `pyS3M`
+2. Pushed full commit history to pyS3M (including LFS objects)
+3. Replaced all `pyBayerSMLM` → `pyS3M` references across 86 files using a Python script:
+   - All `.py`, `.md`, `.txt`, `.ini` source files
+   - Notebook source cells only (saved outputs with stale paths left unchanged)
+   - Absolute filesystem paths (`/Python/pyBayerSMLM/`) preserved
+4. Committed (58 files, including previously gitignored `claude/` docs now tracked) and pushed to pyS3M remote — commit `692fb75`
+
+**Remaining (see TODO.md):**
+- Point `origin` remote at pyS3M (currently still pyBayerSMLM)
+- Rename virtual environment `~/.virtualenvs/pyBayerSMLM/` → `~/.virtualenvs/pyS3M/`
+- Run test suite to verify nothing broken by rename
 
 ---
 
