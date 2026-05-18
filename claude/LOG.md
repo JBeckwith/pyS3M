@@ -6,23 +6,19 @@
 
 ---
 
-## Session: May 18, 2026 — Repository rename: pyBayerSMLM → pyS3M ✅
+## Session: May 18, 2026 — Repository rename: pyBayerSMLM → pyS3M ✅ COMPLETE
 
-**Summary:** Renamed project from pyBayerSMLM to pyS3M. Full git history pushed to the new remote; all internal references updated in a single commit.
+**Summary:** Full migration from pyBayerSMLM to pyS3M. Git history, all internal references, remote URL, and virtual environment all updated.
 
 **Steps completed:**
-1. Added `git@github.com:JBeckwith/pyS3M.git` as remote `pyS3M`
-2. Pushed full commit history to pyS3M (including LFS objects)
-3. Replaced all `pyBayerSMLM` → `pyS3M` references across 86 files using a Python script:
+1. Added `git@github.com:JBeckwith/pyS3M.git` as remote and pushed full commit history (including LFS objects)
+2. Replaced all `pyBayerSMLM` → `pyS3M` references across 86 files:
    - All `.py`, `.md`, `.txt`, `.ini` source files
    - Notebook source cells only (saved outputs with stale paths left unchanged)
    - Absolute filesystem paths (`/Python/pyBayerSMLM/`) preserved
-4. Committed (58 files, including previously gitignored `claude/` docs now tracked) and pushed to pyS3M remote — commit `692fb75`
-
-**Remaining (see TODO.md):**
-- Point `origin` remote at pyS3M (currently still pyBayerSMLM)
-- Rename virtual environment `~/.virtualenvs/pyBayerSMLM/` → `~/.virtualenvs/pyS3M/`
-- Run test suite to verify nothing broken by rename
+3. Committed rename (58 files, including previously gitignored `claude/` docs now tracked) — commit `692fb75`; pushed to pyS3M remote — commit `4791b61`
+4. `origin` remote switched to `git@github.com:JBeckwith/pyS3M.git` (by user)
+5. Virtual environment renamed: `cp -r ~/.virtualenvs/pyBayerSMLM ~/.virtualenvs/pyS3M`; all shebang lines and `activate` scripts patched with sed; verified `~/.virtualenvs/pyS3M/bin/python` resolves correctly and `import SR_Functions` passes
 
 ---
 

@@ -6,20 +6,6 @@
 
 ---
 
-## Priority 1
-
-### Repository rename: pyBayerSMLM → pyS3M
-
-- [x] Create `pyS3M` repository (already existed, no commits)
-- [x] Push full git history to `git@github.com:JBeckwith/pyS3M.git`
-- [x] Replace all internal `pyBayerSMLM` references with `pyS3M` (86 files)
-- [ ] Commit and push rename changes to pyS3M remote
-- [ ] Point `origin` remote at pyS3M (currently still pointing at pyBayerSMLM)
-- [ ] Rename virtual environment: `pyBayerSMLM` → `pyS3M` (`~/.virtualenvs/`)
-- [ ] Verify notebooks and test suite still pass after rename
-
----
-
 ## Active
 
 ### FRET Post-Hoc Analysis
