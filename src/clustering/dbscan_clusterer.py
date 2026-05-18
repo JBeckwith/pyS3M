@@ -44,17 +44,17 @@ class DBSCANMixin:
             loc_data (pd.DataFrame): Localisation data to process.
             min_cluster_size (int): Minimum cluster size (min_samples for DBSCAN).
             criteria (FilteringCriteria, optional): Quality filter bundle.
-            chi_val, max_localisation_error, max_colour_error, min_sigma,
-            max_sigma, max_sigma_error, min_photons, max_photons:
-                Quality filter parameters (see filter_quality_localisations).
+            chi_val: Quality filter parameters (chi_val, max_localisation_error,
+                max_colour_error, min_sigma, max_sigma, max_sigma_error,
+                min_photons, max_photons — see filter_quality_localisations).
             epsilon_multiplier (float): Multiplier applied to the mean localisation
                 precision to derive the DBSCAN epsilon radius.
             start_frame (int): Discard localisations before this frame.
 
         Returns:
             tuple: (single_molecule_database, single_frame_database) as DataFrames.
-                   single_frame_database includes molecular_index column and
-                   excludes unassigned localisations.
+                single_frame_database includes molecular_index column and
+                excludes unassigned localisations.
         """
         if config is not None:
             min_cluster_size   = config.min_cluster_size

@@ -74,7 +74,8 @@ class sCMOS_Functions:
         in ADU space, we mix values that have been scaled by different gains,
         producing physically incorrect results.
 
-        Example with spatially-varying gain:
+        Example with spatially-varying gain::
+
             Pixel A: 100 ADU, gain=2 → 50 photoelectrons
             Pixel B: 100 ADU, gain=1 → 100 photoelectrons
             Interpolate at midpoint:

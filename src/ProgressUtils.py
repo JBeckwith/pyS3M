@@ -157,17 +157,16 @@ def clean_progress_bar(
     Yields:
         tqdm.tqdm: Progress bar object for manual updates
 
-    Examples:
+    Examples::
+
         # Basic usage with iterable
         with clean_progress_bar(range(100), desc="Processing items") as pbar:
             for item in pbar:
-                # Process item
-                pass
+                pass  # process item
 
         # Manual progress updates
         with clean_progress_bar(total=100, desc="Fitting puncta") as pbar:
             for i in range(100):
-                # Do work
                 process_item(i)
                 pbar.update(1)
 
@@ -176,7 +175,6 @@ def clean_progress_bar(
             for i in outer:
                 with clean_progress_bar(range(5), desc="Inner", position=1) as inner:
                     for j in inner:
-                        # Process
                         pass
     """
     # If tqdm not available, use mock implementation

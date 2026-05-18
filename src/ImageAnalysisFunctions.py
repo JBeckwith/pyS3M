@@ -1420,8 +1420,8 @@ class Image_Analysis_Functions:
     The class uses a strategy pattern to handle different fitting approaches
     while providing a consistent API and optimised performance.
 
-    Example:
-        ```python
+    Example::
+
         analyzer = Image_Analysis_Functions()
 
         # Standard colour fitting
@@ -1435,7 +1435,6 @@ class Image_Analysis_Functions:
             puncta_data, smoothed_data, masks, weights, coords, planes,
             strategy=FittingStrategy.NOCOLOUR
         )
-        ```
     """
 
     def __init__(self, helper_functions=None, readnoise: float = 1.5):
@@ -1505,8 +1504,8 @@ class Image_Analysis_Functions:
         Raises:
             FittingValidationError: If input parameters are invalid or inconsistent.
 
-        Example:
-            ```python
+        Example::
+
             # Standard colour fitting
             fit_params, errors = analyzer.fit_puncta_method(
                 puncta, smoothed, weights, coords, planes,
@@ -1518,7 +1517,6 @@ class Image_Analysis_Functions:
                 puncta, smoothed, weights, coords, planes,
                 strategy=FittingStrategy.NOCOLOUR
             )
-            ```
         """
         # Create and validate parameters
         params = FittingParameters(
@@ -1630,15 +1628,14 @@ class Image_Analysis_Functions:
             Tuple containing fit parameters and errors arrays.
             If asynch=True, returns futures that can be processed later.
 
-        Example:
-            ```python
+        Example::
+
             # Parallel processing with optimal batch size
             fit_params, errors = analyzer.fit_puncta_parallel_method(
                 large_puncta_list, smoothed_list, weights_list,
                 coords_list, planes_list,
                 strategy=FittingStrategy.STANDARD, masks=masks_list
             )
-            ```
         """
         # Calculate optimal parallelization parameters
         n_puncta = len(puncta)

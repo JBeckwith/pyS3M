@@ -197,7 +197,8 @@ def log_performance(func: Callable) -> Callable:
     """
     Decorator to log function performance and memory usage.
 
-    Usage:
+    Usage::
+
         @log_performance
         def expensive_analysis(data):
             # analysis code

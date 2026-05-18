@@ -5,7 +5,8 @@
     Data analysis of localisation lists
 
     :original authors: Joerg Schnitzbauer, Maximilian Thomas Strauss, 2015-2018
-    updated jsb92 2026/02/21
+
+    Updated by jsb92, 2026/02/21
 """
 from __future__ import annotations
 
@@ -1794,6 +1795,7 @@ def remove_fiducials(
     Remove fiducial markers from aggregate data based on spectral and density criteria.
 
     Fiducial markers (e.g. gold nanoparticles) can be identified by two properties:
+
     1. **Spectral signature**: their mean A_R and/or A_G values fall outside
        the range expected for the fluorescent probe (e.g. Nile Red).
     2. **High density**: fiducials are typically emitting in >60% of frames,

@@ -341,11 +341,14 @@ class LinkedMixin:
             spectral_columns (tuple): Column names for spectral channels.
             min_frames (int): Minimum localisations per track (shorter
                 tracks are discarded).
-            criteria, chi_val, max_localisation_error, max_colour_error,
-            min_sigma, max_sigma, max_sigma_error, min_photons, max_photons:
-                Quality filter parameters.
-            D_prior, dt, sigma_loc, alpha: Gap-scaled linking parameters
-                (see spectral_lap_link).
+            criteria: Quality filter bundle (see filter_quality_localisations).
+                chi_val, max_localisation_error, max_colour_error, min_sigma,
+                max_sigma, max_sigma_error, min_photons, max_photons are applied
+                when criteria is None.
+            D_prior (float, optional): Gap-scaled linking parameter (see spectral_lap_link).
+            dt (float): Frame interval for gap scaling.
+            sigma_loc (float): Localisation precision for gap scaling.
+            alpha (float): Gap penalty exponent.
             remove_static (bool): Remove static localisations before linking.
             static_eps (float, optional): DBSCAN eps for static detection;
                 default 3*sigma_loc if sigma_loc>0 else 1.0.

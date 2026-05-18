@@ -2730,13 +2730,15 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
 
     The class provides both new and legacy interfaces:
 
-    New Interface (Recommended):
+    New Interface (Recommended)::
+
         sim = MultiC_Sim_Funcs()
         sim.test_simulation_method(dye, filters, wavelength, camera_parameters,
-                                 save_folder, n_photon_space, smoothing_function,
-                                 strategy=FittingStrategy.DEMOSAIC_IG)
+                                   save_folder, n_photon_space, smoothing_function,
+                                   strategy=FittingStrategy.DEMOSAIC_IG)
 
-    Legacy Interface (Backward Compatible):
+    Legacy Interface (Backward Compatible)::
+
         sim = MultiC_Sim_Funcs()
         sim.test_demosaic_IG_fit_method(dye, filters, wavelength, ...)
 

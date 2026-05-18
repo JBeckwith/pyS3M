@@ -279,9 +279,8 @@ def get_pick_polygon_corners(pick: list[tuple[float, float]]) -> tuple[list[floa
 
 def get_pick_rectangle_corners(start_x: float, start_y: float, end_x: float, end_y: float, width: float) -> tuple[list[float], list[float]]:
     """Finds the positions of corners of a rectangular pick.
-    Rectangular pick is defined by:
-        [(start_x, start_y), (end_x, end_y)]
-    and its width. (all values in camera pixels)
+    Rectangular pick is defined by [(start_x, start_y), (end_x, end_y)]
+    and its width. All values are in camera pixels.
 
     Returns
     -------

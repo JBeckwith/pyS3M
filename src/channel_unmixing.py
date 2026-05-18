@@ -80,12 +80,11 @@ class ChannelUnmixingMixin:
                 - 'histogram_peaks': Find peaks in 1D histograms (default)
                 - 'kmeans': K-means clustering
 
-            gmm_fit_method (str): GMM fitting algorithm
-                - 'EM': Expectation-Maximization (auto-selects best method):
-                    * If error columns present → pygmmis Extreme Deconvolution (recommended)
-                    * If no error columns → sklearn EM
-                - 'EM_weighted': EM with photon-based weighting (legacy)
-                - 'fixed': Use initial guess without EM refinement (most conservative)
+            gmm_fit_method (str): GMM fitting algorithm. ``'EM'`` auto-selects
+                the best method (pygmmis Extreme Deconvolution when error
+                columns are present, otherwise sklearn EM). ``'EM_weighted'``
+                uses photon-based weighting (legacy). ``'fixed'`` skips EM
+                and uses the initial guess directly (most conservative).
 
             covariance_type (str): GMM covariance structure
                 - 'full': Full covariance (allows correlation, default)

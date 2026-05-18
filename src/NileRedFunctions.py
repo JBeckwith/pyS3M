@@ -43,8 +43,9 @@ class NileRed_Functions:
     - wavelength_center = 617.6 nm (initial guess)
 
     Dependencies:
+
     - SpectralFunctions: For wavelength/energy conversions, skew-Gaussian models,
-                        filter/dye spectra, and pixel quantum efficiencies
+      filter/dye spectra, and pixel quantum efficiencies
     - PSFFunctions: For wavelength-dependent PSF width calculations
     """
 
@@ -1032,6 +1033,7 @@ class NileRed_Functions:
         updated DataFrame with wavelength columns added.
 
         When aggregate_id_column is provided, uses a two-step fitting approach:
+
         1. Compute weighted-average A_R, A_G, A_B, s_x, s_y per aggregate and
            fit wavelength for each aggregate (higher SNR → more stable fits)
         2. Use each aggregate's fitted wavelength as the initial guess when

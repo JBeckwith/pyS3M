@@ -92,9 +92,10 @@ class BindingKinetics:
     Handles binding/unbinding kinetics between molecules using Gillespie algorithm.
 
     Two modes:
+
     1. LEGACY: Uses macroscopic k_on/k_off matrices (concentration-dependent)
-    2. MICROSCOPIC: Uses microscopic k, γ, ρ parameters (Fange et al. 2010)
-       - Automatically calculates scale-dependent mesoscopic rates q_a(h), q_d(h)
+    2. MICROSCOPIC: Uses microscopic k, γ, ρ parameters (Fange et al. 2010).
+       Automatically calculates scale-dependent mesoscopic rates q_a(h), q_d(h).
 
     The Gillespie algorithm ensures correct stochastic kinetics.
     """

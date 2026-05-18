@@ -31,9 +31,3 @@ templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = 'sphinx_rtd_theme'
-html_theme_options = {
-    'extra_footer': (
-        'Copyright &copy; 2026 University of Cambridge. '
-        'See the <a href="licence.html">licence</a> for terms of use.'
-    ),
-}

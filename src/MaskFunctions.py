@@ -43,8 +43,8 @@ class Mask_Functions:
         """
         optimise_matrix_symmetry to get most symmetric bayer-type pattern.
         Things that come at the start of the matrix will be placed preferentially
-        in the diagonal. Thus, to replicate the bayer pattern, items would be:
-            ['B','R','G']
+        in the diagonal. Thus, to replicate the bayer pattern, items would be
+        ``['B','R','G']``.
 
         Args:
             numbers (np.1darray): numbers to put in matrix
@@ -129,8 +129,8 @@ class Mask_Functions:
     def return_custom_bayer_patterns(self, colours: NDArray[np.int_]) -> NDArray[np.float64]:
         """
         Return a custom bayer pattern based on colours (represented by integers).
-        See Figure 3a of Parmar, M. & Reeves, S. J. IEEE Transactions
-                        on Image Processing 19, 3190–3203 (2010).
+        See Figure 3a of Parmar, M. & Reeves, S. J. IEEE Transactions on Image
+        Processing 19, 3190–3203 (2010).
 
         Args:
             colours (np.1darray of ints): numbers represent colour
@@ -147,8 +147,8 @@ class Mask_Functions:
     def return_diagonal_patterns(self, colours: NDArray[np.int_], image_size: int) -> NDArray[np.float64]:
         """
         Return a diagonal pattern based on colours for an image of image_size.
-        See Figure 3e of Parmar, M. & Reeves, S. J. IEEE Transactions
-                        on Image Processing 19, 3190–3203 (2010).
+        See Figure 3e of Parmar, M. & Reeves, S. J. IEEE Transactions on Image
+        Processing 19, 3190–3203 (2010).
 
         Args:
             colours (np.1darray of ints): numbers represent colour
