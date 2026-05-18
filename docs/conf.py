@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, os.path.abspath('../src'))
 
 project = 'pyS3M'
-copyright = '2024, Joseph S. Beckwith, Steven F. Lee'
+copyright = '2026, University of Cambridge'
 author = 'Joseph S. Beckwith, Steven F. Lee'
 release = 'v0.1.0'
 
@@ -23,9 +23,17 @@ autodoc_mock_imports = [
     'napari',
     'napari_animation',
     'numba',
+    'datashader',   # imports numba at module level; numba is mocked so version check fails
+    'fast_hdbscan', # runs HDBSCAN().fit() at import time, crashes on empty random_data
 ]
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = 'sphinx_rtd_theme'
+html_theme_options = {
+    'extra_footer': (
+        'Copyright &copy; 2026 University of Cambridge. '
+        'See the <a href="licence.html">licence</a> for terms of use.'
+    ),
+}

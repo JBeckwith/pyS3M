@@ -14,7 +14,7 @@
 **Model:** pyRASP Sphinx + Read the Docs setup
 
 - [x] Phase 1 — Foundation: add Sphinx deps to `requirements.txt`, create `src/__init__.py`, create `.readthedocs.yaml`
-- [ ] Phase 2 — Scaffold: create `docs/` with `conf.py`, `Makefile`, `index.rst`, `modules.rst`, `getting-started.rst`; verify `make html` locally
+- [x] Phase 2 — Scaffold: create `docs/` with `conf.py`, `Makefile`, `index.rst`, `modules.rst`, `getting-started.rst`; verify `make html` locally
 - [ ] Phase 3 — API RST files: create per-group `.rst` files (9 groups), run coverage pass, fix autodoc failures
 - [ ] Phase 4 — RTD deployment: connect repo, verify automated build
 - [ ] Phase 5 — Polish: worked example in getting-started, cross-references, coverage gaps

@@ -9,6 +9,7 @@ Welcome to pyS3M's documentation!
 
    getting-started
    modules
+   licence
 
 
 
