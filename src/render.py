@@ -161,6 +161,19 @@ def render(
             x_max,
             min_blur_width,
         )
+    elif blur_method == "gaussian_RGB":
+        return render_gaussian_RGB(
+            locs,
+            oversampling,
+            y_min,
+            x_min,
+            y_max,
+            x_max,
+            min_blur_width,
+            mindensperc,
+            maxdensperc,
+            densitymin,
+        )
     elif blur_method == "gaussian_colour":
         return render_gaussian_colour(
             locs,
@@ -623,6 +636,115 @@ def render_gaussian_colour(
         image_colour_gaussian = rgb * normalised_density[..., None]
 
     return len(x), image_total, image_colour_gaussian
+
+
+@numba.njit
+def _fill_RGB_gaussian(
+    image_total, image_R, image_G, image_B,
+    x, y, sx, sy, A_R, A_G, A_B, photons,
+    n_pixel_x, n_pixel_y,
+):
+    for x_, y_, sx_, sy_, r_, g_, b_, ph_ in zip(x, y, sx, sy, A_R, A_G, A_B, photons):
+        max_y = _DRAW_MAX_SIGMA * sy_
+        i_min = np.int32(y_ - max_y)
+        if i_min < 0:
+            i_min = 0
+        i_max = np.int32(y_ + max_y + 1)
+        if i_max > n_pixel_y:
+            i_max = n_pixel_y
+        max_x = _DRAW_MAX_SIGMA * sx_
+        j_min = np.int32(x_ - max_x)
+        if j_min < 0:
+            j_min = 0
+        j_max = np.int32(x_ + max_x) + 1
+        if j_max > n_pixel_x:
+            j_max = n_pixel_x
+        for i in range(i_min, i_max):
+            for j in range(j_min, j_max):
+                val = ph_ * np.exp(
+                    -(
+                        (j - x_ + 0.5) ** 2 / (2 * sx_**2)
+                        + (i - y_ + 0.5) ** 2 / (2 * sy_**2)
+                    )
+                ) / (2 * np.pi * sx_ * sy_)
+                image_total[i, j] += val
+                image_R[i, j] += val * r_
+                image_G[i, j] += val * g_
+                image_B[i, j] += val * b_
+
+
+def render_gaussian_RGB(
+    locs: np.recarray,
+    oversampling: float,
+    y_min: float,
+    x_min: float,
+    y_max: float,
+    x_max: float,
+    min_blur_width: float = 1.0,
+    mindensperc: float = 1,
+    maxdensperc: float = 99.9,
+    densitymin: float = 0.1,
+) -> tuple[int, NDArray[np.float32], NDArray[np.float32]]:
+    """Render locs into a true-colour RGB image using A_R, A_G, A_B fractions.
+
+    Each pixel's hue is the photon-weighted mean (A_R, A_G, A_B) of the
+    localisations that contribute to it; brightness is modulated by the
+    local density, fading to black where density is low.  This gives
+    spectrally correct colours — A_G-dominant data appears green, not blue.
+
+    Returns
+    -------
+    int
+        Number of localisations rendered.
+    np.ndarray (H, W)
+        Total-photon density image.
+    np.ndarray (H, W, 3)
+        RGB image, float32 in [0, 1].
+    """
+    image_total, _, n_pixel_y, n_pixel_x, x, y, in_view = _render_colour_setup(
+        locs, oversampling, y_min, x_min, y_max, x_max
+    )
+    image_R = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
+    image_G = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
+    image_B = np.zeros((n_pixel_y, n_pixel_x), dtype=np.float32)
+
+    blur_width  = oversampling * np.maximum(locs.xc_err, min_blur_width)
+    blur_height = oversampling * np.maximum(locs.yc_err, min_blur_width)
+    sx = blur_width[in_view]
+    sy = blur_height[in_view]
+    ch_R = locs.A_R[in_view].astype(np.float32)
+    ch_G = locs.A_G[in_view].astype(np.float32)
+    ch_B = locs.A_B[in_view].astype(np.float32)
+    photons = locs.photons[in_view].astype(np.float32) if hasattr(locs, "photons") \
+              else np.ones(len(x), dtype=np.float32)
+
+    _fill_RGB_gaussian(
+        image_total, image_R, image_G, image_B,
+        x, y, sx, sy, ch_R, ch_G, ch_B, photons,
+        n_pixel_x, n_pixel_y,
+    )
+
+    non_zero = image_total > 0
+    for ch in (image_R, image_G, image_B):
+        ch[non_zero] /= image_total[non_zero]
+        ch[~non_zero] = 0.0
+
+    min_density = np.percentile(image_total, mindensperc)
+    max_density = np.percentile(image_total, maxdensperc)
+    normalised_density = np.clip(
+        (image_total - min_density) / (max_density - min_density + 1e-9), 0, 1
+    )
+    normalised_density[normalised_density < densitymin] = 0.0
+
+    rgb = np.stack([image_R, image_G, image_B], axis=-1)
+    if colors:
+        hsv = colors.rgb_to_hsv(rgb)
+        hsv[..., 2] = normalised_density
+        image_rgb = colors.hsv_to_rgb(hsv).astype(np.float32)
+    else:
+        image_rgb = (rgb * normalised_density[..., np.newaxis]).astype(np.float32)
+
+    return len(x), image_total, image_rgb
 
 
 def render_gaussian(

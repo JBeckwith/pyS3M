@@ -249,30 +249,44 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-        # --- gaussian_colour render ---
+        # --- render: true RGB if all three spectral columns present, else scalar colourmap ---
         render_img = None
-        if all(c in locs.columns for c in ("A_R", "xc_err", "yc_err")) and len(locs) > 0:
+        spectral_cols = ("A_R", "A_G", "A_B")
+        has_rgb = all(c in locs.columns for c in spectral_cols)
+        if all(c in locs.columns for c in ("xc", "yc", "xc_err", "yc_err")) and len(locs) > 0:
             try:
                 import render as _render
-                cols = [c for c in ("xc", "yc", "xc_err", "yc_err", "A_R", "photons")
-                        if c in locs.columns]
-                subset = locs[cols].dropna()
+                base_cols = ["xc", "yc", "xc_err", "yc_err"]
+                extra = [c for c in (("A_R", "A_G", "A_B") if has_rgb else ("A_R",))
+                         if c in locs.columns]
+                if "photons" in locs.columns:
+                    extra.append("photons")
+                subset = locs[base_cols + extra].dropna()
                 if len(subset) > 0:
                     locs_rec = subset.to_records(index=False)
                     y_min = max(0.0, float(locs_rec["yc"].min()) - 1)
                     x_min = max(0.0, float(locs_rec["xc"].min()) - 1)
                     y_max = float(locs_rec["yc"].max()) + 1
                     x_max = float(locs_rec["xc"].max()) + 1
-                    _, _, render_img = _render.render_gaussian_colour(
-                        locs_rec, 1.0,
-                        y_min, x_min, y_max, x_max,
-                        min_blur_width=1.0,
-                        cparam="A_R",
-                        c_min=0.3, c_max=0.75,
-                        mindensperc=1, maxdensperc=99.9,
-                        densitymin=0.1,
-                        cmap_string="jet",
-                    )
+                    if has_rgb and all(c in locs_rec.dtype.names for c in spectral_cols):
+                        _, _, render_img = _render.render_gaussian_RGB(
+                            locs_rec, 1.0,
+                            y_min, x_min, y_max, x_max,
+                            min_blur_width=1.0,
+                            mindensperc=1, maxdensperc=99.9,
+                            densitymin=0.1,
+                        )
+                    else:
+                        _, _, render_img = _render.render_gaussian_colour(
+                            locs_rec, 1.0,
+                            y_min, x_min, y_max, x_max,
+                            min_blur_width=1.0,
+                            cparam="A_R",
+                            c_min=0.3, c_max=0.75,
+                            mindensperc=1, maxdensperc=99.9,
+                            densitymin=0.1,
+                            cmap_string="jet",
+                        )
             except Exception:
                 pass
 
