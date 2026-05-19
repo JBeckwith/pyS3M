@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
         self.fitting_panel.stats_refresh_requested.connect(self._on_stats_refresh)
         self.postproc_panel.load_locs_requested.connect(self._on_load_locs)
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
+        self.postproc_panel.save_requested.connect(self._on_save_clustering)
 
     def _install_log_handler(self):
         self._log_handler = QtLogHandler()
@@ -507,6 +508,32 @@ class MainWindow(QMainWindow):
         if not sm_db.empty:
             fig = self._make_scatter_figure(sm_db, title="Single molecules")
             self.results_panel.set_localisations_figure(fig)
+
+    def _on_save_clustering(self):
+        if self._sm_db is None or self._sm_db.empty:
+            QMessageBox.warning(self, "No data", "No clustering results to save.")
+            return
+
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save clustering results", "", "HDF5 files (*.h5)"
+        )
+        if not path:
+            return
+        if not path.endswith(".h5"):
+            path += ".h5"
+
+        try:
+            self._sm_db.to_hdf(path, key="sm_db", mode="w")
+            self._sf_db.to_hdf(path, key="sf_db", mode="a")
+            self.log_widget.append(
+                f"Saved {len(self._sm_db)} molecules / {len(self._sf_db)} localisations → {path}"
+            )
+            self.progress_widget.update(1.0, "Results saved")
+        except Exception:
+            import traceback as _tb
+            self.log_widget.append(f"Save failed:\n{_tb.format_exc()}")
+            QMessageBox.critical(self, "Save failed", "Could not write HDF5 file — see log.")
 
     # ------------------------------------------------------------------
     # Qt lifecycle

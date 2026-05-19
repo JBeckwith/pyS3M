@@ -9,6 +9,7 @@ from PyQt6.QtCore import pyqtSignal
 class PostProcPanel(QWidget):
     cluster_requested  = pyqtSignal(object, object)  # FilteringCriteria, ClusteringConfig
     load_locs_requested = pyqtSignal(str)             # path to .h5 file
+    save_requested     = pyqtSignal()                 # triggered by Save Results button
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -92,10 +93,16 @@ class PostProcPanel(QWidget):
 
         self._result_label = QLabel("—")
 
+        self._save_btn = QPushButton("Save Results…")
+        self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip("Save sm_db and sf_db to an HDF5 file")
+        self._save_btn.clicked.connect(self.save_requested.emit)
+
         outer.addWidget(fgrp)
         outer.addWidget(cgrp)
         outer.addWidget(self._cluster_btn)
         outer.addWidget(self._result_label)
+        outer.addWidget(self._save_btn)
 
     def _on_h5_browse(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -133,6 +140,7 @@ class PostProcPanel(QWidget):
 
     def show_result(self, n_sm: int, n_sf: int):
         self._result_label.setText(f"{n_sm} molecules from {n_sf} localisations")
+        self._save_btn.setEnabled(True)
 
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("fitted", "clustered")
