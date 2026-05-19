@@ -6,11 +6,13 @@ from PyQt6.QtCore import pyqtSignal
 
 from gui.widgets.folder_picker import FolderPicker
 
+_FRET_QD_MODES = ("fret", "qd")
+
 
 class FittingPanel(QWidget):
-    fit_requested          = pyqtSignal(str, str, object)  # data_dir, mode, FittingConfig
-    preview_requested      = pyqtSignal(str, object)        # data_dir, FittingConfig
-    stats_refresh_requested = pyqtSignal(tuple)             # (min_photons, max_photons)
+    fit_requested          = pyqtSignal(str, str, object, object)  # data_dir, mode, FittingConfig, extra_kwargs
+    preview_requested      = pyqtSignal(str, object)               # data_dir, FittingConfig
+    stats_refresh_requested = pyqtSignal(tuple)                    # (min_photons, max_photons)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,8 +31,11 @@ class FittingPanel(QWidget):
         form.addRow("Data folder:", self._data_dir)
 
         self._mode = QComboBox()
-        self._mode.addItem("Single-FOV folder", userData="smlm")
-        self._mode.addItem("Multi-FOV folder", userData="imaging")
+        self._mode.addItem("Single-FOV (SMLM)", userData="smlm")
+        self._mode.addItem("Multi-FOV (SMLM, multiple files)", userData="imaging")
+        self._mode.addItem("Multi-FOV FRET (change-point detection, multi-file)", userData="fret")
+        self._mode.addItem("Multi-FOV Quantum Dot (full time series, multi-file)", userData="qd")
+        self._mode.currentIndexChanged.connect(self._on_mode_changed)
         form.addRow("Mode:", self._mode)
 
         self._pfa = QLineEdit("1e-3")
@@ -94,6 +99,37 @@ class FittingPanel(QWidget):
 
         outer.addWidget(grp)
 
+        # ── Advanced detection options (FRET / QD only) ───────────────
+        self._adv_grp = QGroupBox("Advanced Detection Options")
+        adv_form = QFormLayout(self._adv_grp)
+        self._adv_form = adv_form
+
+        self._n_frames_sum = QSpinBox()
+        self._n_frames_sum.setRange(1, 10_000)
+        self._n_frames_sum.setValue(50)
+        self._n_frames_sum.setToolTip("Number of frames summed for spot detection")
+        adv_form.addRow("Frames to sum:", self._n_frames_sum)
+
+        self._cp_penalty = QDoubleSpinBox()
+        self._cp_penalty.setRange(0.01, 10.0)
+        self._cp_penalty.setDecimals(2)
+        self._cp_penalty.setSingleStep(0.1)
+        self._cp_penalty.setValue(1.0)
+        self._cp_penalty.setToolTip("Change-point detection penalty multiplier (FRET only)")
+        adv_form.addRow("CP penalty:", self._cp_penalty)
+        self._cp_row_idx = 1  # row index within adv_form
+
+        self._chunk_size = QSpinBox()
+        self._chunk_size.setRange(10, 10_000)
+        self._chunk_size.setValue(500)
+        self._chunk_size.setSingleStep(100)
+        self._chunk_size.setToolTip("Frames loaded and fitted per chunk (QD only)")
+        adv_form.addRow("Chunk size (frames):", self._chunk_size)
+        self._chunk_row_idx = 2  # row index within adv_form
+
+        self._adv_grp.setVisible(False)
+        outer.addWidget(self._adv_grp)
+
         # ── Statistics filter ─────────────────────────────────────────
         flt_grp = QGroupBox("Statistics Filter")
         flt_form = QFormLayout(flt_grp)
@@ -135,6 +171,27 @@ class FittingPanel(QWidget):
             use_variance_aware_demosaic=self._var_demosaic.isChecked(),
         )
 
+    def _extra_kwargs(self) -> dict:
+        mode = self._mode.currentData()
+        extra = {}
+        if mode in _FRET_QD_MODES:
+            extra["n_frames_sum"] = self._n_frames_sum.value()
+        if mode == "fret":
+            extra["cp_penalty_factor"] = self._cp_penalty.value()
+        if mode == "qd":
+            extra["chunk_size"] = self._chunk_size.value()
+        return extra
+
+    def _on_mode_changed(self, _idx: int):
+        mode = self._mode.currentData()
+        is_fret_qd = mode in _FRET_QD_MODES
+        self._adv_grp.setVisible(is_fret_qd)
+        self._adv_form.setRowVisible(self._cp_row_idx, mode == "fret")
+        self._adv_form.setRowVisible(self._chunk_row_idx, mode == "qd")
+        # Preview only applies to single-frame SMLM modes
+        self._preview_btn.setVisible(not is_fret_qd)
+        self._update_btns()
+
     def _update_btns(self):
         ok = self._enabled_by_state and bool(self._data_dir.path)
         if not self._preview_btn.text().startswith("Preview…"):
@@ -150,7 +207,10 @@ class FittingPanel(QWidget):
 
     def _on_run_clicked(self):
         self.fit_requested.emit(
-            self._data_dir.path, self._mode.currentData(), self._make_fitting_config()
+            self._data_dir.path,
+            self._mode.currentData(),
+            self._make_fitting_config(),
+            self._extra_kwargs(),
         )
 
     # ── public interface ──────────────────────────────────────────────

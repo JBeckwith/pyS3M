@@ -353,14 +353,14 @@ class MainWindow(QMainWindow):
     # Fitting
     # ------------------------------------------------------------------
 
-    def _on_run_fitting(self, data_dir: str, mode: str, fitting_config):
+    def _on_run_fitting(self, data_dir: str, mode: str, fitting_config, extra_kwargs: dict):
         if self._worker_running() or self.pipeline is None:
             return
 
         def _do():
             self.pipeline.config.progress_callback = lambda f, m: worker.progress.emit(f, m)
             self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
-            self.pipeline.fit(Path(data_dir), mode=mode, fitting_config=fitting_config)
+            self.pipeline.fit(Path(data_dir), mode=mode, fitting_config=fitting_config, **extra_kwargs)
 
         worker = self._start_worker(_do)
         worker.result.connect(lambda _: self._on_fitting_done(data_dir))
