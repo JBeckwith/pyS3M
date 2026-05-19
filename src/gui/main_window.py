@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
         self._worker: AnalysisWorker | None = None      # main pipeline worker
         self._aux_worker: AnalysisWorker | None = None  # viz-only worker (non-blocking)
         self._fitted_data_dir: str | None = None
+        self._fov_data: list = []                       # [(locs_df, tif_path)] per FOV
         self._sm_db = None
         self._sf_db = None
 
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.postproc_panel.load_locs_requested.connect(self._on_load_locs)
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
+        self.results_panel.fov_requested.connect(self._on_fov_requested)
 
     def _install_log_handler(self):
         self._log_handler = QtLogHandler()
@@ -198,6 +200,107 @@ class MainWindow(QMainWindow):
     # Figure helpers (use Figure directly — no pyplot, thread-safe)
     # ------------------------------------------------------------------
 
+    def _compute_mip(self, tif_path: str, max_frames: int = 200) -> np.ndarray:
+        """Max-intensity projection over the first max_frames frames of a TIFF."""
+        import tifffile
+        mip = None
+        chunk_size = 50
+        with tifffile.TiffFile(tif_path) as tif:
+            n_frames = min(len(tif.pages), max_frames)
+            for start in range(0, n_frames, chunk_size):
+                end = min(start + chunk_size, n_frames)
+                chunk = np.stack(
+                    [tif.pages[i].asarray() for i in range(start, end)], axis=0
+                ).astype(np.float32)
+                chunk_mip = chunk.max(axis=0)
+                mip = chunk_mip if mip is None else np.maximum(mip, chunk_mip)
+        return mip
+
+    def _make_locs_render_figure(
+        self,
+        locs,
+        data_dir: str | None = None,
+        tif_path: str | None = None,
+        title: str = "Localisations",
+    ) -> Figure:
+        """Side-by-side MIP + gaussian_colour render.
+
+        *tif_path* — specific TIFF file to use for the MIP (preferred).
+        *data_dir* — folder; first TIFF found is used when *tif_path* is absent.
+        Falls back to the plain scatter figure if the render cannot be produced.
+        """
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).parent.parent))
+
+        # --- MIP ---
+        mip = None
+        if tif_path is not None:
+            try:
+                mip = self._compute_mip(tif_path)
+            except Exception:
+                pass
+        elif data_dir is not None:
+            tif_files = sorted(_Path(data_dir).glob("*.tif")) + sorted(_Path(data_dir).glob("*.tiff"))
+            if tif_files:
+                try:
+                    mip = self._compute_mip(str(tif_files[0]))
+                except Exception:
+                    pass
+
+        # --- gaussian_colour render ---
+        render_img = None
+        if all(c in locs.columns for c in ("A_R", "xc_err", "yc_err")) and len(locs) > 0:
+            try:
+                import render as _render
+                cols = [c for c in ("xc", "yc", "xc_err", "yc_err", "A_R", "photons")
+                        if c in locs.columns]
+                subset = locs[cols].dropna()
+                if len(subset) > 0:
+                    locs_rec = subset.to_records(index=False)
+                    y_min = max(0.0, float(locs_rec["yc"].min()) - 1)
+                    x_min = max(0.0, float(locs_rec["xc"].min()) - 1)
+                    y_max = float(locs_rec["yc"].max()) + 1
+                    x_max = float(locs_rec["xc"].max()) + 1
+                    _, _, render_img = _render.render_gaussian_colour(
+                        locs_rec, 1.0,
+                        y_min, x_min, y_max, x_max,
+                        min_blur_width=1.0,
+                        cparam="A_R",
+                        c_min=0.3, c_max=0.75,
+                        mindensperc=1, maxdensperc=99.9,
+                        densitymin=0.1,
+                        cmap_string="jet",
+                    )
+            except Exception:
+                pass
+
+        if render_img is None:
+            return self._make_scatter_figure(locs, title)
+
+        ncols = 2 if mip is not None else 1
+        fig = Figure(figsize=(6 * ncols, 5), dpi=100, layout="constrained")
+
+        if mip is not None:
+            ax_mip = fig.add_subplot(1, 2, 1)
+            ax_mip.imshow(
+                mip, cmap="gray", aspect="auto",
+                vmin=np.percentile(mip, 1), vmax=np.percentile(mip, 99.8),
+            )
+            ax_mip.set_title("Max Intensity Projection")
+            ax_mip.set_xticks([])
+            ax_mip.set_yticks([])
+            ax_render = fig.add_subplot(1, 2, 2)
+        else:
+            ax_render = fig.add_subplot(1, 1, 1)
+
+        ax_render.imshow(render_img, aspect="auto", origin="upper")
+        ax_render.set_title(f"{title}  ({len(locs):,})")
+        ax_render.set_xticks([])
+        ax_render.set_yticks([])
+
+        return fig
+
     def _make_scatter_figure(self, locs, title: str = "Localisations") -> Figure:
         pixel_size_nm = self.pipeline.pixel_size * 1000
         x = locs["xc"].values * pixel_size_nm
@@ -224,46 +327,78 @@ class MainWindow(QMainWindow):
         ax.invert_yaxis()
         return fig
 
-    def _make_stats_figure(self, locs, photon_range=(100, 1_000_000)) -> Figure:
+    def _make_stats_figure(
+        self,
+        locs,
+        photon_range=(100, 1_000_000),
+        sm_locs=None,
+    ) -> Figure:
         # After H5 write, A_R/G/B are normalised fractions; the true total is in "photons".
         # Use "photons" if present; fall back to raw sum only for un-normalised data.
-        has_photons_col = "photons" in locs.columns
-        spectral_cols = ("A_R", "A_G", "A_B")
-        has_spectral = has_photons_col or all(c in locs.columns for c in spectral_cols)
+        # When sm_locs is provided (post-clustering), render a 2×3 grid comparing
+        # per-localisation (locs / sf_db) with per-molecule (sm_locs / sm_db) stats.
+        col_colors = [("A_R", "tomato"), ("A_G", "mediumseagreen"), ("A_B", "cornflowerblue")]
         min_ph, max_ph = photon_range
 
-        fig = Figure(figsize=(10, 3), dpi=100, layout="constrained")
-
-        if has_spectral:
-            if has_photons_col:
-                total_all = locs["photons"].values
-            else:
-                total_all = locs["A_R"].values + locs["A_G"].values + locs["A_B"].values
-
+        def _extract(df):
+            """Return (filtered_df, total_photons_array) applying photon_range mask."""
+            has_photons = "photons" in df.columns
+            spectral_cols = ("A_R", "A_G", "A_B")
+            has_spectral = has_photons or all(c in df.columns for c in spectral_cols)
+            if not has_spectral:
+                return None, None
+            total_all = (
+                df["photons"].values if has_photons
+                else df["A_R"].values + df["A_G"].values + df["A_B"].values
+            )
             mask = np.isfinite(total_all) & (total_all >= min_ph) & (total_all <= max_ph)
-            filtered = locs[mask]
-            total = total_all[mask]
+            return df[mask], total_all[mask]
 
-            axes = fig.subplots(1, 4)
-            col_colors = [("A_R", "tomato"), ("A_G", "mediumseagreen"), ("A_B", "cornflowerblue")]
-            for ax, (col, color) in zip(axes[:3], col_colors):
-                if col in filtered.columns:
-                    ch = filtered[col].values
+        two_rows = sm_locs is not None and not sm_locs.empty
+
+        if two_rows:
+            fig = Figure(figsize=(13, 6), dpi=100, layout="constrained")
+            rows = [
+                ("Localisations", locs),
+                ("Molecules",     sm_locs),
+            ]
+            for row_idx, (row_label, df) in enumerate(rows):
+                filtered, total = _extract(df)
+                axes = [fig.add_subplot(2, 4, row_idx * 4 + col + 1) for col in range(4)]
+                if filtered is None:
+                    axes[0].text(0.5, 0.5, "No data", ha="center", va="center",
+                                 transform=axes[0].transAxes, color="gray")
+                    continue
+                for ax, (col, color) in zip(axes[:3], col_colors):
+                    ch = filtered[col].values if col in filtered.columns else np.array([])
                     ch = ch[np.isfinite(ch)]
-                else:
-                    ch = np.array([])
-                ax.hist(ch, bins=60, color=color, alpha=0.8, range=(0, 1))
-                ax.set_xlabel(f"{col} fraction")
-                ax.set_ylabel("Count")
-                ax.set_title(col)
-            axes[3].hist(total, bins=60, color="slategray", alpha=0.8)
-            axes[3].set_xlabel("Total photons")
-            axes[3].set_ylabel("Count")
-            axes[3].set_title(f"Total  (n={mask.sum():,})")
+                    ax.hist(ch, bins=60, color=color, alpha=0.8, range=(0, 1))
+                    ax.set_xlabel(f"{col} fraction")
+                    ax.set_ylabel(f"{row_label}\nCount" if col == "A_R" else "Count")
+                axes[3].hist(total, bins=60, color="slategray", alpha=0.8)
+                axes[3].set_xlabel("Total photons")
+                axes[3].set_ylabel("Count")
+                axes[3].set_title(f"n = {len(filtered):,}")
         else:
-            ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, "No photon data in file", ha="center", va="center",
-                    transform=ax.transAxes, color="gray")
+            filtered, total = _extract(locs)
+            fig = Figure(figsize=(10, 3), dpi=100, layout="constrained")
+            if filtered is None:
+                ax = fig.add_subplot(111)
+                ax.text(0.5, 0.5, "No photon data in file", ha="center", va="center",
+                        transform=ax.transAxes, color="gray")
+            else:
+                axes = fig.subplots(1, 4)
+                for ax, (col, color) in zip(axes[:3], col_colors):
+                    ch = filtered[col].values if col in filtered.columns else np.array([])
+                    ch = ch[np.isfinite(ch)]
+                    ax.hist(ch, bins=60, color=color, alpha=0.8, range=(0, 1))
+                    ax.set_xlabel(f"{col} fraction")
+                    ax.set_ylabel("Count")
+                    ax.set_title(col)
+                axes[3].hist(total, bins=60, color="slategray", alpha=0.8)
+                axes[3].set_xlabel("Total photons")
+                axes[3].set_ylabel("Count")
+                axes[3].set_title(f"Total  (n={len(filtered):,})")
         return fig
 
     # ------------------------------------------------------------------
@@ -358,60 +493,74 @@ class MainWindow(QMainWindow):
         if self._worker_running() or self.pipeline is None:
             return
 
-        def _do():
-            self.pipeline.config.progress_callback = lambda f, m: worker.progress.emit(f, m)
-            self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
-            self.pipeline.fit(Path(data_dir), mode=mode, fitting_config=fitting_config, **extra_kwargs)
-
-        worker = self._start_worker(_do)
-        worker.result.connect(lambda _: self._on_fitting_done(data_dir))
-        self.fitting_panel.set_fit_busy(True)
-        worker.start()
-
-    def _on_fitting_done(self, data_dir: str):
-        self._fitted_data_dir = data_dir
-        self.fitting_panel.set_fit_busy(False)
-        self.progress_widget.update(1.0, "Fitting complete")
-        self._update_state(AppState.FITTED)
-        self._refresh_locs_figure(data_dir)
-
-    # ------------------------------------------------------------------
-    # Locs scatter (aux worker — non-blocking visualisation)
-    # ------------------------------------------------------------------
-
-    def _refresh_locs_figure(self, data_dir: str):
         photon_range = self.fitting_panel.photon_range
 
         def _do():
-            locs = self.pipeline.load_localisations(data_dir)
-            if locs.empty:
-                return None, None
-            return (
-                self._make_scatter_figure(locs, title="Localisations"),
-                self._make_stats_figure(locs, photon_range=photon_range),
+            self.pipeline.config.progress_callback = lambda f, m: worker.progress.emit(f, m)
+            self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
+            # fov_data: list of (locs_df, tif_path_or_None), one entry per TIFF/H5
+            fov_data = self.pipeline.fit(
+                Path(data_dir), mode=mode, fitting_config=fitting_config, **extra_kwargs
             )
+            if not fov_data:
+                return data_dir, [], None, None
+            n = len(fov_data)
+            first_df, first_tif = fov_data[0]
+            title = f"FOV 1 / {n}" if n > 1 else "Localisations"
+            locs_fig = self._make_locs_render_figure(first_df, tif_path=first_tif, title=title)
+            all_locs = pd.concat([df for df, _ in fov_data], ignore_index=True)
+            stats_fig = self._make_stats_figure(all_locs, photon_range=photon_range)
+            return data_dir, fov_data, locs_fig, stats_fig
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_fitting_done)
+        self.fitting_panel.set_fit_busy(True)
+        worker.start()
+
+    def _on_fitting_done(self, result):
+        data_dir, fov_data, locs_fig, stats_fig = result
+        self._fitted_data_dir = data_dir
+        self._fov_data = fov_data
+        self.fitting_panel.set_fit_busy(False)
+        self.progress_widget.update(1.0, "Fitting complete")
+        self._update_state(AppState.FITTED)
+        self.results_panel.set_fov_count(len(fov_data))
+        if locs_fig is not None:
+            self.results_panel.set_localisations_figure(locs_fig)
+        if stats_fig is not None:
+            self.results_panel.set_stats_figure(stats_fig)
+
+    # ------------------------------------------------------------------
+    # FOV navigation
+    # ------------------------------------------------------------------
+
+    def _on_fov_requested(self, idx: int):
+        if not self._fov_data or idx >= len(self._fov_data):
+            return
+        if self._aux_worker is not None and self._aux_worker.isRunning():
+            return
+        locs_df, tif_path = self._fov_data[idx]
+        n = len(self._fov_data)
+        title = f"FOV {idx + 1} / {n}"
+
+        def _do():
+            return self._make_locs_render_figure(locs_df, tif_path=tif_path, title=title)
 
         aux = AnalysisWorker(_do)
         self._aux_worker = aux
-        aux.result.connect(self._on_locs_figures_ready)
+        aux.result.connect(
+            lambda fig: self.results_panel.set_localisations_figure(fig) if fig is not None else None
+        )
         aux.error.connect(
-            lambda msg: self.log_widget.append(f"Warning: locs scatter failed: {msg[:120]}")
+            lambda msg: self.log_widget.append(f"Warning: FOV render failed:\n{msg}")
         )
         aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
         aux.start()
 
+    # ------------------------------------------------------------------
     def _on_aux_worker_finished(self, w: AnalysisWorker):
         if self._aux_worker is w:
             self._aux_worker = None
-
-    def _on_locs_figures_ready(self, result):
-        if result is None:
-            return
-        scatter_fig, stats_fig = result
-        if scatter_fig is not None:
-            self.results_panel.set_localisations_figure(scatter_fig)
-        if stats_fig is not None:
-            self.results_panel.set_stats_figure(stats_fig)
 
     def _on_stats_refresh(self, photon_range: tuple):
         if self._fitted_data_dir is None or self.pipeline is None:
@@ -428,7 +577,7 @@ class MainWindow(QMainWindow):
         aux = AnalysisWorker(_do)
         self._aux_worker = aux
         aux.result.connect(lambda fig: self.results_panel.set_stats_figure(fig) if fig is not None else None)
-        aux.error.connect(lambda msg: self.log_widget.append(f"Stats refresh failed: {msg[:120]}"))
+        aux.error.connect(lambda msg: self.log_widget.append(f"Stats refresh failed:\n{msg}"))
         aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
         aux.start()
 
@@ -459,9 +608,9 @@ class MainWindow(QMainWindow):
             locs = self.pipeline.load_localisations(folder, pattern=filename)
             if locs.empty:
                 raise ValueError(f"No localisations found in {h5}")
-            scatter = self._make_scatter_figure(locs, "Localisations (loaded)")
+            locs_fig = self._make_locs_render_figure(locs, data_dir=str(folder), title="Localisations (loaded)")
             stats = self._make_stats_figure(locs, photon_range=photon_range)
-            return str(folder), scatter, stats
+            return str(folder), locs_fig, stats
 
         aux = AnalysisWorker(_do)
         self._aux_worker = aux
@@ -473,6 +622,8 @@ class MainWindow(QMainWindow):
     def _on_h5_loaded(self, result):
         folder, scatter_fig, stats_fig = result
         self._fitted_data_dir = folder
+        self._fov_data = []
+        self.results_panel.set_fov_count(1)
         self.results_panel.set_localisations_figure(scatter_fig)
         self.results_panel.set_stats_figure(stats_fig)
         self.progress_widget.update(1.0, "Localisations loaded")
@@ -506,8 +657,37 @@ class MainWindow(QMainWindow):
         self.progress_widget.update(1.0, "Clustering complete")
         self._update_state(AppState.CLUSTERED)
         if not sm_db.empty:
-            fig = self._make_scatter_figure(sm_db, title="Single molecules")
-            self.results_panel.set_localisations_figure(fig)
+            self._refresh_render_figure(sm_db, title="Single molecules", stats_locs=sf_db, stats_sm=sm_db)
+
+    def _refresh_render_figure(self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None):
+        """Launch an aux worker to build and display the render (and optionally stats) figure."""
+        data_dir = self._fitted_data_dir
+        photon_range = self.fitting_panel.photon_range
+
+        def _do():
+            locs_fig = self._make_locs_render_figure(locs, data_dir=data_dir, title=title)
+            stats_fig = (
+                self._make_stats_figure(stats_locs, photon_range=photon_range, sm_locs=stats_sm)
+                if stats_locs is not None and not stats_locs.empty
+                else None
+            )
+            return locs_fig, stats_fig
+
+        def _on_result(result):
+            locs_fig, stats_fig = result
+            if locs_fig is not None:
+                self.results_panel.set_localisations_figure(locs_fig)
+            if stats_fig is not None:
+                self.results_panel.set_stats_figure(stats_fig)
+
+        aux = AnalysisWorker(_do)
+        self._aux_worker = aux
+        aux.result.connect(_on_result)
+        aux.error.connect(
+            lambda msg: self.log_widget.append(f"Warning: render failed:\n{msg}")
+        )
+        aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
+        aux.start()
 
     def _on_save_clustering(self):
         if self._sm_db is None or self._sm_db.empty:

@@ -72,15 +72,30 @@ class PostProcPanel(QWidget):
         # Clustering group
         cgrp = QGroupBox("Clustering")
         cform = QFormLayout(cgrp)
+        self._cform = cform
 
         self._method = QComboBox()
         self._method.addItems(["HDBSCAN", "DBSCAN"])
+        self._method.currentIndexChanged.connect(self._on_method_changed)
         cform.addRow("Method:", self._method)
 
         self._min_cluster = QSpinBox()
         self._min_cluster.setRange(1, 1000)
         self._min_cluster.setValue(10)
         cform.addRow("Min cluster size:", self._min_cluster)
+
+        self._eps_multiplier = QDoubleSpinBox()
+        self._eps_multiplier.setRange(0.1, 20.0)
+        self._eps_multiplier.setDecimals(2)
+        self._eps_multiplier.setSingleStep(0.1)
+        self._eps_multiplier.setValue(1.0)
+        self._eps_multiplier.setToolTip(
+            "Multiplier on median localisation precision to derive the DBSCAN ε radius.\n"
+            "Increase if clusters are under-merged; decrease if over-merged."
+        )
+        self._eps_row_idx = cform.rowCount()
+        cform.addRow("ε multiplier:", self._eps_multiplier)
+        cform.setRowVisible(self._eps_row_idx, False)  # hidden until DBSCAN selected
 
         self._start_frame = QSpinBox()
         self._start_frame.setRange(0, 10_000_000)
@@ -117,6 +132,9 @@ class PostProcPanel(QWidget):
         if path:
             self.load_locs_requested.emit(path)
 
+    def _on_method_changed(self):
+        self._cform.setRowVisible(self._eps_row_idx, self._method.currentText() == "DBSCAN")
+
     def _on_cluster_clicked(self):
         from Constants import FilteringCriteria
         from clustering import ClusteringConfig
@@ -128,6 +146,7 @@ class PostProcPanel(QWidget):
         cc = ClusteringConfig(
             clustering_method=self._method.currentText(),
             min_cluster_size=self._min_cluster.value(),
+            epsilon_multiplier=self._eps_multiplier.value(),
             start_frame=self._start_frame.value(),
         )
         self.cluster_requested.emit(filt, cc)

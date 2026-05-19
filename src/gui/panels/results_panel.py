@@ -1,5 +1,7 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, QSizePolicy, QPushButton,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 
@@ -76,7 +78,29 @@ class _FigureTab(QWidget):
             self._canvas.deleteLater()
         self._zoom_drag = None
         self._placeholder.setVisible(False)
+
+        # Reduce internal whitespace on figures that have no layout engine set.
+        # constrained_layout figures manage their own spacing; for plain figures
+        # use subplots_adjust with near-zero margins rather than tight_layout —
+        # tight_layout still leaves noticeable padding, and for equal-aspect image
+        # axes the inter-subplot gaps are the main source of wasted space.
+        try:
+            engine = fig.get_layout_engine()
+            if engine is None or type(engine).__name__ == "PlaceholderLayoutEngine":
+                fig.subplots_adjust(
+                    left=0.02, right=0.98,
+                    top=0.96, bottom=0.02,
+                    wspace=0.03, hspace=0.03,
+                )
+        except Exception:
+            pass
+
         self._canvas = FigureCanvasQTAgg(fig)
+        # Let the canvas grow to fill whatever space Qt gives the tab.
+        self._canvas.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         # Wire drag handler now that fig.canvas points to the Qt canvas
         if hasattr(fig, '_zoom_drag_data'):
             rects, zoom_axes, shape = fig._zoom_drag_data
@@ -88,6 +112,8 @@ class _FigureTab(QWidget):
 
 
 class ResultsPanel(QWidget):
+    fov_requested = pyqtSignal(int)   # emitted when user navigates to a different FOV
+
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self)
@@ -99,11 +125,72 @@ class ResultsPanel(QWidget):
         self._preview_tab = _FigureTab("Run fitting to see a preview.")
         self._tabs.addTab(self._preview_tab, "Preview")
 
+        # Localisations tab: nav bar + figure
+        locs_container = QWidget()
+        locs_vbox = QVBoxLayout(locs_container)
+        locs_vbox.setContentsMargins(0, 0, 0, 0)
+        locs_vbox.setSpacing(2)
+
+        self._locs_nav = QWidget()
+        nav_h = QHBoxLayout(self._locs_nav)
+        nav_h.setContentsMargins(4, 2, 4, 2)
+        self._fov_prev_btn = QPushButton("←")
+        self._fov_prev_btn.setFixedWidth(40)
+        self._fov_label = QLabel("FOV 1 / 1")
+        self._fov_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._fov_next_btn = QPushButton("→")
+        self._fov_next_btn.setFixedWidth(40)
+        nav_h.addWidget(self._fov_prev_btn)
+        nav_h.addStretch()
+        nav_h.addWidget(self._fov_label)
+        nav_h.addStretch()
+        nav_h.addWidget(self._fov_next_btn)
+        self._locs_nav.setVisible(False)
+
         self._locs_tab = _FigureTab("Run fitting to see localisations.")
-        self._tabs.addTab(self._locs_tab, "Localisations")
+        locs_vbox.addWidget(self._locs_nav)
+        locs_vbox.addWidget(self._locs_tab)
+        self._tabs.addTab(locs_container, "Localisations")
+        self._locs_container = locs_container
 
         self._stats_tab = _FigureTab("Run fitting to see photon statistics.")
         self._tabs.addTab(self._stats_tab, "Statistics")
+
+        self._n_fovs = 1
+        self._current_fov_idx = 0
+        self._fov_prev_btn.clicked.connect(self._on_fov_prev)
+        self._fov_next_btn.clicked.connect(self._on_fov_next)
+
+    # ── FOV navigation ────────────────────────────────────────────────
+
+    def set_fov_count(self, n: int):
+        self._n_fovs = max(1, n)
+        self._current_fov_idx = 0
+        self._locs_nav.setVisible(self._n_fovs > 1)
+        self._update_fov_nav()
+
+    def set_current_fov_idx(self, idx: int):
+        self._current_fov_idx = idx
+        self._update_fov_nav()
+
+    def _update_fov_nav(self):
+        self._fov_label.setText(f"FOV {self._current_fov_idx + 1} / {self._n_fovs}")
+        self._fov_prev_btn.setEnabled(self._current_fov_idx > 0)
+        self._fov_next_btn.setEnabled(self._current_fov_idx < self._n_fovs - 1)
+
+    def _on_fov_prev(self):
+        if self._current_fov_idx > 0:
+            self._current_fov_idx -= 1
+            self._update_fov_nav()
+            self.fov_requested.emit(self._current_fov_idx)
+
+    def _on_fov_next(self):
+        if self._current_fov_idx < self._n_fovs - 1:
+            self._current_fov_idx += 1
+            self._update_fov_nav()
+            self.fov_requested.emit(self._current_fov_idx)
+
+    # ── public figure setters ─────────────────────────────────────────
 
     def set_preview_figure(self, fig: Figure):
         self._preview_tab.set_figure(fig)
@@ -111,7 +198,7 @@ class ResultsPanel(QWidget):
 
     def set_localisations_figure(self, fig: Figure):
         self._locs_tab.set_figure(fig)
-        self._tabs.setCurrentWidget(self._locs_tab)
+        self._tabs.setCurrentWidget(self._locs_container)
 
     def set_stats_figure(self, fig: Figure):
         self._stats_tab.set_figure(fig)

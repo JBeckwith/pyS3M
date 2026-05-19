@@ -341,6 +341,8 @@ class AnalysisPipeline:
         if self.config.progress_callback:
             self.config.progress_callback(1.0, f"{mode} fit complete")
 
+        return self.load_localisations_per_fov(image_folder)
+
     # ------------------------------------------------------------------
     # Loading results
     # ------------------------------------------------------------------
@@ -369,7 +371,15 @@ class AnalysisPipeline:
             logger.warning("No %s files found in %s", pattern, folder)
             return pd.DataFrame()
 
-        dfs = [io.read_h5_database(str(f)) for f in h5_files]
+        dfs = []
+        for f in h5_files:
+            try:
+                dfs.append(io.read_h5_database(str(f)))
+            except KeyError:
+                logger.debug("Skipping %s — no 'data' key (not a localisation file)", f.name)
+        if not dfs:
+            logger.warning("No readable localisation files found in %s", folder)
+            return pd.DataFrame()
         df = pd.concat(dfs, ignore_index=True)
         if start_frame > 0:
             df = df[df["frame"] >= start_frame].reset_index(drop=True)
@@ -379,6 +389,33 @@ class AnalysisPipeline:
             len(df), len(h5_files), folder,
         )
         return df
+
+    def load_localisations_per_fov(
+        self,
+        folder: Path | str,
+        pattern: str = "*.h5",
+    ) -> list[tuple[pd.DataFrame, str | None]]:
+        """Load localisations one entry per H5 file, paired with the matching TIFF.
+
+        Returns:
+            List of ``(locs_df, tif_path_or_None)`` in alphabetical order.
+            Files that lack a ``"data"`` key are silently skipped.
+        """
+        import IOFunctions
+        io = IOFunctions.IO_Functions()
+        folder = Path(folder)
+        result = []
+        for f in sorted(folder.glob(pattern)):
+            try:
+                df = io.read_h5_database(str(f))
+            except KeyError:
+                logger.debug("Skipping %s — no 'data' key", f.name)
+                continue
+            tif = f.with_suffix(".tif")
+            if not tif.exists():
+                tif = f.with_suffix(".tiff")
+            result.append((df, str(tif) if tif.exists() else None))
+        return result
 
     # ------------------------------------------------------------------
     # Post-processing
