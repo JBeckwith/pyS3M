@@ -351,7 +351,7 @@ def nena(locs: np.recarray, info: list[dict[str, Any]], callback: Callable | Non
 
     pdf_model = lmfit.Model(func)
     params = lmfit.Parameters()
-    area = np.trapz(dnfl_, bin_centers)
+    area = np.trapezoid(dnfl_, bin_centers)
     median_lp = np.mean(
         [np.median(locs.xc_err), np.median(locs.yc_err)]
     )  # Changed to _err convention

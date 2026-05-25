@@ -1,7 +1,7 @@
 ## Installation Instructions
 
 The package "pyS3M" (written in support of https://www.biorxiv.org/content/10.64898/2026.04.08.715690v1) is a set of python classes that can be run from scripts, interactive notebooks and so on to analyse multicolour microscopy data. 
-Example notebooks are provided, showing user analyses. The code has been tested in Python 3.10.12.
+Example notebooks are provided, showing user analyses. The code has been tested in Python 3.12.3.
 
 A list of package requirements are noted in the "requirements.txt" file. These can be installed with the command:
 
