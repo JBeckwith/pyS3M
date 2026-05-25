@@ -533,23 +533,23 @@ class Spectral_Funcs:
             - m3: Third moment (skewness)
         """
         # Zeroth moment (total area)
-        m0 = np.trapezoid(x=x, y=fx)
+        m0 = np.trapz(x=x, y=fx)
 
         if order >= 1:
             # First moment (mean)
-            m1 = np.trapezoid(x=x, y=fx * x) / m0
+            m1 = np.trapz(x=x, y=fx * x) / m0
         else:
             return np.array([m0])
 
         if order >= 2:
             # Second moment (standard deviation)
-            m2 = np.sqrt(np.trapezoid(y=(x - m1) ** 2 * fx, x=x) / m0)
+            m2 = np.sqrt(np.trapz(y=(x - m1) ** 2 * fx, x=x) / m0)
         else:
             return np.array([m0, m1])
 
         if order >= 3:
             # Third moment (skewness)
-            m3 = np.power(np.trapezoid(y=(x - m1) ** 3 * fx, x=x) / m0, 1.0 / 3)
+            m3 = np.power(np.trapz(y=(x - m1) ** 3 * fx, x=x) / m0, 1.0 / 3)
         else:
             return np.array([m0, m1, m2])
 
@@ -830,12 +830,12 @@ class Spectral_Funcs:
         if spectra.ndim == 1:
             spectra = spectra[np.newaxis, :]
         # Normalize spectra
-        spectra_normalised = spectra.T / np.trapezoid(x=wavelength, y=spectra, axis=1)
+        spectra_normalised = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
         spectra_normalised = spectra_normalised.T
 
         # Calculate average emission wavelengths
         weighted_wavelengths = wavelength * spectra_normalised
-        average_wavelengths = np.trapezoid(y=weighted_wavelengths.T, x=wavelength, axis=0)
+        average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
 
         # Calculate pixel efficiencies using simple integral (unnormalized, absolute QE)
         # This gives the correct photoelectron conversion probability:
@@ -915,7 +915,7 @@ class Spectral_Funcs:
 
         # Calculate average emission wavelengths
         weighted_wavelengths = wavelength * dye_normalized_spectra
-        average_wavelengths = np.trapezoid(y=weighted_wavelengths.T, x=wavelength, axis=0)
+        average_wavelengths = np.trapz(y=weighted_wavelengths.T, x=wavelength, axis=0)
 
         # Calculate pixel efficiencies
         if normalized:
@@ -1047,7 +1047,7 @@ class Spectral_Funcs:
         dye_norm = dye_spectra / total_emission  # shape: (n_dyes, n_wavelengths)
 
         # emission-weighted average wavelengths
-        average_wavelengths = np.trapezoid(
+        average_wavelengths = np.trapz(
             y=(wavelength * dye_norm).T, x=wavelength, axis=0
         )
 
@@ -1176,7 +1176,7 @@ class Spectral_Funcs:
 
         # Normalize spectrum to create probability density
         spectrum_positive = np.maximum(spectrum, 0)  # Ensure non-negative
-        total = np.trapezoid(spectrum_positive, wavelength)
+        total = np.trapz(spectrum_positive, wavelength)
 
         if total <= 0:
             raise ValueError("Spectrum has no positive values - cannot sample photons")

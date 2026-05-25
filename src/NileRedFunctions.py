@@ -168,7 +168,7 @@ class NileRed_Functions:
 
         # Normalize to unit sum if requested
         if normalize:
-            total = np.trapezoid(spectrum_wavelength, wavelength_array)
+            total = np.trapz(spectrum_wavelength, wavelength_array)
             if total > 0:
                 spectrum_wavelength = spectrum_wavelength / total
 
@@ -210,9 +210,9 @@ class NileRed_Functions:
             rgb_predicted: [R, G, B] intensities (normalized to unit sum)
         """
         # Integrate spectrum weighted by pixel quantum efficiencies
-        B_predicted = np.trapezoid(spectrum_filtered * pixel_QYs[0], wavelength)
-        G_predicted = np.trapezoid(spectrum_filtered * pixel_QYs[1], wavelength)
-        R_predicted = np.trapezoid(spectrum_filtered * pixel_QYs[2], wavelength)
+        B_predicted = np.trapz(spectrum_filtered * pixel_QYs[0], wavelength)
+        G_predicted = np.trapz(spectrum_filtered * pixel_QYs[1], wavelength)
+        R_predicted = np.trapz(spectrum_filtered * pixel_QYs[2], wavelength)
 
         # Return as array [R, G, B]
         rgb_predicted = np.array([R_predicted, G_predicted, B_predicted])
@@ -244,11 +244,11 @@ class NileRed_Functions:
             sigma_psf_predicted: Expected PSF width (nm)
         """
         # Calculate first spectral moment (mean wavelength)
-        denominator = np.trapezoid(spectrum_filtered, wavelength)
+        denominator = np.trapz(spectrum_filtered, wavelength)
 
         if denominator > 0:
             lambda_avg = (
-                np.trapezoid(spectrum_filtered * wavelength, wavelength) / denominator
+                np.trapz(spectrum_filtered * wavelength, wavelength) / denominator
             )
             # Calculate PSF width at the mean wavelength
             sigma_psf_predicted = self.psf_funcs.sigma_PSF(lambda_avg, NA)
@@ -695,9 +695,9 @@ class NileRed_Functions:
         spectrum = self.generate_nile_red_spectrum(
             wavelength_center, wavelength_array, normalize=True
         )
-        denom = np.trapezoid(spectrum, wavelength_array)
+        denom = np.trapz(spectrum, wavelength_array)
         if denom > 0:
-            wavelength_mean = np.trapezoid(spectrum * wavelength_array, wavelength_array) / denom
+            wavelength_mean = np.trapz(spectrum * wavelength_array, wavelength_array) / denom
         else:
             wavelength_mean = wavelength_center
 
