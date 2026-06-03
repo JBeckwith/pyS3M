@@ -8,6 +8,7 @@ DriftCorrection_Example.py
 DriftCorrection_README.md
 *.png
 .claude/
+claude/
 *_backup.py
 archive/
 *.tex
