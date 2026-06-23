@@ -338,7 +338,23 @@ class VectorialPSF:
         Returns:
             weights: shape (n_lambda, n_channels), unnormalised.
         """
-        from SpectralFunctions import SpectralDataType
+        import sys as _sys
+        # Get SpectralDataType from the same module as the spectral_functions instance.
+        # A bare "from SpectralFunctions import ..." gives a different class when the
+        # caller used "from src import SpectralFunctions", breaking enum equality checks
+        # inside get_spectral_data.  Try the instance's module first, then known paths.
+        SpectralDataType = None
+        for _mod_name in [
+            type(spectral_functions).__module__,
+            "src.SpectralFunctions",
+            "SpectralFunctions",
+        ]:
+            _mod = _sys.modules.get(_mod_name)
+            if _mod is not None and hasattr(_mod, "SpectralDataType"):
+                SpectralDataType = _mod.SpectralDataType
+                break
+        if SpectralDataType is None:
+            from SpectralFunctions import SpectralDataType  # type: ignore[import]
 
         # Filter transmission (unity if no filters)
         if filters is not None:
