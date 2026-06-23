@@ -136,6 +136,10 @@ class SimulationConfig:
             photon-levels CSV (default: True).  Set to False for large 2-D parameter
             sweeps where only the raw HDF5 results are consumed downstream.
         verbose (bool): Whether to print detailed progress messages (default: True)
+        defocus_z_um (float): Axial emitter offset from the focal plane in µm (default: 0).
+            When non-zero, the Gaussian PSF is replaced by a vectorial Debye PSF.
+        distance_from_coverslip_um (float): Depth of focal plane into the sample in µm
+            (default: 0 = at coverslip).  Used for Gibson-Lanni spherical aberration.
     """
 
     n_bootstrap: int = 100000
@@ -151,6 +155,8 @@ class SimulationConfig:
     use_stochastic_photons: bool = True
     save_summary_csvs: bool = True
     verbose: bool = True
+    defocus_z_um: float = 0.0
+    distance_from_coverslip_um: float = 0.0
 
     def __post_init__(self):
         """
@@ -1522,6 +1528,56 @@ class MultiC_Sim_Funcs_Refactored:
 
         return fit_RMSE_mean, fit_std
 
+    @staticmethod
+    def _gen_photon_map_vectorial(
+        psf_patch: np.ndarray,
+        x0_pixels: np.ndarray,
+        y0_pixels: np.ndarray,
+        n_photons_array: np.ndarray,
+        relative_QE: np.ndarray,
+    ) -> np.ndarray:
+        """Place a pre-computed vectorial PSF patch at each emitter position.
+
+        Drop-in replacement for PSFFunctions.gen_spatial_PSF when defocus is active.
+        The patch is placed at each (x0, y0) and scaled so that the on-image sum
+        equals n_photons (same contract as gen_spatial_PSF).  The result is then
+        multiplied by relative_QE (Bayer mask) so that only colour-matched pixels
+        receive photons.
+
+        Args:
+            psf_patch: Normalised PSF patch (ps, ps), unit sum.
+            x0_pixels: Emitter x positions in pixels.
+            y0_pixels: Emitter y positions in pixels.
+            n_photons_array: Photons per emitter.
+            relative_QE: (w, h) Bayer QE mask.
+
+        Returns:
+            photon_map: (w, h) float32 photon spatial PDF.
+        """
+        w, h = relative_QE.shape
+        photon_map = np.zeros((w, h), dtype=np.float32)
+        ps = psf_patch.shape[0]
+        half = ps // 2
+
+        for i in range(len(x0_pixels)):
+            cx = int(round(float(x0_pixels[i])))
+            cy = int(round(float(y0_pixels[i])))
+            xi0, xi1 = cx - half, cx - half + ps
+            yj0, yj1 = cy - half, cy - half + ps
+            xi0c, xi1c = max(0, xi0), min(w, xi1)
+            yj0c, yj1c = max(0, yj0), min(h, yj1)
+            pi0, pi1 = xi0c - xi0, xi1c - xi0
+            pj0, pj1 = yj0c - yj0, yj1c - yj0
+            if xi1c > xi0c and yj1c > yj0c:
+                patch_slice = psf_patch[pi0:pi1, pj0:pj1]
+                total = float(patch_slice.sum())
+                if total > 0:
+                    photon_map[xi0c:xi1c, yj0c:yj1c] += (
+                        patch_slice * float(n_photons_array[i]) / total
+                    )
+
+        return np.multiply(relative_QE, photon_map)
+
     def gen_camera_image_stack(
         self,
         camera_calibration: Dict[str, Any],
@@ -1539,6 +1595,8 @@ class MultiC_Sim_Funcs_Refactored:
         return_photoelectrons: bool = False,
         use_vectorized_photoelectrons: bool = True,
         return_photoelectrons_stack: bool = False,
+        defocus_z_um: float = 0.0,
+        distance_from_coverslip_um: float = 0.0,
     ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """Generate camera image stack with optional vectorized photoelectron generation.
 
@@ -1595,6 +1653,30 @@ class MultiC_Sim_Funcs_Refactored:
             # Initialize sigma_x, sigma_y (will be updated per frame)
             sigma_x = sigma_per_frame[0]
             sigma_y = sigma_x
+
+        # Pre-compute vectorial PSF patch once for all frames when defocus is active.
+        # The patch is computed at the (deterministic) average emission wavelength;
+        # per-frame stochastic wavelength variation changes the PSF shape by <1%.
+        _vpsf_patch = None
+        if defocus_z_um != 0.0:
+            from defocus_psf import VectorialPSF
+            _wl_um = (
+                float(average_emission_wavelengths)
+                if np.isscalar(average_emission_wavelengths)
+                else float(np.asarray(average_emission_wavelengths).flat[0])
+            ) / 1000.0  # nm → µm
+            _vpsf = VectorialPSF(
+                NA=NA,
+                n_medium=1.33,
+                n_immersion=1.515,
+                pix_obj_um=pixel_size / 1000.0,
+            )
+            _vpsf_patch = _vpsf.compute_psf_stack(
+                z_offsets_um=np.array([defocus_z_um]),
+                wavelengths_um=np.array([_wl_um]),
+                spectral_weights=None,
+                distance_from_coverslip_um=distance_from_coverslip_um,
+            )[0, 0]  # (ps, ps)
 
         pixel_colours = camera_calibration["pixel_order"]
 
@@ -1748,16 +1830,16 @@ class MultiC_Sim_Funcs_Refactored:
                         else:
                             n_photons_array = np.array([int(n_photons_this_frame)])
 
-                        photon_spatial_pdf = self.psf.gen_spatial_PSF(
-                            x,
-                            y,
-                            sigma_x,
-                            sigma_y,
-                            x0_pixels,
-                            y0_pixels,
-                            n_photons_array,
-                            relative_QE,
-                        )
+                        if _vpsf_patch is not None:
+                            photon_spatial_pdf = self._gen_photon_map_vectorial(
+                                _vpsf_patch, x0_pixels, y0_pixels,
+                                n_photons_array, relative_QE,
+                            )
+                        else:
+                            photon_spatial_pdf = self.psf.gen_spatial_PSF(
+                                x, y, sigma_x, sigma_y,
+                                x0_pixels, y0_pixels, n_photons_array, relative_QE,
+                            )
 
                         n_photons_total = self.psf.gen_photons_hitting_detector(
                             photon_spatial_pdf, background_photons_matrix_frame[:, :, j]
@@ -1890,16 +1972,16 @@ class MultiC_Sim_Funcs_Refactored:
                             # Single molecule or scalar position
                             n_photons_array = np.array([int(n_photons_this_frame)])
     
-                        photon_spatial_pdf = self.psf.gen_spatial_PSF(
-                            x,
-                            y,
-                            sigma_x,
-                            sigma_y,
-                            x0_pixels,
-                            y0_pixels,
-                            n_photons_array,
-                            relative_QE,
-                        )
+                        if _vpsf_patch is not None:
+                            photon_spatial_pdf = self._gen_photon_map_vectorial(
+                                _vpsf_patch, x0_pixels, y0_pixels,
+                                n_photons_array, relative_QE,
+                            )
+                        else:
+                            photon_spatial_pdf = self.psf.gen_spatial_PSF(
+                                x, y, sigma_x, sigma_y,
+                                x0_pixels, y0_pixels, n_photons_array, relative_QE,
+                            )
 
                         # Generate photons hitting detector (includes background)
                         n_photons_total = self.psf.gen_photons_hitting_detector(
@@ -2035,6 +2117,8 @@ class MultiC_Sim_Funcs_Refactored:
             pixel_size=config.pixel_size,
             return_normal_image=False,
             return_photoelectrons_stack=True,
+            defocus_z_um=config.defocus_z_um,
+            distance_from_coverslip_um=config.distance_from_coverslip_um,
         )
 
     def _apply_read_noise_batch(
@@ -2552,6 +2636,8 @@ class MultiC_Sim_Funcs_Refactored:
                 NA=config.NA,
                 pixel_size=config.pixel_size,
                 return_normal_image=False,
+                defocus_z_um=config.defocus_z_um,
+                distance_from_coverslip_um=config.distance_from_coverslip_um,
             )
 
             # Save raw images if requested
