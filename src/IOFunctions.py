@@ -102,7 +102,7 @@ class IO_Functions:
             if append and Path(filepath).is_file():
                 # Check schema compatibility before appending
                 df = self._ensure_hdf5_compatibility(df, filepath)
-                df.to_hdf(filepath, key="data", append=True, mode="r+", format="table")
+                df.to_hdf(filepath, key="data", append=True, mode="r+", format="table", index=False)
 
                 # Re-read entire file, sort by frame, and rewrite
                 # This ensures proper frame ordering for visualization
@@ -124,11 +124,11 @@ class IO_Functions:
 
                         # Remove old data and write sorted data back
                         store.remove("data")
-                        store.put("data", sorted_df, format="table")
+                        store.put("data", sorted_df, format="table", index=False)
                         if verbose:
                             logger.info(f"  Rewritten sorted data to {Path(filepath).name}")
             else:
-                df.to_hdf(filepath, key="data", format="table")
+                df.to_hdf(filepath, key="data", format="table", index=False)
 
     # Keep private alias for any external callers not yet migrated
     _write_h5_database = write_h5_database
@@ -236,7 +236,7 @@ class IO_Functions:
 
             # Write sorted data back
             if df_sorted is not None:
-                df_sorted.to_hdf(filepath, key="data", format="table", mode="w")
+                df_sorted.to_hdf(filepath, key="data", format="table", mode="w", index=False)
                 logger.info(f"Sorted HDF5 file saved: {filepath}")
 
         except Exception as e:
