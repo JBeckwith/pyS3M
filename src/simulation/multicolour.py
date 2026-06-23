@@ -1823,16 +1823,6 @@ class MultiC_Sim_Funcs_Refactored:
                 distance_from_coverslip_um=distance_from_coverslip_um,
             )[0, 0]  # (ps, ps)
 
-        # Pre-compute motion blur parameters.  Angles are drawn once per run so
-        # that results are reproducible for a given numpy seed.
-        _motion_displacement_px = 0.0
-        _motion_angles: Optional[np.ndarray] = None
-        if motion_velocity_nm_per_s > 0.0:
-            _motion_displacement_px = (
-                motion_velocity_nm_per_s * (frame_exposure_ms / 1000.0) / pixel_size
-            )
-            _motion_angles = np.random.uniform(0.0, 2.0 * np.pi, size=s)
-
         pixel_colours = camera_calibration["pixel_order"]
 
         if return_normal_image:
@@ -1845,6 +1835,16 @@ class MultiC_Sim_Funcs_Refactored:
             s = n_photons[list(dye_names)[0]].shape[0]
         except (AttributeError, IndexError):
             s = 1
+
+        # Pre-compute motion blur parameters.  Angles are drawn once per run so
+        # that results are reproducible for a given numpy seed.
+        _motion_displacement_px = 0.0
+        _motion_angles: Optional[np.ndarray] = None
+        if motion_velocity_nm_per_s > 0.0:
+            _motion_displacement_px = (
+                motion_velocity_nm_per_s * (frame_exposure_ms / 1000.0) / pixel_size
+            )
+            _motion_angles = np.random.uniform(0.0, 2.0 * np.pi, size=s)
 
         # Use pixel coordinates (not nm) for PSF generation
         x = np.arange(w, dtype=np.float32)
