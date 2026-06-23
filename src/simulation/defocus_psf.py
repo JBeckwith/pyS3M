@@ -35,9 +35,9 @@ class VectorialPSF:
         NA: Numerical aperture of the objective.
         n_medium: Refractive index of the sample medium (e.g. 1.33 for water).
         n_immersion: Refractive index of the immersion medium (e.g. 1.515 for oil).
-        f_obj_um: Objective focal length in µm.
-        f_tubelens_um: Tube lens focal length in µm.
-        cam_pixel_size_um: Physical camera pixel size in µm.
+        pix_obj_um: Object-space pixel size in µm (e.g. 0.069 for 69 nm).
+            Matches pyS3M's ``pixel_size`` convention (stored in nm; divide by
+            1000 to get µm).
         psf_size: Output PSF patch side length in pixels (odd preferred).
         N_pupil: Pupil grid size (N_pupil × N_pupil). Higher = more accurate
             but slower. 256 is sufficient for 1 nm phase accuracy at NA 1.49.
@@ -48,22 +48,16 @@ class VectorialPSF:
         NA: float,
         n_medium: float,
         n_immersion: float,
-        f_obj_um: float,
-        f_tubelens_um: float,
-        cam_pixel_size_um: float,
+        pix_obj_um: float,
         psf_size: int = 21,
         N_pupil: int = 256,
     ) -> None:
         self.NA = NA
         self.n_medium = n_medium
         self.n_immersion = n_immersion
-        self.f_obj_um = f_obj_um
-        self.f_tubelens_um = f_tubelens_um
-        self.cam_pixel_size_um = cam_pixel_size_um
+        self.pix_obj_um = pix_obj_um
         self.psf_size = psf_size
         self.N_pupil = N_pupil
-        self.magnification = f_tubelens_um / f_obj_um
-        self.pix_obj_um = cam_pixel_size_um / self.magnification
 
         self._build_pupil_grid()
 
@@ -103,27 +97,19 @@ class VectorialPSF:
     # ------------------------------------------------------------------
 
     def _compute_padding(self, wavelength_um: float) -> int:
-        """Padding per side so that FFT output matches camera pixel size.
+        """Padding per side so that FFT output matches the object-space pixel.
 
-        Port of calculatePadding.m.  For even N_pupil the padded total is
-        always made even to ensure symmetric cropping.
+        After algebraic simplification (f_obj and p_bfp both cancel):
+            N_total = wavelength * N_pupil / (pix_obj_um * 2 * NA)
 
         Returns:
             pad: Pixels of zero-padding on each side of the pupil.
         """
-        # Physical BFP diameter: 2 * f_obj * NA (µm)
-        D_bfp = 2.0 * self.f_obj_um * self.NA
-        p_bfp = D_bfp / self.N_pupil  # BFP pixel size (µm)
-
-        # Fourier optics: pix_obj = wavelength * f_obj / (N_total * p_bfp)
-        N_total_exact = wavelength_um * self.f_obj_um / (self.pix_obj_um * p_bfp)
+        N_total_exact = wavelength_um * self.N_pupil / (self.pix_obj_um * 2.0 * self.NA)
         N_total = int(np.round(N_total_exact))
-        # Ensure even total size for symmetric cropping
         if N_total % 2 != 0:
             N_total += 1
-
-        pad = max(0, (N_total - self.N_pupil) // 2)
-        return pad
+        return max(0, (N_total - self.N_pupil) // 2)
 
     # ------------------------------------------------------------------
     # Pupil field

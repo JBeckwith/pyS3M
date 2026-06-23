@@ -32,11 +32,9 @@ def psf():
         NA=1.49,
         n_medium=1.33,
         n_immersion=1.515,
-        f_obj_um=2000.0,           # 100× (f_tube = 200 mm)
-        f_tubelens_um=200_000.0,
-        cam_pixel_size_um=0.069,   # Ximea effective pixel (69 nm in object space)
+        pix_obj_um=0.069,   # Ximea: 69 nm object-space pixel
         psf_size=21,
-        N_pupil=128,               # reduced for test speed; 256 for production
+        N_pupil=128,        # reduced for test speed; 256 for production
     )
 
 
