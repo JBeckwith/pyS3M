@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent))  # src/simulation/ — for defocus_psf etc.
 
 import IOFunctions
 from Constants import DriftConstants, AnalysisConfig
@@ -140,6 +141,12 @@ class SimulationConfig:
             When non-zero, the Gaussian PSF is replaced by a vectorial Debye PSF.
         distance_from_coverslip_um (float): Depth of focal plane into the sample in µm
             (default: 0 = at coverslip).  Used for Gibson-Lanni spherical aberration.
+        motion_velocity_nm_per_s (float): Constant translational velocity of the emitter
+            during each frame exposure in nm/s (default: 0 = no motion blur).
+            A random direction is drawn independently for each frame.
+        frame_exposure_ms (float): Camera frame exposure time in milliseconds (default: 100).
+            Combined with motion_velocity_nm_per_s to give the per-frame displacement:
+            displacement_nm = velocity × (exposure_ms / 1000).
     """
 
     n_bootstrap: int = 100000
@@ -157,6 +164,8 @@ class SimulationConfig:
     verbose: bool = True
     defocus_z_um: float = 0.0
     distance_from_coverslip_um: float = 0.0
+    motion_velocity_nm_per_s: float = 0.0
+    frame_exposure_ms: float = 100.0
 
     def __post_init__(self):
         """
@@ -1578,6 +1587,51 @@ class MultiC_Sim_Funcs_Refactored:
 
         return np.multiply(relative_QE, photon_map)
 
+    @staticmethod
+    def _apply_motion_blur(
+        fn,
+        x0_pixels: np.ndarray,
+        y0_pixels: np.ndarray,
+        n_photons_array: np.ndarray,
+        displacement_px: float,
+        direction_rad: float,
+        n_samples: int = 25,
+    ) -> np.ndarray:
+        """Average the photon map along a linear motion trajectory.
+
+        Approximates the time-integrated PSF for a molecule translating at
+        constant velocity during the frame exposure.  The trajectory is sampled
+        uniformly from t = -0.5 to t = +0.5 (i.e. the molecule is centred on
+        x0, y0 at the mid-exposure moment).
+
+        Args:
+            fn: Callable(x0_pixels, y0_pixels, n_photons_array) → (w, h) photon map.
+                Must accept x0/y0 as float arrays and return a float32 array.
+            x0_pixels: Emitter x positions in pixels (mid-exposure).
+            y0_pixels: Emitter y positions in pixels (mid-exposure).
+            n_photons_array: Photons per emitter (passed unchanged to fn).
+            displacement_px: Total displacement during the exposure in pixels
+                (= velocity_nm_per_s × exposure_s / pixel_size_nm).
+            direction_rad: Motion direction in radians.
+            n_samples: Number of quadrature points along the trajectory.
+
+        Returns:
+            photon_map: (w, h) float32 time-averaged photon spatial PDF.
+        """
+        t_vals = np.linspace(-0.5, 0.5, n_samples)
+        cos_theta = np.cos(direction_rad)
+        sin_theta = np.sin(direction_rad)
+        accum: np.ndarray | None = None
+        for t in t_vals:
+            dx = t * displacement_px * cos_theta
+            dy = t * displacement_px * sin_theta
+            pm = fn(x0_pixels + dx, y0_pixels + dy, n_photons_array)
+            if accum is None:
+                accum = pm.astype(np.float32)
+            else:
+                accum += pm
+        return accum / n_samples  # type: ignore[operator]
+
     def gen_camera_image_stack(
         self,
         camera_calibration: Dict[str, Any],
@@ -1597,6 +1651,8 @@ class MultiC_Sim_Funcs_Refactored:
         return_photoelectrons_stack: bool = False,
         defocus_z_um: float = 0.0,
         distance_from_coverslip_um: float = 0.0,
+        motion_velocity_nm_per_s: float = 0.0,
+        frame_exposure_ms: float = 100.0,
     ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """Generate camera image stack with optional vectorized photoelectron generation.
 
@@ -1677,6 +1733,16 @@ class MultiC_Sim_Funcs_Refactored:
                 spectral_weights=None,
                 distance_from_coverslip_um=distance_from_coverslip_um,
             )[0, 0]  # (ps, ps)
+
+        # Pre-compute motion blur parameters.  Angles are drawn once per run so
+        # that results are reproducible for a given numpy seed.
+        _motion_displacement_px = 0.0
+        _motion_angles: Optional[np.ndarray] = None
+        if motion_velocity_nm_per_s > 0.0:
+            _motion_displacement_px = (
+                motion_velocity_nm_per_s * (frame_exposure_ms / 1000.0) / pixel_size
+            )
+            _motion_angles = np.random.uniform(0.0, 2.0 * np.pi, size=s)
 
         pixel_colours = camera_calibration["pixel_order"]
 
@@ -1830,7 +1896,19 @@ class MultiC_Sim_Funcs_Refactored:
                         else:
                             n_photons_array = np.array([int(n_photons_this_frame)])
 
-                        if _vpsf_patch is not None:
+                        if _motion_displacement_px > 0.0:
+                            _angle = float(_motion_angles[frame])
+                            if _vpsf_patch is not None:
+                                _fn = lambda x0, y0, n, _p=_vpsf_patch, _q=relative_QE: \
+                                    self._gen_photon_map_vectorial(_p, x0, y0, n, _q)
+                            else:
+                                _fn = lambda x0, y0, n, _x=x, _y=y, _sx=sigma_x, _sy=sigma_y, _q=relative_QE: \
+                                    self.psf.gen_spatial_PSF(_x, _y, _sx, _sy, x0, y0, n, _q)
+                            photon_spatial_pdf = self._apply_motion_blur(
+                                _fn, x0_pixels, y0_pixels, n_photons_array,
+                                _motion_displacement_px, _angle,
+                            )
+                        elif _vpsf_patch is not None:
                             photon_spatial_pdf = self._gen_photon_map_vectorial(
                                 _vpsf_patch, x0_pixels, y0_pixels,
                                 n_photons_array, relative_QE,
@@ -1972,7 +2050,19 @@ class MultiC_Sim_Funcs_Refactored:
                             # Single molecule or scalar position
                             n_photons_array = np.array([int(n_photons_this_frame)])
     
-                        if _vpsf_patch is not None:
+                        if _motion_displacement_px > 0.0:
+                            _angle = float(_motion_angles[frame])
+                            if _vpsf_patch is not None:
+                                _fn = lambda x0, y0, n, _p=_vpsf_patch, _q=relative_QE: \
+                                    self._gen_photon_map_vectorial(_p, x0, y0, n, _q)
+                            else:
+                                _fn = lambda x0, y0, n, _x=x, _y=y, _sx=sigma_x, _sy=sigma_y, _q=relative_QE: \
+                                    self.psf.gen_spatial_PSF(_x, _y, _sx, _sy, x0, y0, n, _q)
+                            photon_spatial_pdf = self._apply_motion_blur(
+                                _fn, x0_pixels, y0_pixels, n_photons_array,
+                                _motion_displacement_px, _angle,
+                            )
+                        elif _vpsf_patch is not None:
                             photon_spatial_pdf = self._gen_photon_map_vectorial(
                                 _vpsf_patch, x0_pixels, y0_pixels,
                                 n_photons_array, relative_QE,
@@ -2119,6 +2209,8 @@ class MultiC_Sim_Funcs_Refactored:
             return_photoelectrons_stack=True,
             defocus_z_um=config.defocus_z_um,
             distance_from_coverslip_um=config.distance_from_coverslip_um,
+            motion_velocity_nm_per_s=config.motion_velocity_nm_per_s,
+            frame_exposure_ms=config.frame_exposure_ms,
         )
 
     def _apply_read_noise_batch(
@@ -2638,6 +2730,8 @@ class MultiC_Sim_Funcs_Refactored:
                 return_normal_image=False,
                 defocus_z_um=config.defocus_z_um,
                 distance_from_coverslip_um=config.distance_from_coverslip_um,
+                motion_velocity_nm_per_s=config.motion_velocity_nm_per_s,
+                frame_exposure_ms=config.frame_exposure_ms,
             )
 
             # Save raw images if requested
