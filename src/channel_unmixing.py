@@ -879,11 +879,12 @@ class ChannelUnmixingMixin:
                 plt.show()
 
     # ========================================================================
-    # Hierarchical Spatial-Spectral Refinement
+    # [REPLACED] Hierarchical Spatial-Spectral Refinement
     # ========================================================================
-    # Added: 2025-11-14
-    # Methods for iterative spatial-spectral channel unmixing with adaptive
-    # thresholds based on spatial context (clear vs overlap regions)
+    # Replaced: 2026-06-24 — superseded by unmix_channels_joint_cluster, which
+    # performs joint spatial-spectral clustering using a per-localisation
+    # Mahalanobis distance in (x, y, A_R, A_G) / error-normalised space.
+    # The methods below are retained for reference but disabled.
     # ========================================================================
 
     def unmix_channels_with_spatial_refinement(
@@ -970,6 +971,11 @@ class ChannelUnmixingMixin:
             ... )
             >>> print(f"Recovered: {meta['n_recovered_total']} locs")
         """
+        raise NotImplementedError(
+            "unmix_channels_with_spatial_refinement has been replaced by "
+            "unmix_channels_joint_cluster, which uses joint spatial-spectral "
+            "Mahalanobis clustering. See claude/Cy3B_594_Cells.md."
+        )
         if verbose:
             logger.info("=" * 80)
             logger.info("Hierarchical Spatial-Spectral Channel Unmixing")
@@ -1612,6 +1618,10 @@ class ChannelUnmixingMixin:
         save_path : Optional[str]
             If provided, save figure to this path
         """
+        raise NotImplementedError(
+            "plot_refinement_diagnostics has been replaced. "
+            "Use unmix_channels_joint_cluster(plot_results=True) instead."
+        )
         import matplotlib.pyplot as plt
         from PlottingBase import PublicationPlotter
 
@@ -1795,6 +1805,329 @@ class ChannelUnmixingMixin:
             logger.info(f"Saved spatial distribution to: {spatial_path}")
         elif display:
             plt.show()
+
+    # ========================================================================
+    # Joint Spatial-Spectral Clustering Unmixing
+    # ========================================================================
+    # Added: 2026-06-24
+    # Replaces unmix_channels_with_spatial_refinement.
+    # Groups temporally-linked blink events into per-molecule clusters using
+    # a joint Mahalanobis distance in (x, y, A_R, A_G) / error space, then
+    # fits the GMM to per-cluster spectral means rather than individual locs.
+    # ========================================================================
+
+    def unmix_channels_joint_cluster(
+        self,
+        loc_data: pd.DataFrame,
+        n_channels: int = 2,
+        channels_to_use: list = None,
+        spatial_cols: list = None,
+        spatial_err_cols: list = None,
+        d_threshold: float = 2.0,
+        min_cluster_size: int = 3,
+        confidence_threshold_isolated: float = 0.90,
+        verbose: bool = True,
+        plot_results: bool = True,
+    ) -> tuple:
+        """Unmix spectral channels via joint spatial-spectral clustering.
+
+        Requires temporally-linked input (column ``'n'`` must be present).
+        Each blink event is one row; contiguous blink frames should already have
+        been collapsed by ``link_localisations``.
+
+        Algorithm
+        ---------
+        1. Cluster blink events with ``joint_spectral_spatial_cluster`` using a
+           4-D Mahalanobis distance in (x, y, A_R, A_G) / error space.  Each
+           cluster corresponds to one molecule of one species.
+        2. Compute photon-weighted per-cluster spectral means (weight by ``n``).
+        3. Fit a GMM with EM to the cluster means — populations are tight because
+           each point is a multi-blink molecular average, not a shot-noise-limited
+           single frame.
+        4. Assign each cluster a channel by GMM posterior.
+        5. Propagate channel labels to every blink event in the cluster.
+        6. Classify isolated blink events (no cluster) with the cluster-fitted GMM
+           at ``confidence_threshold_isolated``.
+
+        Parameters
+        ----------
+        loc_data : pd.DataFrame
+            Temporally-linked localisation table with column ``'n'``.
+        n_channels : int
+            Number of spectral channels. Default 2.
+        channels_to_use : list
+            Spectral feature columns. Default ['A_R', 'A_G'].
+        spatial_cols : list
+            Spatial coordinate columns. Default ['xc', 'yc'].
+        spatial_err_cols : list
+            Spatial uncertainty columns. Default ['xc_err', 'yc_err'].
+        d_threshold : float
+            Mahalanobis gate for clustering (combined-σ units). Default 2.0.
+        min_cluster_size : int
+            Minimum blink events to form a valid cluster. Default 3.
+        confidence_threshold_isolated : float
+            GMM posterior threshold for isolated blink events. Default 0.90.
+        verbose : bool
+            Print progress to logger.
+        plot_results : bool
+            Show diagnostic scatter plots after assignment.
+
+        Returns
+        -------
+        result : pd.DataFrame
+            Copy of ``loc_data`` with added columns:
+            ``'joint_cluster_id'``, ``'channel'`` (−1 = unassigned),
+            ``'channel_confidence'``, ``'assignment_source'``.
+        metadata : dict
+            Keys: ``n_clusters``, ``n_clustered``, ``n_isolated``,
+            ``means``, ``covariances``, ``weights``, ``gmm``,
+            ``n_assigned`` (dict per channel), ``n_unassigned``,
+            ``n_assigned_from_clusters``, ``n_assigned_from_isolated``.
+        """
+        from LinkingFunctions import joint_spectral_spatial_cluster
+
+        if channels_to_use is None:
+            channels_to_use = ['A_R', 'A_G']
+        if spatial_cols is None:
+            spatial_cols = ['xc', 'yc']
+        if spatial_err_cols is None:
+            spatial_err_cols = ['xc_err', 'yc_err']
+        spectral_err_cols = [c + '_err' for c in channels_to_use]
+
+        if verbose:
+            logger.info("=" * 70)
+            logger.info("Joint Spatial-Spectral Channel Unmixing")
+            logger.info("=" * 70)
+            logger.info(f"Input: {len(loc_data):,} blink events")
+            logger.info(f"Channels: {n_channels},  Features: {channels_to_use}")
+            logger.info(f"d_threshold: {d_threshold},  min_cluster_size: {min_cluster_size}")
+            logger.info("")
+
+        # ── Step 1: joint spatial-spectral clustering ──────────────────────
+        if verbose:
+            logger.info("Step 1: Joint spatial-spectral clustering...")
+
+        clustered = joint_spectral_spatial_cluster(
+            loc_data,
+            spatial_cols=spatial_cols,
+            spectral_cols=channels_to_use,
+            spatial_err_cols=spatial_err_cols,
+            spectral_err_cols=spectral_err_cols,
+            d_threshold=d_threshold,
+            min_cluster_size=min_cluster_size,
+        )
+
+        n_clusters = int(clustered['joint_cluster_id'].max()) + 1
+        n_isolated = int((clustered['joint_cluster_id'] == -1).sum())
+        n_in_clusters = len(clustered) - n_isolated
+
+        if verbose:
+            logger.info(f"  {n_clusters} clusters,  "
+                        f"{n_in_clusters:,} blink events in clusters,  "
+                        f"{n_isolated:,} isolated")
+            logger.info("")
+
+        if n_clusters < n_channels:
+            raise ValueError(
+                f"Only {n_clusters} cluster(s) found but {n_channels} channels "
+                "requested.  Try reducing d_threshold or min_cluster_size."
+            )
+
+        # ── Step 2: photon-weighted per-cluster spectral means ─────────────
+        if verbose:
+            logger.info("Step 2: Computing per-cluster spectral means (weighted by n)...")
+
+        in_cluster = clustered[clustered['joint_cluster_id'] >= 0]
+        cluster_means = (
+            in_cluster
+            .groupby('joint_cluster_id')
+            .apply(
+                lambda g: pd.Series({
+                    col: np.average(g[col].to_numpy(), weights=g['n'].to_numpy())
+                    for col in channels_to_use
+                })
+            )
+            .reset_index()
+        )
+        cluster_X = cluster_means[channels_to_use].to_numpy(dtype=np.float64)
+
+        if verbose:
+            for i, col in enumerate(channels_to_use):
+                logger.info(f"  Cluster {col}: "
+                            f"{cluster_X[:, i].mean():.3f} ± {cluster_X[:, i].std():.3f}")
+            logger.info("")
+
+        # ── Step 3: GMM on cluster means ──────────────────────────────────
+        if verbose:
+            logger.info("Step 3: Fitting GMM (EM) to cluster means...")
+
+        gmm = GaussianMixture(
+            n_components=n_channels,
+            covariance_type='full',
+            max_iter=300,
+            n_init=10,
+            random_state=42,
+        )
+        gmm.fit(cluster_X)
+
+        means = gmm.means_
+        covariances = gmm.covariances_
+        weights = gmm.weights_
+
+        if verbose:
+            for k in range(n_channels):
+                feat_str = ", ".join(
+                    f"{channels_to_use[i]}={means[k, i]:.3f}"
+                    for i in range(len(channels_to_use))
+                )
+                logger.info(f"  Channel {k}: {feat_str}  (weight {weights[k]*100:.1f}%)")
+            logger.info("")
+
+        # ── Step 4: assign each cluster a channel ─────────────────────────
+        if verbose:
+            logger.info("Step 4: Assigning clusters by GMM posterior...")
+
+        cluster_posteriors = gmm.predict_proba(cluster_X)
+        cluster_channel = np.argmax(cluster_posteriors, axis=1)
+        cluster_confidence = cluster_posteriors[np.arange(len(cluster_X)), cluster_channel]
+
+        cluster_ids_vals = cluster_means['joint_cluster_id'].to_numpy()
+        id_to_channel = dict(zip(cluster_ids_vals, cluster_channel))
+        id_to_confidence = dict(zip(cluster_ids_vals, cluster_confidence))
+
+        # ── Step 5: propagate labels to individual blink events ────────────
+        result = clustered.copy()
+        result['channel'] = np.int32(-1)
+        result['channel_confidence'] = np.float32(np.nan)
+        result['assignment_source'] = 'unassigned'
+
+        in_mask = result['joint_cluster_id'] >= 0
+        result.loc[in_mask, 'channel'] = (
+            result.loc[in_mask, 'joint_cluster_id'].map(id_to_channel).astype(np.int32)
+        )
+        result.loc[in_mask, 'channel_confidence'] = (
+            result.loc[in_mask, 'joint_cluster_id'].map(id_to_confidence).astype(np.float32)
+        )
+        result.loc[in_mask, 'assignment_source'] = 'cluster'
+
+        if verbose:
+            for k in range(n_channels):
+                n_k = int((result.loc[in_mask, 'channel'] == k).sum())
+                logger.info(f"  Channel {k}: {n_k:,} blink events from clusters")
+
+        # ── Step 6: classify isolated blink events ─────────────────────────
+        iso_mask = result['joint_cluster_id'] == -1
+        n_iso_assigned = 0
+
+        if iso_mask.sum() > 0:
+            if verbose:
+                logger.info("")
+                logger.info(f"Step 5: Classifying {n_isolated:,} isolated blink events "
+                            f"(threshold = {confidence_threshold_isolated})...")
+
+            X_iso = result.loc[iso_mask, channels_to_use].to_numpy(dtype=np.float64)
+            iso_post = gmm.predict_proba(X_iso)
+            iso_ch = np.argmax(iso_post, axis=1)
+            iso_conf = iso_post[np.arange(len(X_iso)), iso_ch]
+            passes = iso_conf >= confidence_threshold_isolated
+
+            iso_idx = result.index[iso_mask]
+            result.loc[iso_idx[passes], 'channel'] = iso_ch[passes].astype(np.int32)
+            result.loc[iso_idx[passes], 'channel_confidence'] = iso_conf[passes].astype(np.float32)
+            result.loc[iso_idx[passes], 'assignment_source'] = 'isolated_gmm'
+            n_iso_assigned = int(passes.sum())
+
+            if verbose:
+                logger.info(f"  Assigned: {n_iso_assigned:,},  "
+                            f"Rejected: {int((~passes).sum()):,}")
+
+        # ── Summary ────────────────────────────────────────────────────────
+        n_total_assigned = int((result['channel'] >= 0).sum())
+        n_total_rejected = int((result['channel'] == -1).sum())
+
+        if verbose:
+            logger.info("")
+            logger.info("=" * 70)
+            pct = 100.0 * n_total_assigned / max(len(result), 1)
+            logger.info(f"Total assigned : {n_total_assigned:,} / {len(result):,}  ({pct:.1f}%)")
+            logger.info(f"Total rejected : {n_total_rejected:,}")
+            logger.info("=" * 70)
+
+        metadata = {
+            'n_clusters': n_clusters,
+            'n_clustered': n_in_clusters,
+            'n_isolated': n_isolated,
+            'means': means,
+            'covariances': covariances,
+            'weights': weights,
+            'gmm': gmm,
+            'n_assigned': {k: int((result['channel'] == k).sum()) for k in range(n_channels)},
+            'n_unassigned': n_total_rejected,
+            'n_assigned_from_clusters': int(
+                (result.loc[in_mask, 'channel'] >= 0).sum()
+            ),
+            'n_assigned_from_isolated': n_iso_assigned,
+        }
+
+        if plot_results:
+            self._plot_joint_cluster_results(
+                result, channels_to_use, gmm, n_channels, cluster_X
+            )
+
+        return result, metadata
+
+    def _plot_joint_cluster_results(
+        self,
+        result: pd.DataFrame,
+        channels_to_use: list,
+        gmm,
+        n_channels: int,
+        cluster_X: np.ndarray,
+    ) -> None:
+        """Two-panel diagnostic: cluster means and individual blink events."""
+        try:
+            colours = ['tab:blue', 'tab:red', 'tab:green', 'tab:orange']
+            cluster_ch = gmm.predict(cluster_X)
+
+            fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+
+            # Left: per-cluster means coloured by assigned channel
+            for k in range(n_channels):
+                mask = cluster_ch == k
+                axs[0].scatter(
+                    cluster_X[mask, 0], cluster_X[mask, 1],
+                    s=4, alpha=0.5, c=colours[k % len(colours)],
+                    label=f'Channel {k}', rasterized=True,
+                )
+            axs[0].set_xlabel(channels_to_use[0])
+            axs[0].set_ylabel(channels_to_use[1])
+            axs[0].set_title('Per-cluster spectral means')
+            axs[0].legend(markerscale=4, fontsize=8)
+
+            # Right: individual blink events coloured by assignment
+            for k in range(n_channels):
+                sub = result[result['channel'] == k]
+                axs[1].scatter(
+                    sub[channels_to_use[0]], sub[channels_to_use[1]],
+                    s=1, alpha=0.15, c=colours[k % len(colours)],
+                    label=f'Channel {k} (n={len(sub):,})', rasterized=True,
+                )
+            unassigned = result[result['channel'] == -1]
+            if len(unassigned):
+                axs[1].scatter(
+                    unassigned[channels_to_use[0]], unassigned[channels_to_use[1]],
+                    s=1, alpha=0.1, c='gray',
+                    label=f'Unassigned (n={len(unassigned):,})', rasterized=True,
+                )
+            axs[1].set_xlabel(channels_to_use[0])
+            axs[1].set_ylabel(channels_to_use[1])
+            axs[1].set_title('Individual blink events')
+            axs[1].legend(markerscale=5, fontsize=8)
+
+            _safe_tight_layout(fig)
+            plt.show()
+        except Exception as e:
+            logger.warning(f"Could not create joint-cluster diagnostic plot: {e}")
 
     def find_exemplar_dye_pair(
         self,
