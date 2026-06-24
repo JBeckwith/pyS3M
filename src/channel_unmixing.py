@@ -1934,9 +1934,15 @@ class ChannelUnmixingMixin:
                 "requested.  Try reducing d_threshold or min_cluster_size."
             )
 
-        # ── Step 2: photon-weighted per-cluster spectral means ─────────────
+        # ── Step 2: inverse-variance weighted per-cluster spectral means ──────
+        # Weight each blink event by 1/σ² where σ = A_X_err.  This is the
+        # statistically optimal weight for combining independent estimates:
+        # blink events with tighter spectral fits contribute more to the mean.
+        # (link_localisations already did this within a blink; we do it again
+        # across blinks of the same molecule.)
         if verbose:
-            logger.info("Step 2: Computing per-cluster spectral means (weighted by n)...")
+            logger.info("Step 2: Computing per-cluster spectral means "
+                        "(inverse-variance weighted by A_X_err)...")
 
         in_cluster = clustered[clustered['joint_cluster_id'] >= 0]
         cluster_means = (
@@ -1944,7 +1950,12 @@ class ChannelUnmixingMixin:
             .groupby('joint_cluster_id')
             .apply(
                 lambda g: pd.Series({
-                    col: np.average(g[col].to_numpy(), weights=g['n'].to_numpy())
+                    col: np.average(
+                        g[col].to_numpy(),
+                        weights=1.0 / np.maximum(
+                            g[col + '_err'].to_numpy() ** 2, 1e-20
+                        ),
+                    )
                     for col in channels_to_use
                 })
             )
@@ -2102,8 +2113,6 @@ class ChannelUnmixingMixin:
           the original, confirming that unmixing has separated the species.
         """
         try:
-            from PlottingBase import AnalysisPlotter
-
             # Consistent colour palette for channels
             colours_ch  = ['tab:blue', 'tab:red',   'tab:green', 'tab:orange']
             colours_hex = ['#1f77b4',  '#d62728',   '#2ca02c',   '#ff7f0e'  ]
@@ -2126,35 +2135,79 @@ class ChannelUnmixingMixin:
             axs[0].set_title('Per-cluster spectral means')
             axs[0].legend(markerscale=3, fontsize=8)
 
-            # Right panel — individual blink events via datashader
-            ds_plotter = AnalysisPlotter(datashader_threshold=5_000)
-            datasets, labels_ds, colors_ds = [], [], []
+            # Right panel — individual blink events, per-layer datashader
+            # Each channel is rendered separately then composited with tf.stack,
+            # avoiding the integer category-key issues in plot_multi_dataset_scatter.
+            import matplotlib.colors as mcolors
+            layers_info = []
             for k in range(n_channels):
                 sub = result[result['channel'] == k]
                 if len(sub) == 0:
                     continue
-                datasets.append({
-                    'x': sub[channels_to_use[0]].to_numpy(dtype=np.float64),
-                    'y': sub[channels_to_use[1]].to_numpy(dtype=np.float64),
-                })
-                labels_ds.append(f'Channel {k} (n={len(sub):,})')
-                colors_ds.append(colours_hex[k % len(colours_hex)])
+                layers_info.append((
+                    sub[channels_to_use[0]].to_numpy(dtype=np.float64),
+                    sub[channels_to_use[1]].to_numpy(dtype=np.float64),
+                    colours_hex[k % len(colours_hex)],
+                    f'Channel {k} (n={len(sub):,})',
+                ))
             unassigned = result[result['channel'] == -1]
             if len(unassigned):
-                datasets.append({
-                    'x': unassigned[channels_to_use[0]].to_numpy(dtype=np.float64),
-                    'y': unassigned[channels_to_use[1]].to_numpy(dtype=np.float64),
-                })
-                labels_ds.append(f'Unassigned (n={len(unassigned):,})')
-                colors_ds.append('#aaaaaa')
+                layers_info.append((
+                    unassigned[channels_to_use[0]].to_numpy(dtype=np.float64),
+                    unassigned[channels_to_use[1]].to_numpy(dtype=np.float64),
+                    '#aaaaaa',
+                    f'Unassigned (n={len(unassigned):,})',
+                ))
 
-            if datasets:
-                ds_plotter.plot_multi_dataset_scatter(
-                    axs[1], datasets,
-                    labels=labels_ds,
-                    colors=colors_ds,
-                    canvas_size=(400, 400),
-                )
+            if layers_info:
+                try:
+                    import datashader as ds
+                    import datashader.transfer_functions as tf_ds
+
+                    all_x = np.concatenate([li[0] for li in layers_info])
+                    all_y = np.concatenate([li[1] for li in layers_info])
+                    x_range = (float(all_x.min()), float(all_x.max()))
+                    y_range = (float(all_y.min()), float(all_y.max()))
+                    cvs = ds.Canvas(plot_width=500, plot_height=500,
+                                    x_range=x_range, y_range=y_range)
+
+                    ds_layers = []
+                    for x_arr, y_arr, colour, _ in layers_info:
+                        df_i = pd.DataFrame({'x': x_arr, 'y': y_arr})
+                        agg_i = cvs.points(df_i, 'x', 'y')
+                        rgba0 = (*mcolors.to_rgb(colour), 0.0)
+                        rgba1 = (*mcolors.to_rgb(colour), 1.0)
+                        cmap_i = mcolors.LinearSegmentedColormap.from_list(
+                            '', [rgba0, rgba1], N=256
+                        )
+                        ds_layers.append(
+                            tf_ds.shade(agg_i, cmap=cmap_i, how='log', min_alpha=0)
+                        )
+
+                    composite = tf_ds.stack(*ds_layers)
+                    img_arr = composite.to_numpy()
+                    axs[1].imshow(img_arr,
+                                  extent=[x_range[0], x_range[1],
+                                          y_range[0], y_range[1]],
+                                  origin='lower', aspect='auto',
+                                  interpolation='bilinear')
+                    total_pts = sum(len(li[0]) for li in layers_info)
+                    axs[1].text(0.02, 0.98, f'Datashader: {total_pts:,} pts',
+                                transform=axs[1].transAxes, fontsize=7, va='top',
+                                alpha=0.7, bbox=dict(boxstyle='round',
+                                facecolor='white', alpha=0.5))
+
+                except ImportError:
+                    for x_arr, y_arr, colour, _ in layers_info:
+                        axs[1].scatter(x_arr, y_arr, s=1, alpha=0.2,
+                                       c=colour, rasterized=True)
+
+                from matplotlib.patches import Patch
+                legend_elements = [
+                    Patch(facecolor=li[2], label=li[3]) for li in layers_info
+                ]
+                axs[1].legend(handles=legend_elements, fontsize=7)
+
             axs[1].set_xlabel(channels_to_use[0])
             axs[1].set_ylabel(channels_to_use[1])
             axs[1].set_title('Individual blink events')

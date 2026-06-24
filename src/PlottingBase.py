@@ -1620,7 +1620,7 @@ class ImagePlotMixin:
         axs.imshow(
             np.clip(composite, 0, 1),
             origin='lower',
-            interpolation=None,
+            interpolation='bilinear',
         )
 
         # Add colorbars if requested
