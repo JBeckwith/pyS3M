@@ -635,7 +635,7 @@ class DriftPlotter(AnalysisPlotter):
 
     def __init__(self, config: AnalysisConfig = None):
         super().__init__()
-        self.config = config if config is not None else AnalysisConfig()
+        self.io_config = config if config is not None else AnalysisConfig()
 
     def plot_fiducial_detection_steps(
         self,
@@ -752,7 +752,7 @@ class DriftPlotter(AnalysisPlotter):
                      bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.5))
 
             plt.tight_layout()
-            self.save_or_show(fig, save_path=save_path, show=self.config.display, dpi=self.config.dpi)
+            self.save_or_show(fig, save_path=save_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create fiducial detection steps plot: {e}")
@@ -835,7 +835,7 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.tight_layout()
             plt.subplots_adjust(left=0.15)
-            self.save_or_show(fig, save_path=save_path, show=self.config.display, dpi=self.config.dpi)
+            self.save_or_show(fig, save_path=save_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create fiducial detection plot: {e}")
@@ -971,7 +971,7 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.suptitle(title, fontsize=14, fontweight="bold")
             plt.tight_layout()
-            self.save_or_show(fig, save_path=output_figure_path, show=self.config.display, dpi=self.config.dpi)
+            self.save_or_show(fig, save_path=output_figure_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Failed to create puncta selection plot: {e}")
@@ -1023,8 +1023,8 @@ class DriftPlotter(AnalysisPlotter):
 
             plt.suptitle(f"{title} - Individual Clustering Details", fontsize=14)
             plt.tight_layout()
-            filename = f"{base_path}_details.{self.config.figure_format}"
-            self.save_or_show(fig, save_path=filename, show=self.config.display, dpi=self.config.dpi)
+            filename = f"{base_path}_details.{self.io_config.figure_format}"
+            self.save_or_show(fig, save_path=filename, show=self.io_config.display, dpi=self.io_config.dpi)
             logger.info(f"Saved individual clustering details: {filename}")
 
         except Exception as e:
@@ -1114,10 +1114,10 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                _save = f"{base_path}_clustering_results.{self.config.figure_format}"
+                _save = f"{base_path}_clustering_results.{self.io_config.figure_format}"
             else:
                 _save = None
-            self.save_or_show(fig, save_path=_save, show=self.config.display, dpi=self.config.dpi)
+            self.save_or_show(fig, save_path=_save, show=self.io_config.display, dpi=self.io_config.dpi)
             if _save:
                 logger.info(f"Clustering results saved to: {_save}")
 
@@ -1206,10 +1206,10 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                _save = f"{base_path}_clustering_summary.{self.config.figure_format}"
+                _save = f"{base_path}_clustering_summary.{self.io_config.figure_format}"
             else:
                 _save = None
-            self.save_or_show(fig, save_path=_save, show=self.config.display, dpi=self.config.dpi)
+            self.save_or_show(fig, save_path=_save, show=self.io_config.display, dpi=self.io_config.dpi)
             if _save:
                 logger.info(f"Clustering summary saved to: {_save}")
 
@@ -1264,11 +1264,11 @@ class DriftPlotter(AnalysisPlotter):
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
                              if "." in output_figure_path else output_figure_path)
-                filename = f"{base_path}_density_detection.{self.config.figure_format}"
-                self.save_or_show(fig, save_path=filename, show=self.config.display, dpi=self.config.dpi)
+                filename = f"{base_path}_density_detection.{self.io_config.figure_format}"
+                self.save_or_show(fig, save_path=filename, show=self.io_config.display, dpi=self.io_config.dpi)
                 logger.info(f"Density detection plot saved to: {filename}")
             else:
-                self.save_or_show(fig, save_path=None, show=self.config.display, dpi=self.config.dpi)
+                self.save_or_show(fig, save_path=None, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
             logger.warning(f"⚠️ Error creating density detection plots: {e}")
