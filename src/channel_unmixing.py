@@ -1877,7 +1877,8 @@ class ChannelUnmixingMixin:
         result : pd.DataFrame
             Copy of ``loc_data`` with added columns:
             ``'joint_cluster_id'``, ``'channel'`` (−1 = unassigned),
-            ``'channel_confidence'``, ``'assignment_source'``.
+            ``'channel_confidence'``, ``'assignment_code'``
+            (0 = unassigned, 1 = from cluster, 2 = isolated GMM).
         metadata : dict
             Keys: ``n_clusters``, ``n_clustered``, ``n_isolated``,
             ``means``, ``covariances``, ``weights``, ``gmm``,
@@ -1996,10 +1997,11 @@ class ChannelUnmixingMixin:
         id_to_confidence = dict(zip(cluster_ids_vals, cluster_confidence))
 
         # ── Step 5: propagate labels to individual blink events ────────────
+        # assignment_code: 0 = unassigned, 1 = from cluster, 2 = isolated GMM
         result = clustered.copy()
         result['channel'] = np.int32(-1)
         result['channel_confidence'] = np.float32(np.nan)
-        result['assignment_source'] = 'unassigned'
+        result['assignment_code'] = np.uint8(0)
 
         in_mask = result['joint_cluster_id'] >= 0
         result.loc[in_mask, 'channel'] = (
@@ -2008,7 +2010,7 @@ class ChannelUnmixingMixin:
         result.loc[in_mask, 'channel_confidence'] = (
             result.loc[in_mask, 'joint_cluster_id'].map(id_to_confidence).astype(np.float32)
         )
-        result.loc[in_mask, 'assignment_source'] = 'cluster'
+        result.loc[in_mask, 'assignment_code'] = np.uint8(1)
 
         if verbose:
             for k in range(n_channels):
@@ -2034,7 +2036,7 @@ class ChannelUnmixingMixin:
             iso_idx = result.index[iso_mask]
             result.loc[iso_idx[passes], 'channel'] = iso_ch[passes].astype(np.int32)
             result.loc[iso_idx[passes], 'channel_confidence'] = iso_conf[passes].astype(np.float32)
-            result.loc[iso_idx[passes], 'assignment_source'] = 'isolated_gmm'
+            result.loc[iso_idx[passes], 'assignment_code'] = np.uint8(2)
             n_iso_assigned = int(passes.sum())
 
             if verbose:
@@ -2071,7 +2073,7 @@ class ChannelUnmixingMixin:
 
         if plot_results:
             self._plot_joint_cluster_results(
-                result, channels_to_use, gmm, n_channels, cluster_X
+                result, channels_to_use, gmm, n_channels, cluster_X, loc_data
             )
 
         return result, metadata
@@ -2083,49 +2085,128 @@ class ChannelUnmixingMixin:
         gmm,
         n_channels: int,
         cluster_X: np.ndarray,
+        loc_data_original: pd.DataFrame = None,
     ) -> None:
-        """Two-panel diagnostic: cluster means and individual blink events."""
+        """Diagnostic plots for joint-cluster unmixing.
+
+        Figure 1 — spectral scatter:
+          Left:  per-cluster means (regular scatter, small N).
+          Right: individual blink events coloured by channel, rendered with
+                 datashader so N=10⁶+ points draw in milliseconds.
+
+        Figure 2 — spectral histograms:
+          One panel per spectral feature (A_R, A_G, …).
+          Grey: original distribution before unmixing.
+          Coloured: per-channel assigned distribution.
+          The per-channel distributions should be substantially narrower than
+          the original, confirming that unmixing has separated the species.
+        """
         try:
-            colours = ['tab:blue', 'tab:red', 'tab:green', 'tab:orange']
+            from PlottingBase import AnalysisPlotter
+
+            # Consistent colour palette for channels
+            colours_ch  = ['tab:blue', 'tab:red',   'tab:green', 'tab:orange']
+            colours_hex = ['#1f77b4',  '#d62728',   '#2ca02c',   '#ff7f0e'  ]
+
             cluster_ch = gmm.predict(cluster_X)
 
-            fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+            # ── Figure 1: scatter ─────────────────────────────────────────
+            fig1, axs = plt.subplots(1, 2, figsize=(10, 4))
 
-            # Left: per-cluster means coloured by assigned channel
+            # Left panel — cluster means (hundreds–thousands of points)
             for k in range(n_channels):
                 mask = cluster_ch == k
                 axs[0].scatter(
                     cluster_X[mask, 0], cluster_X[mask, 1],
-                    s=4, alpha=0.5, c=colours[k % len(colours)],
+                    s=6, alpha=0.6, c=colours_ch[k % len(colours_ch)],
                     label=f'Channel {k}', rasterized=True,
                 )
             axs[0].set_xlabel(channels_to_use[0])
             axs[0].set_ylabel(channels_to_use[1])
             axs[0].set_title('Per-cluster spectral means')
-            axs[0].legend(markerscale=4, fontsize=8)
+            axs[0].legend(markerscale=3, fontsize=8)
 
-            # Right: individual blink events coloured by assignment
+            # Right panel — individual blink events via datashader
+            ds_plotter = AnalysisPlotter(datashader_threshold=5_000)
+            datasets, labels_ds, colors_ds = [], [], []
             for k in range(n_channels):
                 sub = result[result['channel'] == k]
-                axs[1].scatter(
-                    sub[channels_to_use[0]], sub[channels_to_use[1]],
-                    s=1, alpha=0.15, c=colours[k % len(colours)],
-                    label=f'Channel {k} (n={len(sub):,})', rasterized=True,
-                )
+                if len(sub) == 0:
+                    continue
+                datasets.append({
+                    'x': sub[channels_to_use[0]].to_numpy(dtype=np.float64),
+                    'y': sub[channels_to_use[1]].to_numpy(dtype=np.float64),
+                })
+                labels_ds.append(f'Channel {k} (n={len(sub):,})')
+                colors_ds.append(colours_hex[k % len(colours_hex)])
             unassigned = result[result['channel'] == -1]
             if len(unassigned):
-                axs[1].scatter(
-                    unassigned[channels_to_use[0]], unassigned[channels_to_use[1]],
-                    s=1, alpha=0.1, c='gray',
-                    label=f'Unassigned (n={len(unassigned):,})', rasterized=True,
+                datasets.append({
+                    'x': unassigned[channels_to_use[0]].to_numpy(dtype=np.float64),
+                    'y': unassigned[channels_to_use[1]].to_numpy(dtype=np.float64),
+                })
+                labels_ds.append(f'Unassigned (n={len(unassigned):,})')
+                colors_ds.append('#aaaaaa')
+
+            if datasets:
+                ds_plotter.plot_multi_dataset_scatter(
+                    axs[1], datasets,
+                    labels=labels_ds,
+                    colors=colors_ds,
+                    canvas_size=(400, 400),
                 )
             axs[1].set_xlabel(channels_to_use[0])
             axs[1].set_ylabel(channels_to_use[1])
             axs[1].set_title('Individual blink events')
-            axs[1].legend(markerscale=5, fontsize=8)
 
-            _safe_tight_layout(fig)
+            _safe_tight_layout(fig1)
             plt.show()
+
+            # ── Figure 2: spectral histograms ─────────────────────────────
+            n_feat = len(channels_to_use)
+            fig2, axs2 = plt.subplots(1, n_feat, figsize=(4.5 * n_feat, 3.5))
+            if n_feat == 1:
+                axs2 = [axs2]
+
+            n_bins = 120
+            orig_df = loc_data_original if loc_data_original is not None else result
+
+            for i, col in enumerate(channels_to_use):
+                ax = axs2[i]
+
+                # Common bin range across original + result
+                col_min = min(orig_df[col].min(), result[col].min())
+                col_max = max(orig_df[col].max(), result[col].max())
+                bins = np.linspace(col_min, col_max, n_bins + 1)
+
+                # Original distribution — grey
+                orig_vals = orig_df[col].to_numpy()
+                orig_h, _ = np.histogram(orig_vals, bins=bins, density=True)
+                ax.stairs(orig_h, bins, fill=True, alpha=0.20,
+                          color='gray', label=f'Original (n={len(orig_vals):,})')
+                ax.stairs(orig_h, bins, fill=False, alpha=0.60,
+                          color='gray', linewidth=0.8)
+
+                # Per-channel distributions
+                for k in range(n_channels):
+                    sub_vals = result.loc[result['channel'] == k, col].to_numpy()
+                    if len(sub_vals) == 0:
+                        continue
+                    h, _ = np.histogram(sub_vals, bins=bins, density=True)
+                    c = colours_ch[k % len(colours_ch)]
+                    ax.stairs(h, bins, fill=True, alpha=0.30,
+                              color=c, label=f'Channel {k} (n={len(sub_vals):,})')
+                    ax.stairs(h, bins, fill=False, alpha=0.90,
+                              color=c, linewidth=1.0)
+
+                ax.set_xlabel(col, fontsize=9)
+                ax.set_ylabel('Density' if i == 0 else '', fontsize=9)
+                ax.set_title(f'{col} distribution', fontsize=9)
+                ax.legend(fontsize=7)
+
+            _safe_tight_layout(fig2)
+            plt.show()
+
         except Exception as e:
             logger.warning(f"Could not create joint-cluster diagnostic plot: {e}")
 
