@@ -2162,30 +2162,35 @@ class ChannelUnmixingMixin:
             if layers_info:
                 try:
                     import datashader as ds
-                    import datashader.transfer_functions as tf_ds
+                    import matplotlib.colors as mcolors
 
                     all_x = np.concatenate([li[0] for li in layers_info])
                     all_y = np.concatenate([li[1] for li in layers_info])
                     x_range = (float(all_x.min()), float(all_x.max()))
                     y_range = (float(all_y.min()), float(all_y.max()))
-                    cvs = ds.Canvas(plot_width=500, plot_height=500,
+                    W, H = 500, 500
+                    cvs = ds.Canvas(plot_width=W, plot_height=H,
                                     x_range=x_range, y_range=y_range)
 
-                    ds_layers = []
+                    # Additive RGBA composite built directly from count arrays.
+                    # Avoids datashader colormap alpha issues entirely.
+                    composite = np.zeros((H, W, 4), dtype=np.float32)
                     for x_arr, y_arr, colour, _ in layers_info:
                         df_i = pd.DataFrame({'x': x_arr, 'y': y_arr})
-                        agg_i = cvs.points(df_i, 'x', 'y')
-                        rgba0 = (*mcolors.to_rgb(colour), 0.0)
-                        rgba1 = (*mcolors.to_rgb(colour), 1.0)
-                        cmap_i = mcolors.LinearSegmentedColormap.from_list(
-                            '', [rgba0, rgba1], N=256
+                        density = cvs.points(df_i, 'x', 'y').values.astype(np.float32)
+                        density = np.where(np.isnan(density), 0.0, density)
+                        log_d = np.log1p(np.maximum(density, 0.0))
+                        max_ld = float(log_d.max())
+                        alpha_ch = (log_d / max_ld) if max_ld > 0 else log_d
+                        rgb = np.array(mcolors.to_rgb(colour), dtype=np.float32)
+                        composite[:, :, :3] += (
+                            rgb[np.newaxis, np.newaxis, :] * alpha_ch[:, :, np.newaxis]
                         )
-                        ds_layers.append(
-                            tf_ds.shade(agg_i, cmap=cmap_i, how='log', min_alpha=0)
+                        composite[:, :, 3] = np.clip(
+                            composite[:, :, 3] + alpha_ch, 0.0, 1.0
                         )
 
-                    composite = tf_ds.stack(*ds_layers)
-                    img_arr = composite.to_numpy()
+                    img_arr = (np.clip(composite, 0.0, 1.0) * 255).astype(np.uint8)
                     axs[1].imshow(img_arr,
                                   extent=[x_range[0], x_range[1],
                                           y_range[0], y_range[1]],
@@ -2198,6 +2203,7 @@ class ChannelUnmixingMixin:
                                 facecolor='white', alpha=0.5))
 
                 except ImportError:
+                    import matplotlib.colors as mcolors
                     for x_arr, y_arr, colour, _ in layers_info:
                         axs[1].scatter(x_arr, y_arr, s=1, alpha=0.2,
                                        c=colour, rasterized=True)
