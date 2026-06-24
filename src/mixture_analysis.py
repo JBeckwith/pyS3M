@@ -1474,7 +1474,7 @@ class MixtureAnalysisMixin:
             logger.info(f"  Range: {photon_bins[0]:,.0f} - {photon_bins[-1]:,.0f} photons")
             logger.info(f"Reference molecules: {len(reference_db)}")
             logger.info(f"Fixed means: {fixed_means.shape[0]} components")
-            logger.info()
+            logger.info("")
 
         # Filter photon accumulation data to only include reference molecules
         reference_mol_ids = set(reference_db["molecular_index"].values)

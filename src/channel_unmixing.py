@@ -151,7 +151,7 @@ class ChannelUnmixingMixin:
             logger.info(f"Input: {len(loc_data)} localizations")
             logger.info(f"Channels: {n_channels}")
             logger.info(f"Features: {channels_to_use}")
-            logger.info()
+            logger.info("")
 
         # ===== Phase 1: Input Validation and Preprocessing =====
         # Check required columns
@@ -201,7 +201,7 @@ class ChannelUnmixingMixin:
             logger.info(f"Feature ranges:")
             for i, col in enumerate(channels_to_use):
                 logger.info(f"  {col}: [{X[:, i].min():.3f}, {X[:, i].max():.3f}], mean={X[:, i].mean():.3f}")
-            logger.info()
+            logger.info("")
 
         # ===== Phase 2: Initial Guess for Channel Means =====
         if verbose:
@@ -232,7 +232,7 @@ class ChannelUnmixingMixin:
                     [f"{channels_to_use[i]}={initial_means[k, i]:.3f}" for i in range(n_features)]
                 )
                 logger.info(f"  Channel {k}: {mean_str}")
-            logger.info()
+            logger.info("")
 
         # ===== Phase 2.5: Estimate Initial Covariances =====
         # Two-stage initialization: means from histograms, covariances from data
@@ -260,7 +260,7 @@ class ChannelUnmixingMixin:
                     eigvals = np.linalg.eigvalsh(initial_covariances[k])
                     sigma_str = ", ".join([f"σ{i+1}={np.sqrt(eigvals[i]):.3f}" for i in range(n_features)])
                     logger.info(f"  Channel {k}: det(cov)={det_k:.6f}, {sigma_str}")
-                logger.info()
+                logger.info("")
 
             # Create diagnostic plot showing initial guess (only for 2D)
             if plot_results and n_features == 2:
@@ -465,7 +465,7 @@ class ChannelUnmixingMixin:
                 )
                 weight_pct = weights[k] * 100
                 logger.info(f"  Channel {k}: {mean_str} (weight: {weight_pct:.1f}%)")
-            logger.info()
+            logger.info("")
 
         # ===== Phase 4: Channel Assignment with Confidence =====
         if verbose:
@@ -503,7 +503,7 @@ class ChannelUnmixingMixin:
                 logger.info(f"Analytical accuracy: {stats['overall_accuracy']:.3f}")
                 logger.info(f"Confusion matrix:")
                 logger.info(stats["confusion_matrix"])
-                logger.info()
+                logger.info("")
 
             # Use simple threshold based on FPR
             # Higher FPR tolerance → lower threshold → more assignments
@@ -620,7 +620,7 @@ class ChannelUnmixingMixin:
                 logger.info(f"  Channel {k}: {n_k:,} ({pct_k:.1f}%)")
             pct_unassigned = 100 * n_unassigned / n_locs
             logger.info(f"  Unassigned: {n_unassigned:,} ({pct_unassigned:.1f}%)")
-            logger.info()
+            logger.info("")
 
         # ===== Phase 7: Diagnostic Plotting =====
         if plot_results:
@@ -977,7 +977,7 @@ class ChannelUnmixingMixin:
             logger.info(f"Input: {len(loc_data):,} localizations")
             logger.info(f"Channels: {n_channels}")
             logger.info(f"Features: {channels_to_use}")
-            logger.info()
+            logger.info("")
 
         # ===== STEP 1: Initial Conservative Spectral Unmixing =====
         if verbose:
@@ -1018,7 +1018,7 @@ class ChannelUnmixingMixin:
             for k in range(n_channels):
                 logger.info(f"  Channel {k}: {n_assigned_initial[k]:,} locs")
             logger.info(f"  Unassigned: {n_unassigned_initial:,} locs")
-            logger.info()
+            logger.info("")
 
         # ===== STEP 2: Spatial Clustering Per Channel =====
         if verbose:
@@ -1060,13 +1060,13 @@ class ChannelUnmixingMixin:
             )
 
             if verbose:
-                logger.info()
+                logger.info("")
         else:
             if verbose:
                 logger.info("=" * 80)
                 logger.info(f"STEP 2.5: Skipping spectral refinement (only {n_puncta_total} puncta)")
                 logger.info("=" * 80)
-                logger.info()
+                logger.info("")
 
         # ===== STEP 3: Hierarchical Iterative Refinement =====
         if verbose:
@@ -1077,7 +1077,7 @@ class ChannelUnmixingMixin:
             logger.info(f"  Clear regions (1 channel nearby):    {confidence_threshold_clear:.2f}")
             logger.info(f"  Overlap regions (2+ channels nearby): {confidence_threshold_overlap:.2f}")
             logger.info(f"(Higher threshold in overlap regions accounts for spatial ambiguity)")
-            logger.info()
+            logger.info("")
 
         # Calculate posterior probabilities for ALL localizations
         X = loc_data[channels_to_use].values
@@ -1142,7 +1142,7 @@ class ChannelUnmixingMixin:
                 logger.info(f"  Channel {k}: {n_assigned_final[k]:,} locs (+{n_recovered[k]:,} from refinement)")
             logger.info(f"  Unassigned: {n_unassigned_final:,} locs")
             logger.info(f"\nTotal recovered: {n_recovered_total:,} locs ({100*n_recovered_total/len(loc_data):.2f}%)")
-            logger.info()
+            logger.info("")
 
         # ===== STEP 5: Diagnostic Plotting =====
         if plot_results:
@@ -1199,7 +1199,7 @@ class ChannelUnmixingMixin:
             logger.info(f"    median(xc_err) = {median_xc_err:.4f}, median(yc_err) = {median_yc_err:.4f}")
             logger.info(f"  spatial_eps multiplier = {spatial_eps:.2f}")
             logger.info(f"  Effective epsilon = {epsilon_pixels:.4f} pixels")
-            logger.info()
+            logger.info("")
 
         # Perform spatial clustering for each channel
         spatial_cluster_ids = np.full(len(assigned_initial), -1, dtype=int)
@@ -1264,7 +1264,7 @@ class ChannelUnmixingMixin:
                     logger.info(f"  Filtered out {n_filtered} small clusters")
                 logger.info(f"  In valid puncta: {n_in_valid:,} locs")
                 logger.info(f"  Noise/small clusters: {len(channel_k_locs) - n_in_valid:,} locs")
-                logger.info()
+                logger.info("")
 
         return epsilon_pixels, puncta_per_channel, spatial_cluster_ids
 
@@ -1427,7 +1427,7 @@ class ChannelUnmixingMixin:
                     logger.info(f"Channel {k}: Built KDTree with {len(punctum_centers)} punctum centers")
 
         if verbose:
-            logger.info()
+            logger.info("")
 
         return puncta_kdtrees, puncta_members
 
@@ -1575,7 +1575,7 @@ class ChannelUnmixingMixin:
                     logger.info(f"  Convergence: Fewer than {min_new_assignments} new assignments, stopping.")
                 break
 
-            logger.info()
+            logger.info("")
 
         if verbose:
             logger.info("=" * 80)
