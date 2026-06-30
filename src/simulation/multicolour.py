@@ -172,6 +172,7 @@ class SimulationConfig:
     motion_velocity_nm_per_s: float = 0.0
     frame_exposure_ms: float = 100.0
     n_unit_cells: int = 7
+    sbr: float | None = None
 
     def __post_init__(self):
         """
@@ -541,10 +542,11 @@ class MultiC_Sim_Funcs_Refactored:
                 sigma_PSF / config.pixel_size,  # s_y in pixels
             ]
         )
+        n_ch = len(camera_params.pixel_order)
         expected_parameters = np.hstack(
             [
                 expected_parameters,
-                np.array([config.background_photons / 3] * 3).ravel(),
+                np.array([config.background_photons / n_ch] * n_ch).ravel(),
                 dye_fit_expectation.ravel(),
             ]
         )
@@ -2787,6 +2789,11 @@ class MultiC_Sim_Funcs_Refactored:
                 average_emission_wavelength_for_this_photon = average_emission_wavelength
                 dye_pixel_efficiency_for_this_photon = dye_pixel_efficiency
 
+            # If SBR is set, background scales with signal so that bg = n_photon / sbr
+            _bg_photons = (
+                n_photon / config.sbr if config.sbr is not None else config.background_photons
+            )
+
             # Generate images
             bayer_image, smoothed_image, _ = self.gen_camera_image_stack(
                 camera_parameters,
@@ -2796,7 +2803,7 @@ class MultiC_Sim_Funcs_Refactored:
                 n_photons,
                 x0y0,
                 smoothing_function=smoothing_function,
-                background_photons=config.background_photons,
+                background_photons=_bg_photons,
                 background_colour=config.background_colour,
                 NA=config.NA,
                 pixel_size=config.pixel_size,

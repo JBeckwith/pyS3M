@@ -63,11 +63,14 @@ def plot_bayer_pattern(
     marker_color: str = "white",
     marker_size: float = 8,
     fontsize: float = 9,
+    line_color: str = "white",
+    dark_background: bool = True,
 ):
     """Draw a Bayer pattern grid on the given axes.
 
-    White B/G/R letter labels centred in each pixel square on a black background.
-    Matches the default mosaic layout from ``MaskFunctions.get_masks()``.
+    By default renders white labels/grid on a black background (``dark_background=True``).
+    Pass ``dark_background=False`` for black labels/grid on a white background, which
+    suits publication figures with a white page background.
 
     Args:
         ax: Matplotlib axes to draw on.
@@ -76,13 +79,18 @@ def plot_bayer_pattern(
             ``pattern[2]`` = bottom-left, ``pattern[3]`` = bottom-right.
             Supported values: ``"BGGR"`` (default), ``"GBRG"``, ``"RGGB"``, ``"GRBG"``.
         size: Number of pixels shown along each axis (grid is size × size).
-        vline: x-coordinate for a white dashed vertical reference line.
-        hline: y-coordinate for a white dashed horizontal reference line.
+        vline: x-coordinate for a dashed vertical reference line.
+        hline: y-coordinate for a dashed horizontal reference line.
         marker_pos: ``(x, y)`` in pixel coordinates — draws a scatter marker
             indicating the molecule's current position in the pattern.
         marker_color: Marker colour string.
         marker_size: Marker size (matplotlib ``s`` parameter).
         fontsize: Font size for the B / G / R labels.
+        line_color: Colour for the vline/hline reference lines.
+            Defaults to ``"white"`` when ``dark_background=True`` and ``"black"``
+            when ``dark_background=False`` (unless overridden explicitly).
+        dark_background: If ``True`` (default), black background with white grid/labels.
+            If ``False``, white background with black grid/labels.
 
     Returns:
         The modified axes object.
@@ -94,7 +102,11 @@ def plot_bayer_pattern(
         (1, 1): pattern[3],
     }
 
-    ax.set_facecolor("black")
+    bg_color = "black" if dark_background else "white"
+    fg_color = "white" if dark_background else "black"
+    _line_color = line_color if line_color != "white" or dark_background else "black"
+
+    ax.set_facecolor(bg_color)
     ax.set_xlim(0, size)
     ax.set_ylim(size, 0)  # inverted — row 0 at top (image convention)
     ax.set_aspect("equal")
@@ -102,8 +114,8 @@ def plot_bayer_pattern(
     # Grid lines drawn as bounded line segments with clip_on=False so that lines
     # at the axis boundaries (i=0 and i=size) are not half-clipped by the viewport.
     for i in range(size + 1):
-        ax.plot([i, i], [0, size], color="white", linewidth=0.5, zorder=1, clip_on=False)
-        ax.plot([0, size], [i, i], color="white", linewidth=0.5, zorder=1, clip_on=False)
+        ax.plot([i, i], [0, size], color=fg_color, linewidth=0.5, zorder=1, clip_on=False)
+        ax.plot([0, size], [i, i], color=fg_color, linewidth=0.5, zorder=1, clip_on=False)
 
     # Letter labels centred in each pixel cell
     for row in range(size):
@@ -111,7 +123,7 @@ def plot_bayer_pattern(
             ax.text(
                 col + 0.5, row + 0.5,
                 tile[(row % 2, col % 2)],
-                color="white",
+                color=fg_color,
                 ha="center", va="center",
                 fontsize=fontsize,
                 fontfamily="sans-serif",
@@ -120,9 +132,9 @@ def plot_bayer_pattern(
             )
 
     if vline is not None:
-        ax.axvline(vline, color="white", linestyle="--", linewidth=1, zorder=3)
+        ax.axvline(vline, color=_line_color, linestyle="--", linewidth=1, zorder=3)
     if hline is not None:
-        ax.axhline(hline, color="white", linestyle="--", linewidth=1, zorder=3)
+        ax.axhline(hline, color=_line_color, linestyle="--", linewidth=1, zorder=3)
 
     if marker_pos is not None:
         ax.scatter(marker_pos[0], marker_pos[1],
