@@ -2617,6 +2617,24 @@ class MultiC_Sim_Funcs_Refactored:
                 mosaic_unit=uc,
             )
 
+        # Build a dict from the (possibly resized) camera_params for gen_camera_image_stack.
+        # For non-square mosaic units (e.g. X-Trans 6×6 with n_unit_cells=7 → 42×42),
+        # camera_params is now larger than the original camera_parameters dict, so we must
+        # use this resized dict — not camera_parameters — to ensure the generated images
+        # and the calibration arrays used in _prepare_fitting_data have matching shapes.
+        _cam_dict_for_gen = {
+            "gain":                camera_params.gain,
+            "offset":              camera_params.offset,
+            "variance":            camera_params.variance,
+            "readnoise":           camera_params.readnoise,
+            "rqe":                 camera_params.rqe,
+            "masks":               camera_params.masks,
+            "pixel_QYs":           camera_params.pixel_QYs,
+            "pixel_order":         camera_params.pixel_order,
+            "pixel_order_indices": camera_params.pixel_order_indices,
+            "mosaic_unit":         camera_params.mosaic_unit,
+        }
+
         # Get dye properties
         if "simulated_" in dye:
             # For simulated spectra, apply filters before calculating average wavelength
@@ -2797,9 +2815,9 @@ class MultiC_Sim_Funcs_Refactored:
                 n_photon / config.sbr if config.sbr is not None else config.background_photons
             )
 
-            # Generate images
+            # Generate images — use the resized dict so image shape matches camera_params
             bayer_image, smoothed_image, _ = self.gen_camera_image_stack(
-                camera_parameters,
+                _cam_dict_for_gen,
                 wavelength,
                 average_emission_wavelength_for_this_photon,
                 dye_pixel_efficiency_for_this_photon,
