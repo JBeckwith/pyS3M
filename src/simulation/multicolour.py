@@ -27,6 +27,7 @@ import PSFFunctions
 import sCMOSFunctions
 import ImageAnalysisFunctions
 import SpectralFunctions
+import MaskFunctions
 from ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
 
 
@@ -77,6 +78,7 @@ class CameraParameters:
     pixel_QYs: np.ndarray
     pixel_order: list[str]
     pixel_order_indices: dict[str, int]
+    mosaic_unit: Optional[np.ndarray] = None
 
     @classmethod
     def validate_and_create(
@@ -115,7 +117,9 @@ class CameraParameters:
                 f"Camera parameters missing required keys: {missing_params}"
             )
 
-        return cls(**{param: camera_parameters[param] for param in required_params})
+        params = {param: camera_parameters[param] for param in required_params}
+        params["mosaic_unit"] = camera_parameters.get("mosaic_unit", None)
+        return cls(**params)
 
 
 @dataclass
@@ -167,6 +171,7 @@ class SimulationConfig:
     distance_from_coverslip_um: float = 0.0
     motion_velocity_nm_per_s: float = 0.0
     frame_exposure_ms: float = 100.0
+    n_unit_cells: int = 7
 
     def __post_init__(self):
         """
@@ -487,6 +492,7 @@ class MultiC_Sim_Funcs_Refactored:
         dye_pixel_efficiency: np.ndarray,
         average_emission_wavelength: float,
         dye: str,
+        unit_cell_shape: Optional[tuple[int, int]] = None,
     ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """
         Set up common simulation parameters including positions and expected values.
@@ -497,6 +503,9 @@ class MultiC_Sim_Funcs_Refactored:
             dye_pixel_efficiency (np.ndarray): Pixel detection efficiency for the dye
             average_emission_wavelength (float): Average emission wavelength for PSF calculation
             dye (str): Dye name for identification
+            unit_cell_shape (Optional[Tuple[int, int]]): Mosaic unit cell (rows, cols).
+                When provided, positions are drawn uniformly over one full unit cell so
+                that all pixel-type environments are sampled equally.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, Dict[str, Any]]: x0 positions, y0 positions,
@@ -504,12 +513,20 @@ class MultiC_Sim_Funcs_Refactored:
         """
         image_size = config.pixel_size * np.array(camera_params.gain.shape)
 
-        # Generate random positions around center
+        # Generate random positions spanning one full unit cell so that every
+        # pixel-type environment in the mosaic is sampled uniformly.
+        if unit_cell_shape is not None:
+            uc_half_x = (unit_cell_shape[0] / 2) * config.pixel_size
+            uc_half_y = (unit_cell_shape[1] / 2) * config.pixel_size
+        else:
+            uc_half_x = config.pixel_size
+            uc_half_y = config.pixel_size
+
         x0 = np.full(config.n_bootstrap, image_size[0] / 2) + np.random.uniform(
-            low=-config.pixel_size, high=config.pixel_size, size=config.n_bootstrap
+            low=-uc_half_x, high=uc_half_x, size=config.n_bootstrap
         )
         y0 = np.full(config.n_bootstrap, image_size[1] / 2) + np.random.uniform(
-            low=-config.pixel_size, high=config.pixel_size, size=config.n_bootstrap
+            low=-uc_half_y, high=uc_half_y, size=config.n_bootstrap
         )
 
         # Calculate expected parameters for validation
@@ -797,32 +814,18 @@ class MultiC_Sim_Funcs_Refactored:
             masks=masks_tofit,
         )
 
-        columns = [
-            "xc",
-            "yc",
-            "s_x",
-            "s_y",
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "A_B",
-            "A_G",
-            "A_R",
-            "chi_sqr",
-            "frame",
-        ]
-        error_columns = [
-            "xc_err",
-            "yc_err",
-            "s_x_err",
-            "s_y_err",
-            "bg_B_err",
-            "bg_G_err",
-            "bg_R_err",
-            "A_B_err",
-            "A_G_err",
-            "A_R_err",
-        ]
+        _lbls = camera_params.pixel_order
+        columns = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in _lbls]
+            + [f"A_{l}" for l in _lbls]
+            + ["chi_sqr", "frame"]
+        )
+        error_columns = (
+            ["xc_err", "yc_err", "s_x_err", "s_y_err"]
+            + [f"bg_{l}_err" for l in _lbls]
+            + [f"A_{l}_err" for l in _lbls]
+        )
 
         # Combine fit results and errors
         fit_results = pd.DataFrame(fit_results, columns=columns).sort_values(
@@ -833,48 +836,22 @@ class MultiC_Sim_Funcs_Refactored:
             [fit_results.reset_index(drop=True), fit_errors_df], axis=1
         )
 
-        # CRITICAL FIX: Sqrt transformation error correction
-        # The fitter works with sqrt(A) and sqrt(bg), but returns A and bg after squaring (line 316 ImageAnalysisFunctions)
-        # The errors are for sqrt(A), but we need errors for A
-        # Error propagation: if p = sqrt(A), then δA = |dA/dp| × δp = 2*sqrt(A) × δp
-        #
-        # Since fit_results already contains squared values (A, not sqrt(A)), we need:
-        # δA_corrected = 2 × sqrt(A) × δ(sqrt(A))
+        # Sqrt transformation error correction (fitter returns A after squaring; errors are for sqrt(A))
+        for l in _lbls:
+            for col, err in [(f"A_{l}", f"A_{l}_err"), (f"bg_{l}", f"bg_{l}_err")]:
+                mask = fit_results[col] > 0
+                fit_results.loc[mask, err] = (
+                    fit_results.loc[mask, err] * 2.0 * np.sqrt(fit_results.loc[mask, col])
+                )
 
-        # Before squaring was applied, the fitted parameter was sqrt(A)
-        # So we need to multiply errors by 2 × sqrt(A) where A is the current (squared) value
-        for param, param_err in [("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
-                                  ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err")]:
-            # Multiply error by 2*sqrt(A) to account for sqrt transformation
-            # Only apply where A > 0 to avoid sqrt of negative/zero
-            mask = fit_results[param] > 0
-            fit_results.loc[mask, param_err] = (
-                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
-            )
+        fit_results["photons"] = sum(fit_results[f"A_{l}"] for l in _lbls)
+        fit_results["background_photons"] = sum(fit_results[f"bg_{l}"] for l in _lbls)
 
-        # Now normalize amplitudes AND their errors
-        fit_results["photons"] = (
-            fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
-        )
-        fit_results["background_photons"] = (
-            fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
-        )
-
-        # Normalize amplitude values by total photons
-        for cparam in ["A_R", "A_G", "A_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
-
-        # Normalize amplitude errors by total photons (same denominator)
-        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["photons"]
-
-        # Normalize background values by total background photons
-        for cparam in ["bg_R", "bg_G", "bg_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
-
-        # Normalize background errors by total background photons (same denominator)
-        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
+        for l in _lbls:
+            fit_results[f"A_{l}"] /= fit_results["photons"]
+            fit_results[f"A_{l}_err"] /= fit_results["photons"]
+            fit_results[f"bg_{l}"] /= fit_results["background_photons"]
+            fit_results[f"bg_{l}_err"] /= fit_results["background_photons"]
 
         return fit_results
 
@@ -922,43 +899,39 @@ class MultiC_Sim_Funcs_Refactored:
             masks=masks_tofit,
         )
 
-        columns = [
-            "xc", "yc", "s_x", "s_y", "theta",
-            "bg_B", "bg_G", "bg_R",
-            "A_B", "A_G", "A_R",
-            "chi_sqr", "frame",
-        ]
-        error_columns = [
-            "xc_err", "yc_err", "s_x_err", "s_y_err", "theta_err",
-            "bg_B_err", "bg_G_err", "bg_R_err",
-            "A_B_err", "A_G_err", "A_R_err",
-        ]
+        _lbls = camera_params.pixel_order
+        columns = (
+            ["xc", "yc", "s_x", "s_y", "theta"]
+            + [f"bg_{l}" for l in _lbls]
+            + [f"A_{l}" for l in _lbls]
+            + ["chi_sqr", "frame"]
+        )
+        error_columns = (
+            ["xc_err", "yc_err", "s_x_err", "s_y_err", "theta_err"]
+            + [f"bg_{l}_err" for l in _lbls]
+            + [f"A_{l}_err" for l in _lbls]
+        )
 
         fit_results = pd.DataFrame(fit_results, columns=columns).sort_values(by=["frame"])
         fit_errors_df = pd.DataFrame(fit_errors, columns=error_columns)
         fit_results = pd.concat([fit_results.reset_index(drop=True), fit_errors_df], axis=1)
 
         # Sqrt transformation error correction (bg and A only; theta is not squared)
-        for param, param_err in [
-            ("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
-            ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err"),
-        ]:
-            mask = fit_results[param] > 0
-            fit_results.loc[mask, param_err] = (
-                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
-            )
+        for l in _lbls:
+            for col, err in [(f"A_{l}", f"A_{l}_err"), (f"bg_{l}", f"bg_{l}_err")]:
+                mask = fit_results[col] > 0
+                fit_results.loc[mask, err] = (
+                    fit_results.loc[mask, err] * 2.0 * np.sqrt(fit_results.loc[mask, col])
+                )
 
-        fit_results["photons"] = fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
-        fit_results["background_photons"] = fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
+        fit_results["photons"] = sum(fit_results[f"A_{l}"] for l in _lbls)
+        fit_results["background_photons"] = sum(fit_results[f"bg_{l}"] for l in _lbls)
 
-        for cparam in ["A_R", "A_G", "A_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
-        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["photons"]
-        for cparam in ["bg_R", "bg_G", "bg_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
-        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
+        for l in _lbls:
+            fit_results[f"A_{l}"] /= fit_results["photons"]
+            fit_results[f"A_{l}_err"] /= fit_results["photons"]
+            fit_results[f"bg_{l}"] /= fit_results["background_photons"]
+            fit_results[f"bg_{l}_err"] /= fit_results["background_photons"]
 
         return fit_results
 
@@ -1009,41 +982,38 @@ class MultiC_Sim_Funcs_Refactored:
             masks=masks_tofit,
         )
 
-        columns = [
-            "xc", "yc", "s_x", "s_y",
-            "bg_B", "bg_G", "bg_R",
-            "A_B", "A_G", "A_R",
-            "chi_sqr", "frame",
-        ]
-        error_columns = [
-            "xc_err", "yc_err", "s_x_err", "s_y_err",
-            "bg_B_err", "bg_G_err", "bg_R_err",
-            "A_B_err", "A_G_err", "A_R_err",
-        ]
+        _lbls = camera_params.pixel_order
+        columns = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in _lbls]
+            + [f"A_{l}" for l in _lbls]
+            + ["chi_sqr", "frame"]
+        )
+        error_columns = (
+            ["xc_err", "yc_err", "s_x_err", "s_y_err"]
+            + [f"bg_{l}_err" for l in _lbls]
+            + [f"A_{l}_err" for l in _lbls]
+        )
 
         fit_results = pd.DataFrame(fit_results, columns=columns).sort_values(by=["frame"])
         fit_errors_df = pd.DataFrame(fit_errors, columns=error_columns)
         fit_results = pd.concat([fit_results.reset_index(drop=True), fit_errors_df], axis=1)
 
-        # Sqrt transformation error correction (same as _fit_standard)
-        for param, param_err in [("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
-                                  ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err")]:
-            mask = fit_results[param] > 0
-            fit_results.loc[mask, param_err] = (
-                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
-            )
+        for l in _lbls:
+            for col, err in [(f"A_{l}", f"A_{l}_err"), (f"bg_{l}", f"bg_{l}_err")]:
+                mask = fit_results[col] > 0
+                fit_results.loc[mask, err] = (
+                    fit_results.loc[mask, err] * 2.0 * np.sqrt(fit_results.loc[mask, col])
+                )
 
-        fit_results["photons"] = fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
-        fit_results["background_photons"] = fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
+        fit_results["photons"] = sum(fit_results[f"A_{l}"] for l in _lbls)
+        fit_results["background_photons"] = sum(fit_results[f"bg_{l}"] for l in _lbls)
 
-        for cparam in ["A_R", "A_G", "A_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
-        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["photons"]
-        for cparam in ["bg_R", "bg_G", "bg_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
-        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
+        for l in _lbls:
+            fit_results[f"A_{l}"] /= fit_results["photons"]
+            fit_results[f"A_{l}_err"] /= fit_results["photons"]
+            fit_results[f"bg_{l}"] /= fit_results["background_photons"]
+            fit_results[f"bg_{l}_err"] /= fit_results["background_photons"]
 
         return fit_results
 
@@ -1094,41 +1064,38 @@ class MultiC_Sim_Funcs_Refactored:
             masks=masks_tofit,
         )
 
-        columns = [
-            "xc", "yc", "s_x", "s_y",
-            "bg_B", "bg_G", "bg_R",
-            "A_B", "A_G", "A_R",
-            "chi_sqr", "frame",
-        ]
-        error_columns = [
-            "xc_err", "yc_err", "s_x_err", "s_y_err",
-            "bg_B_err", "bg_G_err", "bg_R_err",
-            "A_B_err", "A_G_err", "A_R_err",
-        ]
+        _lbls = camera_params.pixel_order
+        columns = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in _lbls]
+            + [f"A_{l}" for l in _lbls]
+            + ["chi_sqr", "frame"]
+        )
+        error_columns = (
+            ["xc_err", "yc_err", "s_x_err", "s_y_err"]
+            + [f"bg_{l}_err" for l in _lbls]
+            + [f"A_{l}_err" for l in _lbls]
+        )
 
         fit_results = pd.DataFrame(fit_results, columns=columns).sort_values(by=["frame"])
         fit_errors_df = pd.DataFrame(fit_errors, columns=error_columns)
         fit_results = pd.concat([fit_results.reset_index(drop=True), fit_errors_df], axis=1)
 
-        # Sqrt transformation error correction
-        for param, param_err in [("A_R", "A_R_err"), ("A_G", "A_G_err"), ("A_B", "A_B_err"),
-                                  ("bg_R", "bg_R_err"), ("bg_G", "bg_G_err"), ("bg_B", "bg_B_err")]:
-            mask = fit_results[param] > 0
-            fit_results.loc[mask, param_err] = (
-                fit_results.loc[mask, param_err] * 2.0 * np.sqrt(fit_results.loc[mask, param])
-            )
+        for l in _lbls:
+            for col, err in [(f"A_{l}", f"A_{l}_err"), (f"bg_{l}", f"bg_{l}_err")]:
+                mask = fit_results[col] > 0
+                fit_results.loc[mask, err] = (
+                    fit_results.loc[mask, err] * 2.0 * np.sqrt(fit_results.loc[mask, col])
+                )
 
-        fit_results["photons"] = fit_results["A_R"] + fit_results["A_G"] + fit_results["A_B"]
-        fit_results["background_photons"] = fit_results["bg_R"] + fit_results["bg_G"] + fit_results["bg_B"]
+        fit_results["photons"] = sum(fit_results[f"A_{l}"] for l in _lbls)
+        fit_results["background_photons"] = sum(fit_results[f"bg_{l}"] for l in _lbls)
 
-        for cparam in ["A_R", "A_G", "A_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["photons"]
-        for cparam_err in ["A_R_err", "A_G_err", "A_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
-        for cparam in ["bg_R", "bg_G", "bg_B"]:
-            fit_results[cparam] = fit_results[cparam] / fit_results["background_photons"]
-        for cparam_err in ["bg_R_err", "bg_G_err", "bg_B_err"]:
-            fit_results[cparam_err] = fit_results[cparam_err] / fit_results["background_photons"]
+        for l in _lbls:
+            fit_results[f"A_{l}"] /= fit_results["photons"]
+            fit_results[f"A_{l}_err"] /= fit_results["photons"]
+            fit_results[f"bg_{l}"] /= fit_results["background_photons"]
+            fit_results[f"bg_{l}_err"] /= fit_results["background_photons"]
 
         return fit_results
 
@@ -1372,36 +1339,23 @@ class MultiC_Sim_Funcs_Refactored:
             masks=masks_tofit,
         )
 
-        colour_columns = [
-            "xc", "yc", "s_x", "s_y",
-            "bg_B", "bg_G", "bg_R",
-            "A_B", "A_G", "A_R",
-            "chi_sqr", "frame",
-        ]
+        _lbls = camera_params.pixel_order
+        colour_columns = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in _lbls]
+            + [f"A_{l}" for l in _lbls]
+            + ["chi_sqr", "frame"]
+        )
         fit_results_colour = pd.DataFrame(
             fit_results_colour, columns=colour_columns
         ).sort_values(by=["frame"])
 
-        # Normalise colour results
-        fit_results_colour["photons"] = (
-            fit_results_colour["A_B"]
-            + fit_results_colour["A_G"]
-            + fit_results_colour["A_R"]
-        )
-        fit_results_colour["background_photons"] = (
-            fit_results_colour["bg_B"]
-            + fit_results_colour["bg_G"]
-            + fit_results_colour["bg_R"]
-        )
+        fit_results_colour["photons"] = sum(fit_results_colour[f"A_{l}"] for l in _lbls)
+        fit_results_colour["background_photons"] = sum(fit_results_colour[f"bg_{l}"] for l in _lbls)
 
-        for param in ["A_B", "A_G", "A_R"]:
-            fit_results_colour[param] = (
-                fit_results_colour[param] / fit_results_colour["photons"]
-            )
-        for param in ["bg_B", "bg_G", "bg_R"]:
-            fit_results_colour[param] = (
-                fit_results_colour[param] / fit_results_colour["background_photons"]
-            )
+        for l in _lbls:
+            fit_results_colour[f"A_{l}"] /= fit_results_colour["photons"]
+            fit_results_colour[f"bg_{l}"] /= fit_results_colour["background_photons"]
 
         return fit_results_colour
 
@@ -1593,13 +1547,8 @@ class MultiC_Sim_Funcs_Refactored:
                 fit_std[loc] = config.pixel_size * np.nanstd(error_y)
             elif param == "chi_sqr":
                 colour_loc = np.expand_dims(dye_fit_expectation, 0)
-                colour = np.vstack(
-                    [
-                        fit_results["A_B"].to_numpy(),
-                        fit_results["A_G"].to_numpy(),
-                        fit_results["A_R"].to_numpy(),
-                    ]
-                ).T
+                a_cols = [p for p in analysis_save_params if p.startswith("A_")]
+                colour = np.vstack([fit_results[c].to_numpy() for c in a_cols]).T
                 distances = cdist(colour, colour_loc)
                 fit_RMSE_mean[loc] = np.nanmean(distances)
                 fit_std[loc] = np.nanstd(distances)
@@ -2385,6 +2334,44 @@ class MultiC_Sim_Funcs_Refactored:
         camera_params_base = CameraParameters.validate_and_create(camera_parameters)
         self._validate_inputs(wavelength, camera_parameters, None, {})
 
+        # Resize image to n_unit_cells × unit cell if mosaic_unit is provided
+        unit_cell_shape: Optional[tuple[int, int]] = None
+        if camera_params_base.mosaic_unit is not None and config.n_unit_cells > 0:
+            uc = camera_params_base.mosaic_unit
+            uc_h, uc_w = uc.shape
+            unit_cell_shape = (uc_h, uc_w)
+            new_h = config.n_unit_cells * uc_h
+            new_w = config.n_unit_cells * uc_w
+            _mf = MaskFunctions.Mask_Functions()
+            new_masks = _mf.get_masks(new_h, new_w, uc)
+            camera_params_base = CameraParameters(
+                gain=np.full((new_h, new_w), camera_params_base.gain.flat[0]),
+                offset=np.full((new_h, new_w), camera_params_base.offset.flat[0]),
+                variance=np.full((new_h, new_w), camera_params_base.variance.flat[0]),
+                readnoise=camera_params_base.readnoise,
+                rqe=np.full((new_h, new_w), camera_params_base.rqe.flat[0]),
+                masks=new_masks,
+                pixel_QYs=camera_params_base.pixel_QYs,
+                pixel_order=camera_params_base.pixel_order,
+                pixel_order_indices=camera_params_base.pixel_order_indices,
+                mosaic_unit=uc,
+            )
+
+        # Build a base dict from the (possibly resized) camera_params_base for use in
+        # inner-loop cam_params dicts — ensures masks/gain/offset have the correct size.
+        _base_cam_dict = {
+            "gain":                camera_params_base.gain,
+            "offset":              camera_params_base.offset,
+            "variance":            camera_params_base.variance,
+            "readnoise":           camera_params_base.readnoise,
+            "rqe":                 camera_params_base.rqe,
+            "masks":               camera_params_base.masks,
+            "pixel_QYs":           camera_params_base.pixel_QYs,
+            "pixel_order":         camera_params_base.pixel_order,
+            "pixel_order_indices": camera_params_base.pixel_order_indices,
+            "mosaic_unit":         camera_params_base.mosaic_unit,
+        }
+
         # Spectral properties (once per dye; relative fractions don't change with uniform QY scaling)
         average_emission_wavelength, dye_pixel_efficiency = (
             self.spectral.get_pixel_fractions_dye_and_filters(
@@ -2398,29 +2385,21 @@ class MultiC_Sim_Funcs_Refactored:
         x0, y0, setup_data = self._setup_simulation_parameters(
             camera_params_base, config, dye_pixel_efficiency,
             average_emission_wavelength, dye,
+            unit_cell_shape=unit_cell_shape,
         )
         x0y0 = {"dye": np.zeros([config.n_bootstrap, 2, 1])}
         x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
 
-        # Analysis parameters (strategy-independent for STANDARD strategy)
-        if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER):
-            analysis_save_params = [
-                "xc", "yc", "s_x", "s_y",
-                "bg_B", "bg_G", "bg_R",
-                "A_B", "A_G", "A_R",
-                "chi_sqr", "frame",
-            ]
-        else:
-            analysis_save_params = [
-                "xc", "yc", "s_x", "s_y",
-                "bg_B", "bg_G", "bg_R",
-                "A_B", "A_G", "A_R",
-                "chi_sqr", "frame",
-            ]
+        analysis_save_params = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in camera_params_base.pixel_order]
+            + [f"A_{l}" for l in camera_params_base.pixel_order]
+            + ["chi_sqr", "frame"]
+        )
 
         dyestr = dye.replace("/", "-")
-        gain = camera_parameters["gain"]
-        offset = camera_parameters["offset"]
+        gain = camera_params_base.gain
+        offset = camera_params_base.offset
         qy_max = float(np.max(peak_qy_space))
 
         # Pre-compute spectrum template for stochastic mode
@@ -2449,7 +2428,7 @@ class MultiC_Sim_Funcs_Refactored:
                 if pe_base is None:
                     # First pass (peak_qy == qy_max): full Poisson + binomial draw
                     pixel_QYs_max = base_pixel_QYs * qy_max
-                    cam_params_qy = dict(camera_parameters)
+                    cam_params_qy = dict(_base_cam_dict)
                     cam_params_qy["pixel_QYs"] = pixel_QYs_max
 
                     if config.use_stochastic_photons:
@@ -2502,7 +2481,7 @@ class MultiC_Sim_Funcs_Refactored:
                     )
 
                     # Build camera_params for this rn (fitting needs readnoise for weights)
-                    cam_params_rn_dict = dict(camera_parameters)
+                    cam_params_rn_dict = dict(_base_cam_dict)
                     cam_params_rn_dict["variance"] = np.full(gain.shape, rn ** 2)
                     cam_params_rn_dict["readnoise"] = rn
                     camera_params_rn = CameraParameters.validate_and_create(cam_params_rn_dict)
@@ -2609,6 +2588,30 @@ class MultiC_Sim_Funcs_Refactored:
         camera_params = CameraParameters.validate_and_create(camera_parameters)
         self._validate_inputs(wavelength, camera_parameters, None, {})
 
+        # If a mosaic_unit is provided, resize the image so it covers n_unit_cells × unit cell.
+        # This ensures all positions within the unit cell are sampled uniformly.
+        unit_cell_shape: Optional[tuple[int, int]] = None
+        if camera_params.mosaic_unit is not None and config.n_unit_cells > 0:
+            uc = camera_params.mosaic_unit
+            uc_h, uc_w = uc.shape
+            unit_cell_shape = (uc_h, uc_w)
+            new_h = config.n_unit_cells * uc_h
+            new_w = config.n_unit_cells * uc_w
+            _mf = MaskFunctions.Mask_Functions()
+            new_masks = _mf.get_masks(new_h, new_w, uc)
+            camera_params = CameraParameters(
+                gain=np.full((new_h, new_w), camera_params.gain.flat[0]),
+                offset=np.full((new_h, new_w), camera_params.offset.flat[0]),
+                variance=np.full((new_h, new_w), camera_params.variance.flat[0]),
+                readnoise=camera_params.readnoise,
+                rqe=np.full((new_h, new_w), camera_params.rqe.flat[0]),
+                masks=new_masks,
+                pixel_QYs=camera_params.pixel_QYs,
+                pixel_order=camera_params.pixel_order,
+                pixel_order_indices=camera_params.pixel_order_indices,
+                mosaic_unit=uc,
+            )
+
         # Get dye properties
         if "simulated_" in dye:
             # For simulated spectra, apply filters before calculating average wavelength
@@ -2641,6 +2644,7 @@ class MultiC_Sim_Funcs_Refactored:
             dye_pixel_efficiency,
             average_emission_wavelength,
             dye,
+            unit_cell_shape=unit_cell_shape,
         )
 
         # Create position dictionary
@@ -2652,20 +2656,12 @@ class MultiC_Sim_Funcs_Refactored:
         # these are excluded from analysis_save_params so that _compute_fit_statistics
         # and the expected-parameters CSV remain strategy-agnostic.  theta is still
         # preserved in the raw HDF5 output for downstream analysis.
-        analysis_save_params = [
-            "xc",
-            "yc",
-            "s_x",
-            "s_y",
-            "bg_B",
-            "bg_G",
-            "bg_R",
-            "A_B",
-            "A_G",
-            "A_R",
-            "chi_sqr",
-            "frame",
-        ]
+        analysis_save_params = (
+            ["xc", "yc", "s_x", "s_y"]
+            + [f"bg_{l}" for l in camera_params.pixel_order]
+            + [f"A_{l}" for l in camera_params.pixel_order]
+            + ["chi_sqr", "frame"]
+        )
 
         # Save expected parameters (only if overwriting or doesn't exist)
         parameters_to_save = analysis_save_params[:-2]
