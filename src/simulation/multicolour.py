@@ -1680,7 +1680,7 @@ class MultiC_Sim_Funcs_Refactored:
         dye_pixel_efficiency: np.ndarray,
         n_photons: Dict[str, Union[int, np.ndarray]],
         x0y0: Dict[str, np.ndarray],
-        smoothing_function,
+        smoothing_function=None,
         background_photons: float = 0,
         background_colour: List[float] = None,
         NA: float = 1.49,
@@ -1943,7 +1943,7 @@ class MultiC_Sim_Funcs_Refactored:
                                     self._gen_photon_map_vectorial(_p, x0, y0, n, _q)
                             else:
                                 _fn = lambda x0, y0, n, _x=x, _y=y, _sx=sigma_x, _sy=sigma_y, _q=relative_QE: \
-                                    self.psf.gen_spatial_PSF(_x, _y, _sx, _sy, x0, y0, n, _q)
+                                    self.psf.gen_spatial_PSF_fast(_x, _y, _sx, _sy, x0, y0, n, _q)
                             photon_spatial_pdf = self._apply_motion_blur(
                                 _fn, x0_pixels, y0_pixels, n_photons_array,
                                 _motion_displacement_px, _angle,
@@ -1954,7 +1954,7 @@ class MultiC_Sim_Funcs_Refactored:
                                 n_photons_array, relative_QE,
                             )
                         else:
-                            photon_spatial_pdf = self.psf.gen_spatial_PSF(
+                            photon_spatial_pdf = self.psf.gen_spatial_PSF_fast(
                                 x, y, sigma_x, sigma_y,
                                 x0_pixels, y0_pixels, n_photons_array, relative_QE,
                             )
@@ -2097,7 +2097,7 @@ class MultiC_Sim_Funcs_Refactored:
                                     self._gen_photon_map_vectorial(_p, x0, y0, n, _q)
                             else:
                                 _fn = lambda x0, y0, n, _x=x, _y=y, _sx=sigma_x, _sy=sigma_y, _q=relative_QE: \
-                                    self.psf.gen_spatial_PSF(_x, _y, _sx, _sy, x0, y0, n, _q)
+                                    self.psf.gen_spatial_PSF_fast(_x, _y, _sx, _sy, x0, y0, n, _q)
                             photon_spatial_pdf = self._apply_motion_blur(
                                 _fn, x0_pixels, y0_pixels, n_photons_array,
                                 _motion_displacement_px, _angle,
@@ -2108,7 +2108,7 @@ class MultiC_Sim_Funcs_Refactored:
                                 n_photons_array, relative_QE,
                             )
                         else:
-                            photon_spatial_pdf = self.psf.gen_spatial_PSF(
+                            photon_spatial_pdf = self.psf.gen_spatial_PSF_fast(
                                 x, y, sigma_x, sigma_y,
                                 x0_pixels, y0_pixels, n_photons_array, relative_QE,
                             )
@@ -2195,9 +2195,12 @@ class MultiC_Sim_Funcs_Refactored:
             bayer_image = bayer_image.astype(np.uint8)
 
         # Apply smoothing
-        smoothing_args = dict(smoothing_function.args)  # copy — do not mutate the original
-        smoothing_args[smoothing_function.data_arg] = bayer_image
-        smoothed_image = smoothing_function.smoothing_function(**smoothing_args)
+        if smoothing_function is not None:
+            smoothing_args = dict(smoothing_function.args)  # copy — do not mutate the original
+            smoothing_args[smoothing_function.data_arg] = bayer_image
+            smoothed_image = smoothing_function.smoothing_function(**smoothing_args)
+        else:
+            smoothed_image = None
 
         if return_normal_image:
             return (
