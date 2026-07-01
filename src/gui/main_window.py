@@ -852,54 +852,62 @@ class MainWindow(QMainWindow):
         psf = np.exp(-((xx - c) ** 2 + (yy - c) ** 2) / (2.0 * sigma_px ** 2))
         psf /= psf.sum()
 
+        # RGGB Bayer masks over the patch
+        r_mask = (yy % 2 == 0) & (xx % 2 == 0)
+        g_mask = ((yy % 2 == 0) & (xx % 2 == 1)) | ((yy % 2 == 1) & (xx % 2 == 0))
+        b_mask = (yy % 2 == 1) & (xx % 2 == 1)
+
         rng = np.random.default_rng(42)
         photon_levels = _PHOTON_LEVELS
         n_rows = len(photon_levels)
 
-        # Display scale: peak expected signal in the brightest channel at max photons
-        # (background shows as dark offset; subtract it before scaling)
+        # Display scale: peak expected signal at max photons in the brightest channel
         max_signal = photon_levels[-1] * max(r_eff, g_eff, b_eff) * psf.max()
         display_scale = max(max_signal, 1.0)
 
-        fig = Figure(figsize=(2.2 * n_rep + 0.6, 2.2 * n_rows + 0.8), dpi=100)
+        fig = Figure(
+            figsize=(1.8 * n_rep + 1.0, 1.8 * n_rows + 0.7),
+            dpi=100,
+            layout="constrained",
+        )
         fig.patch.set_facecolor("#1a1a1a")
+        axes = fig.subplots(n_rows, n_rep, squeeze=False)
 
-        for row, n_ph in enumerate(photon_levels):
-            for col in range(n_rep):
-                ax = fig.add_axes(
-                    [
-                        (col * 2.2 + 0.3) / (2.2 * n_rep + 0.6),
-                        1.0 - (row + 1) * 2.2 / (2.2 * n_rows + 0.8),
-                        2.0 / (2.2 * n_rep + 0.6),
-                        2.0 / (2.2 * n_rows + 0.8),
-                    ]
+        for row_idx, n_ph in enumerate(photon_levels):
+            for col_idx in range(n_rep):
+                ax = axes[row_idx, col_idx]
+                ax.set_facecolor("#1a1a1a")
+
+                # Raw Bayer image: each pixel type draws Poisson(signal) + Gaussian RN
+                bayer = np.zeros((patch_size, patch_size))
+                for mask, eff in ((r_mask, r_eff), (g_mask, g_eff), (b_mask, b_eff)):
+                    n_px = int(mask.sum())
+                    sig = rng.poisson(n_ph * eff * psf[mask] + bg_photons).astype(float)
+                    sig += rng.normal(0.0, read_noise_e, size=n_px)
+                    bayer[mask] = sig - bg_photons
+
+                ax.imshow(
+                    np.clip(bayer, 0.0, None),
+                    cmap="gray",
+                    origin="upper",
+                    interpolation="nearest",
+                    aspect="equal",
+                    vmin=0.0,
+                    vmax=display_scale,
                 )
-                # Poisson signal + background per channel, then add Gaussian read noise
-                def _patch(eff):
-                    sig = rng.poisson(n_ph * eff * psf + bg_photons).astype(float)
-                    sig += rng.normal(0.0, read_noise_e, size=sig.shape)
-                    return sig - bg_photons  # subtract background for display
-
-                r_patch = _patch(r_eff)
-                g_patch = _patch(g_eff)
-                b_patch = _patch(b_eff)
-
-                rgb = np.stack([r_patch, g_patch, b_patch], axis=-1)
-                rgb = np.clip(rgb / display_scale, 0.0, 1.0)
-
-                ax.imshow(rgb, origin="upper", interpolation="nearest", aspect="equal")
                 ax.set_xticks([])
                 ax.set_yticks([])
                 for spine in ax.spines.values():
-                    spine.set_edgecolor("#444444")
+                    spine.set_edgecolor("#333333")
+                    spine.set_linewidth(0.5)
 
-                if col == 0:
+                if col_idx == 0:
                     ax.set_ylabel(
                         f"{n_ph:,} ph",
                         color="white",
-                        fontsize=8,
+                        fontsize=7,
                         rotation=0,
-                        labelpad=32,
+                        labelpad=34,
                         va="center",
                     )
 
@@ -913,7 +921,6 @@ class MainWindow(QMainWindow):
             ),
             color="white",
             fontsize=8,
-            y=0.99,
         )
         return fig
 
