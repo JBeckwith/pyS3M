@@ -262,104 +262,77 @@ def _process_bootstrap_samples_parallel(
     """
     Parallel processing of bootstrap samples using Numba prange.
 
-    This function processes all bootstrap samples in parallel, calculating mean
-    wavelengths and colour channel counts for each sample. Uses pre-computed
-    QE lookup tables and pre-generated random numbers for deterministic results.
+    Works for any number of colour channels (n_ch = lut_qe.shape[0]).
 
     Args:
         photon_wavelengths_bootstrap: Shape (n_bootstrap, n_photons_per_image)
         lut_wavelengths: QE lookup table wavelengths (1D array)
-        lut_qe: QE values, shape (3, len(lut_wavelengths)) for B, G, R
+        lut_qe: QE values, shape (n_ch, len(lut_wavelengths))
         uniform_randoms_all: Pre-generated random numbers, shape (n_bootstrap, n_photons_per_image)
 
     Returns:
         Tuple of (mean_wavelengths, counts_array, mean_total_qe_array):
             - mean_wavelengths: Shape (n_bootstrap,)
-            - counts_array: Shape (n_bootstrap, 3) - counts for B, G, R
+            - counts_array: Shape (n_bootstrap, n_ch)
             - mean_total_qe_array: Shape (n_bootstrap,)
-
-    Speedup: 3-3.5× faster than sequential loop by parallelizing across bootstrap samples.
     """
     n_bootstrap, n_photons = photon_wavelengths_bootstrap.shape
+    n_ch = lut_qe.shape[0]
+    n_lut = len(lut_wavelengths)
 
-    # Preallocate output arrays
     mean_wavelengths = np.zeros(n_bootstrap, dtype=np.float64)
-    counts_array = np.zeros((n_bootstrap, 3), dtype=np.float64)
+    counts_array = np.zeros((n_bootstrap, n_ch), dtype=np.float64)
     mean_total_qe_array = np.zeros(n_bootstrap, dtype=np.float64)
 
-    # Parallel loop over bootstrap samples
     for i in numba.prange(n_bootstrap):
-        # Get photon wavelengths for this bootstrap sample
         photon_wls = photon_wavelengths_bootstrap[i, :]
+        mean_wavelengths[i] = np.mean(photon_wls)
 
-        # Calculate mean wavelength
-        mean_wl = np.mean(photon_wls)
-        mean_wavelengths[i] = mean_wl
+        qy_at_photons = np.zeros((n_ch, n_photons), dtype=np.float64)
 
-        # Lookup QE values for each photon using the pre-computed LUT
-        # Use optimized inline interpolation to avoid function call overhead
-        qy_at_photons = np.zeros((3, n_photons), dtype=np.float64)
-
-        # Process each photon
         for j in range(n_photons):
             wl = photon_wls[j]
-
-            # Binary search to find bracketing indices in LUT
             idx = np.searchsorted(lut_wavelengths, wl)
 
-            # Handle edge cases and interpolate
             if idx == 0:
-                # wavelength below LUT range - use first LUT value
-                qy_at_photons[0, j] = lut_qe[0, 0]
-                qy_at_photons[1, j] = lut_qe[1, 0]
-                qy_at_photons[2, j] = lut_qe[2, 0]
-            elif idx >= len(lut_wavelengths):
-                # wavelength above LUT range - use last LUT value
-                last_idx = len(lut_wavelengths) - 1
-                qy_at_photons[0, j] = lut_qe[0, last_idx]
-                qy_at_photons[1, j] = lut_qe[1, last_idx]
-                qy_at_photons[2, j] = lut_qe[2, last_idx]
+                for c in range(n_ch):
+                    qy_at_photons[c, j] = lut_qe[c, 0]
+            elif idx >= n_lut:
+                last = n_lut - 1
+                for c in range(n_ch):
+                    qy_at_photons[c, j] = lut_qe[c, last]
             else:
-                # Interpolate between idx-1 and idx
                 wl0 = lut_wavelengths[idx - 1]
                 wl1 = lut_wavelengths[idx]
                 frac = (wl - wl0) / (wl1 - wl0)
+                for c in range(n_ch):
+                    qy_at_photons[c, j] = (
+                        lut_qe[c, idx - 1] + frac * (lut_qe[c, idx] - lut_qe[c, idx - 1])
+                    )
 
-                # Unrolled loop for 3 channels (B, G, R)
-                idx_prev = idx - 1
-                qy_at_photons[0, j] = lut_qe[0, idx_prev] + frac * (lut_qe[0, idx] - lut_qe[0, idx_prev])
-                qy_at_photons[1, j] = lut_qe[1, idx_prev] + frac * (lut_qe[1, idx] - lut_qe[1, idx_prev])
-                qy_at_photons[2, j] = lut_qe[2, idx_prev] + frac * (lut_qe[2, idx] - lut_qe[2, idx_prev])
+        # Total QE per photon (sum over all channels)
+        total_qy = np.zeros(n_photons, dtype=np.float64)
+        for c in range(n_ch):
+            for j in range(n_photons):
+                total_qy[j] += qy_at_photons[c, j]
 
-        # Extract B, G, R quantum yields
-        qy_0 = qy_at_photons[0, :]  # Blue
-        qy_1 = qy_at_photons[1, :]  # Green
-        qy_2 = qy_at_photons[2, :]  # Red
+        mean_total_qe_array[i] = np.mean(total_qy)
 
-        # Total detection probability for each photon
-        total_qy = qy_0 + qy_1 + qy_2
-
-        # Calculate mean total QE
-        mean_total_qe = np.mean(total_qy)
-        mean_total_qe_array[i] = mean_total_qe
-
-        # Probability each photon is detected in each channel
-        # Avoid division by zero
-        p_0 = np.zeros(n_photons, dtype=np.float64)
-        p_1 = np.zeros(n_photons, dtype=np.float64)
-
-        for j in range(n_photons):
-            if total_qy[j] > 1e-10:
-                p_0[j] = qy_0[j] / total_qy[j]
-                p_1[j] = qy_1[j] / total_qy[j]
-
-        # Assign each photon to a channel using pre-generated random numbers
+        # Assign each photon to a channel via cumulative probability threshold
         uniform_randoms = uniform_randoms_all[i, :]
-        count_0, count_1, count_2 = _assign_photons_to_channels_jit(p_0, p_1, uniform_randoms)
-
-        counts_array[i, 0] = count_0
-        counts_array[i, 1] = count_1
-        counts_array[i, 2] = count_2
+        for j in range(n_photons):
+            tq = total_qy[j]
+            if tq < 1e-10:
+                tq = 1e-10
+            u = uniform_randoms[j]
+            cum_p = 0.0
+            assigned_c = n_ch - 1  # default to last channel if nothing fires earlier
+            for c in range(n_ch - 1):
+                cum_p += qy_at_photons[c, j] / tq
+                if u < cum_p:
+                    assigned_c = c
+                    break
+            counts_array[i, assigned_c] += 1.0
 
     return mean_wavelengths, counts_array, mean_total_qe_array
 
@@ -1337,38 +1310,32 @@ class Spectral_Funcs:
                     photon_wavelengths, wavelength_array, pixel_QYs[i, :]
                 )
 
-        # For simplicity and consistency with BGR ordering, use indices 0, 1, 2
-        qy_0 = qy_at_photons[0, :]  # Blue
-        qy_1 = qy_at_photons[1, :]  # Green
-        qy_2 = qy_at_photons[2, :]  # Red
-
-        # Total detection probability for each photon
-        total_qy = qy_0 + qy_1 + qy_2
-
-        # Avoid division by zero
+        # Total detection probability for each photon (sum over all channels)
+        total_qy = np.sum(qy_at_photons, axis=0)
         total_qy = np.maximum(total_qy, 1e-10)
 
-        # Probability each photon is detected in each channel
-        p_0 = qy_0 / total_qy
-        p_1 = qy_1 / total_qy
-        p_2 = qy_2 / total_qy
-
-        # Assign each photon to a channel based on these probabilities
-        # Use JIT-compiled function for 2-5× speedup over vectorized NumPy
+        # Assign each photon to a channel based on QE-weighted probabilities
         u = np.random.uniform(0, 1, len(photon_wavelengths))
-        count_0, count_1, count_2 = _assign_photons_to_channels_jit(p_0, p_1, u)
+
+        if n_colours == 3:
+            # JIT path for the common 3-channel case (2-5× faster)
+            p_0 = qy_at_photons[0] / total_qy
+            p_1 = qy_at_photons[1] / total_qy
+            count_0, count_1, count_2 = _assign_photons_to_channels_jit(p_0, p_1, u)
+            counts = np.array([count_0, count_1, count_2], dtype=np.float64)
+        else:
+            # General n-channel assignment via cumulative probability threshold
+            probs = qy_at_photons / total_qy[np.newaxis, :]   # (n_colours, n_photons)
+            cumprob = np.cumsum(probs, axis=0).T               # (n_photons, n_colours)
+            cumprob[:, -1] = 1.0                               # floating-point safety
+            assignments = np.argmax(cumprob >= u[:, np.newaxis], axis=1)
+            counts = np.bincount(assignments, minlength=n_colours).astype(np.float64)
 
         if return_counts:
-            colour_ratios = np.array([count_0, count_1, count_2], dtype=np.float64)
+            colour_ratios = counts
         else:
-            # Return normalized ratios
-            total_counts = count_0 + count_1 + count_2
-            if total_counts > 0:
-                colour_ratios = np.array(
-                    [count_0, count_1, count_2], dtype=np.float64
-                ) / total_counts
-            else:
-                colour_ratios = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+            total_counts = counts.sum()
+            colour_ratios = counts / total_counts if total_counts > 0 else np.zeros(n_colours)
 
         # Optionally return mean total QE across sampled wavelengths
         if return_total_qe:
@@ -1409,7 +1376,7 @@ class Spectral_Funcs:
         Returns:
             Tuple of (mean_wavelengths, colour_ratios):
                 - mean_wavelengths: Array of shape (n_bootstrap,)
-                - colour_ratios: Array of shape (n_bootstrap, 3) with BGR ratios
+                - colour_ratios: Array of shape (n_bootstrap, n_ch) with per-channel ratios
 
         Example:
             >>> sf = Spectral_Funcs()
@@ -1450,13 +1417,11 @@ class Spectral_Funcs:
         qe_lut = self._create_qe_lut(wavelength, pixel_QYs, grid_spacing=0.5)
         lut_wavelengths, lut_qe = qe_lut
 
-        if use_parallel and n_ch == 3:
-            # PARALLEL PATH: Use Numba prange for 3-3.5× speedup (3-channel only; Numba JIT hardcodes 3 channels)
+        if use_parallel:
+            # Parallel Numba path — works for any number of channels
             uniform_randoms_all = np.random.uniform(
                 0, 1, size=(n_bootstrap, n_photons_per_image)
             )
-
-            # Call parallel JIT function
             mean_wavelengths, counts_array, mean_total_qe_array = _process_bootstrap_samples_parallel(
                 photon_wavelengths_bootstrap,
                 lut_wavelengths,
@@ -1464,8 +1429,7 @@ class Spectral_Funcs:
                 uniform_randoms_all,
             )
         else:
-            # SEQUENTIAL PATH: Original implementation for verification
-            # Calculate mean wavelengths and counts for each bootstrap
+            # Sequential path (for debugging / verification)
             for i in range(n_bootstrap):
                 mean_wl, counts, mean_total_qe = self.calculate_colourratio_from_photon_wavelengths(
                     photon_wavelengths_bootstrap[i, :],
@@ -1473,9 +1437,9 @@ class Spectral_Funcs:
                     pixel_QYs,
                     pixel_order=pixel_order,
                     pixel_order_indices=pixel_order_indices,
-                    return_counts=True,  # Get counts, not normalized ratios
-                    return_total_qe=True,  # Get mean total QE across wavelengths
-                    qe_lut=qe_lut,  # Pass pre-computed LUT for fast lookups
+                    return_counts=True,
+                    return_total_qe=True,
+                    qe_lut=qe_lut,
                 )
                 mean_wavelengths[i] = mean_wl
                 counts_array[i, :] = counts
