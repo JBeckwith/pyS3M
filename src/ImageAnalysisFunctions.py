@@ -177,19 +177,22 @@ class FittingResultProcessor:
         Returns:
             List of parameter errors (standard deviations).
         """
-        # Get expected error array size
-        expected_size = FittingConstants.PARAM_DIMENSIONS[strategy]["error"]
+        # Default expected size from strategy table (3-channel baseline)
+        default_size = FittingConstants.PARAM_DIMENSIONS[strategy]["error"]
 
         if pcov is None:
-            return [np.nan] * expected_size
+            return [np.nan] * default_size
 
         # Handle scalar pcov (e.g., np.inf from failed fits)
         if np.isscalar(pcov) or pcov.ndim == 0:
-            return [np.nan] * expected_size
+            return [np.nan] * default_size
 
         # Handle inf values in matrix
         if np.any(np.isinf(pcov)):
-            return [np.nan] * expected_size
+            return [np.nan] * default_size
+
+        # Use actual pcov size — handles n_ch != 3 patterns without hardcoding
+        expected_size = pcov.shape[0]
 
         try:
             # Vectorized error calculation - more efficient than loops
@@ -201,11 +204,9 @@ class FittingResultProcessor:
             errors = np.where(diagonal > 0, np.sqrt(diagonal), np.nan)
             error_list = errors.tolist()
 
-            # Ensure we return the correct number of errors
+            # Pad if pcov was undersized (degenerate fit)
             if len(error_list) < expected_size:
                 error_list.extend([np.nan] * (expected_size - len(error_list)))
-            elif len(error_list) > expected_size:
-                error_list = error_list[:expected_size]
 
             return error_list
         except (IndexError, ValueError):
@@ -403,7 +404,7 @@ class FittingResultProcessor:
         # Square amplitude and background parameters for storage
         # leastsq returns optimised square-root values, but we store squared values as photon counts
         if strategy in _standard_like:
-            pfit_processed[4:10] = np.square(pfit_processed[4:10])
+            pfit_processed[4:4 + 2 * n_ch] = np.square(pfit_processed[4:4 + 2 * n_ch])
         elif strategy == FittingStrategy.ELLIPTICAL:
             # theta is at index 4 — do NOT square it; bg/A are at indices 5:11
             pfit_processed[5:11] = np.square(pfit_processed[5:11])
@@ -486,8 +487,8 @@ class StandardFittingProcessor(FittingProcessor):
 
         # Stage 1: fast pre-filter — skip leastsq on entirely non-positive ROIs
         if np.max(smoothed_punctum) <= 0:
-            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
-            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+            n_ch = masks.shape[-1] if masks is not None else 3
+            return (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
         # Get initial guess from smoothed and raw data
         initial_guess = self._generate_initial_guess(smoothed_punctum, punctum, masks)
@@ -548,8 +549,8 @@ class StandardFittingProcessor(FittingProcessor):
             )
 
             if success not in np.array([1, 2, 3, 4]):
-                dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
-                return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+                n_ch = (len(initial_guess) - 4) // 2
+                return (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
             # Calculate chi-squared
             residuals = gaussoptfuncs.WLS_chi_nobounds(
@@ -582,8 +583,8 @@ class StandardFittingProcessor(FittingProcessor):
             logging.warning(
                 f"Data dtype: {data.dtype}, min: {data.min():.2f}, max: {data.max():.2f}"
             )
-            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
-            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+            n_ch = (len(initial_guess) - 4) // 2
+            return (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
 
 class StandardIGFittingProcessor(StandardFittingProcessor):
@@ -613,20 +614,20 @@ class StandardIGFittingProcessor(StandardFittingProcessor):
         if masks is None:
             raise FittingValidationError("Standard-IG fitting requires masks")
 
+        n_ch = masks.shape[-1]
+
         if np.max(smoothed_punctum) <= 0:
-            dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD]
-            return (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+            return (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
         xc, yc, s_x, s_y, b, A = (float(v) for v in relative_coords)
-        b_ch = max(b / 3.0, 1e-6)
-        A_ch = max(A / 3.0, 1e-6)
+        b_ch = max(b / n_ch, 1e-6)
+        A_ch = max(A / n_ch, 1e-6)
 
         # sigma_y at index 2, sigma_x at index 3 (WLS_model_nobounds convention)
-        initial_guess = np.array([
-            xc, yc,
-            s_y, s_x,
-            np.sqrt(b_ch), np.sqrt(b_ch), np.sqrt(b_ch),
-            np.sqrt(A_ch), np.sqrt(A_ch), np.sqrt(A_ch),
+        initial_guess = np.concatenate([
+            [xc, yc, s_y, s_x],
+            np.full(n_ch, np.sqrt(b_ch)),   # bg channels
+            np.full(n_ch, np.sqrt(A_ch)),   # A channels
         ])
 
         # relative_coords=(0,0): xc/yc in the seed are already local ROI coords
@@ -698,8 +699,8 @@ class StandardIterFittingProcessor(StandardFittingProcessor):
         if masks is None:
             raise FittingValidationError("Standard-ITER fitting requires masks")
 
-        dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD_ITER]
-        nan_result = (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+        n_ch = masks.shape[-1]
+        nan_result = (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
         if np.max(smoothed_punctum) <= 0:
             return nan_result
@@ -793,8 +794,8 @@ class StandardDataFittingProcessor(StandardIterFittingProcessor):
         if masks is None:
             raise FittingValidationError("Standard-DATA fitting requires masks")
 
-        dims = FittingConstants.PARAM_DIMENSIONS[FittingStrategy.STANDARD_DATA]
-        nan_result = (np.full(dims["fit"], np.nan), np.full(dims["error"], np.nan))
+        n_ch = masks.shape[-1]
+        nan_result = (np.full(4 + 2 * n_ch + 2, np.nan), np.full(4 + 2 * n_ch, np.nan))
 
         if np.max(smoothed_punctum) <= 0:
             return nan_result
