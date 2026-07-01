@@ -758,6 +758,9 @@ class MainWindow(QMainWindow):
         filters: list,
         bg_photons: float,
         na: float,
+        pixel_size_nm: float,
+        read_noise_e: float,
+        peak_qe: float,
         n_rep: int,
     ):
         if self._aux_worker is not None and self._aux_worker.isRunning():
@@ -767,7 +770,9 @@ class MainWindow(QMainWindow):
         self.progress_widget.update(0.0, "Building simulation…")
 
         def _do():
-            return self._make_simulation_figure(dye, filters, bg_photons, na, n_rep)
+            return self._make_simulation_figure(
+                dye, filters, bg_photons, na, pixel_size_nm, read_noise_e, peak_qe, n_rep
+            )
 
         aux = AnalysisWorker(_do)
         self._aux_worker = aux
@@ -794,6 +799,9 @@ class MainWindow(QMainWindow):
         filters: list,
         bg_photons: float,
         na: float,
+        pixel_size_nm: float,
+        read_noise_e: float,
+        peak_qe: float,
         n_rep: int,
     ) -> Figure:
         import sys as _sys
@@ -806,9 +814,21 @@ class MainWindow(QMainWindow):
 
         S_F = SpectralFunctions.Spectral_Funcs()
         R_qe, G_qe, B_qe, wl = S_F.getpixelefficiency()
-        # pixel_QYs convention for get_pixel_fractions: (n_channels, n_wavelengths) in BGR
-        pixel_QYs = np.vstack([B_qe, G_qe, R_qe])
 
+        # Scale Bayer QE curves so the peak across all channels equals peak_qe.
+        # This changes the relative colour fractions (the filter+QE overlap per channel)
+        # while keeping the peak QE at the user-specified value.
+        raw_peak = max(R_qe.max(), G_qe.max(), B_qe.max())
+        scale = peak_qe / raw_peak if raw_peak > 0 else 1.0
+        R_sc, G_sc, B_sc = R_qe * scale, G_qe * scale, B_qe * scale
+
+        # pixel_QYs convention: (n_channels, n_wavelengths) in BGR order
+        pixel_QYs = np.vstack([B_sc, G_sc, R_sc])
+
+        # normalized=True → per-channel colour fractions (sum to 1).
+        # The Bayer-geometry weighting means the QE curves can't be summed
+        # directly to get a total efficiency; instead we use peak_qe as the
+        # overall detection efficiency and fracs for the colour split.
         avg_wl, fracs = S_F.get_pixel_fractions_dye_and_filters(
             dyes=[dye],
             filters=filters if filters else None,
@@ -816,17 +836,16 @@ class MainWindow(QMainWindow):
             pixel_QYs=pixel_QYs,
             normalized=True,
         )
-        # fracs shape (3,): [B_frac, G_frac, R_frac]
+        # fracs shape (3,): [B_frac, G_frac, R_frac], sum = 1
         b_frac, g_frac, r_frac = fracs
+        # Total photoelectrons = n_photons × peak_qe; split by fracs
+        b_eff, g_eff, r_eff = b_frac * peak_qe, g_frac * peak_qe, r_frac * peak_qe
 
-        # Compute sigma from dye emission wavelength and NA (avg_wl in nm, sigma_PSF expects m)
-        pixel_size_nm = (
-            self.pipeline.pixel_size * 1000.0 if self.pipeline is not None else 69.0
-        )
+        # PSF sigma from dye emission wavelength (avg_wl in nm) and NA
         sigma_nm = PSF_Functions.sigma_PSF(float(avg_wl) * 1e-9, na) * 1e9  # m → nm
         sigma_px = sigma_nm / pixel_size_nm
 
-        # Build Gaussian PSF kernel (normalised to unit integral)
+        # Normalised Gaussian PSF kernel
         patch_size = 13
         c = patch_size // 2
         yy, xx = np.mgrid[:patch_size, :patch_size]
@@ -837,10 +856,10 @@ class MainWindow(QMainWindow):
         photon_levels = _PHOTON_LEVELS
         n_rows = len(photon_levels)
 
-        # Compute a shared display scale from the brightest expected signal
-        # so brightness is comparable across rows.
-        max_expected = photon_levels[-1] * max(r_frac, g_frac, b_frac) * psf.max()
-        display_scale = max(max_expected + bg_photons * 3, 1.0)
+        # Display scale: peak expected signal in the brightest channel at max photons
+        # (background shows as dark offset; subtract it before scaling)
+        max_signal = photon_levels[-1] * max(r_eff, g_eff, b_eff) * psf.max()
+        display_scale = max(max_signal, 1.0)
 
         fig = Figure(figsize=(2.2 * n_rep + 0.6, 2.2 * n_rows + 0.8), dpi=100)
         fig.patch.set_facecolor("#1a1a1a")
@@ -855,9 +874,15 @@ class MainWindow(QMainWindow):
                         2.0 / (2.2 * n_rows + 0.8),
                     ]
                 )
-                r_patch = rng.poisson(n_ph * r_frac * psf + bg_photons).astype(float)
-                g_patch = rng.poisson(n_ph * g_frac * psf + bg_photons).astype(float)
-                b_patch = rng.poisson(n_ph * b_frac * psf + bg_photons).astype(float)
+                # Poisson signal + background per channel, then add Gaussian read noise
+                def _patch(eff):
+                    sig = rng.poisson(n_ph * eff * psf + bg_photons).astype(float)
+                    sig += rng.normal(0.0, read_noise_e, size=sig.shape)
+                    return sig - bg_photons  # subtract background for display
+
+                r_patch = _patch(r_eff)
+                g_patch = _patch(g_eff)
+                b_patch = _patch(b_eff)
 
                 rgb = np.stack([r_patch, g_patch, b_patch], axis=-1)
                 rgb = np.clip(rgb / display_scale, 0.0, 1.0)
@@ -880,7 +905,12 @@ class MainWindow(QMainWindow):
 
         filter_label = ", ".join(f.split("-", 1)[-1] for f in filters) if filters else "no filter"
         fig.suptitle(
-            f"{dye}  |  {filter_label}  |  λ={float(avg_wl):.0f} nm  σ={sigma_nm:.0f} nm  BG={bg_photons:.0f} ph/px",
+            (
+                f"{dye}  |  {filter_label}  |  "
+                f"λ={float(avg_wl):.0f} nm  σ={sigma_nm:.0f} nm  "
+                f"QE={peak_qe:.2f}  BG={bg_photons:.0f} ph/px  "
+                f"RN={read_noise_e:.1f} e⁻"
+            ),
             color="white",
             fontsize=8,
             y=0.99,

@@ -1,7 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QGroupBox,
-    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton,
-    QLabel, QScrollArea, QCheckBox, QGridLayout,
+    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QCheckBox,
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -42,8 +41,9 @@ _PHOTON_LEVELS = [200, 500, 1_000, 5_000]
 class SimulationPanel(QWidget):
     """Controls for the Simulation tab — exemplar PSF grid."""
 
-    simulation_requested = pyqtSignal(str, list, float, float, int)
-    # args: dye_name, filter_ids, bg_photons_per_px, NA, n_replicates
+    # dye_name, filter_ids, bg_photons_per_px, na, pixel_size_nm,
+    # read_noise_e, peak_qe, n_replicates
+    simulation_requested = pyqtSignal(str, list, float, float, float, float, float, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,6 +89,26 @@ class SimulationPanel(QWidget):
         self._na.setDecimals(2)
         param_form.addRow("NA:", self._na)
 
+        self._pixel_size = QDoubleSpinBox()
+        self._pixel_size.setRange(10.0, 500.0)
+        self._pixel_size.setValue(80.0)
+        self._pixel_size.setDecimals(1)
+        self._pixel_size.setSuffix(" nm")
+        param_form.addRow("Pixel size:", self._pixel_size)
+
+        self._read_noise = QDoubleSpinBox()
+        self._read_noise.setRange(0.0, 20.0)
+        self._read_noise.setValue(1.0)
+        self._read_noise.setDecimals(2)
+        self._read_noise.setSuffix(" e⁻ RMS")
+        param_form.addRow("Read noise:", self._read_noise)
+
+        self._peak_qe = QDoubleSpinBox()
+        self._peak_qe.setRange(0.01, 1.0)
+        self._peak_qe.setValue(0.7)
+        self._peak_qe.setDecimals(2)
+        param_form.addRow("Peak QE:", self._peak_qe)
+
         self._n_rep = QSpinBox()
         self._n_rep.setRange(1, 10)
         self._n_rep.setValue(5)
@@ -104,12 +124,16 @@ class SimulationPanel(QWidget):
         outer.addStretch()
 
     def _on_run(self):
-        dye = self._dye.currentText()
-        filters = [fid for cb, fid in self._filter_checks if cb.isChecked()]
-        bg = self._bg.value()
-        na = self._na.value()
-        n_rep = self._n_rep.value()
-        self.simulation_requested.emit(dye, filters, bg, na, n_rep)
+        self.simulation_requested.emit(
+            self._dye.currentText(),
+            [fid for cb, fid in self._filter_checks if cb.isChecked()],
+            self._bg.value(),
+            self._na.value(),
+            self._pixel_size.value(),
+            self._read_noise.value(),
+            self._peak_qe.value(),
+            self._n_rep.value(),
+        )
 
     def set_busy(self, busy: bool):
         self._run_btn.setEnabled(not busy)
