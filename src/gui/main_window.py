@@ -861,10 +861,6 @@ class MainWindow(QMainWindow):
         photon_levels = _PHOTON_LEVELS
         n_rows = len(photon_levels)
 
-        # Display scale: peak expected signal at max photons in the brightest channel
-        max_signal = photon_levels[-1] * max(r_eff, g_eff, b_eff) * psf.max()
-        display_scale = max(max_signal, 1.0)
-
         fig = Figure(
             figsize=(1.8 * n_rep + 1.0, 1.8 * n_rows + 0.7),
             dpi=100,
@@ -874,26 +870,37 @@ class MainWindow(QMainWindow):
         axes = fig.subplots(n_rows, n_rep, squeeze=False)
 
         for row_idx, n_ph in enumerate(photon_levels):
+            # Generate all replicates for this photon level first so we can
+            # compute a shared percentile scale across the row.
+            row_patches = []
             for col_idx in range(n_rep):
-                ax = axes[row_idx, col_idx]
-                ax.set_facecolor("#1a1a1a")
-
-                # Raw Bayer image: each pixel type draws Poisson(signal) + Gaussian RN
                 bayer = np.zeros((patch_size, patch_size))
                 for mask, eff in ((r_mask, r_eff), (g_mask, g_eff), (b_mask, b_eff)):
                     n_px = int(mask.sum())
                     sig = rng.poisson(n_ph * eff * psf[mask] + bg_photons).astype(float)
                     sig += rng.normal(0.0, read_noise_e, size=n_px)
                     bayer[mask] = sig - bg_photons
+                row_patches.append(bayer)
+
+            # Per-row percentile stretch so every photon level is clearly visible
+            all_vals = np.concatenate([p.ravel() for p in row_patches])
+            vmin = float(np.percentile(all_vals, 0.1))
+            vmax = float(np.percentile(all_vals, 99.9))
+            if vmax <= vmin:
+                vmax = vmin + 1.0
+
+            for col_idx, bayer in enumerate(row_patches):
+                ax = axes[row_idx, col_idx]
+                ax.set_facecolor("#1a1a1a")
 
                 ax.imshow(
-                    np.clip(bayer, 0.0, None),
+                    bayer,
                     cmap="gray",
                     origin="upper",
                     interpolation="nearest",
                     aspect="equal",
-                    vmin=0.0,
-                    vmax=display_scale,
+                    vmin=vmin,
+                    vmax=vmax,
                 )
                 ax.set_xticks([])
                 ax.set_yticks([])
