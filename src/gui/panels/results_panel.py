@@ -156,6 +156,9 @@ class ResultsPanel(QWidget):
         self._stats_tab = _FigureTab("Run fitting to see photon statistics.")
         self._tabs.addTab(self._stats_tab, "Statistics")
 
+        self._sim_tab = _FigureTab("Configure and run a simulation to see exemplar PSFs.")
+        self._tabs.addTab(self._sim_tab, "Simulation")
+
         self._n_fovs = 1
         self._current_fov_idx = 0
         self._fov_prev_btn.clicked.connect(self._on_fov_prev)
@@ -202,3 +205,7 @@ class ResultsPanel(QWidget):
 
     def set_stats_figure(self, fig: Figure):
         self._stats_tab.set_figure(fig)
+
+    def set_simulation_figure(self, fig: Figure):
+        self._sim_tab.set_figure(fig)
+        self._tabs.setCurrentWidget(self._sim_tab)

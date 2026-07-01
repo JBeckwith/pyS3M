@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QVBoxLayout,
-    QScrollArea, QLabel, QMessageBox, QApplication,
+    QScrollArea, QLabel, QMessageBox, QApplication, QTabWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 
@@ -16,6 +16,7 @@ from gui.panels.setup_panel import SetupPanel
 from gui.panels.fitting_panel import FittingPanel
 from gui.panels.postproc_panel import PostProcPanel
 from gui.panels.results_panel import ResultsPanel
+from gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
 from gui.widgets.log_widget import LogWidget, QtLogHandler
 from gui.widgets.progress_widget import ProgressWidget
 from gui.worker import AnalysisWorker
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
         self.setup_panel = SetupPanel(self)
         self.fitting_panel = FittingPanel(self)
         self.postproc_panel = PostProcPanel(self)
+        self.simulation_panel = SimulationPanel(self)
 
         container = QWidget()
         vbox = QVBoxLayout(container)
@@ -79,8 +81,22 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        ctrl_tabs = QTabWidget()
+        ctrl_tabs.addTab(scroll, "Pipeline")
+
+        _ph_posthoc = QLabel("Post-hoc analysis — coming soon.")
+        _ph_posthoc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _ph_posthoc.setStyleSheet("color: gray; font-size: 11pt;")
+        ctrl_tabs.addTab(_ph_posthoc, "Post-Hoc")
+
+        sim_scroll = QScrollArea()
+        sim_scroll.setWidget(self.simulation_panel)
+        sim_scroll.setWidgetResizable(True)
+        sim_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        ctrl_tabs.addTab(sim_scroll, "Simulation")
+
         ctrl_dock = QDockWidget("Controls", self)
-        ctrl_dock.setWidget(scroll)
+        ctrl_dock.setWidget(ctrl_tabs)
         ctrl_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -123,6 +139,7 @@ class MainWindow(QMainWindow):
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
         self.results_panel.fov_requested.connect(self._on_fov_requested)
+        self.simulation_panel.simulation_requested.connect(self._on_run_simulation)
 
     def _install_log_handler(self):
         self._log_handler = QtLogHandler()
@@ -169,6 +186,7 @@ class MainWindow(QMainWindow):
         self.setup_panel.set_busy(False)
         self.fitting_panel.set_busy(False)
         self.postproc_panel.set_busy(False)
+        self.simulation_panel.set_busy(False)
         self.progress_widget.reset()
 
     def _start_worker(self, fn) -> AnalysisWorker:
@@ -729,6 +747,145 @@ class MainWindow(QMainWindow):
             import traceback as _tb
             self.log_widget.append(f"Save failed:\n{_tb.format_exc()}")
             QMessageBox.critical(self, "Save failed", "Could not write HDF5 file — see log.")
+
+    # ------------------------------------------------------------------
+    # Simulation
+    # ------------------------------------------------------------------
+
+    def _on_run_simulation(
+        self,
+        dye: str,
+        filters: list,
+        bg_photons: float,
+        na: float,
+        n_rep: int,
+    ):
+        if self._aux_worker is not None and self._aux_worker.isRunning():
+            return
+
+        self.simulation_panel.set_busy(True)
+        self.progress_widget.update(0.0, "Building simulation…")
+
+        def _do():
+            return self._make_simulation_figure(dye, filters, bg_photons, na, n_rep)
+
+        aux = AnalysisWorker(_do)
+        self._aux_worker = aux
+        aux.result.connect(self._on_simulation_done)
+        aux.error.connect(
+            lambda msg: (
+                self.log_widget.append(f"Simulation failed:\n{msg}"),
+                self.simulation_panel.set_busy(False),
+                self.progress_widget.update(0.0, "Simulation failed"),
+            )
+        )
+        aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
+        aux.start()
+
+    def _on_simulation_done(self, fig):
+        self.simulation_panel.set_busy(False)
+        self.progress_widget.update(1.0, "Simulation ready")
+        if fig is not None:
+            self.results_panel.set_simulation_figure(fig)
+
+    def _make_simulation_figure(
+        self,
+        dye: str,
+        filters: list,
+        bg_photons: float,
+        na: float,
+        n_rep: int,
+    ) -> Figure:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).parent.parent))
+
+        import numpy as np
+        import SpectralFunctions
+        from PSFFunctions import PSF_Functions
+
+        S_F = SpectralFunctions.Spectral_Funcs()
+        R_qe, G_qe, B_qe, wl = S_F.getpixelefficiency()
+        # pixel_QYs convention for get_pixel_fractions: (n_channels, n_wavelengths) in BGR
+        pixel_QYs = np.vstack([B_qe, G_qe, R_qe])
+
+        avg_wl, fracs = S_F.get_pixel_fractions_dye_and_filters(
+            dyes=[dye],
+            filters=filters if filters else None,
+            wavelength=wl,
+            pixel_QYs=pixel_QYs,
+            normalized=True,
+        )
+        # fracs shape (3,): [B_frac, G_frac, R_frac]
+        b_frac, g_frac, r_frac = fracs
+
+        # Compute sigma from dye emission wavelength and NA (avg_wl in nm, sigma_PSF expects m)
+        pixel_size_nm = (
+            self.pipeline.pixel_size * 1000.0 if self.pipeline is not None else 69.0
+        )
+        sigma_nm = PSF_Functions.sigma_PSF(float(avg_wl) * 1e-9, na) * 1e9  # m → nm
+        sigma_px = sigma_nm / pixel_size_nm
+
+        # Build Gaussian PSF kernel (normalised to unit integral)
+        patch_size = 13
+        c = patch_size // 2
+        yy, xx = np.mgrid[:patch_size, :patch_size]
+        psf = np.exp(-((xx - c) ** 2 + (yy - c) ** 2) / (2.0 * sigma_px ** 2))
+        psf /= psf.sum()
+
+        rng = np.random.default_rng(42)
+        photon_levels = _PHOTON_LEVELS
+        n_rows = len(photon_levels)
+
+        # Compute a shared display scale from the brightest expected signal
+        # so brightness is comparable across rows.
+        max_expected = photon_levels[-1] * max(r_frac, g_frac, b_frac) * psf.max()
+        display_scale = max(max_expected + bg_photons * 3, 1.0)
+
+        fig = Figure(figsize=(2.2 * n_rep + 0.6, 2.2 * n_rows + 0.8), dpi=100)
+        fig.patch.set_facecolor("#1a1a1a")
+
+        for row, n_ph in enumerate(photon_levels):
+            for col in range(n_rep):
+                ax = fig.add_axes(
+                    [
+                        (col * 2.2 + 0.3) / (2.2 * n_rep + 0.6),
+                        1.0 - (row + 1) * 2.2 / (2.2 * n_rows + 0.8),
+                        2.0 / (2.2 * n_rep + 0.6),
+                        2.0 / (2.2 * n_rows + 0.8),
+                    ]
+                )
+                r_patch = rng.poisson(n_ph * r_frac * psf + bg_photons).astype(float)
+                g_patch = rng.poisson(n_ph * g_frac * psf + bg_photons).astype(float)
+                b_patch = rng.poisson(n_ph * b_frac * psf + bg_photons).astype(float)
+
+                rgb = np.stack([r_patch, g_patch, b_patch], axis=-1)
+                rgb = np.clip(rgb / display_scale, 0.0, 1.0)
+
+                ax.imshow(rgb, origin="upper", interpolation="nearest", aspect="equal")
+                ax.set_xticks([])
+                ax.set_yticks([])
+                for spine in ax.spines.values():
+                    spine.set_edgecolor("#444444")
+
+                if col == 0:
+                    ax.set_ylabel(
+                        f"{n_ph:,} ph",
+                        color="white",
+                        fontsize=8,
+                        rotation=0,
+                        labelpad=32,
+                        va="center",
+                    )
+
+        filter_label = ", ".join(f.split("-", 1)[-1] for f in filters) if filters else "no filter"
+        fig.suptitle(
+            f"{dye}  |  {filter_label}  |  λ={float(avg_wl):.0f} nm  σ={sigma_nm:.0f} nm  BG={bg_photons:.0f} ph/px",
+            color="white",
+            fontsize=8,
+            y=0.99,
+        )
+        return fig
 
     # ------------------------------------------------------------------
     # Qt lifecycle
