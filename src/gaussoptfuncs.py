@@ -186,32 +186,23 @@ def WLS_model_nobounds(
         gauss_2d (numpy.ndarray): 2d bayer filtered gaussian.
     """
 
+    n_ch = masks.shape[-1]
     len_x = len(x)
 
-    # Create lookup tables for amplitudes and backgrounds
-    amp_lookup = np.array(
-        [
-            params[7] * params[7],  # Blue
-            params[8] * params[8],  # Green
-            params[9] * params[9],
-        ]
-    )  # Red
-
-    bg_lookup = np.array(
-        [
-            params[4] * params[4],  # Blue
-            params[5] * params[5],  # Green
-            params[6] * params[6],
-        ]
-    )  # Red
+    # Build per-channel lookup tables from params layout: [x,y,sy,sx, bg0,...,bg_{n_ch-1}, A0,...,A_{n_ch-1}]
+    bg_lookup = np.zeros(n_ch)
+    amp_lookup = np.zeros(n_ch)
+    for i in range(n_ch):
+        bg_lookup[i] = params[4 + i] * params[4 + i]
+        amp_lookup[i] = params[4 + n_ch + i] * params[4 + n_ch + i]
 
     # First compute the Gaussian using the exact same method as gaussian_unscaled_model
     gauss_2d = gaussian_unscaled_model(
         gauss_2d, x, len_x, params[0], params[1], params[2], params[3]
     )
 
-    # Apply Bayer pattern efficiently per channel (avoids conditionals in inner loop)
-    for channel in range(3):
+    # Apply colour pattern per channel
+    for channel in range(n_ch):
         for i in range(len_x):
             for j in range(len_x):
                 if masks[j, i, channel]:
@@ -413,17 +404,21 @@ def initial_rawcolour_guess(smoothed_data, raw_data, masks):
         b (float): background guess
         A_ig (float): amplitude guess
     """
-    BG_matrix = np.zeros(masks.shape[-1])
+    n_ch = masks.shape[-1]
+    BG_matrix = np.zeros(n_ch)
     flattened_rawdata = raw_data.ravel()
-    for i in np.arange(masks.shape[-1]):
+    for i in range(n_ch):
         pixels = masks[:, :, i].ravel()
         BG_matrix[i] = np.min(np.abs(flattened_rawdata[pixels]))
-    bB, bG, bR = BG_matrix
     ig_data = np.abs(smoothed_data)
     bs_data = ig_data - np.abs(np.min(ig_data))
     A = np.sum(bs_data)
-    A_ig = A / 3.0
-    return bB, bG, bR, A_ig, A_ig, A_ig
+    A_ig = A / n_ch
+    result = np.zeros(2 * n_ch)
+    for i in range(n_ch):
+        result[i] = BG_matrix[i]
+        result[n_ch + i] = A_ig
+    return result
 
 
 @jit(nopython=True)
@@ -450,24 +445,31 @@ def initial_guess(smoothed_data, raw_data, masks):
         WLS_model_nobounds squares them. This prevents catastrophic initial guess
         errors at high photon counts (>30k) that cause LM fitting to fail.
     """
-    BG_matrix = np.zeros(masks.shape[-1])
+    n_ch = masks.shape[-1]
+    BG_matrix = np.zeros(n_ch)
     flattened_rawdata = raw_data.ravel()
-    for i in np.arange(masks.shape[-1]):
+    for i in range(n_ch):
         pixels = masks[:, :, i].ravel()
         BG_matrix[i] = np.min(np.abs(flattened_rawdata[pixels]))
-    bB, bG, bR = BG_matrix
+
     ig_data = np.abs(smoothed_data)
     bs_data = ig_data - np.abs(np.min(ig_data))
     size = bs_data.shape[0]
     A, x_ig, y_ig = _sum_and_centre_of_mass(bs_data, size)
     sigma_y, sigma_x = _initial_sigma(bs_data, x_ig, y_ig, A, size)
-    A_ig = A / 3.0
+    A_ig = A / n_ch
 
-    # Return sqrt of background and amplitude parameters since the model squares them
-    # Use np.abs to handle any negative values (though they should already be positive)
-    return (x_ig, y_ig, sigma_y, sigma_x,
-            np.sqrt(np.abs(bB)), np.sqrt(np.abs(bG)), np.sqrt(np.abs(bR)),
-            np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)), np.sqrt(np.abs(A_ig)))
+    # Return array: [x, y, sigma_y, sigma_x, sqrt(bg_0), ..., sqrt(bg_{n_ch-1}), sqrt(A), ..., sqrt(A)]
+    # Model squares bg and A values; using sqrt prevents catastrophic errors at high photon counts.
+    result = np.zeros(4 + 2 * n_ch)
+    result[0] = x_ig
+    result[1] = y_ig
+    result[2] = sigma_y
+    result[3] = sigma_x
+    for i in range(n_ch):
+        result[4 + i] = np.sqrt(np.abs(BG_matrix[i]))
+        result[4 + n_ch + i] = np.sqrt(np.abs(A_ig))
+    return result
 
 
 @jit(nopython=True, nogil=True)

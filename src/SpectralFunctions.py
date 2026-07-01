@@ -1439,8 +1439,9 @@ class Spectral_Funcs:
         )
 
         # Preallocate output arrays
+        n_ch = pixel_QYs.shape[0]
         mean_wavelengths = np.zeros(n_bootstrap, dtype=np.float64)
-        counts_array = np.zeros((n_bootstrap, 3), dtype=np.float64)
+        counts_array = np.zeros((n_bootstrap, n_ch), dtype=np.float64)
         mean_total_qe_array = np.zeros(n_bootstrap, dtype=np.float64)
 
         # OPTIMIZATION: Pre-compute QE lookup table to avoid repeated interpolation
@@ -1449,11 +1450,8 @@ class Spectral_Funcs:
         qe_lut = self._create_qe_lut(wavelength, pixel_QYs, grid_spacing=0.5)
         lut_wavelengths, lut_qe = qe_lut
 
-        if use_parallel:
-            # PARALLEL PATH: Use Numba prange for 3-3.5× speedup
-            # Pre-generate all random numbers for deterministic results
-            # Note: We use np.random.seed() temporarily to ensure deterministic behavior
-            # This is because the current code uses np.random.uniform instead of random_state
+        if use_parallel and n_ch == 3:
+            # PARALLEL PATH: Use Numba prange for 3-3.5× speedup (3-channel only; Numba JIT hardcodes 3 channels)
             uniform_randoms_all = np.random.uniform(
                 0, 1, size=(n_bootstrap, n_photons_per_image)
             )
@@ -1502,7 +1500,7 @@ class Spectral_Funcs:
         valid_mask = total_detected > 0
 
         # Initialize output
-        colour_ratios = np.zeros((n_bootstrap, 3), dtype=np.float64)
+        colour_ratios = np.zeros((n_bootstrap, n_ch), dtype=np.float64)
 
         # Vectorized QE calculation for all valid samples at once
         # counts_array[valid_mask, :] has shape (n_valid, 3)

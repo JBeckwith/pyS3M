@@ -2697,14 +2697,28 @@ class MultiC_Sim_Funcs_Refactored:
         if overwrite or not Path(input_params_path).exists():
             real_params.write_csv(input_params_path)
 
-        # Save ground truth positions for standard method
-        # CRITICAL: Always save ground truth to ensure it matches the x0, y0 positions used in simulation
-        # The x0, y0 are randomly generated each time this function runs, so the file must be updated
+        # Save/load ground truth positions for standard method.
+        # When continuing (overwrite=False) we MUST reload the saved positions so they
+        # match the existing HDF5 fit results.  Overwriting with freshly-drawn random
+        # positions would break the correspondence between fit rows and ground truth and
+        # produce ~57 nm apparent sigma_xy (pure noise) in downstream analysis.
         if strategy in (FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA, FittingStrategy.ELLIPTICAL):
-            X0Y0 = {"x0": x0, "y0": y0}
             groundtruth_path = Path(save_folder) / f"{starting_flag}LM_method_{dyestr}_fittesting_input_groundtruthpositions.csv"
-            # Always write ground truth file to match current x0, y0 positions
-            pl.DataFrame(X0Y0).write_csv(groundtruth_path)
+            if (not overwrite) and Path(groundtruth_path).exists():
+                # Continuation run: reload saved positions so they are consistent with the HDF5.
+                gt_saved = pl.read_csv(str(groundtruth_path))
+                if len(gt_saved) == config.n_bootstrap:
+                    x0 = gt_saved["x0"].to_numpy()
+                    y0 = gt_saved["y0"].to_numpy()
+                    x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
+                    setup_data["x0"] = x0
+                    setup_data["y0"] = y0
+                else:
+                    # n_bootstrap mismatch (config changed) — treat as fresh run.
+                    pl.DataFrame({"x0": x0, "y0": y0}).write_csv(groundtruth_path)
+            else:
+                # Fresh run or overwrite: persist the newly drawn positions.
+                pl.DataFrame({"x0": x0, "y0": y0}).write_csv(groundtruth_path)
 
         # Initialize results arrays
         fit_RMSE_mean = np.zeros([len(analysis_save_params) - 1, len(n_photon_space)])

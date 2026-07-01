@@ -261,7 +261,10 @@ class FittingResultProcessor:
 
     @staticmethod
     def _compute_amplitude_snr(pfit: np.ndarray, pcov: np.ndarray) -> float:
-        """Wald amplitude SNR for the three amplitude parameters (indices 7–9, sqrt-space).
+        """Wald amplitude SNR for all amplitude parameters (sqrt-space), n-channel adaptive.
+
+        pfit layout: [x, y, sy, sx, bg_0,...,bg_{n-1}, A_0,...,A_{n-1}]
+        Amplitude indices start at 4 + n_ch where n_ch = (len(pfit) - 4) // 2.
 
         pcov must already be chi_sqr-scaled (as returned by process_covariance).
         High chi_sqr inflates pcov → reduces z, making the statistic automatically
@@ -271,10 +274,12 @@ class FittingResultProcessor:
         """
         if not isinstance(pcov, np.ndarray):
             return 0.0
-        variances = np.diag(pcov)[7:10]
+        n_ch = (len(pfit) - 4) // 2
+        amp_start = 4 + n_ch
+        variances = np.diag(pcov)[amp_start:amp_start + n_ch]
         if np.any(variances <= 0):
             return 0.0
-        return float(np.sum(np.abs(pfit[7:10])) / np.sqrt(np.sum(variances)))
+        return float(np.sum(np.abs(pfit[amp_start:amp_start + n_ch])) / np.sqrt(np.sum(variances)))
 
     @staticmethod
     def _compute_amplitude_snr_elliptical(pfit: np.ndarray, pcov: np.ndarray) -> float:
@@ -325,21 +330,14 @@ class FittingResultProcessor:
         _standard_like = {FittingStrategy.STANDARD, FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA}
 
         if strategy in _standard_like:
-            # Reorder sx/sy and keep everything else: [x, y, sx, sy, bg_B, bg_G, bg_R, A_B, A_G, A_R]
-            pfit_processed = np.array(
-                [
-                    pfit[0],
-                    pfit[1],
-                    pfit[3],
-                    pfit[2],  # x, y, sx, sy (note: sx/sy swapped)
-                    pfit[4],
-                    pfit[5],
-                    pfit[6],  # bg_B, bg_G, bg_R
-                    pfit[7],
-                    pfit[8],
-                    pfit[9],  # A_B, A_G, A_R
-                ]
-            )
+            # Dynamic n_ch: pfit layout is [x, y, sy, sx, bg_0,...,bg_{n-1}, A_0,...,A_{n-1}]
+            # Output layout:               [x, y, sx, sy, bg_0,...,bg_{n-1}, A_0,...,A_{n-1}]
+            n_ch = (len(pfit) - 4) // 2
+            pfit_processed = np.concatenate([
+                np.array([pfit[0], pfit[1], pfit[3], pfit[2]]),  # x, y, sx, sy (swap indices 2,3)
+                pfit[4:4 + n_ch],           # bg channels
+                pfit[4 + n_ch:4 + 2 * n_ch],  # A channels
+            ])
         elif strategy == FittingStrategy.ELLIPTICAL:
             # pfit: [x0, y0, sigma_x, sigma_y, theta, √bg_B, √bg_G, √bg_R, √A_B, √A_G, √A_R]
             # output: [xc, yc, s_x, s_y, theta, bg_B, bg_G, bg_R, A_B, A_G, A_R]
@@ -1535,14 +1533,28 @@ class Image_Analysis_Functions:
         # Get array dimensions for this strategy
         dims = FittingConstants.PARAM_DIMENSIONS[strategy]
 
+        # For colour strategies, derive actual fit/error dimensions from channel count in masks.
+        # This makes the allocations correct for cameras with more than 3 colour channels.
+        _colour_strategies = {
+            FittingStrategy.STANDARD, FittingStrategy.STANDARD_IG,
+            FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA,
+        }
+        if strategy in _colour_strategies and masks is not None and len(masks) > 0:
+            n_ch = masks[0].shape[-1]
+            fit_dim = 4 + 2 * n_ch + 2   # [x,y,sx,sy, bg×n_ch, A×n_ch, chi, frame]
+            err_dim = 4 + 2 * n_ch        # [xe,ye,sxe,sye, bg_err×n_ch, A_err×n_ch]
+        else:
+            fit_dim = dims["fit"]
+            err_dim = dims["error"]
+
         # Auto-detect precision requirements based on data range
         max_value = np.max([np.max(p) for p in puncta])
         precision_dtype = np.float64 if max_value > 50000 else np.float32
 
         # Pre-allocate result arrays with appropriate precision
         n_puncta = len(puncta)
-        pfit_leastsq = np.empty((n_puncta, dims["fit"]), dtype=precision_dtype)
-        perr_leastsq = np.empty((n_puncta, dims["error"]), dtype=precision_dtype)
+        pfit_leastsq = np.empty((n_puncta, fit_dim), dtype=precision_dtype)
+        perr_leastsq = np.empty((n_puncta, err_dim), dtype=precision_dtype)
 
         # Initialize with NaN
         pfit_leastsq.fill(np.nan)
@@ -1563,33 +1575,18 @@ class Image_Analysis_Functions:
                     masks=punctum_masks,
                 )
 
-                # Store results (fit_params includes chi-squared at the end)
-                # fit_params contains: [param1, param2, ..., paramN, chi_squared]
-                # We need: [param1, param2, ..., paramN, chi_squared, plane_index]
-
-                # Store fit parameters including chi-squared, then add plane index
-                # fit_params contains: [fit_param1, ..., fit_paramN, chi_squared] (N+1 elements)
-                # Final array: [fit_param1, ..., fit_paramN, chi_squared, plane_index] (N+2 elements)
-
-                # Store all fit parameters including chi-squared, then add plane index
-                # fit_params should contain [param1, ..., param10, chi_squared] = 11 elements
-                # Final array should be [param1, ..., param10, chi_squared, plane_index] = 12 elements
-
-                # Store fit_params in positions 0 to len(fit_params)-1
+                # fit_params: [x,y,sx,sy, bg×n_ch, A×n_ch, chi_sqr]  (fit_dim-1 elements)
+                # Final row:  [x,y,sx,sy, bg×n_ch, A×n_ch, chi_sqr, plane_idx]  (fit_dim elements)
                 fit_param_count = len(fit_params)
-                max_fit_params = dims["fit"] - 1  # Leave last position for plane index
+                max_fit_params = fit_dim - 1  # Leave last position for plane index
 
                 if fit_param_count <= max_fit_params:
-                    # Store all fit parameters including chi-squared
                     pfit_leastsq[i, :fit_param_count] = fit_params
                 else:
-                    # fit_params is too long, store what fits but preserve chi-squared
-                    # This should not happen if dimensions are correct
                     pfit_leastsq[i, :max_fit_params] = fit_params[:max_fit_params]
 
-                # Store plane index in the last position (don't overwrite chi-squared!)
                 pfit_leastsq[i, -1] = planes[i]
-                perr_leastsq[i, :] = fit_errors[: dims["error"]]
+                perr_leastsq[i, :] = fit_errors[:err_dim]
 
             except Exception as e:
                 logging.warning(f"Failed to fit punctum {i}: {e}")
@@ -1764,7 +1761,17 @@ def _fit_puncta_method_standalone(
         # Return empty arrays if fitting fails to prevent crash
         dims = FittingConstants.PARAM_DIMENSIONS[strategy]
         n_puncta = len(puncta)
-        # Use float64 to handle high photon count cases gracefully
-        empty_fits = np.full((n_puncta, dims["fit"]), np.nan, dtype=np.float64)
-        empty_errors = np.full((n_puncta, dims["error"]), np.nan, dtype=np.float64)
+        _colour_strategies = {
+            FittingStrategy.STANDARD, FittingStrategy.STANDARD_IG,
+            FittingStrategy.STANDARD_ITER, FittingStrategy.STANDARD_DATA,
+        }
+        if strategy in _colour_strategies and masks is not None and len(masks) > 0:
+            n_ch = masks[0].shape[-1]
+            fit_dim = 4 + 2 * n_ch + 2
+            err_dim = 4 + 2 * n_ch
+        else:
+            fit_dim = dims["fit"]
+            err_dim = dims["error"]
+        empty_fits = np.full((n_puncta, fit_dim), np.nan, dtype=np.float64)
+        empty_errors = np.full((n_puncta, err_dim), np.nan, dtype=np.float64)
         return empty_fits, empty_errors
