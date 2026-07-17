@@ -152,6 +152,12 @@ class SimulationConfig:
         frame_exposure_ms (float): Camera frame exposure time in milliseconds (default: 100).
             Combined with motion_velocity_nm_per_s to give the per-frame displacement:
             displacement_nm = velocity × (exposure_ms / 1000).
+        sbr (float | None): Target signal-to-background ratio, SBR = (I_sig + I_bkg) / I_bkg,
+            where I_sig = n_photon (total signal photons in the punctum) and I_bkg is the
+            total background photons within the punctum's 3σ PSF footprint. When set
+            (must be > 1), background_photons is recomputed per photon level as
+            n_photon / ((sbr - 1) × π(3σ_psf)²) and the background_photons field above is
+            ignored. Default None (use background_photons directly).
     """
 
     n_bootstrap: int = 100000
@@ -2660,6 +2666,21 @@ class MultiC_Sim_Funcs_Refactored:
                 )
             )
 
+        # SBR is defined as SBR = (I_sig + I_bkg) / I_bkg, where I_sig is the total
+        # signal photons in the punctum (n_photon) and I_bkg is the total background
+        # photons within the punctum's PSF footprint (not per pixel). Precompute that
+        # footprint area here (3σ circular aperture, using the dye's deterministic
+        # average emission wavelength) so the per-photon-level loop below can convert
+        # I_bkg into the per-pixel background_photons rate the simulator expects.
+        if config.sbr is not None:
+            if config.sbr <= 1.0:
+                raise SimulationValidationError(
+                    f"config.sbr must be > 1 (SBR = 1 implies zero signal); got {config.sbr}"
+                )
+            avg_wl_scalar = float(np.asarray(average_emission_wavelength).reshape(-1)[0])
+            sigma_psf_px = self.psf.sigma_PSF(avg_wl_scalar, config.NA) / config.pixel_size
+            psf_area_px2 = float(np.pi * (3.0 * sigma_psf_px) ** 2)
+
         # Setup simulation parameters
         x0, y0, setup_data = self._setup_simulation_parameters(
             camera_params,
@@ -2824,9 +2845,12 @@ class MultiC_Sim_Funcs_Refactored:
                 average_emission_wavelength_for_this_photon = average_emission_wavelength
                 dye_pixel_efficiency_for_this_photon = dye_pixel_efficiency
 
-            # If SBR is set, background scales with signal so that bg = n_photon / sbr
+            # If SBR is set, total background photons within the PSF footprint satisfy
+            # SBR = (n_photon + I_bkg) / I_bkg, i.e. I_bkg = n_photon / (sbr - 1);
+            # convert to the per-pixel background_photons rate via the footprint area.
             _bg_photons = (
-                n_photon / config.sbr if config.sbr is not None else config.background_photons
+                n_photon / ((config.sbr - 1.0) * psf_area_px2)
+                if config.sbr is not None else config.background_photons
             )
 
             # Generate images — use the resized dict so image shape matches camera_params
