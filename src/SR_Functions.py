@@ -2094,6 +2094,7 @@ class SuperRes_Functions:
         gain_map: np.ndarray = None,
         offset_map: np.ndarray = None,
         variance: np.ndarray = None,
+        strategy: str = 'bilinear',
     ) -> np.ndarray:
         """Demosaic Bayer pattern image using specified method.
 
@@ -2104,6 +2105,10 @@ class SuperRes_Functions:
             gain_map: Gain calibration map (required if use_variance_aware=True)
             offset_map: Offset calibration map (required if use_variance_aware=True)
             variance: Variance map (required if use_variance_aware=True)
+            strategy: Demosaicing algorithm, passed through to sCMOSFunctions
+                (see sCMOSFunctions.DEMOSAIC_STRATEGIES). One of 'bilinear'
+                (default — fastest, used throughout the codebase so far),
+                'malvar', 'ddfapd', or 'menon2007'.
 
         Returns:
             Demosaiced grayscale image (same shape as input)
@@ -2114,18 +2119,18 @@ class SuperRes_Functions:
             - Standard demosaicing uses simple Bayer-to-grayscale conversion
         """
         if use_variance_aware:
-            # Use variance-aware bilinear demosaicing for robust spot detection
+            # Use variance-aware demosaicing for robust spot detection
             return self.scmos.variance_aware_demosaic(
                 raw_data,
                 variance_map=variance,
                 offset_map=offset_map,
                 gain=gain_map,
                 grayscale=True,
-                strategy='bilinear',  # Bilinear works best for spot detection
+                strategy=strategy,
             )
         else:
-            # Use standard bilinear grayscale demosaicing
-            return self.scmos.bayer_demosaic_stack_grayscale(raw_data)
+            # Use standard grayscale demosaicing
+            return self.scmos.bayer_demosaic_stack_grayscale(raw_data, strategy=strategy)
 
     def _find_change_points_single(
         self,
