@@ -159,6 +159,7 @@ parso==0.8.3
 partd==1.4.2
 pathos==0.3.2
 pathspec==0.12.1
+patsy==1.0.2
 pexpect==4.9.0
 pickleshare==0.7.5
 pillow==10.3.0
@@ -237,6 +238,7 @@ sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==1.0.7
 sphinxcontrib-serializinghtml==1.1.10
 stack-data==0.6.3
+statsmodels==0.14.6
 superqt==0.7.6
 tables==3.11.1
 tabulate==0.10.0

@@ -416,6 +416,7 @@ class BasePlotter(ABC):
         width: Optional[float] = None,
         height: Optional[float] = None,
         big: bool = False,
+        subplot_kw: Optional[Dict[str, Any]] = None,
     ) -> Tuple[matplotlib.figure.Figure, Union[matplotlib.axes.Axes, np.ndarray]]:
         """Create a two-column width publication-quality figure.
 
@@ -429,6 +430,8 @@ class BasePlotter(ABC):
             width: Total figure width in inches. If None, uses two-column standard (6.69").
             height: Total figure height in inches. If None, uses standard (3.0" per row).
             big: If True, allows larger sizes for presentations (5" per dimension).
+            subplot_kw: Forwarded to ``plt.subplots()``, e.g. ``{'projection': 'ternary'}``
+                for a grid of mpltern ternary axes. If None (default), plain Cartesian axes.
 
         Returns:
             Tuple of (figure, axes). axes shape depends on nrows/ncols:
@@ -481,6 +484,7 @@ class BasePlotter(ABC):
             frameon=False,
             squeeze=False,
             dpi=self.config.DEFAULT_DPI,
+            subplot_kw=subplot_kw or {},
         )
 
         # Configure tick parameters
