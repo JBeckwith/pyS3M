@@ -426,7 +426,10 @@ class SuperRes_Functions:
         if quality_metrics is not None and len(quality_metrics) > 0:
             filtered_quality_metrics = {}
             # Convert valid_indices to numpy array for proper indexing
-            valid_indices_array = np.array(valid_indices)
+            # (dtype=int matters when valid_indices is empty — an empty list
+            # would otherwise default to float64, which can't be used for
+            # fancy indexing below)
+            valid_indices_array = np.array(valid_indices, dtype=int)
             for key, values in quality_metrics.items():
                 if len(values) == len(detected_puncta):
                     # Filter to only include metrics for successfully processed ROIs
