@@ -155,6 +155,119 @@ def fit_affine_transform(
     return tform, inliers
 
 
+def refine_transform_globally(
+    point_groups: list[tuple[NDArray, NDArray]],
+    initial_tform: AffineTransform,
+    match_distance: float = 150.0,
+    translation_range: float = 300.0,
+    rotation_range_deg: float = 10.0,
+    scale_range: float = 0.05,
+    seed: int | None = 0,
+    maxiter: int = 200,
+) -> tuple[AffineTransform, float]:
+    """Bounded global optimisation of an affine transform near an initial guess.
+
+    RANSAC fit on a single loosely-matched (pooled) point set can converge to
+    a wrong transform when the loose match distance lets many non-corresponding
+    points pair up -- especially with quasi-periodic bead spacing, where a
+    wrong rotation/translation can still satisfy many "matched" pairs by
+    coincidence. This instead searches directly in the 5-parameter affine
+    space (dx, dy, theta, scale_x, scale_y) with `scipy.optimize
+    .differential_evolution`, bounded to a neighbourhood of ``initial_tform``
+    (e.g. the interactively-tuned slider guess) rather than an unconstrained
+    search -- so a candidate transform can only ever converge near a point we
+    already trust visually.
+
+    At every candidate transform, each (pts_src, pts_dst) group (kept
+    separate, never pooled, so matching never crosses group/FOV boundaries)
+    is matched independently via mutual-NN with ``match_distance`` -- points
+    with no correspondence within that distance are discarded rather than
+    penalised individually, so beads present in only one channel (missed
+    detections, FOV-edge effects) don't corrupt the fit. The cost combines
+    the mean squared residual of matched pairs with a penalty for a low
+    matched fraction, so the optimum favours transforms that are both
+    accurate *and* explain most of the points.
+
+    Args:
+        point_groups: list of (pts_src, pts_dst) arrays, one pair per FOV (or
+            FOV/colour) -- NOT pre-matched, NOT pooled across groups.
+        initial_tform: transform to centre the search bounds on (e.g. from
+            an interactive manual pre-alignment).
+        match_distance: mutual-NN distance gate per candidate transform, same
+            units as the points (nm). Points beyond this are treated as not
+            present in both channels and discarded.
+        translation_range: +/- bound on dx, dy around initial_tform's own
+            translation (same units as the points).
+        rotation_range_deg: +/- bound on rotation (degrees) around
+            initial_tform's own rotation.
+        scale_range: +/- fractional bound on scale_x, scale_y around
+            initial_tform's own scale (e.g. 0.05 = +/-5%).
+        seed: random seed for differential_evolution (reproducibility).
+        maxiter: maximum optimiser generations.
+
+    Returns:
+        Tuple of (tform, cost) -- the optimised AffineTransform and its final
+        cost value (lower is better; not directly interpretable, only useful
+        for comparing runs).
+    """
+    from scipy.optimize import differential_evolution
+
+    p0 = np.array([
+        initial_tform.translation[0], initial_tform.translation[1],
+        np.degrees(initial_tform.rotation),
+        initial_tform.scale[0], initial_tform.scale[1],
+    ])
+
+    bounds = [
+        (p0[0] - translation_range, p0[0] + translation_range),
+        (p0[1] - translation_range, p0[1] + translation_range),
+        (p0[2] - rotation_range_deg, p0[2] + rotation_range_deg),
+        (p0[3] * (1 - scale_range), p0[3] * (1 + scale_range)),
+        (p0[4] * (1 - scale_range), p0[4] * (1 + scale_range)),
+    ]
+
+    groups = [
+        (np.asarray(s), np.asarray(d)) for s, d in point_groups if len(s) and len(d)
+    ]
+    total_src_points = sum(len(s) for s, _ in groups)
+
+    def cost(params):
+        dx, dy, theta_deg, sx, sy = params
+        tform = AffineTransform(
+            scale=(sx, sy), rotation=np.radians(theta_deg), translation=(dx, dy),
+        )
+        total_sq_resid = 0.0
+        total_matched = 0
+        for pts_src, pts_dst in groups:
+            transformed_src = tform(pts_src)
+            src_idx, dst_idx = match_spot_pairs_indexed(
+                transformed_src, pts_dst, max_distance=match_distance,
+            )
+            if not src_idx:
+                continue
+            resid = np.linalg.norm(
+                transformed_src[src_idx] - pts_dst[dst_idx], axis=1,
+            )
+            total_sq_resid += float(np.sum(resid ** 2))
+            total_matched += len(src_idx)
+
+        if total_matched == 0 or total_src_points == 0:
+            return 1e12
+
+        mean_sq_resid = total_sq_resid / total_matched
+        match_fraction = total_matched / total_src_points
+        return mean_sq_resid + (1.0 - match_fraction) * (match_distance ** 2)
+
+    result = differential_evolution(
+        cost, bounds, seed=seed, tol=1e-10, polish=True, maxiter=maxiter,
+    )
+    dx, dy, theta_deg, sx, sy = result.x
+    tform = AffineTransform(
+        scale=(sx, sy), rotation=np.radians(theta_deg), translation=(dx, dy),
+    )
+    return tform, float(result.fun)
+
+
 def save_transform(tform: AffineTransform, filepath: str | Path) -> None:
     """Save an AffineTransform to a CSV file (the 3x3 homogeneous matrix).
 
