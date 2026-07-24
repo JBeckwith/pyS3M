@@ -162,6 +162,6 @@ class PostProcPanel(QWidget):
         self._save_btn.setEnabled(True)
 
     def on_state_changed(self, state: str):
-        self._enabled_by_state = state in ("fitted", "clustered")
+        self._enabled_by_state = state in ("fitted", "undrifted", "clustered")
         if not self._cluster_btn.text().startswith("Running"):
             self._cluster_btn.setEnabled(self._enabled_by_state)

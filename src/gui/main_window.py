@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 from gui.panels.setup_panel import SetupPanel
 from gui.panels.fitting_panel import FittingPanel
 from gui.panels.postproc_panel import PostProcPanel
+from gui.panels.drift_panel import DriftPanel
 from gui.panels.results_panel import ResultsPanel
 from gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
 from gui.widgets.log_widget import LogWidget, QtLogHandler
@@ -28,6 +29,7 @@ class AppState(enum.Enum):
     IDLE = "idle"
     CALIBRATED = "calibrated"
     FITTED = "fitted"
+    UNDRIFTED = "undrifted"
     CLUSTERED = "clustered"
 
 
@@ -45,6 +47,7 @@ class MainWindow(QMainWindow):
         self._aux_worker: AnalysisWorker | None = None  # viz-only worker (non-blocking)
         self._fitted_data_dir: str | None = None
         self._fov_data: list = []                       # [(locs_df, tif_path)] per FOV
+        self._undrifted_locs = None                      # DataFrame, set once undrift succeeds
         self._sm_db = None
         self._sf_db = None
 
@@ -65,6 +68,7 @@ class MainWindow(QMainWindow):
         self.setup_panel = SetupPanel(self)
         self.fitting_panel = FittingPanel(self)
         self.postproc_panel = PostProcPanel(self)
+        self.drift_panel = DriftPanel(self)
         self.simulation_panel = SimulationPanel(self)
 
         container = QWidget()
@@ -74,6 +78,7 @@ class MainWindow(QMainWindow):
         vbox.addWidget(self.setup_panel)
         vbox.addWidget(self.fitting_panel)
         vbox.addWidget(self.postproc_panel)
+        vbox.addWidget(self.drift_panel)
         vbox.addStretch()
 
         scroll = QScrollArea()
@@ -82,18 +87,23 @@ class MainWindow(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         ctrl_tabs = QTabWidget()
-        ctrl_tabs.addTab(scroll, "Pipeline")
-
-        _ph_posthoc = QLabel("Post-hoc analysis — coming soon.")
-        _ph_posthoc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _ph_posthoc.setStyleSheet("color: gray; font-size: 11pt;")
-        ctrl_tabs.addTab(_ph_posthoc, "Post-Hoc")
+        ctrl_tabs.addTab(scroll, "Analysis")
 
         sim_scroll = QScrollArea()
         sim_scroll.setWidget(self.simulation_panel)
         sim_scroll.setWidgetResizable(True)
         sim_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         ctrl_tabs.addTab(sim_scroll, "Simulation")
+
+        def _placeholder(msg: str) -> QLabel:
+            lbl = QLabel(msg)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("color: gray; font-size: 11pt;")
+            return lbl
+
+        ctrl_tabs.addTab(_placeholder("FRC analysis — coming soon."), "FRC")
+        ctrl_tabs.addTab(_placeholder("Channel unmixing — coming soon."), "Channel Unmixing")
+        ctrl_tabs.addTab(_placeholder("Nile Red analysis — coming soon."), "Nile Red")
 
         ctrl_dock = QDockWidget("Controls", self)
         ctrl_dock.setWidget(ctrl_tabs)
@@ -130,6 +140,7 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.setup_panel.on_state_changed)
         self.state_changed.connect(self.fitting_panel.on_state_changed)
         self.state_changed.connect(self.postproc_panel.on_state_changed)
+        self.state_changed.connect(self.drift_panel.on_state_changed)
 
         self.setup_panel.calibration_requested.connect(self._on_load_calibration)
         self.fitting_panel.preview_requested.connect(self._on_preview_fitting)
@@ -138,6 +149,7 @@ class MainWindow(QMainWindow):
         self.postproc_panel.load_locs_requested.connect(self._on_load_locs)
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
+        self.drift_panel.undrift_requested.connect(self._on_undrift)
         self.results_panel.fov_requested.connect(self._on_fov_requested)
         self.simulation_panel.simulation_requested.connect(self._on_run_simulation)
 
@@ -186,6 +198,7 @@ class MainWindow(QMainWindow):
         self.setup_panel.set_busy(False)
         self.fitting_panel.set_busy(False)
         self.postproc_panel.set_busy(False)
+        self.drift_panel.set_busy(False)
         self.simulation_panel.set_busy(False)
         self.progress_widget.reset()
 
@@ -554,6 +567,7 @@ class MainWindow(QMainWindow):
         data_dir, fov_data, locs_fig, stats_fig = result
         self._fitted_data_dir = data_dir
         self._fov_data = fov_data
+        self._undrifted_locs = None
         self.fitting_panel.set_fit_busy(False)
         self.progress_widget.update(1.0, "Fitting complete")
         self._update_state(AppState.FITTED)
@@ -656,6 +670,7 @@ class MainWindow(QMainWindow):
         folder, scatter_fig, stats_fig = result
         self._fitted_data_dir = folder
         self._fov_data = []
+        self._undrifted_locs = None
         self.results_panel.set_fov_count(1)
         self.results_panel.set_localisations_figure(scatter_fig)
         self.results_panel.set_stats_figure(stats_fig)
@@ -671,7 +686,12 @@ class MainWindow(QMainWindow):
             return
 
         def _do():
-            locs = self.pipeline.load_localisations(self._fitted_data_dir)
+            # Prefer the drift-corrected localisations if undrift has been run
+            # (they live in memory only, not reloaded from _fitted_data_dir).
+            locs = (
+                self._undrifted_locs if self._undrifted_locs is not None
+                else self.pipeline.load_localisations(self._fitted_data_dir)
+            )
             return self.pipeline.filter_and_cluster(
                 locs, criteria=criteria, clustering_config=clustering_config
             )
@@ -747,6 +767,81 @@ class MainWindow(QMainWindow):
             import traceback as _tb
             self.log_widget.append(f"Save failed:\n{_tb.format_exc()}")
             QMessageBox.critical(self, "Save failed", "Could not write HDF5 file — see log.")
+
+    # ------------------------------------------------------------------
+    # Drift correction
+    # ------------------------------------------------------------------
+
+    def _on_undrift(self, segmentation: int, intersect_d_nm: float, roi_r_nm: float):
+        if self._worker_running() or self.pipeline is None or self._fitted_data_dir is None:
+            return
+
+        def _do():
+            # Always reload the raw (not previously undrifted) localisations,
+            # so re-running undrift never compounds a prior correction.
+            locs_df = self.pipeline.load_localisations(self._fitted_data_dir)
+            if locs_df.empty:
+                raise ValueError("No localisations to undrift.")
+
+            pixel_size_nm = self.pipeline.pixel_size * 1000.0
+            height, width = self.pipeline.gain_map.shape[:2]
+            n_frames = int(locs_df["frame"].max()) + 1
+
+            info = [{
+                "Width": int(width),
+                "Height": int(height),
+                "Frames": n_frames,
+                "Pixelsize": pixel_size_nm,
+            }]
+
+            locs_rec = locs_df.to_records(index=False)
+            corrected_locs, drift_result = self.pipeline.undrift(
+                locs_rec, info, method="aim",
+                segmentation=segmentation,
+                intersect_d=intersect_d_nm / pixel_size_nm,
+                roi_r=roi_r_nm / pixel_size_nm,
+                pixel_size_nm=pixel_size_nm,
+            )
+            corrected_df = pd.DataFrame(corrected_locs)
+
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent))
+            from IOFunctions import IO_Functions
+            out_path = str(Path(self._fitted_data_dir) / "undrifted_locs.h5")
+            IO_Functions().write_h5_database(corrected_df, out_path)
+
+            drift_fig = self._make_drift_figure(drift_result, pixel_size_nm)
+            return corrected_df, drift_fig
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_undrift_done)
+        self.drift_panel.set_busy(True)
+        worker.start()
+
+    def _on_undrift_done(self, result):
+        corrected_df, drift_fig = result
+        self._undrifted_locs = corrected_df
+        self.drift_panel.set_busy(False)
+        self.progress_widget.update(1.0, "Undrift complete")
+        self._update_state(AppState.UNDRIFTED)
+        if drift_fig is not None:
+            self.results_panel.set_drift_figure(drift_fig)
+        self._refresh_render_figure(
+            corrected_df, title="Undrifted localisations", stats_locs=corrected_df,
+        )
+
+    def _make_drift_figure(self, drift_result, pixel_size_nm: float) -> Figure:
+        fig = Figure(figsize=(7, 4), dpi=100, layout="constrained")
+        ax = fig.add_subplot(111)
+        frames = np.arange(len(drift_result.drift_x))
+        ax.plot(frames, drift_result.drift_x * pixel_size_nm, label="x", color="tab:blue", lw=1.0)
+        ax.plot(frames, drift_result.drift_y * pixel_size_nm, label="y", color="tab:orange", lw=1.0)
+        ax.set_xlabel("Frame")
+        ax.set_ylabel("Drift (nm)")
+        ax.set_title(f"Drift trace ({drift_result.method_used.value})")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        return fig
 
     # ------------------------------------------------------------------
     # Simulation
