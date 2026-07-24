@@ -37,9 +37,18 @@ class FittingStrategy(Enum):
 
     Each strategy represents a different approach to fitting Bayer-filtered camera data:
     - STANDARD: Direct fitting with Bayer pattern masks
-    - DEMOSAIC: Full demosaic then fit colour channels
-    - DEMOSAIC_FAST: Fast demosaic with optimised fitting
-    - DEMOSAIC_IG: Initial grayscale fit then colour refinement
+    - DEMOSAIC: Demosaic the puncta ROI (non-variance-aware; algorithm selectable via
+      config.demosaic_strategy), then fit each of the resulting R/G/B images
+      independently with a weighted (NOCOLOUR) Gaussian fit -- weighting only enters
+      here, at the per-channel fit. Position (xc, yc) is the photon-weighted mean of
+      the three channels' fitted positions (weight = each channel's fitted photon
+      count); total photons = sum of the three channels' photon counts; per-channel
+      B/G/R amplitude and background are that channel's value normalised to the sum,
+      as before. Consolidates the old DEMOSAIC/DEMOSAIC_FAST/DEMOSAIC_IG variants into
+      one strategy (see `_fit_demosaic`); DEMOSAIC_FAST/DEMOSAIC_IG below are retained
+      only so old saved-result flags/strategy names still resolve, and are no longer
+      dispatched (see `_perform_fitting`/`_prepare_fitting_data`).
+    - STANDARD_IG: Full STANDARD fit on raw Bayer, seeded from a demosaiced initial guess
     """
 
     STANDARD = "standard"
@@ -47,8 +56,8 @@ class FittingStrategy(Enum):
     STANDARD_DATA = "standard_data"  # smooth → model → raw-data weights (unbiased final pass)
     ELLIPTICAL = "elliptical"        # Rotated elliptical Gaussian on Bayer data (11 params)
     DEMOSAIC = "demosaic"
-    DEMOSAIC_FAST = "demosaic_fast"
-    DEMOSAIC_IG = "demosaic_ig"
+    DEMOSAIC_FAST = "demosaic_fast"  # deprecated -- consolidated into DEMOSAIC, no longer dispatched
+    DEMOSAIC_IG = "demosaic_ig"      # deprecated -- consolidated into DEMOSAIC, no longer dispatched
     STANDARD_IG = "standard_ig"  # Full STANDARD fit on raw Bayer, seeded from demosaiced fit
 
 
@@ -158,6 +167,11 @@ class SimulationConfig:
             (must be > 1), background_photons is recomputed per photon level as
             n_photon / ((sbr - 1) × π(3σ_psf)²) and the background_photons field above is
             ignored. Default None (use background_photons directly).
+        demosaic_strategy (str): Demosaicing algorithm used by FittingStrategy.DEMOSAIC
+            (default: "bilinear"). One of "bilinear", "malvar", "menon2007", "ddfapd" —
+            see sCMOSFunctions.sCMOS_Functions.DEMOSAIC_STRATEGIES. Not variance-aware —
+            plain colour-interpolation demosaicing; per-channel weighting is applied
+            afterwards, at the per-channel Gaussian fit stage.
     """
 
     n_bootstrap: int = 100000
@@ -179,6 +193,7 @@ class SimulationConfig:
     frame_exposure_ms: float = 100.0
     n_unit_cells: int = 7
     sbr: float | None = None
+    demosaic_strategy: str = "bilinear"
 
     def __post_init__(self):
         """
@@ -238,13 +253,15 @@ class FittingResultProcessor:
             "chi_sqr": np.zeros(n_bootstrap),
         }
 
+        # NOTE: iterate over every index (not indices[:-1]) and slice [index, index+3)
+        # explicitly -- using indices[:-1]/indices[i+1] previously dropped the last
+        # punctum of every batch (left zero-filled instead of computed).
         indices = np.arange(0, n_bootstrap * 3, 3)
-        for i, index in enumerate(indices[:-1]):
-            data_arrays["chi_sqr"][i] = np.nanmean(
-                chi_toextract[index : indices[i + 1]]
-            )
-            A = np.nansum(A_toextract[index : indices[i + 1]])
-            b = np.nansum(b_toextract[index : indices[i + 1]])
+        for i, index in enumerate(indices):
+            end = index + 3
+            data_arrays["chi_sqr"][i] = np.nanmean(chi_toextract[index:end])
+            A = np.nansum(A_toextract[index:end])
+            b = np.nansum(b_toextract[index:end])
 
             # Avoid division by zero
             if b != 0:
@@ -265,13 +282,19 @@ class FittingResultProcessor:
         """
         Average fits from demosaicking including positional and shape parameters.
 
+        Position (xc, yc) is the photon-weighted mean of the three channels' fitted
+        positions, weighted by each channel's fitted photon count (A). Shape (s_x, s_y)
+        and chi_sqr are plain means across channels. Total photons = sum of the three
+        channels' A; per-channel A_B/A_G/A_R and bg_B/bg_G/bg_R are each channel's value
+        normalised to that sum, as before.
+
         Args:
             fit_results (pd.DataFrame): Raw fitting results containing position, shape,
                                        amplitude and background data for RGB channels
             n_bootstrap (int): Number of bootstrap simulations run
 
         Returns:
-            pd.DataFrame: Averaged results with mean positions/shapes and normalised colours
+            pd.DataFrame: Averaged results with photon-weighted positions and normalised colours
         """
         # Extract arrays
         arrays_to_extract = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr"]
@@ -325,19 +348,16 @@ class FittingResultProcessor:
             "chi_sqr": np.zeros(n_bootstrap),
         }
 
+        # NOTE: iterate over every index (not indices[:-1]) and slice [index, index+3)
+        # explicitly -- using indices[:-1]/indices[i+1] previously dropped the last
+        # punctum of every batch (left zero-filled instead of computed).
         indices = np.arange(0, n_bootstrap * 3, 3)
-        for i, index in enumerate(indices[:-1]):
-            # Average positional and shape parameters
-            for param in ["xc", "yc", "s_x", "s_y", "chi_sqr"]:
-                slice_data = extracted_arrays[param][index : indices[i + 1]]
-                if len(slice_data) > 0:
-                    result_data[param][i] = np.nanmean(slice_data)
-                else:
-                    result_data[param][i] = np.nan
-
-            # Handle amplitude and background
-            A_slice = extracted_arrays["A"][index : indices[i + 1]]
-            b_slice = extracted_arrays["b"][index : indices[i + 1]]
+        for i, index in enumerate(indices):
+            end = index + 3
+            # Handle amplitude and background first -- A_slice (per-channel photon
+            # count) doubles as the weight for the photon-weighted position mean below.
+            A_slice = extracted_arrays["A"][index:end]
+            b_slice = extracted_arrays["b"][index:end]
 
             if len(A_slice) > 0:
                 A = np.nansum(A_slice)
@@ -345,6 +365,17 @@ class FittingResultProcessor:
             else:
                 A = np.nan
                 b = np.nan
+
+            # Position: photon-weighted mean across the three channels (weight = each
+            # channel's fitted photon count, A). Shape/chi_sqr: plain mean, as before.
+            for param in ["xc", "yc", "s_x", "s_y", "chi_sqr"]:
+                slice_data = extracted_arrays[param][index:end]
+                if len(slice_data) == 0:
+                    result_data[param][i] = np.nan
+                elif param in ("xc", "yc") and not np.isnan(A) and A != 0 and len(A_slice) == len(slice_data):
+                    result_data[param][i] = np.nansum(slice_data * A_slice) / A
+                else:
+                    result_data[param][i] = np.nanmean(slice_data)
 
             if not np.isnan(b) and b != 0 and len(b_slice) >= 3:
                 result_data["bg_B"][i] = extracted_arrays["b"][index] / b
@@ -605,7 +636,9 @@ class MultiC_Sim_Funcs_Refactored:
         )
 
         # Handle different demosaic strategies
-        if strategy in (FittingStrategy.DEMOSAIC_IG, FittingStrategy.STANDARD_IG):
+        # NOTE: DEMOSAIC_IG is no longer dispatched (consolidated into DEMOSAIC) --
+        # only STANDARD_IG still needs the demosaiced grayscale initial-guess prep below.
+        if strategy == FittingStrategy.STANDARD_IG:
             _, grayscale_photoelectron_data = self.scmos.bayer_demosaic_stack(
                 photoelectron_data, True
             )
@@ -618,20 +651,18 @@ class MultiC_Sim_Funcs_Refactored:
                 (grayscale_photoelectron_data, grayscale_smoothed_data),
             )
 
-        elif strategy in [FittingStrategy.DEMOSAIC_FAST, FittingStrategy.DEMOSAIC]:
-            if strategy == FittingStrategy.DEMOSAIC_FAST:
-                photoelectron_data, grayscale_data = self.scmos.bayer_demosaic_stack(
-                    photoelectron_data, True
-                )
-                smoothed_data, grayscale_smoothed = self.scmos.bayer_demosaic_stack(
-                    smoothed_data, True
-                )
-            else:
-                photoelectron_data, _ = self.scmos.bayer_demosaic_stack(
-                    photoelectron_data
-                )
-                smoothed_data, _ = self.scmos.bayer_demosaic_stack(smoothed_data)
-                grayscale_data = grayscale_smoothed = None
+        elif strategy == FittingStrategy.DEMOSAIC:
+            # Non-variance-aware demosaic (plain colour interpolation) -- per-channel
+            # weighting is applied later, at the per-channel Gaussian fit stage.
+            # Algorithm is user-selectable: config.demosaic_strategy, one of
+            # "bilinear"/"malvar"/"menon2007"/"ddfapd".
+            photoelectron_data, _ = self.scmos.bayer_demosaic_stack(
+                photoelectron_data, strategy=config.demosaic_strategy
+            )
+            smoothed_data, _ = self.scmos.bayer_demosaic_stack(
+                smoothed_data, strategy=config.demosaic_strategy
+            )
+            grayscale_data = grayscale_smoothed = None
 
             # Destack for colour fitting
             photoelectron_data = self._bayer_destacker(photoelectron_data)
@@ -745,7 +776,7 @@ class MultiC_Sim_Funcs_Refactored:
             return self._fit_standard_data(
                 photoelectron_data, smoothed_data, weights_map, camera_params, config
             )
-        elif strategy in (FittingStrategy.DEMOSAIC_IG, FittingStrategy.STANDARD_IG):
+        elif strategy == FittingStrategy.STANDARD_IG:
             return self._fit_demosaic_ig(
                 photoelectron_data,
                 smoothed_data,
@@ -754,15 +785,15 @@ class MultiC_Sim_Funcs_Refactored:
                 camera_params,
                 config,
             )
-        elif strategy == FittingStrategy.DEMOSAIC_FAST:
-            return self._fit_demosaic_fast(
-                photoelectron_data,
-                smoothed_data,
-                weights_map,
-                grayscale_data,
-                camera_params,
-                config,
-            )
+        # DEMOSAIC_FAST and DEMOSAIC_IG are deprecated -- consolidated into the single
+        # DEMOSAIC strategy below (demosaic ROI, weighted per-channel fit, photon-weighted
+        # position). Kept commented out (not deleted) for reference:
+        #
+        # elif strategy == FittingStrategy.DEMOSAIC_FAST:
+        #     return self._fit_demosaic_fast(
+        #         photoelectron_data, smoothed_data, weights_map, grayscale_data,
+        #         camera_params, config,
+        #     )
         elif strategy == FittingStrategy.DEMOSAIC:
             return self._fit_demosaic(
                 photoelectron_data, smoothed_data, weights_map, config
@@ -1170,16 +1201,15 @@ class MultiC_Sim_Funcs_Refactored:
 
             # Extract fitted photons and background for SNR calculation
             fitted_photons = fit_results["photons"].to_numpy()
-            fitted_bg_R = fit_results["bg_R"].to_numpy()
-            fitted_bg_G = fit_results["bg_G"].to_numpy()
-            fitted_bg_B = fit_results["bg_B"].to_numpy()
 
-            # Calculate total background photons from fitted background values
-            # Note: In _fit_standard (line 765-770), only amplitudes A_R/G/B are normalized
-            # Background values bg_R/G/B are kept as absolute photon counts (not normalized)
-            # So we simply sum them to get total background
-            # This mirrors real experimental analysis where we use fitted (not ground truth) values
-            fitted_background_photons = fitted_bg_R + fitted_bg_G + fitted_bg_B
+            # NOTE: bg_R/bg_G/bg_B are normalised to fractions (sum to 1) by
+            # _fit_standard/_fit_standard_data before this function is called, so summing
+            # them no longer recovers the absolute background level (previously this line
+            # summed bg_R+bg_G+bg_B directly, which -- now that those are fractions --
+            # always evaluated to ~1.0 regardless of the true background_photons, silently
+            # defeating the SNR-based error inflation below at any real background level).
+            # The absolute total is already computed and stored in 'background_photons'.
+            fitted_background_photons = fit_results["background_photons"].to_numpy()
 
             # Normalize RGB and propagate errors, then build fit args
             from NileRedFunctions import NileRed_Functions as _NRF

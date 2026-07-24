@@ -174,6 +174,43 @@ class NileRed_Functions:
 
         return spectrum_wavelength
 
+    def spectral_centre_of_mass(
+        self,
+        wavelength_center: float,
+        wavelength_array: np.ndarray,
+        sigma_energy: Optional[float] = None,
+        alpha: Optional[float] = None,
+    ) -> float:
+        """First-moment mean wavelength <λ> = ∫I(λ)λdλ / ∫I(λ)dλ of the skew-Gaussian
+        emission spectrum located at `wavelength_center`.
+
+        Because the emission spectrum is skewed, its centre of mass is never equal to
+        `wavelength_center` (the energy-space location/fit parameter) -- the two are
+        different, both legitimate, quantities. This is the one to report/compare as
+        "the wavelength": it's what a real emission spectrum's mean actually is, and
+        what `fit_nile_red_wavelength` returns. When checking simulated fit bias against
+        a known true `wavelength_center`, compare against *this* (the true spectrum's own
+        centre of mass), not against `wavelength_center` directly, or the comparison
+        conflates a genuine fit bias with the expected, non-bias gap between a skewed
+        distribution's location parameter and its mean.
+
+        Args:
+            wavelength_center: Energy-space location parameter (nm)
+            wavelength_array: Wavelength grid (nm)
+            sigma_energy: Gaussian width in energy space (eV), default from __init__
+            alpha: Skewness parameter, default from __init__
+
+        Returns:
+            centre_of_mass: Mean wavelength of the spectrum (nm)
+        """
+        spectrum = self.generate_nile_red_spectrum(
+            wavelength_center, wavelength_array, sigma_energy=sigma_energy, alpha=alpha, normalize=True
+        )
+        denom = np.trapz(spectrum, wavelength_array)
+        if denom > 0:
+            return float(np.trapz(spectrum * wavelength_array, wavelength_array) / denom)
+        return float(wavelength_center)
+
     def apply_optical_filters(
         self, spectrum: np.ndarray, filter_spectra: np.ndarray
     ) -> np.ndarray:
@@ -685,21 +722,18 @@ class NileRed_Functions:
 
         wavelength_center = result.x[0]
 
-        # Convert the energy-space location parameter to the mean wavelength of
-        # the emission spectrum in wavelength space:
-        #   <λ> = ∫ I(λ) λ dλ / ∫ I(λ) dλ
-        # This corrects for the systematic blue shift introduced by (a) the
-        # Jacobian of the λ↔E transformation and (b) the negative skewness,
-        # both of which push the true spectral centre of mass to longer
-        # wavelengths than the energy-space location parameter.
-        spectrum = self.generate_nile_red_spectrum(
-            wavelength_center, wavelength_array, normalize=True
-        )
-        denom = np.trapz(spectrum, wavelength_array)
-        if denom > 0:
-            wavelength_mean = np.trapz(spectrum * wavelength_array, wavelength_array) / denom
-        else:
-            wavelength_mean = wavelength_center
+        # Report the spectral centre of mass, not the raw energy-space location
+        # parameter -- see spectral_centre_of_mass's docstring. IMPORTANT for anything
+        # that checks bias against a known simulated wavelength: a noiseless roundtrip
+        # (generate a spectrum at a known wavelength_center, fit it back with zero
+        # noise) shows the raw TRF fit recovers wavelength_center with 0.00 nm bias,
+        # while the *centre of mass* legitimately differs from wavelength_center by
+        # +28 to +41 nm across 560-680 nm (a skewed distribution's mean is never equal
+        # to its location parameter). That gap is not fit error -- so bias must be
+        # computed as (fitted centre of mass) - (true spectrum's own centre of mass),
+        # both via spectral_centre_of_mass, not against the raw wavelength_center/
+        # nile_red_wavelength ground-truth value directly (see simulate_wavelength_precision).
+        wavelength_mean = self.spectral_centre_of_mass(wavelength_center, wavelength_array)
 
         # Estimate wavelength error from Jacobian
         # s2 = residual variance, cov = s2 * inv(J^T J)
@@ -714,8 +748,7 @@ class NileRed_Functions:
         else:
             wavelength_error = np.nan
 
-        # Get predictions at best fit (forward model still uses the optimised
-        # energy-space parameter, not the derived mean wavelength)
+        # Get predictions at best fit
         predictions = self.nile_red_forward_model(
             wavelength_center, filter_spectra, wavelength_array, pixel_QYs, NA
         )
@@ -969,6 +1002,14 @@ class NileRed_Functions:
                         logger.info(f"\nWarning: No 'photon_level' column found in {raw_file}")
                     continue
 
+                # wl_fit is the fitted spectral centre of mass (see
+                # fit_nile_red_wavelength/spectral_centre_of_mass), which for a skewed
+                # spectrum is *not* equal to the location parameter wl_true -- compare
+                # against the true spectrum's own centre of mass instead, or the gap
+                # between the two (a real, expected property of the skew-Gaussian
+                # shape, not fit error) gets reported as bias.
+                wl_true_com = self.spectral_centre_of_mass(wl_true, wavelength_array)
+
                 for level in df["photon_level"].unique():
                     df_level = df.filter(pl.col("photon_level") == level)
 
@@ -982,7 +1023,7 @@ class NileRed_Functions:
                     # Calculate statistics
                     if len(wavelengths_fitted) > 0:
                         precision = np.std(wavelengths_fitted)
-                        bias = np.mean(wavelengths_fitted) - wl_true
+                        bias = np.mean(wavelengths_fitted) - wl_true_com
                         recovery_rate = len(wavelengths_fitted) / n_bootstrap
 
                         wavelength_precision_results.append(
