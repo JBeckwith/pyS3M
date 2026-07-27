@@ -423,8 +423,11 @@ class PSF_Functions:
                                 Shape: (n_frames, n_dyes, n_channels)
                                 Example: QE_per_channel_all[frame=5, dye=0, :] = [0.1, 0.7, 0.2] for B,G,R
             mask_stack: Bayer mask stack
-                        Shape: (w, h, n_channels)
-                        Example: mask_stack[:,:,0] = Blue pixel mask
+                        Shape: (w, h, n_channels) -- static, broadcast across all frames.
+                        Or:   (n_frames, w, h, n_channels) -- per-frame, e.g. a genuinely
+                              random pixel-colour arrangement drawn independently per
+                              bootstrap sample rather than one fixed pattern.
+                        Example: mask_stack[:,:,0] = Blue pixel mask (static case)
 
         Returns:
             n_photoelectrons: Photoelectrons for all frames
@@ -470,11 +473,17 @@ class PSF_Functions:
                 # ⚡ VECTORIZED: Process all frames simultaneously
                 # Expand dimensions for broadcasting:
                 # n_photons_dye: (n_frames, w, h) → (n_frames, w, h, 1)
-                # mask_stack: (w, h, n_channels) → (1, w, h, n_channels)
+                # mask_stack (static): (w, h, n_channels) → (1, w, h, n_channels), broadcast to all frames
+                # mask_stack (per-frame): (n_frames, w, h, n_channels), already frame-aligned
                 # Result: (n_frames, w, h, n_channels)
+                if mask_stack.ndim == 4:
+                    mask_stack_broadcast = mask_stack               # already (n_frames, w, h, n_channels)
+                else:
+                    mask_stack_broadcast = mask_stack[np.newaxis, :, :, :]  # (1, w, h, n_channels)
+
                 n_photons_per_channel = (
                     n_photons_dye[:, :, :, np.newaxis] *    # (n_frames, w, h, 1)
-                    mask_stack[np.newaxis, :, :, :]         # (1, w, h, n_channels)
+                    mask_stack_broadcast
                 ).astype(np.int64)
 
                 # ⚡ VECTORIZED BINOMIAL: Process all frames+channels at once

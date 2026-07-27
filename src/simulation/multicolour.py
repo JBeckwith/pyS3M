@@ -801,6 +801,25 @@ class MultiC_Sim_Funcs_Refactored:
         else:
             raise ValueError(f"Unknown fitting strategy: {strategy}")
 
+    @staticmethod
+    def _build_frame_masks(masks: dict, n_bootstrap: int) -> list:
+        """One (H, W, n_channels) mask array per bootstrap frame.
+
+        Returns a shared static array (by reference, same object every frame) if
+        the per-colour masks are 2D (legacy convention), or a genuine per-frame
+        slice if they are 3D -- shape (n_bootstrap, H, W) -- matching the
+        pixel-colour arrangement gen_camera_image_stack simulated for that frame
+        (e.g. a randomised Bayer arrangement drawn independently per bootstrap).
+        """
+        colours = list(masks.keys())
+        if next(iter(masks.values())).ndim == 2:
+            masks_3d = np.dstack([masks[c] for c in colours])
+            return [masks_3d] * n_bootstrap
+        return [
+            np.dstack([masks[c][frame] for c in colours])
+            for frame in range(n_bootstrap)
+        ]
+
     def _fit_standard(
         self,
         photoelectron_data: np.ndarray,
@@ -822,18 +841,14 @@ class MultiC_Sim_Funcs_Refactored:
         Returns:
             pd.DataFrame: Fitting results with position, shape, and colour information
         """
-        masks_3d = np.dstack(
-            [camera_params.masks[x] for x in camera_params.masks.keys()]
-        )
-
         # Prepare fitting data
-        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        masks_tofit = self._build_frame_masks(camera_params.masks, config.n_bootstrap)
+        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
         relative_coords, planes = [], []
 
         for frame in range(config.n_bootstrap):
             puncta_tofit.append(photoelectron_data[frame, :, :])
             smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
-            masks_tofit.append(masks_3d)
             weights_tofit.append(weights_map[frame, :, :])
             relative_coords.append((0, 0))
             planes.append(frame)
@@ -910,17 +925,14 @@ class MultiC_Sim_Funcs_Refactored:
         (e.g. detecting motion-blur direction) but is not part of analysis_save_params
         so it does not affect the RMSE summary statistics.
         """
-        masks_3d = np.dstack(
-            [camera_params.masks[x] for x in camera_params.masks.keys()]
-        )
+        masks_tofit = self._build_frame_masks(camera_params.masks, config.n_bootstrap)
 
-        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
         relative_coords, planes = [], []
 
         for frame in range(config.n_bootstrap):
             puncta_tofit.append(photoelectron_data[frame, :, :])
             smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
-            masks_tofit.append(masks_3d)
             weights_tofit.append(weights_map[frame, :, :])
             relative_coords.append((0, 0))
             planes.append(frame)
@@ -993,17 +1005,14 @@ class MultiC_Sim_Funcs_Refactored:
         readnoise_scalar = float(np.median(camera_params.readnoise))
         self.image_analysis.processors[IAF_FittingStrategy.STANDARD_ITER].readnoise = readnoise_scalar
 
-        masks_3d = np.dstack(
-            [camera_params.masks[x] for x in camera_params.masks.keys()]
-        )
+        masks_tofit = self._build_frame_masks(camera_params.masks, config.n_bootstrap)
 
-        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
         relative_coords, planes = [], []
 
         for frame in range(config.n_bootstrap):
             puncta_tofit.append(photoelectron_data[frame, :, :])
             smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
-            masks_tofit.append(masks_3d)
             weights_tofit.append(weights_map[frame, :, :])
             relative_coords.append((0, 0))
             planes.append(frame)
@@ -1075,17 +1084,14 @@ class MultiC_Sim_Funcs_Refactored:
         readnoise_scalar = float(np.median(camera_params.readnoise))
         self.image_analysis.processors[IAF_FittingStrategy.STANDARD_DATA].readnoise = readnoise_scalar
 
-        masks_3d = np.dstack(
-            [camera_params.masks[x] for x in camera_params.masks.keys()]
-        )
+        masks_tofit = self._build_frame_masks(camera_params.masks, config.n_bootstrap)
 
-        puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit = [], [], [], []
+        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
         relative_coords, planes = [], []
 
         for frame in range(config.n_bootstrap):
             puncta_tofit.append(photoelectron_data[frame, :, :])
             smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
-            masks_tofit.append(masks_3d)
             weights_tofit.append(weights_map[frame, :, :])
             relative_coords.append((0, 0))
             planes.append(frame)
@@ -1838,53 +1844,69 @@ class MultiC_Sim_Funcs_Refactored:
         y = np.arange(h, dtype=np.float32)
         masks = camera_calibration["masks"]
 
+        # Per-frame mask support: if any per-colour mask is 3D (n_bootstrap, w, h)
+        # instead of the legacy static 2D (w, h), the pixel-colour arrangement varies
+        # per bootstrap sample/frame (e.g. a genuinely random Bayer arrangement drawn
+        # independently per frame, rather than one fixed pattern reused everywhere).
+        masks_vary_per_frame = any(m.ndim == 3 for m in masks.values())
+
         # OPTIMIZATION: Pre-compute mask stack for vectorized operations
-        # Stack masks in the order specified by pixel_order: shape (w, h, n_channels)
-        mask_stack = np.stack([masks[colour] for colour in pixel_colours], axis=2)
+        # Stack masks in the order specified by pixel_order.
+        # Legacy (2D per-colour masks): shape (w, h, n_channels).
+        # Per-frame (3D per-colour masks, (n_bootstrap, w, h)): shape (n_bootstrap, w, h, n_channels).
+        mask_stack = np.stack([masks[colour] for colour in pixel_colours], axis=-1)
 
         # Calculate absolute quantum efficiency per pixel (for deterministic mode)
         # NOTE: This stores QE values in a pixel array for backward compatibility
         # The actual photoelectron generation now uses QE_per_channel to avoid
         # the bug where photons could generate photoelectrons on multiple channels
-        abs_QE = np.zeros([w, h, len(dye_names)])
-        for j, dye in enumerate(dye_names):
-            for i, colour in enumerate(pixel_colours):
-                try:
-                    dpe = (
-                        dye_pixel_efficiency[j, i]
-                        if len(dye_pixel_efficiency.shape) > 1
-                        else dye_pixel_efficiency[i]
-                    )
-                except (IndexError, TypeError):
-                    dpe = dye_pixel_efficiency
-                abs_QE[:, :, j] += masks[colour] * dpe
+        #
+        # Skipped entirely when masks vary per frame: these precomputed, static
+        # (non-per-frame) arrays are only ever read by the "deterministic mode"
+        # fallback branches below, which never execute once per-frame masks force
+        # the per-frame branch instead (see masks_vary_per_frame usage below) --
+        # indexing masks[colour] (now 3D) directly here would broadcast incorrectly.
+        if not masks_vary_per_frame:
+            abs_QE = np.zeros([w, h, len(dye_names)])
+            for j, dye in enumerate(dye_names):
+                for i, colour in enumerate(pixel_colours):
+                    try:
+                        dpe = (
+                            dye_pixel_efficiency[j, i]
+                            if len(dye_pixel_efficiency.shape) > 1
+                            else dye_pixel_efficiency[i]
+                        )
+                    except (IndexError, TypeError):
+                        dpe = dye_pixel_efficiency
+                    abs_QE[:, :, j] += masks[colour] * dpe
 
         # Calculate background photons matrix
         background_photons_perdye = background_photons / len(dye_names)
-        background_photons_matrix = np.zeros([w, h, len(dye_names)])
 
         # Normalize background_colour to ensure total background = background_photons
         background_colour_normalized = np.array(background_colour) / np.sum(
             background_colour
         )
 
-        for j, dye in enumerate(dye_names):
-            for i, colour in enumerate(pixel_colours):
-                try:
-                    dpe = (
-                        dye_pixel_efficiency[j, i]
-                        if len(dye_pixel_efficiency.shape) > 1
-                        else dye_pixel_efficiency[i]
-                    )
-                except (IndexError, TypeError):
-                    dpe = dye_pixel_efficiency
+        if not masks_vary_per_frame:
+            background_photons_matrix = np.zeros([w, h, len(dye_names)])
+            for j, dye in enumerate(dye_names):
+                for i, colour in enumerate(pixel_colours):
+                    try:
+                        dpe = (
+                            dye_pixel_efficiency[j, i]
+                            if len(dye_pixel_efficiency.shape) > 1
+                            else dye_pixel_efficiency[i]
+                        )
+                    except (IndexError, TypeError):
+                        dpe = dye_pixel_efficiency
 
-                if dpe != 0:
-                    background_photons_matrix[:, :, j] += (
-                        masks[colour]
-                        * (background_colour_normalized[i] / dpe)
-                        * background_photons_perdye
-                    )
+                    if dpe != 0:
+                        background_photons_matrix[:, :, j] += (
+                            masks[colour]
+                            * (background_colour_normalized[i] / dpe)
+                            * background_photons_perdye
+                        )
 
         bayer_image = np.zeros([s, w, h])
         if return_normal_image:
@@ -1906,20 +1928,36 @@ class MultiC_Sim_Funcs_Refactored:
                     sigma_x = sigma_per_frame[frame]
                     sigma_y = sigma_x
 
-                # Update abs_QE and background if per-frame colour ratios (stochastic mode)
-                if dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s:
-                    # Stochastic mode
+                # Update abs_QE and background if per-frame colour ratios (stochastic
+                # mode) OR if the pixel-colour mask itself varies per frame -- either
+                # condition requires rebuilding background_photons_matrix_frame (and,
+                # for stochastic QE, QE_per_channel_frame) using this frame's own mask.
+                dye_pixel_efficiency_per_frame = (
+                    dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s
+                )
+                if masks_vary_per_frame or dye_pixel_efficiency_per_frame:
                     QE_per_channel_frame = np.zeros([len(dye_names), len(pixel_colours)])
                     background_photons_matrix_frame = np.zeros([w, h, len(dye_names)])
 
                     for j, dye in enumerate(dye_names):
                         for i, colour in enumerate(pixel_colours):
-                            dpe = dye_pixel_efficiency[frame, i]
+                            dpe = (
+                                dye_pixel_efficiency[frame, i]
+                                if dye_pixel_efficiency_per_frame
+                                else (
+                                    dye_pixel_efficiency[j, i]
+                                    if len(dye_pixel_efficiency.shape) > 1
+                                    else dye_pixel_efficiency[i]
+                                )
+                            )
                             QE_per_channel_frame[j, i] = dpe
 
+                            mask_this_frame = (
+                                masks[colour][frame] if masks_vary_per_frame else masks[colour]
+                            )
                             if dpe != 0:
                                 background_photons_matrix_frame[:, :, j] += (
-                                    masks[colour]
+                                    mask_this_frame
                                     * (background_colour_normalized[i] / dpe)
                                     * background_photons_perdye
                                 )
@@ -2055,22 +2093,37 @@ class MultiC_Sim_Funcs_Refactored:
                     sigma_y = sigma_x
 
                 # Update abs_QE and background if per-frame colour ratios (stochastic mode)
+                # OR if the pixel-colour mask itself varies per frame.
                 # Check if dye_pixel_efficiency has per-frame dimension: (n_frames, n_colours)
-                if dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s:
-                    # Stochastic mode: recalculate abs_QE for this frame
+                dye_pixel_efficiency_per_frame = (
+                    dye_pixel_efficiency.ndim == 2 and dye_pixel_efficiency.shape[0] == s
+                )
+                if masks_vary_per_frame or dye_pixel_efficiency_per_frame:
+                    # Stochastic mode / per-frame masks: recalculate for this frame
                     # Store QE per channel (not per pixel!) - shape: (n_dyes, n_channels)
                     QE_per_channel_frame = np.zeros([len(dye_names), len(pixel_colours)])
                     background_photons_matrix_frame = np.zeros([w, h, len(dye_names)])
-    
+
                     for j, dye in enumerate(dye_names):
                         for i, colour in enumerate(pixel_colours):
-                            # Use frame-specific QE values
-                            dpe = dye_pixel_efficiency[frame, i]
+                            # Use frame-specific QE values if available, else static
+                            dpe = (
+                                dye_pixel_efficiency[frame, i]
+                                if dye_pixel_efficiency_per_frame
+                                else (
+                                    dye_pixel_efficiency[j, i]
+                                    if len(dye_pixel_efficiency.shape) > 1
+                                    else dye_pixel_efficiency[i]
+                                )
+                            )
                             QE_per_channel_frame[j, i] = dpe
-    
+
+                            mask_this_frame = (
+                                masks[colour][frame] if masks_vary_per_frame else masks[colour]
+                            )
                             if dpe != 0:
                                 background_photons_matrix_frame[:, :, j] += (
-                                    masks[colour]
+                                    mask_this_frame
                                     * (background_colour_normalized[i] / dpe)
                                     * background_photons_perdye
                                 )
@@ -2174,9 +2227,10 @@ class MultiC_Sim_Funcs_Refactored:
                             # OPTIMIZATION: Vectorize photoelectron generation across all channels at once
                             # Broadcast photons across channels using pre-computed mask_stack
                             # n_photons_total: (w, h)
-                            # mask_stack: (w, h, 3)
+                            # mask_stack: (w, h, 3), or (n_bootstrap, w, h, 3) if masks_vary_per_frame
                             # Result: (w, h, 3) - photons per channel
-                            n_photons_per_channel = (n_photons_total[:, :, np.newaxis] * mask_stack).astype(int)
+                            mask_for_frame = mask_stack[frame] if masks_vary_per_frame else mask_stack
+                            n_photons_per_channel = (n_photons_total[:, :, np.newaxis] * mask_for_frame).astype(int)
     
                             # Generate photoelectrons for all channels simultaneously
                             # NumPy's binomial can broadcast: n and p can have different shapes
