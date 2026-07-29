@@ -14,26 +14,40 @@ interactive Jupyter notebooks, or a bundled PyQt6 GUI to:
 - Simulate multicolour SMLM experiments for method validation
 - Detect and characterise single-molecule steps and FRET transitions
 
-The code has been tested on Python 3.10 and 3.12.
+Requires Python >=3.11, <3.13 (tested on 3.12.3) — the ceiling comes from a real
+dependency constraint (``colour-demosaicing`` caps at <3.13), not an arbitrary choice.
 
 Installation
 ============
 
-Clone the repository and install the requirements into a virtual environment:
+Clone the repository, then from its root:
 
 .. code-block:: bash
 
-   git clone <repository-url>
-   cd pyS3M
-   pip install -r requirements.txt
+   pip install .
 
-All source modules live in ``src/``.  Add this directory to your Python path
-before importing:
+This installs ``pyS3M`` as a real package (``import pyS3M.SR_Functions``, etc. works
+from anywhere — no ``sys.path`` hacks needed) along with its core analysis
+dependencies. Optional extras layer on top as needed:
 
-.. code-block:: python
+.. code-block:: bash
 
-   import sys
-   sys.path.insert(0, 'src')
+   pip install .[notebooks]  # jupyterlab, napari, seaborn, xarray, plotly, ...
+   pip install .[docs]       # Sphinx + the Read the Docs theme, for building docs locally
+   pip install .[dev]        # pytest, coverage, black, build
+
+Extras can be combined, e.g. ``pip install .[notebooks,dev]``. For an editable install
+while developing ``pyS3M`` itself, add ``-e``: ``pip install -e .[dev]``.
+
+Running the GUI
+================
+
+.. code-block:: bash
+
+   pys3m-gui
+
+(installed as a console script by ``pip install .``), or equivalently
+``python run_gui.py`` from the repository root without installing.
 
 Getting Started
 ===============
@@ -43,19 +57,24 @@ A minimal analysis looks like:
 
 .. code-block:: python
 
-   import sys
-   sys.path.insert(0, 'src')
+   from pathlib import Path
+   from pyS3M.AnalysisPipeline import AnalysisPipeline, FittingConfig
+   from pyS3M.Constants import AnalysisConfig, FilteringCriteria
+   from pyS3M.clustering import ClusteringConfig
 
-   from SR_Functions import SuperRes_Functions
+   cfg = AnalysisConfig(display=False, save_figures=True,
+                        output_dir=Path("results/"), dpi=150)
+   pipe = AnalysisPipeline(camera="ximea", config=cfg)
+   pipe.load_calibration(Path("Camera_Calibrations/Ximea_Camera"))
 
-   # Initialise with your camera model
-   srf = SuperRes_Functions(camera='ximea')
+   fc = FittingConfig(peak_wavelength=0.638, pfa=1e-3)
+   pipe.fit(data_dir, mode="smlm", fitting_config=fc)
 
-   # Fit a single TIFF stack
-   results = srf.fit_SM_data(
-       directory='path/to/data/',
-       filenames=['my_movie.tif'],
-   )
+   locs = pipe.load_localisations(data_dir)
+   sm_db, sf_db = pipe.filter_and_cluster(locs)
+
+See ``notebooks/`` for fuller worked examples (per-camera calibration, drift
+correction, FRC, channel unmixing, simulation).
 
 Contributing
 ============
