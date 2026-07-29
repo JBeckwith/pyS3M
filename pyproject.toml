@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyS3M"
 dynamic = ["version"]
-description = "Analysis package for multicolour single-molecule localisation microscopy"
+description = "Analysis package for spatial-spectral single-molecule spectroscopy"
 readme = "README.md"
 # tables (PyTables, pandas' HDF5 backend) requires >=3.11; colour-demosaicing caps at <3.13 —
 # both confirmed via each package's own declared Requires-Python metadata, not assumed.
@@ -13,7 +13,6 @@ requires-python = ">=3.11,<3.13"
 license = {file = "LICENSE"}
 authors = [
     {name = "Joseph S. Beckwith"},
-    {name = "Steven F. Lee"},
 ]
 
 dependencies = [

@@ -32,6 +32,18 @@ threshold_parameters.json
 analysis_log*.txt
 *_memorysafe_*.txt
 
+# unit_tests/test_quality_metrics_real_data.py writes+deletes this in the bundled fixture
+# folder each run; ignored as a backstop in case cleanup is ever interrupted mid-test.
+test_tiffs/quality_metrics_sample/Localisations.h5
+
+# unit_tests/claude/test_drift_correction.py output artifacts (written to repo root)
+/aim_test_drift.json
+/aim_test_drift.npz
+/dna_origami_drift.json
+/dna_origami_drift.npz
+/dna_origami_corrected_drift.json
+/dna_origami_corrected_drift.npz
+
 # Steve example
 demosaic_example/
 

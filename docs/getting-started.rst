@@ -1,10 +1,9 @@
 Introduction
 ============
 
-``pyS3M`` is a Python package written in support of multicolour single-molecule
-localisation microscopy (SMLM) analysis from the lab of Steven F. Lee.  The
-preprint describing the method can be found on
-`bioRxiv <https://www.biorxiv.org/content/10.64898/2026.04.08.715690v1>`_.
+``pyS3M`` is a Python package written in support of spatial-spectral single-molecule
+spectroscopy analysis by Joseph S. Beckwith.  The preprint describing the method can
+be found on `bioRxiv <https://www.biorxiv.org/content/10.64898/2026.04.08.715690v1>`_.
 
 The package provides a set of Python classes that can be used from scripts,
 interactive Jupyter notebooks, or a bundled PyQt6 GUI to:

@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath('../src'))
 
 project = 'pyS3M'
 copyright = '2026, University of Cambridge'
-author = 'Joseph S. Beckwith, Steven F. Lee'
+author = 'Joseph S. Beckwith'
 release = 'v0.1.0'
 
 extensions = [
