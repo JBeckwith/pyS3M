@@ -6,7 +6,7 @@ microscopy data — fitting, quality filtering, clustering, drift correction, FR
 simulation — usable from scripts, notebooks, or its desktop GUI. Example notebooks are
 provided under `notebooks/`, showing worked analyses end-to-end.
 
-Documentation: https://pys3m.readthedocs.io/en/stable/index.html
+Documentation: https://pys3m.readthedocs.io/en/latest/index.html
 
 ## Installation
 
