@@ -7,9 +7,8 @@ import numpy as np
 import pytest
 from scipy.ndimage import gaussian_filter
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from FRCFunctions import (
+from pyS3M.FRCFunctions import (
     _radial_sum,
     _tukey_window,
     _intersect,

@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
 import logging
-from PlottingBase import _safe_tight_layout
+from pyS3M.PlottingBase import _safe_tight_layout
 logger = logging.getLogger(__name__)
 
 
@@ -866,7 +866,7 @@ class MixtureAnalysisMixin:
 
             # Plot histograms with fitted means
             try:
-                from PlottingBase import AnalysisPlotter
+                from pyS3M.PlottingBase import AnalysisPlotter
 
                 plotter = AnalysisPlotter()
                 fig, (ax1, ax2) = plotter.two_column_plot(nrows=1, ncols=2, height=3)
@@ -1562,7 +1562,7 @@ class MixtureAnalysisMixin:
             # Plot distributions for this bin if verbose
             if verbose:
                 try:
-                    from PlottingBase import AnalysisPlotter
+                    from pyS3M.PlottingBase import AnalysisPlotter
 
                     # Predict labels for molecules in this bin
                     log_probs = np.zeros((len(X), n_components))

@@ -21,7 +21,7 @@ from typing import List, Tuple, Optional, Dict, Any, Union
 from scipy.interpolate import InterpolatedUnivariateSpline
 import warnings
 
-from drift_correction._base import DriftCorrectionError  # noqa: F401 — re-exported for callers
+from pyS3M.drift_correction._base import DriftCorrectionError  # noqa: F401 — re-exported for callers
 
 
 class SegmentationHandler:

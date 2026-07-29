@@ -159,6 +159,9 @@ class ResultsPanel(QWidget):
         self._drift_tab = _FigureTab("Run drift correction to see the drift trace.")
         self._tabs.addTab(self._drift_tab, "Drift")
 
+        self._frc_tab = _FigureTab("Run FRC to see the resolution estimate.")
+        self._tabs.addTab(self._frc_tab, "FRC")
+
         self._sim_tab = _FigureTab("Configure and run a simulation to see exemplar PSFs.")
         self._tabs.addTab(self._sim_tab, "Simulation")
 
@@ -166,6 +169,24 @@ class ResultsPanel(QWidget):
         self._current_fov_idx = 0
         self._fov_prev_btn.clicked.connect(self._on_fov_prev)
         self._fov_next_btn.clicked.connect(self._on_fov_next)
+
+        self._tab_index = {
+            "preview": self._tabs.indexOf(self._preview_tab),
+            "localisations": self._tabs.indexOf(self._locs_container),
+            "statistics": self._tabs.indexOf(self._stats_tab),
+            "drift": self._tabs.indexOf(self._drift_tab),
+            "frc": self._tabs.indexOf(self._frc_tab),
+            "simulation": self._tabs.indexOf(self._sim_tab),
+        }
+        # Which result tabs are relevant for each controls-dock context. Contexts
+        # not listed here (e.g. still-placeholder Channel Unmixing/Nile Red tabs)
+        # fall back to showing everything, since they don't yet produce their
+        # own dedicated result tab to switch to.
+        self._context_tabs = {
+            "analysis": {"preview", "localisations", "statistics", "drift"},
+            "simulation": {"simulation"},
+            "frc": {"frc"},
+        }
 
     # ── FOV navigation ────────────────────────────────────────────────
 
@@ -213,6 +234,26 @@ class ResultsPanel(QWidget):
         self._drift_tab.set_figure(fig)
         self._tabs.setCurrentWidget(self._drift_tab)
 
+    def set_frc_figure(self, fig: Figure):
+        self._frc_tab.set_figure(fig)
+        self._tabs.setCurrentWidget(self._frc_tab)
+
     def set_simulation_figure(self, fig: Figure):
         self._sim_tab.set_figure(fig)
         self._tabs.setCurrentWidget(self._sim_tab)
+
+    # ── context-driven tab visibility ─────────────────────────────────
+
+    def set_context(self, context: str):
+        """Show only the result tabs relevant to *context* (a controls-dock
+        tab key, e.g. "analysis"/"simulation"). Unknown contexts show all
+        tabs, since not every controls-dock tab has a dedicated result view."""
+        visible = self._context_tabs.get(context, set(self._tab_index))
+        for name, idx in self._tab_index.items():
+            self._tabs.setTabVisible(idx, name in visible)
+        current = self._tabs.currentIndex()
+        if current < 0 or not self._tabs.isTabVisible(current):
+            for idx in self._tab_index.values():
+                if self._tabs.isTabVisible(idx):
+                    self._tabs.setCurrentIndex(idx)
+                    break

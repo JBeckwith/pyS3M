@@ -136,8 +136,8 @@ class PostProcPanel(QWidget):
         self._cform.setRowVisible(self._eps_row_idx, self._method.currentText() == "DBSCAN")
 
     def _on_cluster_clicked(self):
-        from Constants import FilteringCriteria
-        from clustering import ClusteringConfig
+        from pyS3M.Constants import FilteringCriteria
+        from pyS3M.clustering import ClusteringConfig
         filt = FilteringCriteria(
             min_photons=self._min_photons.value(),
             max_colour_error=self._max_colour_err.value(),

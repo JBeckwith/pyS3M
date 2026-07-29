@@ -91,7 +91,7 @@ class SimulationPanel(QWidget):
 
         self._pixel_size = QDoubleSpinBox()
         self._pixel_size.setRange(10.0, 500.0)
-        self._pixel_size.setValue(80.0)
+        self._pixel_size.setValue(69.0)
         self._pixel_size.setDecimals(1)
         self._pixel_size.setSuffix(" nm")
         param_form.addRow("Pixel size:", self._pixel_size)

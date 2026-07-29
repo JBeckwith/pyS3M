@@ -10,9 +10,8 @@ import sys
 import os
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from sCMOSFunctions import sCMOS_Functions
+from pyS3M.sCMOSFunctions import sCMOS_Functions
 
 def create_test_bayer_image(size=64):
     """Create a simple test Bayer pattern image."""

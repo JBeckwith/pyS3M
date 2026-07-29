@@ -19,16 +19,16 @@ from scipy.stats import norm
 import multiprocessing
 from concurrent import futures
 from tqdm import tqdm
-import ProgressUtils
+import pyS3M.ProgressUtils as ProgressUtils
 import numba
 from functools import lru_cache
 from typing import Any
 from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
-import PSFFunctions
-import sCMOSFunctions
-import HelperFunctions
+import pyS3M.PSFFunctions as PSFFunctions
+import pyS3M.sCMOSFunctions as sCMOSFunctions
+import pyS3M.HelperFunctions as HelperFunctions
 
 
 class ArrayPool:
@@ -99,7 +99,7 @@ class SpotDetection_Functions:
             scmos_functions: sCMOS camera functions (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         config = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
         # Dependency injection with sensible defaults

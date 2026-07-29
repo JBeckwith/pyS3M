@@ -12,12 +12,11 @@ import numpy as np
 import types
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-import Multicolour_Simulation_Functions
-import SpectralFunctions
-import MaskFunctions
-import sCMOSFunctions
+import pyS3M.Multicolour_Simulation_Functions as Multicolour_Simulation_Functions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.MaskFunctions as MaskFunctions
+import pyS3M.sCMOSFunctions as sCMOSFunctions
 
 
 def main():

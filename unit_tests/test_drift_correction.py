@@ -11,7 +11,6 @@ Tests cover:
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import pytest
 import numpy as np
@@ -19,11 +18,11 @@ import pandas as pd
 from typing import Dict, Tuple
 
 # Import drift correction modules
-import DriftCorrectionFunctions as DCF
-from CoordinateProcessing import CoordinateProcessor
-from drift_correction.aim import AIMDriftCorrector
-from drift_correction._base import DriftParameters
-from FiducialDetection import FiducialDetector
+import pyS3M.DriftCorrectionFunctions as DCF
+from pyS3M.CoordinateProcessing import CoordinateProcessor
+from pyS3M.drift_correction.aim import AIMDriftCorrector
+from pyS3M.drift_correction._base import DriftParameters
+from pyS3M.FiducialDetection import FiducialDetector
 
 
 # ============================================================================
@@ -508,7 +507,7 @@ class TestEdgeCases:
         drift_corr = DCF.Drift_Correction_Functions()
 
         # Should handle gracefully (may return empty or raise appropriate error)
-        from drift_correction._base import DriftCorrectionError
+        from pyS3M.drift_correction._base import DriftCorrectionError
         try:
             corrected_locs, drift_result = drift_corr.undrift(locs, info, method='aim')
             assert len(corrected_locs) == 0
@@ -529,7 +528,7 @@ class TestEdgeCases:
         drift_corr = DCF.Drift_Correction_Functions()
 
         # Single frame: should succeed and return near-zero drift
-        from drift_correction._base import DriftCorrectionError
+        from pyS3M.drift_correction._base import DriftCorrectionError
         try:
             corrected_locs, drift_result = drift_corr.undrift(locs, info, method='aim')
             assert np.allclose(drift_result.drift_x, 0, atol=1e-6)

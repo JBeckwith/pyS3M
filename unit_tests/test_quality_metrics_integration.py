@@ -6,7 +6,6 @@ processing (e.g., spots too close to image edges).
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import numpy as np
 import tempfile
@@ -20,9 +19,9 @@ def test_quality_metrics_saved_with_roi_filtering():
     print("Setting up test data...")
 
     # Import modules
-    import IOFunctions
-    import sCMOSFunctions
-    import SR_Functions
+    import pyS3M.IOFunctions as IOFunctions
+    import pyS3M.sCMOSFunctions as sCMOSFunctions
+    import pyS3M.SR_Functions as SR_Functions
 
     # Create temporary directory for test
     temp_dir = tempfile.mkdtemp(prefix='test_quality_metrics_')

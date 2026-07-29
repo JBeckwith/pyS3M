@@ -17,13 +17,13 @@ from skimage.transform import resize
 from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA_Bayer_bilinear, demosaicing_CFA_Bayer_DDFAPD, demosaicing_CFA_Bayer_Menon2007
 
 sys.path.append(str(Path(__file__).parent))
-import HelperFunctions
+import pyS3M.HelperFunctions as HelperFunctions
 import logging
 logger = logging.getLogger(__name__)
 
 
 try:
-    import ProgressUtils
+    import pyS3M.ProgressUtils as ProgressUtils
 except ImportError:
     ProgressUtils = None
 

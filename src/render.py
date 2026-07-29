@@ -25,7 +25,7 @@ import scipy.signal as signal
 from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
-from ImportManager import get_module
+from pyS3M.ImportManager import get_module
 
 plt = get_module("matplotlib.pyplot")
 colors = get_module("matplotlib.colors")

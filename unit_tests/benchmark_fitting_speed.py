@@ -20,13 +20,12 @@ import gc
 # Add src directory to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
 
 # Import required modules
-import gaussoptfuncs
-import PSFFunctions
-import SpectralFunctions
-import MaskFunctions
+import pyS3M.gaussoptfuncs as gaussoptfuncs
+import pyS3M.PSFFunctions as PSFFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.MaskFunctions as MaskFunctions
 from scipy.optimize import leastsq
 
 

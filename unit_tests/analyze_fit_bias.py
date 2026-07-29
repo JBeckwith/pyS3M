@@ -10,13 +10,12 @@ Check:
 """
 
 import sys
-sys.path.insert(0, '../src')
 
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from NileRedFunctions import NileRed_Functions
+from pyS3M.NileRedFunctions import NileRed_Functions
 
 # Initialize
 nrf = NileRed_Functions()
@@ -43,8 +42,8 @@ filter_names = [
 NA = 1.49
 
 # Setup optical system for forward model
-import SpectralFunctions
-import PSFFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.PSFFunctions as PSFFunctions
 spectral_funcs = SpectralFunctions.Spectral_Funcs()
 psf_funcs = PSFFunctions.PSF_Functions()
 

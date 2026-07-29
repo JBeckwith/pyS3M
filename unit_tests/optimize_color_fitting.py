@@ -17,9 +17,8 @@ from typing import Tuple
 # Add src directory to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
 
-import gaussoptfuncs
+import pyS3M.gaussoptfuncs as gaussoptfuncs
 
 class ColorFittingOptimizer:
     """Analyze and optimize color fitting performance."""

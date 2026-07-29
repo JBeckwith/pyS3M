@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
-from simulation.diffusion import (  # noqa: F401
+from pyS3M.simulation.diffusion import (  # noqa: F401
     Molecule,
     BindingKinetics,
     LangevinDiffusion2D,

@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from Constants import FilteringConstants, FilteringCriteria
+from pyS3M.Constants import FilteringConstants, FilteringCriteria
 from ._config import ClusteringConfig
-import postprocess
+import pyS3M.postprocess as postprocess
 import logging
 logger = logging.getLogger(__name__)
 

@@ -9,13 +9,12 @@ Check:
 """
 
 import sys
-sys.path.insert(0, '../src')
 
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from NileRedFunctions import NileRed_Functions
+from pyS3M.NileRedFunctions import NileRed_Functions
 
 # Initialize
 nrf = NileRed_Functions()

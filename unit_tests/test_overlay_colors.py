@@ -12,9 +12,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from PlottingBase import PublicationPlotter
+from pyS3M.PlottingBase import PublicationPlotter
 
 
 def test_red_alternatives():

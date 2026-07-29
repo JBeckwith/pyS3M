@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass
 from typing import Optional, Tuple
-from Constants import FilteringConstants
+from pyS3M.Constants import FilteringConstants
 
 
 @dataclass
@@ -28,8 +28,8 @@ class ClusteringConfig:
 
     Example::
 
-        from clustering import ClusteringConfig
-        from Constants import FilteringCriteria
+        from pyS3M.clustering import ClusteringConfig
+        from pyS3M.Constants import FilteringCriteria
 
         cfg = ClusteringConfig(
             clustering_method="HDBSCAN",

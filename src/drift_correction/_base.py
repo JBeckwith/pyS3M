@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 
-from Constants import DriftConstants
+from pyS3M.Constants import DriftConstants
 
 
 class DriftMethod(Enum):
@@ -201,7 +201,7 @@ class DriftCorrector(ABC):
         Returns:
             Tuple of (corrected_locs, drift_result)
         """
-        from CoordinateProcessing import CoordinateProcessor
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
 
         # Validate inputs
         params.validate()

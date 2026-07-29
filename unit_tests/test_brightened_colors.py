@@ -8,9 +8,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from PlottingBase import PublicationPlotter
+from pyS3M.PlottingBase import PublicationPlotter
 
 np.random.seed(100)
 img1 = np.random.poisson(50, size=(256, 256)).astype(float)

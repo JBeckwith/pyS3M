@@ -20,7 +20,7 @@ from numpy.typing import NDArray
 import numpy as np
 import matplotlib.pyplot as plt
 
-import ProgressUtils
+import pyS3M.ProgressUtils as ProgressUtils
 from ._base import (
     DriftMethod, DriftCorrectionError, DriftParameters,
     DriftResult, FiducialDetectionResult,
@@ -32,18 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 try:
-    import render
-    import postprocess
+    import pyS3M.render as render
+    import pyS3M.postprocess as postprocess
 except ImportError:
     warnings.warn("Could not import render/postprocess modules.")
     render = None
     postprocess = None
-
-try:
-    from CoordinateProcessing import CoordinateProcessor
-except ImportError:
-    warnings.warn("Could not import CoordinateProcessing.")
-    CoordinateProcessor = None
 
 
 class Drift_Correction_Functions:
@@ -61,7 +55,7 @@ class Drift_Correction_Functions:
                 used as default when building DriftParameters.
             pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         config = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
 
@@ -69,7 +63,7 @@ class Drift_Correction_Functions:
 
         # Initialize plotting and specialised algorithm modules
         try:
-            from FiducialDetection import DriftPlotter, FiducialDetector
+            from pyS3M.FiducialDetection import DriftPlotter, FiducialDetector
 
             self.plotter = DriftPlotter()
             self.fiducial_detector = FiducialDetector(drift_correction_instance=self)
@@ -81,7 +75,7 @@ class Drift_Correction_Functions:
         self.aim_corrector = AIMDriftCorrector()
 
         try:
-            from CoordinateProcessing import CoordinateProcessor
+            from pyS3M.CoordinateProcessing import CoordinateProcessor
 
             self.coordinate_processor = CoordinateProcessor()
         except ImportError:
@@ -247,7 +241,8 @@ class Drift_Correction_Functions:
         Raises:
             DriftCorrectionError: If fiducial detection or drift correction fails
         """
-        # Extract metadata
+        # Extract metadata (imported lazily -- see auto.py's calculate_drift for why)
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
         meta = CoordinateProcessor.extract_metadata(info)
         pixelsize = meta.get("pixelsize", 100.0)
         n_frames = int(meta["n_frames"])
@@ -446,8 +441,8 @@ class Drift_Correction_Functions:
     ) -> tuple:
         """Detect fiducials using temporal chunking for drift-robust detection."""
         try:
-            import localise
-            import render
+            import pyS3M.localise as localise
+            import pyS3M.render as render
         except ImportError:
             raise DriftCorrectionError(
                 "localise and render modules required for chunked fiducial detection"
@@ -636,7 +631,8 @@ class Drift_Correction_Functions:
                 "Fiducial detection requires render module"
             )
 
-        # Extract metadata
+        # Extract metadata (imported lazily -- see auto.py's calculate_drift for why)
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
         meta = CoordinateProcessor.extract_metadata(info)
         pixelsize = meta.get("pixelsize", 100.0)  # nm
         n_frames = int(meta["n_frames"])
@@ -681,7 +677,7 @@ class Drift_Correction_Functions:
                 threshold = np.percentile(hist[0], threshold_percentile)
 
                 try:
-                    import localise
+                    import pyS3M.localise as localise
                 except ImportError:
                     raise DriftCorrectionError(
                         "localise module required for fiducial detection"
@@ -703,7 +699,7 @@ class Drift_Correction_Functions:
             min_n = min_frames_fraction * n_frames
 
             try:
-                import postprocess
+                import pyS3M.postprocess as postprocess
             except ImportError:
                 raise DriftCorrectionError(
                     "postprocess module required for fiducial detection"
@@ -811,7 +807,7 @@ class Drift_Correction_Functions:
                     progress_bar_context.__exit__(None, None, None)
 
         try:
-            import lib
+            import pyS3M.lib as lib
 
             return lib.append_to_rec(locs, group, "group")
         except ImportError:
@@ -1168,7 +1164,7 @@ class Drift_Correction_Functions:
     ) -> None:
         """Plot individual Gaussian validation results showing kept vs discarded points."""
         try:
-            from PlottingBase import PublicationPlotter
+            from pyS3M.PlottingBase import PublicationPlotter
             import matplotlib.pyplot as plt
             import numpy as np
 

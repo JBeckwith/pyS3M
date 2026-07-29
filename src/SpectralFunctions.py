@@ -28,10 +28,24 @@ from scipy.special import erf
 
 _MODULE_DIR = Path(__file__).parent
 sys.path.append(str(_MODULE_DIR))
-import IOFunctions
+import pyS3M.IOFunctions as IOFunctions
 import logging
 logger = logging.getLogger(__name__)
 
+
+def _find_spectra_dir() -> Path:
+    """Locate the Spectra/ data directory.
+
+    Bundled as package data alongside this module for a real `pip install .`
+    (`pyS3M/Spectra/`); falls back to the repo-root sibling (`Spectra/`, one
+    level above `src/`) for editable/dev installs, where package data isn't
+    copied and Spectra/ stays in place at the repo root.
+    """
+    bundled = _MODULE_DIR / "Spectra"
+    return bundled if bundled.exists() else _MODULE_DIR.parent / "Spectra"
+
+
+_SPECTRA_DIR = _find_spectra_dir()
 
 
 class SpectralDataType(Enum):
@@ -45,10 +59,8 @@ class SpectralConstants:
     """Constants for spectral analysis."""
 
     # File paths
-    DEFAULT_CAMERA_QE_FILE = Path(__file__).parent.parent / "Spectra/Camera_QE/CS505CU_QE.csv"
-    DEFAULT_OBJECTIVE_FILE = (
-        Path(__file__).parent.parent / "Spectra/Objective_Absorption/Nikon_ApoTIRF_100x.csv"
-    )
+    DEFAULT_CAMERA_QE_FILE = _SPECTRA_DIR / "Camera_QE/CS505CU_QE.csv"
+    DEFAULT_OBJECTIVE_FILE = _SPECTRA_DIR / "Objective_Absorption/Nikon_ApoTIRF_100x.csv"
 
     # Physical constants
     FWHM_TO_SIGMA_FACTOR = 2 * np.sqrt(2 * np.log(2))
@@ -360,12 +372,11 @@ class Spectral_Funcs:
 
         Sets up database connection and loads available dye and filter names.
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         self._qe_file = CameraDefaults.get_camera_config(camera).qe_file
 
         # Set up database path
-        spectra_folder = _MODULE_DIR.parent / "Spectra"
-        db_path = spectra_folder / "spectral_data.duckdb"
+        db_path = _SPECTRA_DIR / "spectral_data.duckdb"
 
         # Initialize database handler
         self.db_handler = DatabaseQueryHandler(db_path)

@@ -19,9 +19,8 @@ from pathlib import Path
 # Add src directory to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
 
-from DriftCorrectionFunctions import Drift_Correction_Functions
+from pyS3M.DriftCorrectionFunctions import Drift_Correction_Functions
 
 
 def example_workflow():

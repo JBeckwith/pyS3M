@@ -4,7 +4,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QSettings
 
-from gui.main_window import MainWindow
+from pyS3M.gui.main_window import MainWindow
 
 _SRC = str(Path(__file__).parent.parent)
 

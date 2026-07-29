@@ -17,12 +17,11 @@ import gc
 # Add src directory to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
 
 # Import required modules
-import ImageAnalysisFunctions
-from ImageAnalysisFunctions import FittingStrategy, FittingConstants
-import gaussoptfuncs
+import pyS3M.ImageAnalysisFunctions as ImageAnalysisFunctions
+from pyS3M.ImageAnalysisFunctions import FittingStrategy, FittingConstants
+import pyS3M.gaussoptfuncs as gaussoptfuncs
 
 class ParallelFittingBenchmark:
     """Benchmark parallel vs single-threaded fitting performance."""

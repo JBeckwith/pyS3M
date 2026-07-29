@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent))  # src/simulation/ — for defocus_psf etc.
 
-import IOFunctions
-from Constants import DriftConstants, AnalysisConfig
-import PSFFunctions
-import sCMOSFunctions
-import ImageAnalysisFunctions
-import SpectralFunctions
-import MaskFunctions
-from ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
+import pyS3M.IOFunctions as IOFunctions
+from pyS3M.Constants import DriftConstants, AnalysisConfig
+import pyS3M.PSFFunctions as PSFFunctions
+import pyS3M.sCMOSFunctions as sCMOSFunctions
+import pyS3M.ImageAnalysisFunctions as ImageAnalysisFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.MaskFunctions as MaskFunctions
+from pyS3M.ImageAnalysisFunctions import FittingStrategy as IAF_FittingStrategy
 
 
 class FittingStrategy(Enum):
@@ -435,7 +435,7 @@ class MultiC_Sim_Funcs_Refactored:
             image_analysis_functions: Image analysis functions instance (default: creates new instance)
             spectral_functions: Spectral functions instance (default: creates new instance)
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         _cam = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else _cam.pixel_size
         self.mosaic_unit = mosaic_unit if mosaic_unit is not None else _cam.mosaic_unit
@@ -1174,8 +1174,8 @@ class MultiC_Sim_Funcs_Refactored:
         """
         try:
             # Import NileRedFunctions and SpectralFunctions
-            import NileRedFunctions
-            import SpectralFunctions
+            import pyS3M.NileRedFunctions as NileRedFunctions
+            import pyS3M.SpectralFunctions as SpectralFunctions
 
             nrf = NileRedFunctions.NileRed_Functions()
             spectral_funcs = SpectralFunctions.Spectral_Funcs()
@@ -1218,7 +1218,7 @@ class MultiC_Sim_Funcs_Refactored:
             fitted_background_photons = fit_results["background_photons"].to_numpy()
 
             # Normalize RGB and propagate errors, then build fit args
-            from NileRedFunctions import NileRed_Functions as _NRF
+            from pyS3M.NileRedFunctions import NileRed_Functions as _NRF
 
             rgb_total = R + G + B
 
@@ -2417,7 +2417,7 @@ class MultiC_Sim_Funcs_Refactored:
             config = SimulationConfig()
 
         import polars as pl
-        import SpectralFunctions
+        import pyS3M.SpectralFunctions as SpectralFunctions
         S_F = SpectralFunctions.Spectral_Funcs()
 
         if starting_flag_fn is None:
@@ -2675,7 +2675,7 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Import required modules
         import polars as pl
-        import SpectralFunctions
+        import pyS3M.SpectralFunctions as SpectralFunctions
 
         S_F = SpectralFunctions.Spectral_Funcs()
 
@@ -3115,7 +3115,7 @@ class MultiC_Sim_Funcs_Compatibility(MultiC_Sim_Funcs_Refactored):
 
 # Main class for external use - provides both new and legacy interfaces
 # Import standalone function from NileRedFunctions (kept here for backward compatibility)
-from NileRedFunctions import _fit_nile_red_wavelength_standalone  # noqa: E402
+from pyS3M.NileRedFunctions import _fit_nile_red_wavelength_standalone  # noqa: E402
 
 
 class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
@@ -3347,7 +3347,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
                 'pairwise_separability': dict mapping (dye_i, dye_j) -> accuracy
             }
         """
-        import SM_extractionfunctions
+        import pyS3M.SM_extractionfunctions as SM_extractionfunctions
 
         n_dyes = len(dye_names)
 
@@ -3655,7 +3655,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         # Initialize plotter for consistent styling
         plotter = PublicationPlotter()
@@ -3794,7 +3794,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         # Initialize plotter for consistent styling
         plotter = PublicationPlotter()

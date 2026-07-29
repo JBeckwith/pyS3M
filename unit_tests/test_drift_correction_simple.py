@@ -7,12 +7,11 @@ didn't break the primary use cases.
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import pytest
 import numpy as np
 import pandas as pd
-import DriftCorrectionFunctions as DCF
+import pyS3M.DriftCorrectionFunctions as DCF
 
 
 def generate_test_data(n_locs=1000, n_frames=100, width=256, height=256):
@@ -147,9 +146,9 @@ class TestModuleAccessibility:
     def test_can_import_modules(self):
         """Test that all drift correction modules can be imported."""
         # These imports should all succeed after refactoring
-        from CoordinateProcessing import CoordinateProcessor
-        from drift_correction.aim import AIMDriftCorrector
-        from FiducialDetection import FiducialDetector
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
+        from pyS3M.drift_correction.aim import AIMDriftCorrector
+        from pyS3M.FiducialDetection import FiducialDetector
 
         assert CoordinateProcessor is not None
         assert AIMDriftCorrector is not None

@@ -15,7 +15,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import KDTree
 import logging
-from PlottingBase import _safe_tight_layout
+from pyS3M.PlottingBase import _safe_tight_layout
 logger = logging.getLogger(__name__)
 
 
@@ -646,7 +646,7 @@ class ChannelUnmixingMixin:
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         # Use colors that don't conflict with channel names (avoid red/green for R/G channels)
         colors_ch = ['blue', 'orange', 'purple', 'cyan', 'magenta', 'brown'][:n_channels]
@@ -704,7 +704,7 @@ class ChannelUnmixingMixin:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
         from scipy.stats import norm
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         n_features = X.shape[1]
 
@@ -1623,7 +1623,7 @@ class ChannelUnmixingMixin:
             "Use unmix_channels_joint_cluster(plot_results=True) instead."
         )
         import matplotlib.pyplot as plt
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         # Extract metadata
         assignments_per_iteration = metadata['assignments_per_iteration']
@@ -1722,7 +1722,7 @@ class ChannelUnmixingMixin:
             Base path for saving (will append '_spatial')
         """
         import matplotlib.pyplot as plt
-        from PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter
 
         # Create figure with n_channels + 1 subplots (one per channel + combined)
         plotter = PublicationPlotter()
@@ -1885,7 +1885,7 @@ class ChannelUnmixingMixin:
             ``n_assigned`` (dict per channel), ``n_unassigned``,
             ``n_assigned_from_clusters``, ``n_assigned_from_isolated``.
         """
-        from LinkingFunctions import joint_spectral_spatial_cluster
+        from pyS3M.LinkingFunctions import joint_spectral_spatial_cluster
 
         if channels_to_use is None:
             channels_to_use = ['A_R', 'A_G']

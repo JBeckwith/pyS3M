@@ -11,12 +11,11 @@ Tests:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import numpy as np
 from scipy import stats
-import Multicolour_Simulation_Functions as MSF
-from Multicolour_Simulation_Functions import SimulationConfig, CameraParameters, FittingStrategy
+import pyS3M.Multicolour_Simulation_Functions as MSF
+from pyS3M.Multicolour_Simulation_Functions import SimulationConfig, CameraParameters, FittingStrategy
 
 
 # ---------------------------------------------------------------------------

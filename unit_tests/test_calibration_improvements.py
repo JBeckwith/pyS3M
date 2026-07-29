@@ -17,10 +17,9 @@ import numpy as np
 import pytest
 import tifffile
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-import CalibrationFunctions
-import IOFunctions
+import pyS3M.CalibrationFunctions as CalibrationFunctions
+import pyS3M.IOFunctions as IOFunctions
 
 
 # ---------------------------------------------------------------------------

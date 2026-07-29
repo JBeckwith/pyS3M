@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from Constants import FilteringConstants, FilteringCriteria
+from pyS3M.Constants import FilteringConstants, FilteringCriteria
 from ._config import ClusteringConfig
 from sklearn.cluster import DBSCAN
 import logging

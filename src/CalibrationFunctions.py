@@ -18,10 +18,10 @@ import scipy.ndimage
 from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
-import IOFunctions
-from Constants import CalibrationConstants
-import MaskFunctions
-import HelperFunctions
+import pyS3M.IOFunctions as IOFunctions
+from pyS3M.Constants import CalibrationConstants
+import pyS3M.MaskFunctions as MaskFunctions
+import pyS3M.HelperFunctions as HelperFunctions
 import logging
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class Calibration_Functions:
             mask_functions: Mask functions instance (default: creates new instance)
             helper_functions: Helper functions instance (default: creates new instance)
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         config = CameraDefaults.get_camera_config(camera)
         self.high_memory = high_memory
         self.chunk_size = chunk_size

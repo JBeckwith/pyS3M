@@ -17,12 +17,13 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.font_manager as font_manager
 from matplotlib.ticker import MultipleLocator
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.animation import FuncAnimation, PillowWriter
-from Constants import DriftConstants
+from pyS3M.Constants import DriftConstants
 import logging
 logger = logging.getLogger(__name__)
 
@@ -252,9 +253,44 @@ class PlottingConfig:
             self.line_width = PublicationConstants.POSTER_LINE_WIDTH
             self.tick_length = PublicationConstants.POSTER_TICK_LENGTH
 
+        # Typeface: Helvetica first, with visually/metrically-compatible fallbacks.
+        # svg.fonttype="none" (below) keeps text as real text in exported SVGs, so
+        # this whole list is embedded as CSS font-family -- a system with true
+        # Helvetica (e.g. many Mac/Adobe setups) renders it correctly; systems
+        # without it (e.g. this one) fall through to Arial, then Nimbus Sans (URW's
+        # metric-compatible Helvetica clone, and what actually renders here), then
+        # Liberation Sans/DejaVu Sans, with no matplotlib "font not found" warning
+        # since Nimbus Sans is genuinely installed and matplotlib-visible here.
+        _sans_stack = ["Helvetica", "Arial", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"]
+
+        # mathtext (anything in $...$, e.g. \mathrm{\mu_R} for non-italic Greek
+        # letters/subscripts) does NOT gracefully cascade through a fallback list
+        # the way font.sans-serif does -- its 'custom' fontset needs ONE concrete,
+        # already-resolved font name per style, or it silently falls back to
+        # DejaVu Sans (mismatching the plain-text font). So resolve _sans_stack to
+        # whichever member actually exists on this system once, up front, and point
+        # mathtext at that same concrete font -- keeping math and plain text
+        # visually consistent (and matching true Helvetica too, on a system that
+        # has it, since findfont would resolve to "Helvetica" there instead).
+        _resolved_sans_path = font_manager.findfont(
+            font_manager.FontProperties(family=_sans_stack)
+        )
+        _resolved_sans_name = font_manager.FontProperties(fname=_resolved_sans_path).get_name()
+
         # Configure matplotlib globally with proper font hierarchy
         matplotlib.rcParams.update(
             {
+                "font.family": "sans-serif",
+                "font.sans-serif": _sans_stack,
+                # Non-italic mathtext (\mathrm{...}) in the same resolved font as
+                # plain text, so e.g. r'$\mathrm{\mu_R}$' renders as an upright mu
+                # with a real (lowered) subscript R, not italic, matching Helvetica/
+                # its fallback -- see _resolved_sans_name note above.
+                "mathtext.fontset": "custom",
+                "mathtext.rm": _resolved_sans_name,
+                "mathtext.it": f"{_resolved_sans_name}:italic",
+                "mathtext.bf": f"{_resolved_sans_name}:bold",
+                "mathtext.sf": _resolved_sans_name,
                 # Font sizes (proper hierarchy)
                 "font.size": self.font_size,  # Base font (7pt standard, 12pt poster)
                 "axes.labelsize": self.axis_labelsize,  # Axis labels (8pt standard, 15pt poster)

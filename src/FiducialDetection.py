@@ -20,9 +20,9 @@ import gc
 
 sys.path.append(str(Path(__file__).parent))
 
-from ImportManager import get_module, is_available
-from PlottingBase import AnalysisPlotter, PublicationPlotter
-from Constants import DriftConstants, AnalysisConfig
+from pyS3M.ImportManager import get_module, is_available
+from pyS3M.PlottingBase import AnalysisPlotter, PublicationPlotter
+from pyS3M.Constants import DriftConstants, AnalysisConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -767,7 +767,7 @@ class DriftPlotter(AnalysisPlotter):
     ) -> None:
         """Create a plot of fiducial detection results."""
         try:
-            from CoordinateProcessing import CoordinateProcessor
+            from pyS3M.CoordinateProcessing import CoordinateProcessor
 
             meta = CoordinateProcessor.extract_metadata(info)
             pixelsize = meta.get("pixelsize", 130.0)

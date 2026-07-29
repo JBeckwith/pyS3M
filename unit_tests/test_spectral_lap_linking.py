@@ -11,9 +11,8 @@ import numpy as np
 import pandas as pd
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import SM_extractionfunctions
+import pyS3M.SM_extractionfunctions as SM_extractionfunctions
 
 
 def _make_crossing_trajectories(
@@ -162,7 +161,7 @@ class TestSpectralLAPLinking(unittest.TestCase):
 
     def test_greedy_nn_swaps_at_crossing(self):
         """Greedy NN (no spectral info) should have lower purity at crossing."""
-        import postprocess
+        import pyS3M.postprocess as postprocess
 
         df_sorted = self.df.sort_values("frame")
         loc_array = df_sorted.to_records(index=False)

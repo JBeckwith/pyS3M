@@ -354,7 +354,7 @@ class VectorialPSF:
                 SpectralDataType = _mod.SpectralDataType
                 break
         if SpectralDataType is None:
-            from SpectralFunctions import SpectralDataType  # type: ignore[import]
+            from pyS3M.SpectralFunctions import SpectralDataType  # type: ignore[import]
 
         # Filter transmission (unity if no filters)
         if filters is not None:

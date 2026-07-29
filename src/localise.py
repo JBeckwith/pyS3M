@@ -26,8 +26,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
-from ImportManager import get_module
-import postprocess
+from pyS3M.ImportManager import get_module
+import pyS3M.postprocess as postprocess
 from datetime import datetime
 import pandas as pd
 import logging

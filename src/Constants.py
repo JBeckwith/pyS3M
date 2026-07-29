@@ -23,8 +23,8 @@ from numpy.typing import NDArray
 # Shared array type alias used throughout the package
 ImageArray = NDArray[np.float32]
 
-from LoggingFramework import setup_logger
-from CameraDefaults import CAMERAS as _CAMERAS
+from pyS3M.LoggingFramework import setup_logger
+from pyS3M.CameraDefaults import CAMERAS as _CAMERAS
 
 logger = setup_logger(__name__, console_output=False)
 logger.info("Constants module loaded with standardised values")

@@ -14,9 +14,8 @@ from numba import jit
 # Add src directory to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
 
-import gaussoptfuncs
+import pyS3M.gaussoptfuncs as gaussoptfuncs
 
 @jit(nopython=True, nogil=True)
 def optimized_gaussian_model(gauss_2d, x, len_x, x0, y0, sx, sy):

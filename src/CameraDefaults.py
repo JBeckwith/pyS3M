@@ -18,7 +18,20 @@ import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
 
-_QE_DIR = Path(__file__).parent.parent / "Spectra" / "Camera_QE"
+def _find_spectra_dir() -> Path:
+    """Locate the Spectra/ data directory.
+
+    Bundled as package data alongside this module for a real `pip install .`
+    (`pyS3M/Spectra/`); falls back to the repo-root sibling (`Spectra/`, one
+    level above `src/`) for editable/dev installs, where package data isn't
+    copied and Spectra/ stays in place at the repo root.
+    """
+    module_dir = Path(__file__).parent
+    bundled = module_dir / "Spectra"
+    return bundled if bundled.exists() else module_dir.parent / "Spectra"
+
+
+_QE_DIR = _find_spectra_dir() / "Camera_QE"
 
 
 @dataclass

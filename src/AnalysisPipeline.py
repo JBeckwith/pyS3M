@@ -21,8 +21,8 @@ from numpy.typing import NDArray
 
 sys.path.append(str(Path(__file__).parent))
 
-from Constants import AnalysisConfig, FilteringCriteria
-from clustering import ClusteringConfig
+from pyS3M.Constants import AnalysisConfig, FilteringCriteria
+from pyS3M.clustering import ClusteringConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,9 @@ class AnalysisPipeline:
     Example (headless script)::
 
         from pathlib import Path
-        from AnalysisPipeline import AnalysisPipeline, FittingConfig
-        from Constants import AnalysisConfig, FilteringCriteria
-        from clustering import ClusteringConfig
+        from pyS3M.AnalysisPipeline import AnalysisPipeline, FittingConfig
+        from pyS3M.Constants import AnalysisConfig, FilteringCriteria
+        from pyS3M.clustering import ClusteringConfig
 
         cfg = AnalysisConfig(display=False, save_figures=True,
                              output_dir=Path("results/"), dpi=150)
@@ -95,7 +95,7 @@ class AnalysisPipeline:
             config: :class:`~Constants.AnalysisConfig` controlling display and
                 I/O behaviour.  Defaults to interactive mode with no auto-save.
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         cam_cfg = CameraDefaults.get_camera_config(camera)
         self.camera = camera
         self.pixel_size = pixel_size if pixel_size is not None else cam_cfg.pixel_size
@@ -127,7 +127,7 @@ class AnalysisPipeline:
     def sr(self) -> Any:
         """Lazily-created :class:`~SR_Functions.SuperRes_Functions` instance."""
         if self._sr is None:
-            import SR_Functions
+            import pyS3M.SR_Functions as SR_Functions
             self._sr = SR_Functions.SuperRes_Functions(
                 camera=self.camera,
                 pixel_size=self.pixel_size,
@@ -139,7 +139,7 @@ class AnalysisPipeline:
     def sm(self) -> Any:
         """Lazily-created :class:`~SM_extractionfunctions.extract_SMs` instance."""
         if self._sm is None:
-            import SM_extractionfunctions
+            import pyS3M.SM_extractionfunctions as SM_extractionfunctions
             self._sm = SM_extractionfunctions.extract_SMs(
                 camera=self.camera,
                 pixel_size=self.pixel_size,
@@ -150,7 +150,7 @@ class AnalysisPipeline:
     def dcf(self) -> Any:
         """Lazily-created :class:`~DriftCorrectionFunctions.Drift_Correction_Functions` instance."""
         if self._dcf is None:
-            import DriftCorrectionFunctions
+            import pyS3M.DriftCorrectionFunctions as DriftCorrectionFunctions
             self._dcf = DriftCorrectionFunctions.Drift_Correction_Functions(
                 camera=self.camera,
                 pixel_size=self.pixel_size,
@@ -173,7 +173,7 @@ class AnalysisPipeline:
         Raises:
             FileNotFoundError: If any required file is absent.
         """
-        import IOFunctions
+        import pyS3M.IOFunctions as IOFunctions
         io = IOFunctions.IO_Functions()
         cal_dir = Path(cal_dir)
 
@@ -208,7 +208,7 @@ class AnalysisPipeline:
             RuntimeError: If :meth:`~CalibrationFunctions.Calibration_Functions.calibrate_multicolour_camera`
                 returns ``None``.
         """
-        import CalibrationFunctions
+        import pyS3M.CalibrationFunctions as CalibrationFunctions
         cf = CalibrationFunctions.Calibration_Functions(camera=self.camera)
         result = cf.calibrate_multicolour_camera(cal_dir, imtype=imtype)
         if result is None:
@@ -241,7 +241,7 @@ class AnalysisPipeline:
             ``data_arg``, and ``extent`` attributes as expected by
             :meth:`~IOFunctions.IO_Functions.apply_smoothing`.
         """
-        import sCMOSFunctions
+        import pyS3M.sCMOSFunctions as sCMOSFunctions
         scmos = sCMOSFunctions.sCMOS_Functions()
         sf = types.SimpleNamespace()
         sf.smoothing_function = scmos.gaussian_filter_stack
@@ -364,7 +364,7 @@ class AnalysisPipeline:
             Concatenated :class:`~pandas.DataFrame` of all localisations,
             or an empty DataFrame if no matching files are found.
         """
-        import IOFunctions
+        import pyS3M.IOFunctions as IOFunctions
         io = IOFunctions.IO_Functions()
         h5_files = sorted(Path(folder).glob(pattern))
         if not h5_files:
@@ -401,7 +401,7 @@ class AnalysisPipeline:
             List of ``(locs_df, tif_path_or_None)`` in alphabetical order.
             Files that lack a ``"data"`` key are silently skipped.
         """
-        import IOFunctions
+        import pyS3M.IOFunctions as IOFunctions
         io = IOFunctions.IO_Functions()
         folder = Path(folder)
         result = []

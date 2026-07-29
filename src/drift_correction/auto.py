@@ -8,7 +8,6 @@ module-level convenience functions.
 :copyright: Copyright (c) 2025 pyS3M
 """
 
-import warnings
 from typing import Optional, Callable, Tuple
 
 import numpy as np
@@ -16,13 +15,6 @@ import numpy as np
 from ._base import DriftMethod, DriftCorrectionError, DriftParameters, DriftResult, DriftCorrector
 from .aim import AIMDriftCorrector
 from .fiducial import FiducialDriftCorrector
-
-try:
-    from CoordinateProcessing import CoordinateProcessor, SegmentationHandler
-except ImportError:
-    warnings.warn("Could not import CoordinateProcessing. AutoDriftCorrector may be limited.")
-    CoordinateProcessor = None
-    SegmentationHandler = None
 
 
 class AutoDriftCorrector(DriftCorrector):
@@ -38,6 +30,15 @@ class AutoDriftCorrector(DriftCorrector):
         self, locs: np.recarray, info: list, params: DriftParameters
     ) -> DriftResult:
         """Apply AIM drift correction."""
+        # Imported lazily (not at module level): CoordinateProcessing imports back
+        # from drift_correction._base, so an eager module-level import here is a
+        # genuine circular import. It resolves fine standalone, but which module
+        # "wins" the race depends on import order -- in a full test-suite run,
+        # whichever gets imported first can leave the other's names bound to None
+        # (see claude/TODO.md). Deferring to call time sidesteps the cycle entirely:
+        # by the time this method actually runs, both modules have long since
+        # finished importing.
+        from pyS3M.CoordinateProcessing import CoordinateProcessor, SegmentationHandler
         meta = CoordinateProcessor.extract_metadata(info)
         n_segments = max(1, SegmentationHandler.n_segments(
             int(meta["n_frames"]), params.segmentation

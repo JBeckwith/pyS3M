@@ -239,7 +239,7 @@ class Helper_Functions:
             >>> format_elapsed_time(7320.0)
             (2.033, "hours")
         """
-        from Constants import CalibrationConstants
+        from pyS3M.Constants import CalibrationConstants
 
         if elapsed_seconds > CalibrationConstants.TIME_DISPLAY_THRESHOLD_HOURS:
             elapsed_display = (

@@ -28,16 +28,16 @@ from numba import jit
 import multiprocessing
 from concurrent import futures
 from tqdm import tqdm
-import ProgressUtils
+import pyS3M.ProgressUtils as ProgressUtils
 import logging
 
 # Set up module paths
 sys.path.append(str(Path(__file__).parent))
-import IOFunctions
-import sCMOSFunctions
-import PSFFunctions
-import gaussoptfuncs
-import HelperFunctions
+import pyS3M.IOFunctions as IOFunctions
+import pyS3M.sCMOSFunctions as sCMOSFunctions
+import pyS3M.PSFFunctions as PSFFunctions
+import pyS3M.gaussoptfuncs as gaussoptfuncs
+import pyS3M.HelperFunctions as HelperFunctions
 
 
 class FittingStrategy(Enum):

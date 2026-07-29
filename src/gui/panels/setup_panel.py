@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
-from gui.widgets.folder_picker import FolderPicker
+from pyS3M.gui.widgets.folder_picker import FolderPicker
 
 # Project root is four levels up from this file (src/gui/panels/setup_panel.py)
 _PROJECT_ROOT = Path(__file__).parent.parent.parent.parent

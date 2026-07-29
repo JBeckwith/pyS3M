@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from drift_correction._base import (
+from pyS3M.drift_correction._base import (
     DriftMethod,
     DriftCorrectionError,
     DriftParameters,
@@ -18,15 +18,15 @@ from drift_correction._base import (
     FiducialDetectionResult,
     DriftCorrector,
 )
-from drift_correction.aim import AIMDriftCorrector
-from drift_correction.fiducial import FiducialDriftCorrector
-from drift_correction.auto import (
+from pyS3M.drift_correction.aim import AIMDriftCorrector
+from pyS3M.drift_correction.fiducial import FiducialDriftCorrector
+from pyS3M.drift_correction.auto import (
     AutoDriftCorrector,
     DriftCorrectionFactory,
     undrift_aim,
     undrift_auto,
 )
-from drift_correction._facade import Drift_Correction_Functions
+from pyS3M.drift_correction._facade import Drift_Correction_Functions
 
 __all__ = [
     "DriftMethod",

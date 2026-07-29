@@ -21,10 +21,10 @@ from ._base import (
     DriftMethod,
     FiducialDetectionResult,
 )
-from Constants import DriftConstants
+from pyS3M.Constants import DriftConstants
 
 try:
-    from FiducialDetection import FiducialDetector, DriftPlotter
+    from pyS3M.FiducialDetection import FiducialDetector, DriftPlotter
     _drift_plotter = DriftPlotter()
     _fiducial_detector = FiducialDetector()
 except ImportError:
@@ -35,8 +35,8 @@ except ImportError:
     _fiducial_detector = None
 
 try:
-    import render
-    import postprocess
+    import pyS3M.render as render
+    import pyS3M.postprocess as postprocess
 except ImportError:
     warnings.warn("Could not import render/postprocess modules.")
     render = None
@@ -79,7 +79,7 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             DriftResult with calculated drift corrections
         """
-        from CoordinateProcessing import CoordinateProcessor
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
 
         # Check if group field exists, if not and auto-detect is enabled, detect fiducials
         if not hasattr(locs, "group"):
@@ -215,7 +215,7 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             Interpolated drift array
         """
-        from CoordinateProcessing import CoordinateProcessor
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
         return CoordinateProcessor.interpolate_missing_frames(
             drift_mean, method="linear"
         )
@@ -233,7 +233,7 @@ class FiducialDriftCorrector(DriftCorrector):
         Returns:
             New localisation array with group field added
         """
-        from CoordinateProcessing import CoordinateProcessor
+        from pyS3M.CoordinateProcessing import CoordinateProcessor
 
         if render is None:
             raise DriftCorrectionError(

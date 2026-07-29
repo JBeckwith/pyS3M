@@ -6,10 +6,9 @@ filtered out for being too close to image edges).
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import numpy as np
-from SR_Functions import SuperRes_Functions
+from pyS3M.SR_Functions import SuperRes_Functions
 
 
 def test_quality_metrics_filtering():

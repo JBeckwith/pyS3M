@@ -17,7 +17,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 
 from ._base import DriftCorrector, DriftParameters, DriftResult, DriftMethod
 
-import ProgressUtils
+import pyS3M.ProgressUtils as ProgressUtils
 
 
 class AIMDriftCorrector(DriftCorrector):
@@ -675,7 +675,7 @@ class AIMDriftCorrector(DriftCorrector):
         Returns:
             AIM drift correction result
         """
-        from CoordinateProcessing import CoordinateProcessor, SegmentationHandler
+        from pyS3M.CoordinateProcessing import CoordinateProcessor, SegmentationHandler
 
         # Extract metadata
         meta = CoordinateProcessor.extract_metadata(info)

@@ -10,14 +10,13 @@ Checks:
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from NileRedFunctions import NileRed_Functions
-import SpectralFunctions
-import PSFFunctions
+from pyS3M.NileRedFunctions import NileRed_Functions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.PSFFunctions as PSFFunctions
 
 # Initialize
 nrf = NileRed_Functions()

@@ -12,9 +12,8 @@ import sys
 import os
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from PlottingBase import PublicationPlotter
+from pyS3M.PlottingBase import PublicationPlotter
 
 def test_basic_scatter():
     """Test basic ternary scatter plot."""

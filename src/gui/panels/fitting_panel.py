@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
-from gui.widgets.folder_picker import FolderPicker
+from pyS3M.gui.widgets.folder_picker import FolderPicker
 
 _FRET_QD_MODES = ("fret", "qd")
 
@@ -156,7 +156,7 @@ class FittingPanel(QWidget):
     # ── helpers ──────────────────────────────────────────────────────
 
     def _make_fitting_config(self):
-        from AnalysisPipeline import FittingConfig
+        from pyS3M.AnalysisPipeline import FittingConfig
         try:
             pfa = float(self._pfa.text())
         except ValueError:

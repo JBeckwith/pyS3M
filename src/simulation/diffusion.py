@@ -26,7 +26,7 @@ from scipy.spatial.distance import cdist
 from typing import Optional, Tuple, List, Dict, Set
 from dataclasses import dataclass, field
 from numba import jit
-from Constants import DriftConstants
+from pyS3M.Constants import DriftConstants
 import logging
 logger = logging.getLogger(__name__)
 
@@ -1517,8 +1517,8 @@ class CameraAdapter:
         if _dir not in sys.path:
             sys.path.insert(0, _dir)
 
-        import Multicolour_Simulation_Functions as MSF
-        import IOFunctions
+        import pyS3M.Multicolour_Simulation_Functions as MSF
+        import pyS3M.IOFunctions as IOFunctions
 
         # Initialize simulation functions
         sim_funcs = MSF.MultiC_Sim_Funcs()
@@ -1868,7 +1868,7 @@ class CameraAdapter:
                 if _dir not in sys.path:
                     sys.path.insert(0, _dir)
 
-                import IOFunctions
+                import pyS3M.IOFunctions as IOFunctions
                 io_funcs = IOFunctions.IO_Functions()
 
                 # Save as ImageJ hyperstack: TZCYXS order

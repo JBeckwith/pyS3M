@@ -10,9 +10,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from PlottingBase import PublicationPlotter
+from pyS3M.PlottingBase import PublicationPlotter
 
 # Create synthetic data mimicking your scenario
 np.random.seed(200)

@@ -9,10 +9,9 @@ Validates that:
 """
 
 import sys
-sys.path.insert(0, 'src')
 
 import numpy as np
-from DiffusionSimulation import DiffusionSimulator2D, BindingKinetics
+from pyS3M.DiffusionSimulation import DiffusionSimulator2D, BindingKinetics
 
 def test_microscopic_mode_integration():
     """
@@ -133,7 +132,7 @@ def test_lattice_spacing_effect():
     print(f"\n{'h (nm)':<10} {'β = ρ/(ρ+h)':<15} {'q_a (ms⁻¹)':<15} {'Time to bind (μs)'}")
     print("-"*65)
 
-    from DiffusionSimulation import Molecule
+    from pyS3M.DiffusionSimulation import Molecule
 
     for h in h_values:
         # Create two molecules in contact

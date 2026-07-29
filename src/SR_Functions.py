@@ -20,15 +20,15 @@ from numpy.typing import NDArray
 import ruptures as rpt
 
 sys.path.append(str(Path(__file__).parent))
-import IOFunctions
-import HelperFunctions
-import MaskFunctions
-import ImageAnalysisFunctions
-from ImageAnalysisFunctions import FittingStrategy, FittingConstants
-import SpotDetectionFunctions
-from PlottingBase import PublicationPlotter
-import sCMOSFunctions
-from Constants import ResultColumns, AnalysisConfig
+import pyS3M.IOFunctions as IOFunctions
+import pyS3M.HelperFunctions as HelperFunctions
+import pyS3M.MaskFunctions as MaskFunctions
+import pyS3M.ImageAnalysisFunctions as ImageAnalysisFunctions
+from pyS3M.ImageAnalysisFunctions import FittingStrategy, FittingConstants
+import pyS3M.SpotDetectionFunctions as SpotDetectionFunctions
+from pyS3M.PlottingBase import PublicationPlotter
+import pyS3M.sCMOSFunctions as sCMOSFunctions
+from pyS3M.Constants import ResultColumns, AnalysisConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class SuperRes_Functions:
                 I/O behaviour.  Defaults to ``AnalysisConfig()`` (interactive,
                 no auto-save).
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         cam_cfg = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else cam_cfg.pixel_size
         self.mosaic_unit = mosaic_unit if mosaic_unit is not None else cam_cfg.mosaic_unit
@@ -607,7 +607,8 @@ class SuperRes_Functions:
             offset_map = offset_map * actual_frames_summed
             variance = variance * actual_frames_summed
 
-        # Demosaic the raw Bayer image for detection
+        # Demosaic the raw Bayer image for detection (default: skip demosaicing,
+        # see _demosaic_image)
         image_to_analyse = self._demosaic_image(
             raw_data,
             use_variance_aware=use_variance_aware_demosaic,
@@ -686,7 +687,7 @@ class SuperRes_Functions:
         fit_results = pd.DataFrame(fit_results, columns=columns)
         # Create figure using PlottingBase for cleaner code
         try:
-            from PlottingBase import AnalysisPlotter
+            from pyS3M.PlottingBase import AnalysisPlotter
 
             plotter = AnalysisPlotter(
                 datashader_threshold=None
@@ -698,7 +699,7 @@ class SuperRes_Functions:
         if plotter is not None:
             # Use new PlottingBase infrastructure
             import matplotlib.patches as patches
-            from PlottingBase import PublicationPlotter
+            from pyS3M.PlottingBase import PublicationPlotter
 
             plotter = PublicationPlotter()
             fig, axs = plotter.two_column_plot(nrows=2, ncols=2, height=8)
@@ -1047,7 +1048,7 @@ class SuperRes_Functions:
             variance_summed = variance_crop * actual_frames_to_sum
             offset_summed = offset_map_crop * actual_frames_to_sum
 
-            # Demosaic the summed image
+            # Demosaic the summed image (default: skip demosaicing, see _demosaic_image)
             image_to_analyse = self._demosaic_image(
                 summed_data,
                 use_variance_aware=use_variance_aware_demosaic,
@@ -1906,7 +1907,7 @@ class SuperRes_Functions:
                 xc, yc, s_x, s_y, theta, bg_B, bg_G, bg_R, A_B, A_G, A_R,
                 chi_sqr, frame  [+ per-parameter errors]
         """
-        from ImageAnalysisFunctions import FittingStrategy
+        from pyS3M.ImageAnalysisFunctions import FittingStrategy
 
         if use_elliptical:
             strategy = FittingStrategy.ELLIPTICAL
@@ -2097,30 +2098,49 @@ class SuperRes_Functions:
         gain_map: np.ndarray = None,
         offset_map: np.ndarray = None,
         variance: np.ndarray = None,
-        strategy: str = 'bilinear',
+        strategy: str = 'none',
     ) -> np.ndarray:
-        """Demosaic Bayer pattern image using specified method.
+        """Demosaic Bayer pattern image using specified method (or skip demosaicing).
 
         Args:
             raw_data: Bayer pattern image (2D or 3D array)
             use_variance_aware: If True, use variance-aware demosaicing with calibration maps.
-                              If False, use standard grayscale demosaicing. (default: True)
+                              If False, use standard grayscale demosaicing. Ignored when
+                              strategy='none'. (default: True)
             gain_map: Gain calibration map (required if use_variance_aware=True)
             offset_map: Offset calibration map (required if use_variance_aware=True)
             variance: Variance map (required if use_variance_aware=True)
             strategy: Demosaicing algorithm, passed through to sCMOSFunctions
-                (see sCMOSFunctions.DEMOSAIC_STRATEGIES). One of 'bilinear'
-                (default — fastest, used throughout the codebase so far),
-                'malvar', 'ddfapd', or 'menon2007'.
+                (see sCMOSFunctions.DEMOSAIC_STRATEGIES), or 'none' (default) to skip
+                demosaicing entirely and run detection directly on the raw Bayer image,
+                untouched. Emitter-density tests showed the raw (non-demosaiced) image
+                gives better detection performance across densities than any demosaic
+                strategy — see claude/LOG.md. Other options: 'bilinear' (fastest
+                demosaic), 'malvar', 'ddfapd', 'menon2007'.
 
         Returns:
-            Demosaiced grayscale image (same shape as input)
+            Image for spot detection (same shape as input): either raw_data unchanged
+            (strategy='none') or a demosaiced grayscale image.
 
         Notes:
+            - strategy='none' skips demosaicing (and any calibration conversion)
+              entirely and returns raw_data as-is. Downstream, detect_puncta_in_image
+              whitens by dividing by the raw (ADU²) variance calibration map — that
+              division only yields a correct, unit-variance statistic for the matched
+              filter if the image is in the SAME raw ADU units the variance map was
+              calibrated against. Converting to photoelectrons first (dividing by a
+              per-pixel gain map) before that whitening step would reintroduce a
+              per-pixel gain-dependent bias the whitening is meant to remove — so
+              'none' must NOT apply any gain/offset/rqe correction. Photoelectron
+              conversion still happens later, but only at the fitting stage (via
+              io.convert_to_photoelectrons on the raw frame), entirely separate from
+              detection.
             - Variance-aware demosaicing uses calibration maps to suppress hot pixels
               and create robust photoelectron images
             - Standard demosaicing uses simple Bayer-to-grayscale conversion
         """
+        if strategy == 'none':
+            return raw_data
         if use_variance_aware:
             # Use variance-aware demosaicing for robust spot detection
             return self.scmos.variance_aware_demosaic(

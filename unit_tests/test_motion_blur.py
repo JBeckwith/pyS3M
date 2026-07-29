@@ -14,10 +14,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "simulation"))
 
-from multicolour import MultiC_Sim_Funcs_Refactored, SimulationConfig
+from pyS3M.simulation.multicolour import MultiC_Sim_Funcs_Refactored, SimulationConfig
 
 
 def _make_gaussian_fn(sigma: float, image_size: int = 64):

@@ -12,12 +12,11 @@ import os
 import types
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from Multicolour_Simulation_Functions import MultiC_Sim_Funcs
-from sCMOSFunctions import sCMOS_Functions
-from SpectralFunctions import Spectral_Funcs
-from MaskFunctions import Mask_Functions
+from pyS3M.Multicolour_Simulation_Functions import MultiC_Sim_Funcs
+from pyS3M.sCMOSFunctions import sCMOS_Functions
+from pyS3M.SpectralFunctions import Spectral_Funcs
+from pyS3M.MaskFunctions import Mask_Functions
 
 def test_photoelectron_extraction():
     """Test that we can extract photoelectron counts from simulation."""

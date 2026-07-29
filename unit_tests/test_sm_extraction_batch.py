@@ -21,10 +21,9 @@ import shutil
 
 # Add src to path
 module_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-sys.path.insert(0, module_dir)
 
-import SM_extractionfunctions
-import IOFunctions
+import pyS3M.SM_extractionfunctions as SM_extractionfunctions
+import pyS3M.IOFunctions as IOFunctions
 
 
 def create_synthetic_localization_data(n_molecules=50, frames_per_molecule=10, fov_name="Pos0"):

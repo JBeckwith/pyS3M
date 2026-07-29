@@ -21,9 +21,8 @@ import numpy as np
 import time
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import SpectralFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
 
 
 def assign_photons_to_channels_vectorized(p_0, p_1, p_2, random_state=None):

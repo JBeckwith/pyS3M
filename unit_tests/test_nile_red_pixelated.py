@@ -12,10 +12,9 @@ import numpy as np
 import pandas as pd
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import NileRedFunctions
-import SpectralFunctions
+import pyS3M.NileRedFunctions as NileRedFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
 
 
 def _generate_synthetic_localisations(

@@ -11,11 +11,11 @@ import sys
 import gc
 
 sys.path.append(str(Path(__file__).parent))
-import IOFunctions
-from Constants import DriftConstants, FilteringConstants, FilteringCriteria
-from clustering import ClusteringBaseMixin, HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
-from mixture_analysis import MixtureAnalysisMixin
-from channel_unmixing import ChannelUnmixingMixin
+import pyS3M.IOFunctions as IOFunctions
+from pyS3M.Constants import DriftConstants, FilteringConstants, FilteringCriteria
+from pyS3M.clustering import ClusteringBaseMixin, HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
+from pyS3M.mixture_analysis import MixtureAnalysisMixin
+from pyS3M.channel_unmixing import ChannelUnmixingMixin
 import logging
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
             pixel_size: Physical pixel size in µm. If None, taken from camera defaults.
             io_functions: IO functions instance (default: creates new instance)
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         config = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else config.pixel_size
 

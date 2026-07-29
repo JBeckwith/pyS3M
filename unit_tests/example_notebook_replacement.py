@@ -33,10 +33,9 @@ import numpy as np
 import pandas as pd
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import postprocess as _postprocess
-import IOFunctions
+import pyS3M.postprocess as _postprocess
+import pyS3M.IOFunctions as IOFunctions
 
 IO = IOFunctions.IO_Functions()
 
@@ -70,7 +69,7 @@ def process_bacterial_aggregates(
     -------
     None (saves files to disk)
     """
-    import HelperFunctions
+    import pyS3M.HelperFunctions as HelperFunctions
 
     H_F = HelperFunctions.Helper_Functions()
 

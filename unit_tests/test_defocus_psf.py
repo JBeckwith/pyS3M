@@ -15,10 +15,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "simulation"))
 
-from defocus_psf import VectorialPSF
+from pyS3M.simulation.defocus_psf import VectorialPSF
 
 
 # ---------------------------------------------------------------------------

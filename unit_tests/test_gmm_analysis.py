@@ -18,9 +18,8 @@ import sys
 
 # Add src to path
 module_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-sys.path.insert(0, module_dir)
 
-import SM_extractionfunctions
+import pyS3M.SM_extractionfunctions as SM_extractionfunctions
 
 
 def create_synthetic_2dye_accumulation_data():

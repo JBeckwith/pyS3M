@@ -11,12 +11,12 @@ from scipy.special import j1
 from numba import jit
 
 sys.path.append(str(Path(__file__).parent))
-from Constants import ProcessingConstants, DefaultParameters
+from pyS3M.Constants import ProcessingConstants, DefaultParameters
 
 import pathos
 from pathos.pools import ThreadPool as Pool
 
-import gaussoptfuncs
+import pyS3M.gaussoptfuncs as gaussoptfuncs
 
 cpu_number = int(pathos.helpers.cpu_count() * 0.9)
 

@@ -15,10 +15,9 @@ import numpy as np
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from SpotDetectionFunctions import SpotDetection_Functions
-from SR_Functions import SuperRes_Functions
+from pyS3M.SpotDetectionFunctions import SpotDetection_Functions
+from pyS3M.SR_Functions import SuperRes_Functions
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 

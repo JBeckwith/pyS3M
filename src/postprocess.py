@@ -27,11 +27,11 @@ import lmfit
 from collections import OrderedDict
 
 sys.path.append(str(Path(__file__).parent))
-from ImportManager import get_module, is_available
-from Constants import AnalysisConfig
-import lib
-import render
-from LinkingFunctions import (
+from pyS3M.ImportManager import get_module, is_available
+from pyS3M.Constants import AnalysisConfig
+import pyS3M.lib as lib
+import pyS3M.render as render
+from pyS3M.LinkingFunctions import (
     _link_group_count,
     _link_group_sum,
     _link_group_mean,
@@ -39,7 +39,7 @@ from LinkingFunctions import (
     _link_group_min_max,
 )
 from threading import Thread
-import ProgressUtils
+import pyS3M.ProgressUtils as ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
 import logging
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None,
         return None, None
 
     try:
-        from PlottingBase import AnalysisPlotter
+        from pyS3M.PlottingBase import AnalysisPlotter
 
         plotter = AnalysisPlotter()
 
@@ -725,7 +725,7 @@ def _parallel_picked_locs_rectangle(
         total_completed = 0
 
         if callback == "console":
-            import ProgressUtils
+            import pyS3M.ProgressUtils as ProgressUtils
 
             progress_bar_context = ProgressUtils.analysis_progress_bar(
                 total=len(picks), desc="Picking locs (parallel threads)"
@@ -813,7 +813,7 @@ def _process_single_rectangle_pick(locs, original_idx, pick, pick_size, add_grou
     """
     try:
         # Import required modules
-        import lib
+        import pyS3M.lib as lib
         import numpy as np
 
         # Process the single pick
@@ -871,7 +871,7 @@ def _process_rectangle_pick_chunk(
     """
     try:
         # Import required modules (needed in each worker process)
-        import lib
+        import pyS3M.lib as lib
         import numpy as np
 
         results = []
@@ -981,7 +981,7 @@ def _parallel_picked_locs_circle(
         total_completed = 0
 
         if callback == "console":
-            import ProgressUtils
+            import pyS3M.ProgressUtils as ProgressUtils
 
             progress_bar_context = ProgressUtils.analysis_progress_bar(
                 total=len(picks), desc="Picking locs (parallel threads)"
@@ -1075,7 +1075,7 @@ def _process_single_circle_pick(
     """
     try:
         # Import required modules
-        import lib
+        import pyS3M.lib as lib
         import numpy as np
 
         # Process the single pick
@@ -1124,7 +1124,7 @@ def _process_circle_pick_chunk(
     """
     try:
         # Import required modules (needed in each worker process)
-        import lib
+        import pyS3M.lib as lib
         import numpy as np
 
         results = []
@@ -1192,7 +1192,7 @@ def _serial_picked_locs_circle(
         List of localisation arrays, one per pick
     """
     try:
-        import lib
+        import pyS3M.lib as lib
     except ImportError:
         raise ImportError("lib module required for circle picking")
 
@@ -1202,7 +1202,7 @@ def _serial_picked_locs_circle(
     progress_bar_context = None
     progress = None
     if callback == "console":
-        import ProgressUtils
+        import pyS3M.ProgressUtils as ProgressUtils
 
         progress_bar_context = ProgressUtils.analysis_progress_bar(
             total=len(picks), desc="Picking locs (serial circles)"
@@ -1273,7 +1273,7 @@ def _serial_picked_locs_rectangle(
         List of localisation arrays, one per pick
     """
     try:
-        import lib
+        import pyS3M.lib as lib
     except ImportError:
         raise ImportError("lib module required for rectangle picking")
 
@@ -1283,7 +1283,7 @@ def _serial_picked_locs_rectangle(
     progress_bar_context = None
     progress = None
     if callback == "console":
-        import ProgressUtils
+        import pyS3M.ProgressUtils as ProgressUtils
 
         progress_bar_context = ProgressUtils.analysis_progress_bar(
             total=len(picks), desc="Picking locs (serial fallback)"
@@ -1565,7 +1565,7 @@ def segment_locs_by_rendered_image(
     if verbose:
         try:
             import matplotlib.pyplot as plt
-            from PlottingBase import AnalysisPlotter
+            from pyS3M.PlottingBase import AnalysisPlotter
 
             plotter = AnalysisPlotter()
 

@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize_scalar
 from typing import Any, Optional
 from numpy.typing import NDArray
-import SpectralFunctions
-import PSFFunctions
-import IOFunctions
-from Constants import DriftConstants, AnalysisConfig
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.PSFFunctions as PSFFunctions
+import pyS3M.IOFunctions as IOFunctions
+from pyS3M.Constants import DriftConstants, AnalysisConfig
 from pathlib import Path
 import logging
 logger = logging.getLogger(__name__)
@@ -49,6 +49,42 @@ class NileRed_Functions:
     - PSFFunctions: For wavelength-dependent PSF width calculations
     """
 
+    # Lookup table for wavelength_center_for_peak, precomputed at the default
+    # sigma_energy/alpha (0.1630104 eV / -1.56453968) over peak_wavelength =
+    # 550-680 nm in 1 nm steps, via the same numerical optimisation
+    # wavelength_center_for_peak falls back to for any other (sigma_energy, alpha)
+    # or out-of-range peak_wavelength. Regenerate (loop wavelength_center_for_peak
+    # over np.arange(550, 681, 1.0) with a fine wavelength_array, e.g.
+    # np.linspace(400, 900, 100000)) if sigma_energy/alpha are ever refit -- this
+    # table is only valid for the exact (sigma_energy, alpha) pair below. Round-trip
+    # accuracy against generate_nile_red_spectrum's actual argmax: max abs error
+    # 0.023 nm across the grid (limited by the 100000-point wavelength_array used to
+    # generate it, not by the 1 nm table spacing / linear interpolation).
+    _PEAK_LUT_SIGMA_ENERGY = 0.1630104
+    _PEAK_LUT_ALPHA = -1.56453968
+    _PEAK_LUT_PEAK_WAVELENGTHS = np.arange(550.0, 681.0, 1.0)
+    _PEAK_LUT_WAVELENGTH_CENTERS = np.array([
+        534.8743, 535.8275, 536.7781, 537.7312, 538.6843, 539.6454, 540.5985,
+        541.5517, 542.5049, 543.4581, 544.4114, 545.3647, 546.3198, 547.2730,
+        548.2231, 549.1787, 550.1326, 551.0865, 552.0402, 552.9939, 553.9472,
+        554.8993, 555.8519, 556.8062, 557.7468, 558.6981, 559.6643, 560.6181,
+        561.5701, 562.5243, 563.4784, 564.4315, 565.3842, 566.3354, 567.2905,
+        568.2405, 569.1962, 570.1486, 571.0985, 572.0512, 573.0045, 573.9575,
+        574.9107, 575.8563, 576.8154, 577.7661, 578.7157, 579.6715, 580.6240,
+        581.5750, 582.5281, 583.4816, 584.4339, 585.3853, 586.3368, 587.2878,
+        588.2438, 589.1937, 590.1459, 591.0950, 592.0470, 593.0010, 593.9534,
+        594.9027, 595.8550, 596.8086, 597.7599, 598.7107, 599.6636, 600.6156,
+        601.5684, 602.5193, 603.4702, 604.4218, 605.3742, 606.3260, 607.2746,
+        608.2282, 609.1796, 610.1264, 611.0834, 612.0346, 612.9812, 613.9371,
+        614.8892, 615.8389, 616.7912, 617.7428, 618.6952, 619.6452, 620.5961,
+        621.5468, 622.4976, 623.4481, 624.3753, 625.3275, 626.3016, 627.2522,
+        628.2025, 629.1550, 630.1025, 631.0546, 632.0032, 632.9550, 633.9054,
+        634.8597, 635.8056, 636.7566, 637.7115, 638.6591, 639.6099, 640.5611,
+        641.5119, 642.4610, 643.4118, 644.3654, 645.3159, 646.2633, 647.2149,
+        648.1649, 649.1161, 650.0659, 651.0167, 651.9668, 652.9181, 653.8717,
+        654.8218, 655.7714, 656.7184, 657.6687, 658.6190,
+    ])
+
     def __init__(
         self,
         camera: str = "ximea",
@@ -69,7 +105,7 @@ class NileRed_Functions:
             wavelength_center_init: Initial guess for central wavelength (nm)
             config: AnalysisConfig controlling progress and logging callbacks.
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         _cam = CameraDefaults.get_camera_config(camera)
         self.pixel_size = pixel_size if pixel_size is not None else _cam.pixel_size
         self.config = config if config is not None else AnalysisConfig()
@@ -210,6 +246,75 @@ class NileRed_Functions:
         if denom > 0:
             return float(np.trapz(spectrum * wavelength_array, wavelength_array) / denom)
         return float(wavelength_center)
+
+    def wavelength_center_for_peak(
+        self,
+        peak_wavelength: float,
+        wavelength_array: np.ndarray,
+        sigma_energy: Optional[float] = None,
+        alpha: Optional[float] = None,
+        bounds: tuple[float, float] = (450.0, 800.0),
+    ) -> float:
+        """Find the `wavelength_center` that makes `generate_nile_red_spectrum`'s
+        actual rendered peak land at `peak_wavelength`.
+
+        `wavelength_center` is a *location* parameter of the underlying energy-space
+        skew-Gaussian, not the peak of the rendered spectrum: the energy<->wavelength
+        Jacobian, the dipole-moment (E^3) weighting, and the skew term (alpha) each
+        shift the spectrum's actual mode away from `wavelength_center`, by an amount
+        that itself varies with `wavelength_center` (it's not a fixed offset) -- e.g.
+        for the default sigma_energy/alpha, wavelength_center=617.6 nm renders a
+        spectrum that actually peaks at ~636.9 nm. There is no closed-form inverse for
+        this, so this solves for it numerically (bounded 1-D optimisation): for a
+        candidate wavelength_center, render the spectrum and find where it actually
+        peaks (argmax), and adjust wavelength_center until that peak matches
+        `peak_wavelength`.
+
+        Uses the precomputed `_PEAK_LUT_*` table (linear interpolation) when
+        `sigma_energy`/`alpha` match the values it was generated at and
+        `peak_wavelength` falls within its 550-680 nm range -- effectively instant,
+        vs. re-running the optimisation below from scratch. Falls back to the
+        numerical optimisation for any other (sigma_energy, alpha) or out-of-range
+        peak_wavelength.
+
+        Args:
+            peak_wavelength: Desired peak (mode) wavelength of the rendered spectrum (nm)
+            wavelength_array: Wavelength grid used both to render candidate spectra and
+                to locate their peak -- the returned peak is only as precise as this
+                grid's spacing, so use a fine enough grid for the precision you need.
+                Unused when the LUT path is taken.
+            sigma_energy: Gaussian width in energy space (eV), default from __init__
+            alpha: Skewness parameter, default from __init__
+            bounds: Search range for wavelength_center (nm). Unused when the LUT
+                path is taken.
+
+        Returns:
+            wavelength_center: Value to pass to generate_nile_red_spectrum so the
+                rendered spectrum peaks at (approximately) peak_wavelength
+        """
+        sigma_energy_resolved = self.default_sigma_energy if sigma_energy is None else sigma_energy
+        alpha_resolved = self.default_alpha if alpha is None else alpha
+
+        lut_peaks = self._PEAK_LUT_PEAK_WAVELENGTHS
+        if (
+            np.isclose(sigma_energy_resolved, self._PEAK_LUT_SIGMA_ENERGY)
+            and np.isclose(alpha_resolved, self._PEAK_LUT_ALPHA)
+            and lut_peaks[0] <= peak_wavelength <= lut_peaks[-1]
+        ):
+            return float(np.interp(peak_wavelength, lut_peaks, self._PEAK_LUT_WAVELENGTH_CENTERS))
+
+        def _peak_of(wavelength_center: float) -> float:
+            spectrum = self.generate_nile_red_spectrum(
+                wavelength_center, wavelength_array, sigma_energy=sigma_energy,
+                alpha=alpha, normalize=False,
+            )
+            return float(wavelength_array[np.argmax(spectrum)])
+
+        def _objective(wavelength_center: float) -> float:
+            return (_peak_of(wavelength_center) - peak_wavelength) ** 2
+
+        result = minimize_scalar(_objective, bounds=bounds, method="bounded")
+        return float(result.x)
 
     def apply_optical_filters(
         self, spectrum: np.ndarray, filter_spectra: np.ndarray
@@ -785,9 +890,22 @@ class NileRed_Functions:
         imaging and fitting using existing infrastructure, then extracts wavelengths
         from the RGB+PSF fit results.
 
+        `wavelength_range`/`wavelength_step` sweep the desired PEAK (mode) wavelength
+        of each simulated spectrum, not the skew-Gaussian's energy-space location
+        parameter -- the two differ by tens of nm (see
+        `wavelength_center_for_peak`'s docstring). Internally, each sweep value is
+        converted via `wavelength_center_for_peak` to the location parameter that
+        actually renders a spectrum peaking there, *before* that spectrum is handed
+        to the simulator (which applies the optical filters itself when generating
+        images/RGB/PSF). Stage 2's bias reference is computed from that same
+        converted location parameter (via `spectral_centre_of_mass`, the raw/
+        un-filtered spectrum's own mean) -- using the raw peak value directly instead
+        would introduce a ~20 nm spurious offset into the reported bias, dwarfing any
+        genuine fit bias.
+
         Args:
             save_folder: Directory to save results (created if doesn't exist)
-            wavelength_range: (min, max) wavelength range in nm (default: 560-620)
+            wavelength_range: (min, max) PEAK wavelength range in nm (default: 560-620)
             wavelength_step: Wavelength step size in nm (default: 5)
             photon_counts: Array of photon counts to simulate (default: [1k, 2k, 5k, 10k])
             n_bootstrap: Number of Monte Carlo realizations per condition (default: 1000)
@@ -813,8 +931,8 @@ class NileRed_Functions:
             pixel_size = self.pixel_size * 1000  # µm → nm
 
         import time
-        import Multicolour_Simulation_Functions
-        import MaskFunctions
+        import pyS3M.Multicolour_Simulation_Functions as Multicolour_Simulation_Functions
+        import pyS3M.MaskFunctions as MaskFunctions
 
         # Create save folder if it doesn't exist
         Path(save_folder).mkdir(parents=True, exist_ok=True)
@@ -853,7 +971,7 @@ class NileRed_Functions:
 
         # Setup smoothing function
         if smoothing_function is None:
-            import sCMOSFunctions
+            import pyS3M.sCMOSFunctions as sCMOSFunctions
             import types
 
             sCMOS = sCMOSFunctions.sCMOS_Functions()
@@ -911,19 +1029,24 @@ class NileRed_Functions:
                 if self.config.logging_callback:
                     self.config.logging_callback(msg)
 
-            # Generate Nile Red spectrum for this wavelength
+            # wl_true is the desired PEAK wavelength, not the skew-Gaussian's
+            # location parameter -- convert before generating the spectrum, so the
+            # spectrum handed to the simulator actually peaks at wl_true (see
+            # wavelength_center_for_peak's docstring; the gap is tens of nm).
+            wavelength_center = self.wavelength_center_for_peak(wl_true, wavelength_array)
             spectrum = self.generate_nile_red_spectrum(
-                wl_true, wavelength_array, normalize=True
+                wavelength_center, wavelength_array, normalize=True
             )
 
-            # Create dye name for this wavelength
+            # Create dye name for this wavelength (still keyed on the peak wl_true --
+            # the human-meaningful sweep value -- for file naming/lookup below)
             dye_name = f"simulated_NileRed_{int(wl_true)}nm"
 
             # Run standard simulation using test_fit_method
             flag = f"{starting_flag}wl{int(wl_true)}_"
 
             # Create SimulationConfig
-            import Multicolour_Simulation_Functions as MSF_module
+            import pyS3M.Multicolour_Simulation_Functions as MSF_module
 
             config = MSF_module.SimulationConfig(
                 n_bootstrap=n_bootstrap,
@@ -1002,13 +1125,23 @@ class NileRed_Functions:
                         logger.info(f"\nWarning: No 'photon_level' column found in {raw_file}")
                     continue
 
-                # wl_fit is the fitted spectral centre of mass (see
-                # fit_nile_red_wavelength/spectral_centre_of_mass), which for a skewed
-                # spectrum is *not* equal to the location parameter wl_true -- compare
-                # against the true spectrum's own centre of mass instead, or the gap
-                # between the two (a real, expected property of the skew-Gaussian
-                # shape, not fit error) gets reported as bias.
-                wl_true_com = self.spectral_centre_of_mass(wl_true, wavelength_array)
+                # wl_fit is the fitted spectral centre of mass of the RAW/un-filtered
+                # spectrum (see fit_nile_red_wavelength/spectral_centre_of_mass),
+                # evaluated at whatever location parameter the LSQ fit recovers.
+                # wl_true, however, is the desired PEAK wavelength (see Stage 1 above)
+                # -- not the location parameter, and not the raw spectrum's mean
+                # either. To compare like-for-like, convert wl_true -> the location
+                # parameter that actually renders a spectrum peaking there (the same
+                # conversion, and the same resulting value, used in Stage 1 to
+                # generate the simulated spectrum), then take *that* location
+                # parameter's raw-spectrum centre of mass as the truth reference.
+                # Skipping the peak->location-parameter conversion here (comparing
+                # against spectral_centre_of_mass(wl_true, ...) directly) would
+                # introduce a ~20 nm spurious offset into every reported bias --
+                # confirmed empirically, not a small effect -- dwarfing any genuine
+                # fit bias this sweep is meant to measure.
+                wavelength_center_true = self.wavelength_center_for_peak(wl_true, wavelength_array)
+                wl_true_com = self.spectral_centre_of_mass(wavelength_center_true, wavelength_array)
 
                 for level in df["photon_level"].unique():
                     df_level = df.filter(pl.col("photon_level") == level)

@@ -21,9 +21,8 @@ import time
 
 # Add src to path
 module_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
-sys.path.insert(0, module_dir)
 
-import SM_extractionfunctions as SM_E
+import pyS3M.SM_extractionfunctions as SM_E
 
 
 def generate_synthetic_2dye_data(

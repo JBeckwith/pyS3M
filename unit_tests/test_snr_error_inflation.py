@@ -6,10 +6,9 @@ correctly inflates errors for low-SNR channels.
 """
 
 import sys
-sys.path.insert(0, '../src')
 
 import numpy as np
-from NileRedFunctions import NileRed_Functions
+from pyS3M.NileRedFunctions import NileRed_Functions
 
 # Initialize
 nrf = NileRed_Functions()

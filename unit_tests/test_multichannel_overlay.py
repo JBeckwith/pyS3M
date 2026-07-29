@@ -12,9 +12,8 @@ matplotlib.use('Agg')  # Non-interactive backend for testing
 import matplotlib.pyplot as plt
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from PlottingBase import PublicationPlotter, AnalysisPlotter
+from pyS3M.PlottingBase import PublicationPlotter, AnalysisPlotter
 
 
 def test_basic_two_channel_overlay():

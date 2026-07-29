@@ -11,7 +11,6 @@ This test analyzes a real folder using fit_imaging_data() and verifies that:
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import numpy as np
 import pandas as pd
@@ -19,21 +18,31 @@ import types
 import gc
 
 # Import required modules
-import IOFunctions
-import sCMOSFunctions
-import SpectralFunctions
-import MaskFunctions
-import SpotDetectionFunctions
-import SR_Functions
-import ImageAnalysisFunctions
-import HelperFunctions
+import pyS3M.IOFunctions as IOFunctions
+import pyS3M.sCMOSFunctions as sCMOSFunctions
+import pyS3M.SpectralFunctions as SpectralFunctions
+import pyS3M.MaskFunctions as MaskFunctions
+import pyS3M.SpotDetectionFunctions as SpotDetectionFunctions
+import pyS3M.SR_Functions as SR_Functions
+import pyS3M.ImageAnalysisFunctions as ImageAnalysisFunctions
+import pyS3M.HelperFunctions as HelperFunctions
 
 
 def test_quality_metrics_real_data():
-    """Test quality metrics with real imaging data."""
+    """Test quality metrics with real imaging data.
 
-    # Test folder
-    test_folder = '/media/jbeckwith/Ezra Seagat/20251026_MassiveCells/Ximea/test_file/'
+    Uses a bundled single-frame fixture (test_tiffs/quality_metrics_sample/) rather
+    than an external drive -- a single real frame is sufficient here since spot
+    detection/fitting runs independently per frame (no temporal/EVER filtering is
+    exercised by this test), so it gives real localisations and quality-metric
+    columns without needing more data. The accompanying metadata.txt is similarly
+    trimmed to just the one "ROI" field load_metadata_roi()/metadata_reader_imageJ()
+    actually read (no Summary block, no per-frame camera settings).
+    """
+
+    # Get project root and fixture/camera calibration folders
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    test_folder = os.path.join(project_root, 'test_tiffs', 'quality_metrics_sample')
 
     print("=" * 80)
     print("Testing Quality Metrics Integration with Real Data")
@@ -41,23 +50,11 @@ def test_quality_metrics_real_data():
     print(f"Test folder: {test_folder}")
     print()
 
-    # Check folder exists
-    if not os.path.exists(test_folder):
-        print(f"ERROR: Test folder does not exist: {test_folder}")
-        print("Skipping test")
-        return
-
-    if not os.path.isdir(test_folder):
-        print(f"ERROR: Path is not a directory: {test_folder}")
-        print("Skipping test")
-        return
+    assert os.path.isdir(test_folder), f"Bundled test fixture missing: {test_folder}"
 
     # Check for .tif files
     tif_files = [f for f in os.listdir(test_folder) if f.endswith('.tif')]
-    if not tif_files:
-        print(f"ERROR: No .tif files found in {test_folder}")
-        print("Skipping test")
-        return
+    assert tif_files, f"No .tif files found in fixture folder: {test_folder}"
 
     print(f"Found {len(tif_files)} .tif files")
 
@@ -67,14 +64,8 @@ def test_quality_metrics_real_data():
     scmos_funcs = sCMOSFunctions.sCMOS_Functions()
     sr_funcs = SR_Functions.SuperRes_Functions()
 
-    # Get project root and camera calibration folder
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     camera_folder = os.path.join(project_root, 'Camera_Calibrations', 'Ximea_Camera')
-
-    if not os.path.exists(camera_folder):
-        print(f"ERROR: Camera calibration folder not found: {camera_folder}")
-        print("Skipping test")
-        return
+    assert os.path.exists(camera_folder), f"Camera calibration folder not found: {camera_folder}"
 
     # Load camera parameters
     print("Loading camera parameters...")
@@ -126,53 +117,44 @@ def test_quality_metrics_real_data():
     print("Running fit_imaging_data()...")
     print("=" * 80)
 
+    sr_funcs.fit_imaging_data(
+        test_folder,
+        smoothing_function,
+        gain_map,
+        offset_map,
+        rqe_map,
+        readnoise_map,
+        variance=variance_map,
+        pfa=pfa,
+        ROI_size=ROI_size,
+        peak_wavelength=peak_wavelength,
+        NA=NA,
+        pixel_size=pixel_size,
+        sigma=sigma,
+        fraction_true=fraction_true,
+        image_type='.tif',
+        use_variance_aware_demosaic=use_variance_aware_demosaic,
+    )
+
+    print()
+    print("=" * 80)
+    print("Analysis completed successfully!")
+    print("=" * 80)
+
     try:
-        sr_funcs.fit_imaging_data(
-            test_folder,
-            smoothing_function,
-            gain_map,
-            offset_map,
-            rqe_map,
-            readnoise_map,
-            variance=variance_map,
-            pfa=pfa,
-            ROI_size=ROI_size,
-            peak_wavelength=peak_wavelength,
-            NA=NA,
-            pixel_size=pixel_size,
-            sigma=sigma,
-            fraction_true=fraction_true,
-            image_type='.tif',
-            use_variance_aware_demosaic=use_variance_aware_demosaic,
-        )
+        assert os.path.exists(h5_file), f"Expected .h5 file was not created: {h5_file}"
+        print(f"\n✓ .h5 file created: {h5_file}")
 
-        print()
-        print("=" * 80)
-        print("Analysis completed successfully!")
-        print("=" * 80)
-
-    except Exception as e:
-        print(f"\nERROR during analysis: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-
-    # Verify .h5 file was created
-    if not os.path.exists(h5_file):
-        print(f"\nERROR: Expected .h5 file was not created: {h5_file}")
-        return
-
-    print(f"\n✓ .h5 file created: {h5_file}")
-
-    # Read .h5 file and check for quality metrics
-    print("\nReading .h5 file to verify quality metrics...")
-    try:
+        # Read .h5 file and check for quality metrics
+        print("\nReading .h5 file to verify quality metrics...")
         df = pd.read_hdf(h5_file, key='data')
 
         print(f"\n✓ Successfully read .h5 file")
         print(f"  Total localizations: {len(df)}")
         print(f"  Total columns: {len(df.columns)}")
         print()
+
+        assert len(df) > 0, "fit_imaging_data produced zero localisations"
 
         # Check for standard columns
         standard_cols = ['xc', 'yc', 's_x', 's_y', 'A_R', 'A_G', 'A_B',
@@ -209,14 +191,10 @@ def test_quality_metrics_real_data():
 
         print()
 
-        if quality_cols_missing:
-            print(f"ERROR: {len(quality_cols_missing)} quality metric columns are missing!")
-            print(f"Missing: {quality_cols_missing}")
-            print()
-            print("All columns in DataFrame:")
-            for col in sorted(df.columns):
-                print(f"  - {col}")
-            return
+        assert not quality_cols_missing, (
+            f"{len(quality_cols_missing)} quality metric columns are missing: "
+            f"{quality_cols_missing}"
+        )
 
         print(f"✓ All {len(expected_quality_cols)} quality metric columns are present!")
 
@@ -226,19 +204,18 @@ def test_quality_metrics_real_data():
         print("-" * 80)
 
         for col in quality_cols_present:
-            if col in df.columns:
-                values = df[col]
-                print(f"\n{col}:")
-                print(f"  Count: {len(values)}")
-                print(f"  Mean:  {values.mean():.3f}")
-                print(f"  Std:   {values.std():.3f}")
-                print(f"  Min:   {values.min():.3f}")
-                print(f"  Max:   {values.max():.3f}")
+            values = df[col]
+            print(f"\n{col}:")
+            print(f"  Count: {len(values)}")
+            print(f"  Mean:  {values.mean():.3f}")
+            print(f"  Std:   {values.std():.3f}")
+            print(f"  Min:   {values.min():.3f}")
+            print(f"  Max:   {values.max():.3f}")
 
-                # Check for NaN values
-                n_nan = values.isna().sum()
-                if n_nan > 0:
-                    print(f"  ⚠️  NaN values: {n_nan} ({100*n_nan/len(values):.1f}%)")
+            # Check for NaN values
+            n_nan = values.isna().sum()
+            if n_nan > 0:
+                print(f"  ⚠️  NaN values: {n_nan} ({100*n_nan/len(values):.1f}%)")
 
         print()
         print("=" * 80)
@@ -252,14 +229,10 @@ def test_quality_metrics_real_data():
         print(f"  ✓ Quality metrics saved alongside fitted parameters")
         print()
 
-    except Exception as e:
-        print(f"\nERROR reading .h5 file: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-
     finally:
         # Cleanup
+        if os.path.exists(h5_file):
+            os.remove(h5_file)
         gc.collect()
 
 

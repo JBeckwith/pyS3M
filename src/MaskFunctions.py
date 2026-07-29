@@ -35,7 +35,7 @@ class Mask_Functions:
             mosaic_unit: Bayer mosaic pattern array.  If ``None``, taken
                 from *camera* defaults.
         """
-        import CameraDefaults
+        import pyS3M.CameraDefaults as CameraDefaults
         config = CameraDefaults.get_camera_config(camera)
         self.mosaic_unit = mosaic_unit if mosaic_unit is not None else config.mosaic_unit
 

@@ -19,10 +19,9 @@ import numpy as np
 import pandas as pd
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from postprocess import segment_locs_by_rendered_image
-import IOFunctions
+from pyS3M.postprocess import segment_locs_by_rendered_image
+import pyS3M.IOFunctions as IOFunctions
 
 IO = IOFunctions.IO_Functions()
 

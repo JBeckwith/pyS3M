@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyS3M"
+dynamic = ["version"]
+description = "Analysis package for multicolour single-molecule localisation microscopy"
+readme = "README.md"
+# tables (PyTables, pandas' HDF5 backend) requires >=3.11; colour-demosaicing caps at <3.13 —
+# both confirmed via each package's own declared Requires-Python metadata, not assumed.
+requires-python = ">=3.11,<3.13"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Joseph S. Beckwith"},
+    {name = "Steven F. Lee"},
+]
+
+dependencies = [
+    # numpy is capped by numba 0.59's own "numpy<1.27,>=1.22" pin (confirmed via numba's
+    # Requires-Dist metadata) -- not a guess, numba genuinely cannot import against numpy>=1.27.
+    "numpy>=1.26,<1.27",
+    "pandas>=2.2,<3",
+    "scipy>=1.15,<2",
+    "matplotlib>=3.10,<4",
+    "scikit-image>=0.25,<0.26",
+    "scikit-learn>=1.7,<2",
+    "numba>=0.59,<0.60",
+    "lmfit>=1.3,<2",
+    "tifffile>=2025.5.10",
+    "Pillow>=10.3,<11",
+    "polars>=1.2,<2",
+    "colour-demosaicing>=0.2.5,<0.3",
+    "mpltern>=1.0,<2",
+    "dask>=2025.1",
+    "datashader>=0.18,<0.19",
+    "duckdb>=1.3,<2",
+    "fast-hdbscan>=0.2,<0.3",
+    "pathos>=0.3,<0.4",
+    "psutil>=5.9,<6",
+    "pygmmis>=1.2,<2",
+    "ruptures>=1.1,<2",
+    "PyQt6>=6.11,<7",
+    "tqdm>=4.67,<5",
+    # tables (PyTables) -- transitive dependency: pandas' to_hdf/read_hdf/HDFStore need it
+    # as their HDF5 backend even though nothing in src/ ever does `import tables` directly.
+    "tables>=3.11,<4",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "jupyterlab>=4.1,<5",
+    "ipywidgets>=8.1,<9",
+    "napari>=0.6,<0.7",
+    "seaborn>=0.13,<0.14",
+    "xarray>=2024.9",
+    "plotly>=6.0,<7",
+    "kaleido>=0.2,<0.3",
+]
+docs = [
+    "Sphinx>=7.2,<8",
+    "sphinx-rtd-theme>=2.0,<3",
+    "autodocsumm>=0.2,<0.3",
+]
+dev = [
+    "pytest>=8.4,<9",
+    "pytest-cov>=6.2,<7",
+    "black>=24.10,<25",
+    "coverage>=7.10,<8",
+    "build>=1.3,<2",
+]
+
+[project.scripts]
+pys3m-gui = "pyS3M.gui.app:run"
+
+[project.urls]
+Homepage = "https://www.biorxiv.org/content/10.64898/2026.04.08.715690v1"
+
+[tool.setuptools]
+# "pyS3M.Spectra" = "Spectra" bundles the top-level Spectra/ data directory (dye/filter
+# spectral database, camera QE curves, objective absorption curves) as real package data
+# for a non-editable `pip install .` -- SpectralFunctions.py/CameraDefaults.py locate it
+# at `<this module's dir>/Spectra`, falling back to the repo-root sibling for editable/dev
+# installs. Without this mapping, a real `pip install .` has no Spectra/ data at all and
+# SpectralFunctions.Spectral_Funcs() (used throughout the core pipeline) fails at runtime
+# with `duckdb.IOException: database does not exist` -- confirmed via a fresh-venv install.
+package-dir = {"pyS3M" = "src", "pyS3M.Spectra" = "Spectra"}
+packages = [
+    "pyS3M",
+    "pyS3M.simulation",
+    "pyS3M.drift_correction",
+    "pyS3M.clustering",
+    "pyS3M.gui",
+    "pyS3M.gui.panels",
+    "pyS3M.gui.widgets",
+    "pyS3M.Spectra",
+]
+
+[tool.setuptools.package-data]
+"pyS3M.Spectra" = ["*.duckdb", "**/*.csv", "**/*.npy"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyS3M.__version__"}

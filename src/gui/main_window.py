@@ -12,15 +12,16 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 
-from gui.panels.setup_panel import SetupPanel
-from gui.panels.fitting_panel import FittingPanel
-from gui.panels.postproc_panel import PostProcPanel
-from gui.panels.drift_panel import DriftPanel
-from gui.panels.results_panel import ResultsPanel
-from gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
-from gui.widgets.log_widget import LogWidget, QtLogHandler
-from gui.widgets.progress_widget import ProgressWidget
-from gui.worker import AnalysisWorker
+from pyS3M.gui.panels.setup_panel import SetupPanel
+from pyS3M.gui.panels.fitting_panel import FittingPanel
+from pyS3M.gui.panels.postproc_panel import PostProcPanel
+from pyS3M.gui.panels.drift_panel import DriftPanel
+from pyS3M.gui.panels.frc_panel import FRCPanel
+from pyS3M.gui.panels.results_panel import ResultsPanel
+from pyS3M.gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
+from pyS3M.gui.widgets.log_widget import LogWidget, QtLogHandler
+from pyS3M.gui.widgets.progress_widget import ProgressWidget
+from pyS3M.gui.worker import AnalysisWorker
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ class AppState(enum.Enum):
 
 class MainWindow(QMainWindow):
     state_changed = pyqtSignal(str)
+
+    # Controls-dock tab index -> ResultsPanel context key (see _on_ctrl_tab_changed).
+    _CTRL_TAB_CONTEXTS = ("analysis", "simulation", "frc", "channel_unmixing", "nile_red")
 
     def __init__(self):
         super().__init__()
@@ -70,6 +74,7 @@ class MainWindow(QMainWindow):
         self.postproc_panel = PostProcPanel(self)
         self.drift_panel = DriftPanel(self)
         self.simulation_panel = SimulationPanel(self)
+        self.frc_panel = FRCPanel(self)
 
         container = QWidget()
         vbox = QVBoxLayout(container)
@@ -86,14 +91,14 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        ctrl_tabs = QTabWidget()
-        ctrl_tabs.addTab(scroll, "Analysis")
+        self.ctrl_tabs = QTabWidget()
+        self.ctrl_tabs.addTab(scroll, "Analysis")
 
         sim_scroll = QScrollArea()
         sim_scroll.setWidget(self.simulation_panel)
         sim_scroll.setWidgetResizable(True)
         sim_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        ctrl_tabs.addTab(sim_scroll, "Simulation")
+        self.ctrl_tabs.addTab(sim_scroll, "Simulation")
 
         def _placeholder(msg: str) -> QLabel:
             lbl = QLabel(msg)
@@ -101,12 +106,12 @@ class MainWindow(QMainWindow):
             lbl.setStyleSheet("color: gray; font-size: 11pt;")
             return lbl
 
-        ctrl_tabs.addTab(_placeholder("FRC analysis — coming soon."), "FRC")
-        ctrl_tabs.addTab(_placeholder("Channel unmixing — coming soon."), "Channel Unmixing")
-        ctrl_tabs.addTab(_placeholder("Nile Red analysis — coming soon."), "Nile Red")
+        self.ctrl_tabs.addTab(self.frc_panel, "FRC")
+        self.ctrl_tabs.addTab(_placeholder("Channel unmixing — coming soon."), "Channel Unmixing")
+        self.ctrl_tabs.addTab(_placeholder("Nile Red analysis — coming soon."), "Nile Red")
 
         ctrl_dock = QDockWidget("Controls", self)
-        ctrl_dock.setWidget(ctrl_tabs)
+        ctrl_dock.setWidget(self.ctrl_tabs)
         ctrl_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -141,6 +146,7 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.fitting_panel.on_state_changed)
         self.state_changed.connect(self.postproc_panel.on_state_changed)
         self.state_changed.connect(self.drift_panel.on_state_changed)
+        self.state_changed.connect(self.frc_panel.on_state_changed)
 
         self.setup_panel.calibration_requested.connect(self._on_load_calibration)
         self.fitting_panel.preview_requested.connect(self._on_preview_fitting)
@@ -150,8 +156,15 @@ class MainWindow(QMainWindow):
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
         self.drift_panel.undrift_requested.connect(self._on_undrift)
+        self.frc_panel.frc_requested.connect(self._on_run_frc)
         self.results_panel.fov_requested.connect(self._on_fov_requested)
         self.simulation_panel.simulation_requested.connect(self._on_run_simulation)
+        self.ctrl_tabs.currentChanged.connect(self._on_ctrl_tab_changed)
+        self._on_ctrl_tab_changed(self.ctrl_tabs.currentIndex())
+
+    def _on_ctrl_tab_changed(self, index: int):
+        if 0 <= index < len(self._CTRL_TAB_CONTEXTS):
+            self.results_panel.set_context(self._CTRL_TAB_CONTEXTS[index])
 
     def _install_log_handler(self):
         self._log_handler = QtLogHandler()
@@ -199,6 +212,7 @@ class MainWindow(QMainWindow):
         self.fitting_panel.set_busy(False)
         self.postproc_panel.set_busy(False)
         self.drift_panel.set_busy(False)
+        self.frc_panel.set_busy(False)
         self.simulation_panel.set_busy(False)
         self.progress_widget.reset()
 
@@ -286,7 +300,7 @@ class MainWindow(QMainWindow):
         has_rgb = all(c in locs.columns for c in spectral_cols)
         if all(c in locs.columns for c in ("xc", "yc", "xc_err", "yc_err")) and len(locs) > 0:
             try:
-                import render as _render
+                import pyS3M.render as _render
                 base_cols = ["xc", "yc", "xc_err", "yc_err"]
                 extra = [c for c in (("A_R", "A_G", "A_B") if has_rgb else ("A_R",))
                          if c in locs.columns]
@@ -458,8 +472,8 @@ class MainWindow(QMainWindow):
         def _do():
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).parent.parent))
-            from AnalysisPipeline import AnalysisPipeline
-            from Constants import AnalysisConfig
+            from pyS3M.AnalysisPipeline import AnalysisPipeline
+            from pyS3M.Constants import AnalysisConfig
             cfg = AnalysisConfig(
                 display=False,
                 progress_callback=lambda f, m: worker.progress.emit(f, m),
@@ -644,8 +658,8 @@ class MainWindow(QMainWindow):
         if self.pipeline is None:
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).parent.parent))
-            from AnalysisPipeline import AnalysisPipeline
-            from Constants import AnalysisConfig
+            from pyS3M.AnalysisPipeline import AnalysisPipeline
+            from pyS3M.Constants import AnalysisConfig
             self.pipeline = AnalysisPipeline(
                 config=AnalysisConfig(display=False)
             )
@@ -806,7 +820,7 @@ class MainWindow(QMainWindow):
 
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).parent.parent))
-            from IOFunctions import IO_Functions
+            from pyS3M.IOFunctions import IO_Functions
             out_path = str(Path(self._fitted_data_dir) / "undrifted_locs.h5")
             IO_Functions().write_h5_database(corrected_df, out_path)
 
@@ -840,6 +854,83 @@ class MainWindow(QMainWindow):
         ax.set_ylabel("Drift (nm)")
         ax.set_title(f"Drift trace ({drift_result.method_used.value})")
         ax.legend()
+        ax.grid(True, alpha=0.3)
+        return fig
+
+    # ------------------------------------------------------------------
+    # FRC (Fourier Ring Correlation) resolution
+    # ------------------------------------------------------------------
+
+    def _on_run_frc(self, zoom: float, n_blocks: int, reps: int):
+        if self._worker_running() or self.pipeline is None or self._fitted_data_dir is None:
+            return
+
+        def _do():
+            # Prefer the drift-corrected localisations if undrift has been run
+            # (in-memory only), same preference order as clustering.
+            locs = (
+                self._undrifted_locs if self._undrifted_locs is not None
+                else self.pipeline.load_localisations(self._fitted_data_dir)
+            )
+            if locs.empty:
+                raise ValueError("No localisations available for FRC.")
+            pixel_size_nm = self.pipeline.pixel_size * 1000.0
+            height, width = self.pipeline.gain_map.shape[:2]
+            return self._make_frc_figure(locs, width, height, pixel_size_nm, zoom, n_blocks, reps)
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_frc_done)
+        self.frc_panel.set_busy(True)
+        worker.start()
+
+    def _on_frc_done(self, fig):
+        self.frc_panel.set_busy(False)
+        self.progress_widget.update(1.0, "FRC complete")
+        if fig is not None:
+            self.results_panel.set_frc_figure(fig)
+
+    def _make_frc_figure(
+        self,
+        locs,
+        width: int,
+        height: int,
+        pixel_size_nm: float,
+        zoom: float,
+        n_blocks: int,
+        reps: int,
+    ) -> Figure:
+        """Spatial resolution (FIRE) over all current localisations. Splitting by
+        dye/channel is deliberately not done here — that requires a categorical
+        `channel` column, which only exists once Channel Unmixing has run; when
+        that panel is built, FRC should be re-runnable per selected channel from
+        there rather than by any spectral-fraction heuristic in this panel."""
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent.parent))
+        import pyS3M.FRCFunctions as FRCFunctions
+
+        fig = Figure(figsize=(6, 5), dpi=100, layout="constrained")
+        ax = fig.add_subplot(111)
+
+        res_nm, frc_curve, _, _ = FRCFunctions.fire(
+            locs, nx=width, ny=height, zoom=zoom,
+            n_blocks=n_blocks, reps=reps, pixel_size_nm=pixel_size_nm,
+        )
+        res_label = f"{res_nm:.0f} nm" if np.isfinite(res_nm) else "unresolved"
+
+        if len(frc_curve) > 0:
+            sz = max(int(width * zoom), int(height * zoom))
+            q_per_nm = (np.arange(len(frc_curve)) / sz) / (pixel_size_nm / zoom)
+            ax.plot(
+                q_per_nm, frc_curve, color="black", lw=1.2,
+                label=f"FIRE: {res_label}  (n={len(locs):,})",
+            )
+
+        ax.axhline(1.0 / 7.0, color="gray", ls="--", lw=0.8, label="1/7 threshold")
+        ax.set_xlabel("Spatial frequency (nm⁻¹)")
+        ax.set_ylabel("FRC")
+        ax.set_ylim(-0.2, 1.05)
+        ax.legend(fontsize=8, loc="upper right")
+        ax.set_title(f"Fourier Ring Correlation — resolution: {res_label}")
         ax.grid(True, alpha=0.3)
         return fig
 
@@ -904,8 +995,8 @@ class MainWindow(QMainWindow):
         _sys.path.insert(0, str(_Path(__file__).parent.parent))
 
         import numpy as np
-        import SpectralFunctions
-        from PSFFunctions import PSF_Functions
+        import pyS3M.SpectralFunctions as SpectralFunctions
+        from pyS3M.PSFFunctions import PSF_Functions
 
         S_F = SpectralFunctions.Spectral_Funcs()
         R_qe, G_qe, B_qe, wl = S_F.getpixelefficiency()

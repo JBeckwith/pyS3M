@@ -17,9 +17,8 @@ import sys
 import os
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from SpotDetectionFunctions import SpotDetection_Functions
+from pyS3M.SpotDetectionFunctions import SpotDetection_Functions
 
 
 def create_test_image():

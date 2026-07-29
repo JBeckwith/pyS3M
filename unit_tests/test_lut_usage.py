@@ -9,11 +9,10 @@ This test verifies that:
 """
 
 import sys
-sys.path.insert(0, '../src')
 
 import numpy as np
 import time
-from NileRedFunctions import NileRed_Functions
+from pyS3M.NileRedFunctions import NileRed_Functions
 
 # Initialize
 nrf = NileRed_Functions()
