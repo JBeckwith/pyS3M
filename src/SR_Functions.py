@@ -349,7 +349,6 @@ class SuperRes_Functions:
         frame_offset=0,
         is_multi_frame=False,
         quality_metrics=None,
-        use_threading=True,
     ):
         """Process a batch of detected puncta into fitting-ready ROIs.
 
@@ -373,12 +372,6 @@ class SuperRes_Functions:
             is_multi_frame (bool, optional): Whether processing multi-frame data (default: False)
             quality_metrics (dict, optional): Dict of quality metric arrays from spot detection.
                 Will be filtered to match ROIs that pass processing (not too close to edges, etc.)
-            use_threading (bool, optional): If True (default), process ROIs above
-                `_MIN_PUNCTA_FOR_THREADING` using a chunked ThreadPoolExecutor; if False,
-                always use the original single-threaded loop. Exposed as a real toggle
-                (not just an internal default) specifically so the two paths can be timed
-                side by side on the exact same production code -- see the timing
-                diagnostic cell in FigureSI_EmitterDensityTests.ipynb.
 
         Returns:
             tuple: (puncta_tofit, smoothed_puncta_tofit, masks_tofit, weights_tofit,
@@ -401,79 +394,6 @@ class SuperRes_Functions:
             >>> puncta, smoothed, masks_roi, weights, coords, frames, qm = results
 
         """
-        n_puncta = len(detected_puncta)
-
-        def _process_index_range(start, count):
-            """Process one contiguous slice of detected_puncta indices.
-
-            Builds and returns its own local (index, result) list rather than
-            appending to anything shared -- multiple slices can then run
-            concurrently in different threads with no coordination needed.
-            """
-            chunk = []
-            for i in range(start, start + count):
-                result = self._process_roi(
-                    raw_data,
-                    detected_puncta,
-                    i,
-                    width,
-                    height,
-                    ROI_size,
-                    smoothing_function,
-                    read_noise,
-                    masks,
-                    gain_map=gain_map,
-                    offset_map=offset_map,
-                    rqe=rqe,
-                    frame_offset=frame_offset,
-                    is_multi_frame=is_multi_frame,
-                )
-                if result is not None:
-                    chunk.append((i, result))
-            return chunk
-
-        # Below this, thread-pool dispatch overhead isn't worth it -- just run serially.
-        _MIN_PUNCTA_FOR_THREADING = 200
-
-        if n_puncta == 0:
-            indexed_results = []
-        elif not use_threading or n_puncta < _MIN_PUNCTA_FOR_THREADING:
-            indexed_results = _process_index_range(0, n_puncta)
-        else:
-            # _process_roi is dominated by numpy/scipy array operations
-            # (convert_to_photoelectrons, apply_smoothing, generate_weights) that
-            # release the GIL during their C-level implementation, so threads (not
-            # processes) give real parallelism here without the cost of pickling
-            # raw_data/masks/calibration maps into separate worker processes --
-            # those can be large multi-frame arrays that would be expensive to copy.
-            # tasks_per_worker=1 (vs. the default 100, tuned for fit_puncta_parallel_method
-            # where individual fits' runtime varies a lot and finer granularity helps load
-            # balancing): _process_roi's per-item cost is small and fairly uniform, so a
-            # handful of large chunks (roughly one per worker) keeps thread-dispatch
-            # overhead low instead of submitting hundreds of nearly-empty tasks.
-            n_workers, n_tasks, items_per_task, start_indices = (
-                self.helper.calculate_parallel_chunks(
-                    n_puncta,
-                    max_workers=FittingConstants.MAX_WORKERS,
-                    worker_ratio=FittingConstants.WORKER_RATIO,
-                    tasks_per_worker=1,
-                )
-            )
-            indexed_results = []
-            with futures.ThreadPoolExecutor(n_workers) as executor:
-                # start_indices is a strictly ascending cumulative sum (see
-                # calculate_parallel_chunks), so submitting in this order and
-                # reading fut.result() back in the SAME (submission) order --
-                # not completion order -- preserves the original detected_puncta
-                # ordering exactly, matching the previous serial loop's behaviour.
-                chunk_futures = [
-                    executor.submit(_process_index_range, int(start), int(count))
-                    for start, count in zip(start_indices, items_per_task)
-                    if count > 0
-                ]
-                for fut in chunk_futures:
-                    indexed_results.extend(fut.result())
-
         puncta_tofit = []
         smoothed_puncta_tofit = []
         masks_tofit = []
@@ -482,7 +402,27 @@ class SuperRes_Functions:
         planes = []
         valid_indices = []  # Track which indices were successfully processed
 
-        for i, result in indexed_results:
+        for i in np.arange(len(detected_puncta)):
+            result = self._process_roi(
+                raw_data,
+                detected_puncta,
+                i,
+                width,
+                height,
+                ROI_size,
+                smoothing_function,
+                read_noise,
+                masks,
+                gain_map=gain_map,
+                offset_map=offset_map,
+                rqe=rqe,
+                frame_offset=frame_offset,
+                is_multi_frame=is_multi_frame,
+            )
+
+            if result is None:
+                continue
+
             photoelectron_roi, smoothed_roi, weights_roi, mask_roi, coords, plane = (
                 result
             )
