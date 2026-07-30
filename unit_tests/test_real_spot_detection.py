@@ -63,7 +63,7 @@ def create_test_image():
     return image, variance, true_spots
 
 
-def test_real_spot_detection():
+def test_real_spot_detection(test_output_dir):
     """Test with real spot detection functions."""
     print("=" * 80)
     print("TEST: Real Spot Detection Coordinate Format")
@@ -268,7 +268,7 @@ def visualize_detection(image, detected_puncta, true_spots):
            family='monospace')
 
     plt.tight_layout()
-    output_path = '/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/unit_tests/real_spot_detection_test.png'
+    output_path = test_output_dir / 'real_spot_detection_test.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"\n6. Visualization saved to: {output_path}")
 
@@ -276,5 +276,7 @@ def visualize_detection(image, detected_puncta, true_spots):
 
 
 if __name__ == "__main__":
-    detected_puncta, true_spots, image = test_real_spot_detection()
+    from pathlib import Path
+
+    detected_puncta, true_spots, image = test_real_spot_detection(Path("/tmp"))
     visualize_detection(image, detected_puncta, true_spots)

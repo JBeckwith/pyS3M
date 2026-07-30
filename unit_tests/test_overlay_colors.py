@@ -139,14 +139,14 @@ def test_three_channel_default(test_output_dir):
     ax.set_title('New Default 3-Channel Colors\n(cyan/yellow/pink)',
                  color='white', fontsize=14, pad=15)
 
-    output_path = '/tmp/color_comparison_three_channel_default.png'
+    output_path = test_output_dir / 'color_comparison_three_channel_default.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     print(f"  Saved: {output_path}")
     print("  New defaults are brighter and more visible!\n")
 
 
-def test_all_available_colors():
+def test_all_available_colors(test_output_dir):
     """Show all available predefined colors."""
     print("Generating palette of all available colors...")
 
@@ -167,10 +167,13 @@ def test_all_available_colors():
     for i, color in enumerate(colors):
         ax = axes[i]
 
+        # multichannel_overlay_plot now requires >=2 images; duplicating the
+        # same image under the same colormap preserves this test's "preview
+        # one solo colour" intent.
         plotter.multichannel_overlay_plot(
             ax,
-            images=[img],
-            cmaps=[color],
+            images=[img, img],
+            cmaps=[color, color],
             sbar='off',
             background_color='black',
         )
@@ -187,7 +190,7 @@ def test_all_available_colors():
     axes[-1].set_facecolor('black')
 
     plt.tight_layout()
-    output_path = '/tmp/color_comparison_all_colors.png'
+    output_path = test_output_dir / 'color_comparison_all_colors.png'
     fig.savefig(output_path, facecolor='black', dpi=150)
     plt.close(fig)
 
@@ -196,19 +199,24 @@ def test_all_available_colors():
 
 
 if __name__ == "__main__":
+    from pathlib import Path
+
     print("=" * 70)
     print("Color Comparison Tests for Multichannel Overlay")
     print("=" * 70)
     print()
 
-    test_red_alternatives()
-    test_dual_channel_combinations()
-    test_three_channel_default()
-    test_all_available_colors()
+    _output_dir = Path("/tmp/color_comparison_output")
+    _output_dir.mkdir(parents=True, exist_ok=True)
+
+    test_red_alternatives(_output_dir)
+    test_dual_channel_combinations(_output_dir)
+    test_three_channel_default(_output_dir)
+    test_all_available_colors(_output_dir)
 
     print("=" * 70)
     print("All color comparison images generated!")
-    print("Output files: /tmp/color_comparison_*.png")
+    print(f"Output files: {_output_dir}/color_comparison_*.png")
     print("=" * 70)
     print()
     print("RECOMMENDATIONS:")

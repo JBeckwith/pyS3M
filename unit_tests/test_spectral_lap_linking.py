@@ -205,6 +205,14 @@ class TestSpectralLAPLinking(unittest.TestCase):
             max_localisation_error=1.0,
             min_photons=100,
             max_photons=1e6,
+            # Molecule C is deliberately stationary (see _make_crossing_trajectories),
+            # and extract_single_molecules_spectral_lap's remove_static=True default
+            # correctly flags/drops it (DBSCAN eps=1.0, min_samples=10 vs. C's 20
+            # localisations jittering by ~0.05px) -- a real, working feature, not a
+            # bug. This test is about the linking/extraction pipeline's molecule
+            # count, not static removal (no other test in this file exercises it),
+            # so disable it here to keep all 3 synthetic molecules.
+            remove_static=False,
         )
 
         # Should return DataFrames

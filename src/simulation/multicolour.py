@@ -44,10 +44,7 @@ class FittingStrategy(Enum):
       the three channels' fitted positions (weight = each channel's fitted photon
       count); total photons = sum of the three channels' photon counts; per-channel
       B/G/R amplitude and background are that channel's value normalised to the sum,
-      as before. Consolidates the old DEMOSAIC/DEMOSAIC_FAST/DEMOSAIC_IG variants into
-      one strategy (see `_fit_demosaic`); DEMOSAIC_FAST/DEMOSAIC_IG below are retained
-      only so old saved-result flags/strategy names still resolve, and are no longer
-      dispatched (see `_perform_fitting`/`_prepare_fitting_data`).
+      as before.
     - STANDARD_IG: Full STANDARD fit on raw Bayer, seeded from a demosaiced initial guess
     """
 
@@ -56,8 +53,6 @@ class FittingStrategy(Enum):
     STANDARD_DATA = "standard_data"  # smooth → model → raw-data weights (unbiased final pass)
     ELLIPTICAL = "elliptical"        # Rotated elliptical Gaussian on Bayer data (11 params)
     DEMOSAIC = "demosaic"
-    DEMOSAIC_FAST = "demosaic_fast"  # deprecated -- consolidated into DEMOSAIC, no longer dispatched
-    DEMOSAIC_IG = "demosaic_ig"      # deprecated -- consolidated into DEMOSAIC, no longer dispatched
     STANDARD_IG = "standard_ig"  # Full STANDARD fit on raw Bayer, seeded from demosaiced fit
 
 
@@ -253,9 +248,6 @@ class FittingResultProcessor:
             "chi_sqr": np.zeros(n_bootstrap),
         }
 
-        # NOTE: iterate over every index (not indices[:-1]) and slice [index, index+3)
-        # explicitly -- using indices[:-1]/indices[i+1] previously dropped the last
-        # punctum of every batch (left zero-filled instead of computed).
         indices = np.arange(0, n_bootstrap * 3, 3)
         for i, index in enumerate(indices):
             end = index + 3
@@ -348,9 +340,6 @@ class FittingResultProcessor:
             "chi_sqr": np.zeros(n_bootstrap),
         }
 
-        # NOTE: iterate over every index (not indices[:-1]) and slice [index, index+3)
-        # explicitly -- using indices[:-1]/indices[i+1] previously dropped the last
-        # punctum of every batch (left zero-filled instead of computed).
         indices = np.arange(0, n_bootstrap * 3, 3)
         for i, index in enumerate(indices):
             end = index + 3
@@ -636,8 +625,6 @@ class MultiC_Sim_Funcs_Refactored:
         )
 
         # Handle different demosaic strategies
-        # NOTE: DEMOSAIC_IG is no longer dispatched (consolidated into DEMOSAIC) --
-        # only STANDARD_IG still needs the demosaiced grayscale initial-guess prep below.
         if strategy == FittingStrategy.STANDARD_IG:
             _, grayscale_photoelectron_data = self.scmos.bayer_demosaic_stack(
                 photoelectron_data, True
@@ -785,15 +772,6 @@ class MultiC_Sim_Funcs_Refactored:
                 camera_params,
                 config,
             )
-        # DEMOSAIC_FAST and DEMOSAIC_IG are deprecated -- consolidated into the single
-        # DEMOSAIC strategy below (demosaic ROI, weighted per-channel fit, photon-weighted
-        # position). Kept commented out (not deleted) for reference:
-        #
-        # elif strategy == FittingStrategy.DEMOSAIC_FAST:
-        #     return self._fit_demosaic_fast(
-        #         photoelectron_data, smoothed_data, weights_map, grayscale_data,
-        #         camera_params, config,
-        #     )
         elif strategy == FittingStrategy.DEMOSAIC:
             return self._fit_demosaic(
                 photoelectron_data, smoothed_data, weights_map, config
@@ -1225,7 +1203,13 @@ class MultiC_Sim_Funcs_Refactored:
             fit_args = []
             valid_indices = []
             for j in range(len(R)):
-                if rgb_total[j] <= 0:
+                # NaN comparisons are always False (NaN <= 0 is False), so a plain
+                # `<= 0` check silently lets failed colour fits (R/G/B all NaN)
+                # through into the wavelength inversion below, which doesn't detect
+                # NaN input either and returns a spurious, deterministic "fit"
+                # instead of failing -- polluting wl_fit with fake, non-random
+                # values for every failed localisation. Explicitly require finite.
+                if not np.isfinite(rgb_total[j]) or rgb_total[j] <= 0:
                     continue
 
                 rgb_norm, rgb_norm_err = _NRF._normalize_rgb_with_errors(
@@ -1402,111 +1386,6 @@ class MultiC_Sim_Funcs_Refactored:
             fit_results_colour[f"bg_{l}"] /= fit_results_colour["background_photons"]
 
         return fit_results_colour
-
-    def _fit_demosaic_fast(
-        self,
-        photoelectron_data: np.ndarray,
-        smoothed_data: np.ndarray,
-        weights_map: np.ndarray,
-        grayscale_data: Tuple,
-        camera_params: CameraParameters,
-        config: SimulationConfig,
-    ) -> pd.DataFrame:
-        """
-        Fast demosaic fitting approach with optimised colour channel processing.
-
-        Similar to IG method but uses optimised fitting for colour channels to reduce
-        computational time while maintaining reasonable accuracy.
-
-        Args:
-            photoelectron_data (np.ndarray): Demosaiced RGB photoelectron data (destacked)
-            smoothed_data (np.ndarray): Smoothed RGB data (destacked)
-            weights_map (np.ndarray): Weight maps for RGB data
-            grayscale_data (Tuple): Grayscale photoelectron and smoothed data
-            camera_params (CameraParameters): Camera parameters
-            config (SimulationConfig): Simulation configuration
-
-        Returns:
-            pd.DataFrame: Averaged fitting results across colour channels
-        """
-        grayscale_photoelectron_data, grayscale_smoothed_data = grayscale_data
-        weights_grayscale_map = self._compute_error_maps(
-            smoothed_data, grayscale_smoothed_data, camera_params
-        )[1]
-
-        # First grayscale fit (similar to IG method)
-        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
-        relative_coords, planes = [], []
-
-        for frame in range(config.n_bootstrap):
-            puncta_tofit.append(grayscale_photoelectron_data[frame, :, :])
-            smoothed_puncta_tofit.append(grayscale_smoothed_data[frame, :, :])
-            weights_tofit.append(weights_grayscale_map[frame, :, :])
-            relative_coords.append((0, 0))
-            planes.append(frame)
-
-        del grayscale_photoelectron_data, grayscale_smoothed_data, weights_grayscale_map
-        gc.collect()
-
-        default_params = ["xc", "yc", "s_x", "s_y", "b", "A", "chi_sqr", "frame"]
-        fit_results, _ = self.image_analysis.fit_puncta_parallel_method(
-            puncta_tofit,
-            smoothed_puncta_tofit,
-            weights_tofit,
-            relative_coords,
-            planes,
-            IAF_FittingStrategy.NOCOLOUR,
-        )
-        fit_results = pd.DataFrame(fit_results, columns=default_params).sort_values(
-            by=["frame"]
-        )
-
-        # Fast colour fitting
-        puncta_tofit, smoothed_puncta_tofit, weights_tofit = [], [], []
-        locparams, planes, masks_tofit = [], [], []
-        masks_3d = np.dstack(
-            [camera_params.masks[x] for x in camera_params.masks.keys()]
-        )
-
-        for frame in range(config.n_bootstrap * 3):
-            puncta_tofit.append(photoelectron_data[frame, :, :])
-            smoothed_puncta_tofit.append(smoothed_data[frame, :, :])
-            weights_tofit.append(weights_map[frame, :, :])
-            masks_tofit.append(masks_3d)
-            idx = frame // 3
-            locparams.append(
-                (
-                    fit_results["xc"][idx],
-                    fit_results["yc"][idx],
-                    fit_results["s_x"][idx],
-                    fit_results["s_y"][idx],
-                )
-            )
-            planes.append(frame)
-
-        del photoelectron_data, smoothed_data, weights_map
-        gc.collect()
-
-        fit_results_colour, _ = self.image_analysis.fit_puncta_parallel_method(
-            puncta_tofit,
-            smoothed_puncta_tofit,
-            weights_tofit,
-            locparams,
-            planes,
-            IAF_FittingStrategy.JUSTCOLOUR,
-            masks=masks_tofit,
-        )
-
-        colour_columns = ["A", "b", "chi_sqr", "frame"]
-        fit_results_colour = pd.DataFrame(
-            fit_results_colour, columns=colour_columns
-        ).sort_values(by=["frame"])
-        fit_results_colour = self.result_processor.colour_fit_averager(
-            fit_results_colour, config.n_bootstrap
-        )
-
-        fit_results_colour = fit_results_colour.drop(columns=["chi_sqr", "frame"], errors="ignore")
-        return pd.concat([fit_results, fit_results_colour], axis=1)
 
     def _fit_demosaic(
         self,
@@ -2657,13 +2536,11 @@ class MultiC_Sim_Funcs_Refactored:
         overwrite: bool = True,
     ) -> None:
         """
-        Unified method for all fitting strategies, replacing the 4 duplicate methods.
+        Unified method for all fitting strategies, replacing the duplicate methods.
 
         This single method handles all fitting approaches through the strategy parameter:
         - FittingStrategy.STANDARD: Direct fitting with Bayer patterns
         - FittingStrategy.DEMOSAIC: Demosaic then fit
-        - FittingStrategy.DEMOSAIC_FAST: Fast demosaic fitting
-        - FittingStrategy.DEMOSAIC_IG: Initial grayscale fit then colour refinement
 
         Args:
             nile_red_wavelength: If provided, will add wavelength fitting columns to raw results
@@ -3082,36 +2959,6 @@ class MultiC_Sim_Funcs_Compatibility(MultiC_Sim_Funcs_Refactored):
             *args, strategy=FittingStrategy.DEMOSAIC, **kwargs
         )
 
-    def test_demosaic_fast_fit_method(self, *args, **kwargs):
-        """
-        Compatibility wrapper for original test_demosaic_fast_fit_method.
-
-        Args:
-            *args: Positional arguments passed to test_simulation_method
-            **kwargs: Keyword arguments passed to test_simulation_method
-
-        Returns:
-            None: Delegates to test_simulation_method with DEMOSAIC_FAST strategy
-        """
-        return self.test_simulation_method(
-            *args, strategy=FittingStrategy.DEMOSAIC_FAST, **kwargs
-        )
-
-    def test_demosaic_IG_fit_method(self, *args, **kwargs):
-        """
-        Compatibility wrapper for original test_demosaic_IG_fit_method.
-
-        Args:
-            *args: Positional arguments passed to test_simulation_method
-            **kwargs: Keyword arguments passed to test_simulation_method
-
-        Returns:
-            None: Delegates to test_simulation_method with DEMOSAIC_IG strategy
-        """
-        return self.test_simulation_method(
-            *args, strategy=FittingStrategy.DEMOSAIC_IG, **kwargs
-        )
-
 
 # Main class for external use - provides both new and legacy interfaces
 # Import standalone function from NileRedFunctions (kept here for backward compatibility)
@@ -3122,11 +2969,9 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
     """
     Main class for multicolour single-molecule localization microscopy simulation and analysis.
 
-    This class consolidates the 4 massive duplicate methods from the original implementation:
+    This class consolidates the massive duplicate methods from the original implementation:
     - test_fit_method (1939 lines)
     - test_demosaic_fit_method (1562 lines)
-    - test_demosaic_fast_fit_method (1190 lines)
-    - test_demosaic_IG_fit_method (788 lines)
 
     Into a single parameterized method with ~40% code reduction while maintaining
     full backward compatibility through the compatibility layer.
@@ -3138,15 +2983,15 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         sim = MultiC_Sim_Funcs()
         sim.test_simulation_method(dye, filters, wavelength, camera_parameters,
                                    save_folder, n_photon_space, smoothing_function,
-                                   strategy=FittingStrategy.DEMOSAIC_IG)
+                                   strategy=FittingStrategy.DEMOSAIC)
 
     Legacy Interface (Backward Compatible)::
 
         sim = MultiC_Sim_Funcs()
-        sim.test_demosaic_IG_fit_method(dye, filters, wavelength, ...)
+        sim.test_demosaic_fit_method(dye, filters, wavelength, ...)
 
     Key Features:
-        - Unified simulation method supporting all 4 fitting strategies
+        - Unified simulation method supporting all fitting strategies
         - Comprehensive error handling and input validation
         - Memory-optimised processing with garbage collection
         - Parallel fitting using multiprocessing

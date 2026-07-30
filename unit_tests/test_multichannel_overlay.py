@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from pyS3M.PlottingBase import PublicationPlotter, AnalysisPlotter
 
 
-def test_basic_two_channel_overlay():
+def test_basic_two_channel_overlay(test_output_dir):
     """Test basic two-channel overlay with default parameters."""
     print("Testing basic two-channel overlay...")
 
@@ -48,7 +48,7 @@ def test_basic_two_channel_overlay():
     )
 
     # Save output
-    output_path = '/tmp/test_multichannel_basic.png'
+    output_path = test_output_dir / 'test_multichannel_basic.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     # Verify file was created
@@ -60,7 +60,7 @@ def test_basic_two_channel_overlay():
     plt.close(fig)
 
 
-def test_three_channel_overlay():
+def test_three_channel_overlay(test_output_dir):
     """Test three-channel overlay."""
     print("Testing three-channel overlay...")
 
@@ -84,7 +84,7 @@ def test_three_channel_overlay():
         scalebarlabel='500 nm',
     )
 
-    output_path = '/tmp/test_multichannel_three.png'
+    output_path = test_output_dir / 'test_multichannel_three.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     assert os.path.exists(output_path)
@@ -92,7 +92,7 @@ def test_three_channel_overlay():
     plt.close(fig)
 
 
-def test_with_colorbars():
+def test_with_colorbars(test_output_dir):
     """Test overlay with colorbars enabled."""
     print("Testing overlay with colorbars...")
 
@@ -113,7 +113,7 @@ def test_with_colorbars():
         pixelsize=5.0,
     )
 
-    output_path = '/tmp/test_multichannel_colorbars.png'
+    output_path = test_output_dir / 'test_multichannel_colorbars.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     assert os.path.exists(output_path)
@@ -121,7 +121,7 @@ def test_with_colorbars():
     plt.close(fig)
 
 
-def test_custom_intensity_scaling():
+def test_custom_intensity_scaling(test_output_dir):
     """Test with custom vmin/vmax values."""
     print("Testing custom intensity scaling...")
 
@@ -142,7 +142,7 @@ def test_custom_intensity_scaling():
         sbar='off',  # No scale bar
     )
 
-    output_path = '/tmp/test_multichannel_custom_scaling.png'
+    output_path = test_output_dir / 'test_multichannel_custom_scaling.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     assert os.path.exists(output_path)
@@ -150,7 +150,7 @@ def test_custom_intensity_scaling():
     plt.close(fig)
 
 
-def test_white_background():
+def test_white_background(test_output_dir):
     """Test with white background instead of black."""
     print("Testing white background...")
 
@@ -172,7 +172,7 @@ def test_white_background():
         scalebarlabel='2 μm',
     )
 
-    output_path = '/tmp/test_multichannel_white_bg.png'
+    output_path = test_output_dir / 'test_multichannel_white_bg.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     assert os.path.exists(output_path)
@@ -225,7 +225,7 @@ def test_error_handling():
     print("✓ All error handling tests passed")
 
 
-def test_analysis_plotter():
+def test_analysis_plotter(test_output_dir):
     """Test that AnalysisPlotter also works with multichannel overlay."""
     print("Testing with AnalysisPlotter...")
 
@@ -244,7 +244,7 @@ def test_analysis_plotter():
         pixelsize=5.0,
     )
 
-    output_path = '/tmp/test_multichannel_analysis.png'
+    output_path = test_output_dir / 'test_multichannel_analysis.png'
     plotter.save_or_show(fig, save_path=output_path)
 
     assert os.path.exists(output_path)
@@ -252,25 +252,26 @@ def test_analysis_plotter():
     plt.close(fig)
 
 
-def run_all_tests():
+def run_all_tests(output_dir):
     """Run all tests."""
     print("=" * 60)
     print("Running multichannel overlay plotting tests...")
     print("=" * 60)
 
-    test_basic_two_channel_overlay()
-    test_three_channel_overlay()
-    test_with_colorbars()
-    test_custom_intensity_scaling()
-    test_white_background()
+    test_basic_two_channel_overlay(output_dir)
+    test_three_channel_overlay(output_dir)
+    test_with_colorbars(output_dir)
+    test_custom_intensity_scaling(output_dir)
+    test_white_background(output_dir)
     test_error_handling()
-    test_analysis_plotter()
+    test_analysis_plotter(output_dir)
 
     print("=" * 60)
-    print("All tests passed! ✓")
+    print("All tests passed! \u2713")
     print("=" * 60)
-    print("\nTest outputs saved to /tmp/test_multichannel_*.png")
+    print(f"\nTest outputs saved to {output_dir}/test_multichannel_*.png")
 
 
 if __name__ == "__main__":
-    run_all_tests()
+    from pathlib import Path
+    run_all_tests(Path("/tmp"))

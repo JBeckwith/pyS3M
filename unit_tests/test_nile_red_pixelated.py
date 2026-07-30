@@ -146,6 +146,17 @@ class TestPixelatedFitting(unittest.TestCase):
             "pixel_QYs": np.vstack([B_qe, G_qe, R_qe]),
             "wavelength": wavelength_array,
         }
+
+        # nile_red_forward_model (used above to generate the synthetic RGB/PSF data)
+        # takes wavelength_left/right directly as the location parameter, but
+        # fit_wavelengths_pixelated's wl_pixel reports the raw spectrum's *centre of
+        # mass* at whatever location parameter the fit recovers (see
+        # fit_nile_red_wavelength/spectral_centre_of_mass) -- the two differ by tens
+        # of nm, so the recovered wl_pixel must be compared against the centre of
+        # mass of the true location parameter, not the location parameter itself.
+        nrf = NileRedFunctions.NileRed_Functions()
+        cls.wavelength_left_com = nrf.spectral_centre_of_mass(cls.wavelength_left, wavelength_array)
+        cls.wavelength_right_com = nrf.spectral_centre_of_mass(cls.wavelength_right, wavelength_array)
         cls.filter_names = [
             "semrock-ff01-650-200",
             "semrock-di03-r514-t1-25x36",
@@ -240,20 +251,21 @@ class TestPixelatedFitting(unittest.TestCase):
         self.assertLess(mean_left, mean_right,
                         f"Left ({mean_left:.1f}) should be < Right ({mean_right:.1f})")
 
-        # Check absolute accuracy: within 10 nm of truth
+        # Check absolute accuracy: within 10 nm of the true location parameter's
+        # spectral centre of mass (what wl_pixel actually estimates -- see setUpClass).
         tolerance = 10.0
         self.assertAlmostEqual(
-            mean_left, self.wavelength_left, delta=tolerance,
-            msg=f"Left mean {mean_left:.1f} nm, expected ~{self.wavelength_left} nm"
+            mean_left, self.wavelength_left_com, delta=tolerance,
+            msg=f"Left mean {mean_left:.1f} nm, expected ~{self.wavelength_left_com:.1f} nm"
         )
         self.assertAlmostEqual(
-            mean_right, self.wavelength_right, delta=tolerance,
-            msg=f"Right mean {mean_right:.1f} nm, expected ~{self.wavelength_right} nm"
+            mean_right, self.wavelength_right_com, delta=tolerance,
+            msg=f"Right mean {mean_right:.1f} nm, expected ~{self.wavelength_right_com:.1f} nm"
         )
 
         print(f"\n  Gradient recovery:")
-        print(f"    Left:  {mean_left:.1f} nm (true: {self.wavelength_left} nm)")
-        print(f"    Right: {mean_right:.1f} nm (true: {self.wavelength_right} nm)")
+        print(f"    Left:  {mean_left:.1f} nm (true centre of mass: {self.wavelength_left_com:.1f} nm)")
+        print(f"    Right: {mean_right:.1f} nm (true centre of mass: {self.wavelength_right_com:.1f} nm)")
 
     def test_min_localisations_threshold(self):
         """Pixels below min_localisations should get NaN."""

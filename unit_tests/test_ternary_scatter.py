@@ -15,7 +15,7 @@ import os
 
 from pyS3M.PlottingBase import PublicationPlotter
 
-def test_basic_scatter():
+def test_basic_scatter(test_output_dir):
     """Test basic ternary scatter plot."""
     print("Testing basic ternary scatter plot...")
 
@@ -51,12 +51,13 @@ def test_basic_scatter():
     ax.set_title('Basic Ternary Scatter Plot')
 
     plt.tight_layout()
-    plt.savefig('/tmp/test_ternary_scatter_basic.png', dpi=150)
-    print("Saved to /tmp/test_ternary_scatter_basic.png")
+    output_path = test_output_dir / 'test_ternary_scatter_basic.png'
+    plt.savefig(output_path, dpi=150)
+    print(f"Saved to {output_path}")
     plt.close()
 
 
-def test_multi_panel():
+def test_multi_panel(test_output_dir):
     """Test ternary scatter in a multi-panel figure."""
     print("\nTesting multi-panel figure with ternary scatter...")
 
@@ -112,12 +113,13 @@ def test_multi_panel():
     cbar.set_label('B value')
 
     # Note: skip tight_layout when using colorbars to avoid layout engine conflicts
-    plt.savefig('/tmp/test_ternary_scatter_multipanel.png', dpi=150, bbox_inches='tight')
-    print("Saved to /tmp/test_ternary_scatter_multipanel.png")
+    output_path = test_output_dir / 'test_ternary_scatter_multipanel.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"Saved to {output_path}")
     plt.close()
 
 
-def test_with_plotter_methods():
+def test_with_plotter_methods(test_output_dir):
     """Test using ternary scatter with PublicationPlotter's one_column_plot."""
     print("\nTesting with PublicationPlotter.one_column_plot()...")
 
@@ -180,12 +182,13 @@ def test_with_plotter_methods():
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig('/tmp/test_ternary_scatter_groups.png', dpi=150)
-    print("Saved to /tmp/test_ternary_scatter_groups.png")
+    output_path = test_output_dir / 'test_ternary_scatter_groups.png'
+    plt.savefig(output_path, dpi=150)
+    print(f"Saved to {output_path}")
     plt.close()
 
 
-def test_colormap_scatter():
+def test_colormap_scatter(test_output_dir):
     """Test ternary scatter with colormap coloring."""
     print("\nTesting ternary scatter with colormap...")
 
@@ -222,8 +225,9 @@ def test_colormap_scatter():
     ax.set_title('Ternary Scatter with Colormap')
 
     # Note: skip tight_layout when using colorbars to avoid layout engine conflicts
-    plt.savefig('/tmp/test_ternary_scatter_colormap.png', dpi=150, bbox_inches='tight')
-    print("Saved to /tmp/test_ternary_scatter_colormap.png")
+    output_path = test_output_dir / 'test_ternary_scatter_colormap.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"Saved to {output_path}")
     plt.close()
 
 
@@ -238,15 +242,18 @@ if __name__ == '__main__':
         print("Install with: pip install mpltern")
         sys.exit(1)
 
-    test_basic_scatter()
-    test_multi_panel()
-    test_with_plotter_methods()
-    test_colormap_scatter()
+    from pathlib import Path
+    _output_dir = Path("/tmp")
+
+    test_basic_scatter(_output_dir)
+    test_multi_panel(_output_dir)
+    test_with_plotter_methods(_output_dir)
+    test_colormap_scatter(_output_dir)
 
     print("\n" + "="*50)
     print("All tests completed successfully!")
     print("\nGenerated files:")
-    print("  - /tmp/test_ternary_scatter_basic.png")
-    print("  - /tmp/test_ternary_scatter_multipanel.png")
-    print("  - /tmp/test_ternary_scatter_groups.png")
-    print("  - /tmp/test_ternary_scatter_colormap.png")
+    print(f"  - {_output_dir / 'test_ternary_scatter_basic.png'}")
+    print(f"  - {_output_dir / 'test_ternary_scatter_multipanel.png'}")
+    print(f"  - {_output_dir / 'test_ternary_scatter_groups.png'}")
+    print(f"  - {_output_dir / 'test_ternary_scatter_colormap.png'}")

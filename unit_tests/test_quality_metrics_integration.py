@@ -46,8 +46,11 @@ def test_quality_metrics_saved_with_roi_filtering():
             (30, 30),   # Center - will pass
         ]
 
-        # Add Bayer pattern - simple RGGB
-        bayer_image = np.zeros((n_frames, height, width))
+        # Start from the Poisson background (not all-zero) -- the fitting
+        # pipeline's _filter_fit_results rejects any fit with bg_R/bg_G/bg_B <= 0,
+        # so an all-zero background causes every fit to be filtered out and no
+        # .h5 file to be written, even though detection/fitting itself succeeds.
+        bayer_image = image_stack.copy()
         for frame in range(n_frames):
             for y, x in spot_locations:
                 # Add bright Gaussian spot
@@ -68,6 +71,19 @@ def test_quality_metrics_saved_with_roi_filtering():
         io = IOFunctions.IO_Functions()
         test_tif = os.path.join(temp_dir, 'test_data_001.tif')
         io.write_tiff(bayer_image.astype(np.uint16), test_tif)
+
+        # _fit_files calls load_metadata_roi(..., use_fallback=False) unconditionally,
+        # so a minimal ImageJ/MicroManager-style metadata sidecar is required even
+        # though this synthetic image has no real ROI offset (full-frame: 0-0-width-height).
+        metadata_path = os.path.join(temp_dir, 'test_data_001_metadata.txt')
+        with open(metadata_path, 'w') as f:
+            f.write(
+                '{\n'
+                '  "FrameKey-0-0-0": {\n'
+                f'    "ROI": "0-0-{width}-{height}"\n'
+                '  }\n'
+                '}\n'
+            )
 
         print(f"Created test TIFF: {test_tif}")
         print(f"Image shape: {bayer_image.shape}")
@@ -116,10 +132,7 @@ def test_quality_metrics_saved_with_roi_filtering():
         h5_files = [f for f in os.listdir(temp_dir) if f.endswith('.h5')]
         print(f"\nCreated .h5 files: {h5_files}")
 
-        if not h5_files:
-            print("WARNING: No .h5 files created - this may be expected if no spots were detected")
-            print("This is not necessarily a failure - the test infrastructure is correct")
-            return
+        assert h5_files, "Expected an .h5 file to be created (spots should have been detected and fitted)"
 
         # Read the results
         import pandas as pd
@@ -129,27 +142,27 @@ def test_quality_metrics_saved_with_roi_filtering():
         print(f"\nResults shape: {results.shape}")
         print(f"Columns: {list(results.columns)}")
 
+        assert len(results) > 0, "Expected at least one fitted localisation after ROI filtering"
+
         # Check for quality metrics columns
         quality_metric_cols = [col for col in results.columns if col.startswith('spot_')]
+        assert quality_metric_cols, (
+            f"Expected quality metric columns (prefixed 'spot_') in results, "
+            f"got columns: {list(results.columns)}"
+        )
 
-        if quality_metric_cols:
-            print(f"\n✓ Quality metrics found in results: {quality_metric_cols}")
-            for col in quality_metric_cols:
-                print(f"  {col}: {len(results[col])} values")
-                print(f"    Range: [{results[col].min():.2f}, {results[col].max():.2f}]")
+        print(f"\n✓ Quality metrics found in results: {quality_metric_cols}")
+        for col in quality_metric_cols:
+            print(f"  {col}: {len(results[col])} values")
+            print(f"    Range: [{results[col].min():.2f}, {results[col].max():.2f}]")
 
-            # Verify all quality metrics have same length as fit results
-            for col in quality_metric_cols:
-                assert len(results[col]) == len(results), \
-                    f"Quality metric '{col}' length mismatch: {len(results[col])} vs {len(results)}"
+        # Verify all quality metrics have same length as fit results
+        for col in quality_metric_cols:
+            assert len(results[col]) == len(results), \
+                f"Quality metric '{col}' length mismatch: {len(results[col])} vs {len(results)}"
 
-            print("\n✓ All quality metrics have correct length matching fit results")
-            print("✓ Quality metrics successfully saved despite ROI filtering!")
-
-        else:
-            print("\nWARNING: No quality metrics columns found in results")
-            print("Available columns:", list(results.columns))
-            print("This suggests quality metrics were not added to the results")
+        print("\n✓ All quality metrics have correct length matching fit results")
+        print("✓ Quality metrics successfully saved despite ROI filtering!")
 
     finally:
         # Cleanup
