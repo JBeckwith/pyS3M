@@ -217,15 +217,9 @@ def test_error_handling():
         assert "colormaps" in str(e)
         print("  ✓ Colormap count error caught correctly")
 
-    # Test 4: Invalid alpha value (should fail)
-    try:
-        plotter.multichannel_overlay_plot(
-            ax, images=[img1, img2], alphas=[0.5, 1.5]
-        )
-        assert False, "Should have raised ValueError for invalid alpha"
-    except ValueError as e:
-        assert "Alpha" in str(e)
-        print("  ✓ Invalid alpha error caught correctly")
+    # Note: `alphas` used to be validated here (out-of-range values raised
+    # ValueError), but it's now a deprecated, no-op parameter (see
+    # PlottingBase.py's multichannel_overlay_plot) -- nothing left to validate.
 
     plt.close(fig)
     print("✓ All error handling tests passed")

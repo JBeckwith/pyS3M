@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from pyS3M.PlottingBase import PublicationPlotter
 
 
-def test_red_alternatives():
+def test_red_alternatives(test_output_dir):
     """Compare red with brighter alternatives (pink, coral, orange, salmon, tomato)."""
     print("Testing red alternatives for dark background visibility...")
 
@@ -35,10 +35,13 @@ def test_red_alternatives():
         ax = axes[i]
         ax.set_facecolor('black')
 
+        # multichannel_overlay_plot now requires >=2 images; the same image
+        # duplicated under the same colormap gives the same solo-colour preview
+        # this test actually wants (no numeric assertions here, purely visual).
         plotter.multichannel_overlay_plot(
             ax,
-            images=[img],
-            cmaps=[color],
+            images=[img, img],
+            cmaps=[color, color],
             sbar='off',
             background_color='black',
         )
@@ -50,7 +53,7 @@ def test_red_alternatives():
     axes[-1].set_facecolor('black')
 
     plt.tight_layout()
-    output_path = '/tmp/color_comparison_red_alternatives.png'
+    output_path = test_output_dir / 'color_comparison_red_alternatives.png'
     fig.savefig(output_path, facecolor='black', dpi=150)
     plt.close(fig)
 
@@ -58,7 +61,7 @@ def test_red_alternatives():
     print("  Recommendation: 'pink', 'coral', or 'orange' are much brighter than 'red'\n")
 
 
-def test_dual_channel_combinations():
+def test_dual_channel_combinations(test_output_dir):
     """Test recommended dual-channel color combinations."""
     print("Testing dual-channel color combinations...")
 
@@ -99,14 +102,14 @@ def test_dual_channel_combinations():
         ax.set_title(f"{name}: {cmaps[0]}/{cmaps[1]}", color='white', fontsize=11, pad=10)
 
     plt.tight_layout()
-    output_path = '/tmp/color_comparison_dual_channel.png'
+    output_path = test_output_dir / 'color_comparison_dual_channel.png'
     fig.savefig(output_path, facecolor='black', dpi=150)
     plt.close(fig)
 
     print(f"  Saved comparison: {output_path}\n")
 
 
-def test_three_channel_default():
+def test_three_channel_default(test_output_dir):
     """Test the new default color scheme for 3 channels."""
     print("Testing new 3-channel default colors (cyan/yellow/pink)...")
 

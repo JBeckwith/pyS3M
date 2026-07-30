@@ -64,7 +64,7 @@ def create_test_image_with_metadata():
     return image, variance, gain_map, offset_map, read_noise, rqe, true_spots, width, height
 
 
-def test_full_pipeline():
+def test_full_pipeline(test_output_dir):
     """Test the full detection and extraction pipeline."""
     print("=" * 80)
     print("COMPREHENSIVE TEST: Real Detection + Real Extraction")
@@ -235,7 +235,7 @@ def test_full_pipeline():
                    family='monospace', color=color, weight='bold')
 
     plt.tight_layout()
-    output_path = '/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/unit_tests/full_pipeline_test.png'
+    output_path = test_output_dir / 'full_pipeline_test.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"   Saved to: {output_path}")
 

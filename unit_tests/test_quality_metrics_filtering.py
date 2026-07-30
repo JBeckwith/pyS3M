@@ -6,9 +6,24 @@ filtered out for being too close to image edges).
 """
 import sys
 import os
+import types
 
 import numpy as np
 from pyS3M.SR_Functions import SuperRes_Functions
+
+
+def _identity_smoothing():
+    """Identity smoothing_function object matching IOFunctions.apply_smoothing's
+    expected interface (.args/.data_arg/.smoothing_function) -- a bare callable
+    isn't enough since apply_smoothing does
+    `smoothing_function.smoothing_function(**{**smoothing_function.args,
+    smoothing_function.data_arg: data})` internally, not `smoothing_function(data)`.
+    """
+    sf = types.SimpleNamespace()
+    sf.args = {}
+    sf.data_arg = 'image'
+    sf.smoothing_function = lambda image: image
+    return sf
 
 
 def test_quality_metrics_filtering():
@@ -48,9 +63,8 @@ def test_quality_metrics_filtering():
     masks[1::2, ::2, 1] = 1   # G
     masks[1::2, 1::2, 2] = 1  # B
 
-    # Define smoothing function (identity for testing)
-    def smoothing_function(data):
-        return data
+    # Identity smoothing function (for testing)
+    smoothing_function = _identity_smoothing()
 
     # Read noise
     read_noise = 10.0
@@ -119,8 +133,7 @@ def test_no_quality_metrics():
     masks[1::2, ::2, 1] = 1
     masks[1::2, 1::2, 2] = 1
 
-    def smoothing_function(data):
-        return data
+    smoothing_function = _identity_smoothing()
 
     # Call WITHOUT quality_metrics
     results = sr._process_detected_puncta_batch(

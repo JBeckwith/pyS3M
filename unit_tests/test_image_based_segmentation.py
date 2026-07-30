@@ -20,6 +20,8 @@ import pandas as pd
 
 # Add src to path
 
+import pytest
+
 from pyS3M.postprocess import segment_locs_by_rendered_image
 import pyS3M.IOFunctions as IOFunctions
 
@@ -74,8 +76,8 @@ def test_basic_segmentation():
         height=250,
         oversampling=8,
         pixel_size_nm=1.0,  # Treat coordinates as nanometers for test
-        min_area_um2=0.001,  # 0.001 µm² = 1000 nm² (very small for test)
-        min_localizations=50,  # Lower threshold for test data
+        min_area_nm2=1000.0,  # 0.001 µm² = 1000 nm² (very small for test)
+        min_localisations=50,  # Lower threshold for test data
         threshold_method="percentile",  # Use percentile instead of otsu for sparse data
         callback="console",
     )
@@ -91,6 +93,13 @@ def test_basic_segmentation():
     return aggregate_locs, stats
 
 
+@pytest.mark.skip(
+    reason="Needs an 'h5_file_path' fixture that is not defined anywhere "
+    "(not in this file, not in any conftest.py) -- this test could never "
+    "have run. Needs a real fixture (e.g. parametrized via a --h5-file-path "
+    "CLI option, or a bundled small localisations.h5 fixture) before it can "
+    "be un-skipped."
+)
 def test_with_real_data(h5_file_path):
     """Test with real experimental data."""
     print("\n" + "=" * 60)
@@ -116,8 +125,8 @@ def test_with_real_data(h5_file_path):
         width=width,
         height=height,
         oversampling=8,
-        min_area_um2=3.1,  # 3.1 µm² minimum area
-        min_localizations=100,
+        min_area_nm2=3_100_000.0,  # 3.1 µm² minimum area
+        min_localisations=100,
         threshold_method="li",  # Li thresholding often works better for real data
         callback="console",
     )
@@ -188,7 +197,7 @@ def compare_with_dbscan(locs, width, height):
         height=height,
         pixel_size_nm=1.0,  # Treat coordinates as nanometers for test
         min_area_um2=0.001,  # 0.001 µm² = 1000 nm²
-        min_localizations=50,
+        min_localisations=50,
         threshold_method="percentile",
         callback=None,  # No progress bar for timing
     )

@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def test_coordinate_system():
+def test_coordinate_system(test_output_dir):
     """
     Test that proves [y, x] indexing is correct for image coordinates (x, y).
     """
@@ -149,9 +149,9 @@ def test_coordinate_system():
     axes[2].set_ylabel('y (rows)')
 
     plt.tight_layout()
-    plt.savefig('/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/unit_tests/array_indexing_test.png',
-                dpi=150, bbox_inches='tight')
-    print(f"\nVisualization saved to: unit_tests/array_indexing_test.png")
+    output_path = test_output_dir / 'array_indexing_test.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"\nVisualization saved to: {output_path}")
 
     return test_passed
 

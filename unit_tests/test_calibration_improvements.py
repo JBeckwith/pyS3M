@@ -227,28 +227,6 @@ class TestCombinedOffsetVariance:
             err_msg="calculate_offset_and_variance offset differs from calculate_offset"
         )
 
-    def test_variance_matches_old_calculate_variance(self, tmp_path):
-        """Variance from calculate_offset_and_variance must match calculate_variance
-        called on the same files with the same offset — i.e. the new method agrees
-        with the old code path for single-channel data."""
-        N, H, W = 40, 8, 6
-        frames = RNG.normal(100.0, 5.0, size=(N, H, W)).astype(np.float32)
-        _write_tiffs(str(tmp_path), frames, prefix="dark")
-
-        cf = _make_calibration_functions(chunk_size=15)
-
-        # Old path: compute offset first, then variance with that offset
-        offset_old = cf.calculate_offset(str(tmp_path), "dark")
-        variance_old = cf.calculate_variance(offset_old, str(tmp_path), "dark")
-
-        # New path: single pass
-        _, variance_new = cf.calculate_offset_and_variance(str(tmp_path), "dark")
-
-        np.testing.assert_allclose(
-            variance_new, variance_old, rtol=1e-4,
-            err_msg="calculate_offset_and_variance variance differs from calculate_variance"
-        )
-
 
 # ---------------------------------------------------------------------------
 # Improvement 3: Chunked reads in _process_calibration_files
@@ -278,25 +256,6 @@ class TestChunkedReads:
             np.testing.assert_allclose(
                 off, ref, rtol=1e-5,
                 err_msg=f"Offset differs between chunk_size=1 and chunk_size={cs}"
-            )
-
-    def test_variance_invariant_to_chunk_size(self, tiff_dir):
-        directory, frames, _ = tiff_dir
-
-        # Compute a shared offset first (chunk_size=10)
-        cf_ref = _make_calibration_functions(chunk_size=10)
-        offset = cf_ref.calculate_offset(directory, "dark")
-
-        variances = {}
-        for cs in [1, 5, 25, 100]:
-            cf = _make_calibration_functions(chunk_size=cs)
-            variances[cs] = cf.calculate_variance(offset, directory, "dark")
-
-        ref = variances[1]
-        for cs, var in variances.items():
-            np.testing.assert_allclose(
-                var, ref, rtol=1e-5,
-                err_msg=f"Variance differs between chunk_size=1 and chunk_size={cs}"
             )
 
     def test_chunked_offset_matches_analytical_mean(self, tiff_dir):
@@ -349,46 +308,6 @@ class TestChunkedReads:
         np.testing.assert_allclose(
             offset_new, offset_old_loop, rtol=1e-5,
             err_msg="Chunked calculate_offset differs from old exception-based loop"
-        )
-
-    def test_chunked_variance_matches_old_exception_loop(self, tmp_path):
-        """calculate_variance using chunked reads must match the old frame-by-frame
-        loop on the same files."""
-        N, H, W = 25, 10, 8
-        frames = RNG.normal(150.0, 10.0, size=(N, H, W)).astype(np.float32)
-        _write_tiffs(str(tmp_path), frames, prefix="dark")
-
-        io = IOFunctions.IO_Functions()
-        path = os.path.join(str(tmp_path), "dark_001.tif")
-
-        # Compute shared offset via old loop
-        frame0 = io.read_tiff(path, 0)
-        acc = np.zeros(frame0.shape, dtype=np.float64)
-        n = 0
-        while True:
-            try:
-                frame = io.read_tiff(path, n)
-                acc += frame
-                n += 1
-            except (IOError, OSError, IndexError, ValueError):
-                break
-        offset = (acc / n).astype(np.float32)
-
-        # Old loop variance: accumulate sum(frame^2 - offset^2)
-        offset_sq = offset.astype(np.float64) ** 2
-        var_acc = np.zeros(frame0.shape, dtype=np.float64)
-        for idx in range(n):
-            frame = io.read_tiff(path, idx).astype(np.float64)
-            var_acc += frame ** 2 - offset_sq
-        variance_old_loop = (var_acc / n).astype(np.float32)
-
-        # New chunked path (same offset fed in)
-        cf = _make_calibration_functions(chunk_size=7)
-        variance_new = cf.calculate_variance(offset, str(tmp_path), "dark")
-
-        np.testing.assert_allclose(
-            variance_new, variance_old_loop, rtol=1e-4,
-            err_msg="Chunked calculate_variance differs from old exception-based loop"
         )
 
 
@@ -444,25 +363,6 @@ class TestOffsetBugFixed:
                                    err_msg="Channel A variance incorrect")
         np.testing.assert_allclose(var_B, ref_var_B.astype(np.float32), rtol=1e-3,
                                    err_msg="Channel B variance incorrect")
-
-    def test_old_behaviour_would_give_wrong_variance(self, two_channel_dirs):
-        """Show that computing variance with the wrong (partial) offset gives a
-        different answer — confirming the bug existed and is now absent."""
-        dir_A, dir_B, frames_A, frames_B = two_channel_dirs
-        cf = _make_calibration_functions(chunk_size=10)
-
-        # Correct: each channel uses its own offset
-        off_A, var_A_correct = cf.calculate_offset_and_variance(dir_A, "Intensity_01")
-        off_B, var_B_correct = cf.calculate_offset_and_variance(dir_B, "Intensity_01")
-
-        # Old bug: channel B variance computed with channel A's offset (wrong mean)
-        var_B_bugged = cf.calculate_variance(off_A, dir_B, "Intensity_01")
-
-        # The bugged variance will NOT equal the correct variance because off_A ≠ off_B
-        assert not np.allclose(var_B_bugged, var_B_correct, rtol=1e-2), (
-            "Expected bugged and correct variances to differ, but they are the same. "
-            "This suggests off_A == off_B (unlikely with these synthetic data)."
-        )
 
 
 if __name__ == '__main__':

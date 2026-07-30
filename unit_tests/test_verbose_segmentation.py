@@ -83,8 +83,8 @@ def test_verbose_mode():
         height=2500,
         oversampling=8,
         pixel_size_nm=1.0,  # Treat coordinates as nanometers
-        min_area_um2=0.001,  # 0.001 µm² = 1000 nm²
-        min_localizations=50,
+        min_area_nm2=1000.0,  # 0.001 µm² = 1000 nm²
+        min_localisations=50,
         threshold_method="li",  # Li works better for sparse data
         callback=None,  # No console output
         verbose=True,  # Enable diagnostic plots

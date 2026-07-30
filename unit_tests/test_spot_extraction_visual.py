@@ -126,7 +126,7 @@ def extract_roi_correct(image, xcentre, ycentre, roi_size=16):
     return roi, (xmin, xmax, ymin, ymax)
 
 
-def test_spot_extraction():
+def test_spot_extraction(test_output_dir):
     """
     Main test function.
     """
@@ -277,7 +277,7 @@ def test_spot_extraction():
 
     plt.suptitle('Spot Detection and ROI Extraction Test', fontsize=14, weight='bold')
 
-    output_path = '/home/jbeckwith/Documents/pCloud/Chemistry/Lee/Code/Python/pyBayerSMLM/unit_tests/spot_extraction_visual_test.png'
+    output_path = test_output_dir / 'spot_extraction_visual_test.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"   Saved to: {output_path}")
 
