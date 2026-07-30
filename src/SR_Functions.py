@@ -164,7 +164,9 @@ class SuperRes_Functions:
         - Removes NaN values
         - Filters coordinates to be within image bounds
         - Filters sigma values to reasonable PSF range (0-3 pixels)
-        - Ensures positive amplitudes and backgrounds for all color channels
+        - Ensures positive amplitudes and backgrounds -- per-channel (A_B/A_G/A_R,
+          bg_B/bg_G/bg_R) for STANDARD/ELLIPTICAL-style results, or single-column
+          (A, bg) for NOCOLOUR-style results, depending on which are present.
 
         Args:
             fit_results: Structured array of localization results
@@ -185,13 +187,25 @@ class SuperRes_Functions:
             & (fit_results["s_x"] < 3)
             & (fit_results["s_y"] > 0)
             & (fit_results["s_y"] < 3)
-            & (fit_results["A_B"] > 0)
-            & (fit_results["A_G"] > 0)
-            & (fit_results["A_R"] > 0)
-            & (fit_results["bg_B"] > 0)
-            & (fit_results["bg_G"] > 0)
-            & (fit_results["bg_R"] > 0)
         )
+
+        if all(c in fit_results.columns for c in ("A_B", "A_G", "A_R")):
+            mask &= (
+                (fit_results["A_B"] > 0)
+                & (fit_results["A_G"] > 0)
+                & (fit_results["A_R"] > 0)
+            )
+        elif "A" in fit_results.columns:
+            mask &= fit_results["A"] > 0
+
+        if all(c in fit_results.columns for c in ("bg_B", "bg_G", "bg_R")):
+            mask &= (
+                (fit_results["bg_B"] > 0)
+                & (fit_results["bg_G"] > 0)
+                & (fit_results["bg_R"] > 0)
+            )
+        elif "bg" in fit_results.columns:
+            mask &= fit_results["bg"] > 0
 
         return fit_results[mask].reset_index(drop=True)
 
