@@ -9,7 +9,7 @@ import numpy as np
 from numba import jit
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def gaussian_unscaled_model(
     array_tofill: np.ndarray,
     x: np.ndarray,
@@ -41,7 +41,7 @@ def gaussian_unscaled_model(
     return array_tofill
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_justcolour_model_nobounds(
     params,
     x,
@@ -79,7 +79,7 @@ def WLS_justcolour_model_nobounds(
     return gauss_2d
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_nocolour_model_nobounds(
     params,
     data,
@@ -117,7 +117,7 @@ def WLS_nocolour_model_nobounds(
     return gauss_2d
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_rawcolour_model_nobounds(
     params,
     data,
@@ -165,7 +165,7 @@ def WLS_rawcolour_model_nobounds(
     return gauss_2d
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_model_nobounds(
     params,
     masks,
@@ -213,7 +213,7 @@ def WLS_model_nobounds(
     return gauss_2d
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_chi_nobounds(params, data, masks, weights, size, ravelsize):
     """
     Calculate the chi vector for the weighted least squares model.
@@ -235,7 +235,7 @@ def WLS_chi_nobounds(params, data, masks, weights, size, ravelsize):
     return np.sqrt(chi.ravel())
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_chi_nocolour_nobounds(params, data, weights, size, ravelsize):
     """
     Calculate the chi vector for the weighted least squares model.
@@ -256,7 +256,7 @@ def WLS_chi_nocolour_nobounds(params, data, weights, size, ravelsize):
     return np.sqrt(chi.ravel())
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
     """
     Calculate the chi vector for the weighted least squares model.
@@ -277,7 +277,7 @@ def WLS_chi_justcolour_nobounds(params, data, weights, size, locparams):
     return np.sqrt(chi.ravel())
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_rawcolour_chi_nobounds(
     params, data, masks, weights, size, ravelsize, locparams
 ):
@@ -312,7 +312,7 @@ def WLS_rawcolour_chi_nobounds(
     return np.sqrt(chi.ravel())
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def _sum_and_centre_of_mass(smoothed_data, size):
     x_ig = 0.0
     y_ig = 0.0
@@ -327,7 +327,7 @@ def _sum_and_centre_of_mass(smoothed_data, size):
     return np.abs(A), np.abs(x_ig), np.abs(y_ig)
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def _initial_sigma(smoothed_data, x_ig, y_ig, A, size):
     sum_deviation_y = 0.0
     sum_deviation_x = 0.0
@@ -342,7 +342,7 @@ def _initial_sigma(smoothed_data, x_ig, y_ig, A, size):
     return np.abs(sy) * 0.5, np.abs(sx) * 0.5
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def initial_nocolour_guess(smoothed_data, raw_data):
     """
     initial_guess of gaussian input parameters.
@@ -370,7 +370,7 @@ def initial_nocolour_guess(smoothed_data, raw_data):
     return x_ig, y_ig, sigma_y, sigma_x, b, A
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def initial_justcolour_guess(smoothed_data, raw_data):
     """
     initial_guess of gaussian input parameters.
@@ -391,7 +391,7 @@ def initial_justcolour_guess(smoothed_data, raw_data):
     return A, b
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def initial_rawcolour_guess(smoothed_data, raw_data, masks):
     """
     initial_guess of gaussian input parameters.
@@ -421,7 +421,7 @@ def initial_rawcolour_guess(smoothed_data, raw_data, masks):
     return result
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def initial_guess(smoothed_data, raw_data, masks):
     """
     initial_guess of gaussian input parameters.
@@ -472,7 +472,7 @@ def initial_guess(smoothed_data, raw_data, masks):
     return result
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def gaussian_unscaled_model_elliptical(
     array_tofill: np.ndarray,
     x: np.ndarray,
@@ -507,7 +507,7 @@ def gaussian_unscaled_model_elliptical(
     return array_tofill
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_model_elliptical_nobounds(
     params,
     masks,
@@ -553,7 +553,7 @@ def WLS_model_elliptical_nobounds(
     return gauss_2d
 
 
-@jit(nopython=True, nogil=True)
+@jit(nopython=True, nogil=True, cache=True)
 def WLS_chi_elliptical_nobounds(params, data, masks, weights, size, ravelsize):
     """Chi residual vector for the 11-parameter elliptical Gaussian model.
 
@@ -576,7 +576,7 @@ def WLS_chi_elliptical_nobounds(params, data, masks, weights, size, ravelsize):
     return np.sqrt(chi.ravel())
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def _initial_theta(smoothed_data, x0, y0, size):
     """Estimate rotation angle from image second moments (principal axis).
 
@@ -606,7 +606,7 @@ def _initial_theta(smoothed_data, x0, y0, size):
     return theta
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def initial_guess_elliptical(smoothed_data, raw_data, masks):
     """Initial parameter guess for elliptical Gaussian fitting.
 
@@ -637,7 +637,7 @@ def initial_guess_elliptical(smoothed_data, raw_data, masks):
     )
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def compute_A_median(smoothed_data):
     """Compute median-subtracted amplitude: sum(smoothed - median(smoothed)).
     Returns ~0 for symmetric noise, >0 for real spots."""
