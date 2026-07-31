@@ -548,10 +548,18 @@ class IO_Functions:
 
         metadatadict = data[key]
         ROI = metadatadict["ROI"].split("-")
-        # ROI format from ImageJ/MicroManager is: y-x-width-height
-        # Example: "728-456-904-812" means y=728, x=456, width=904, height=812
-        y_coord = int(ROI[0])  # top (row start)
-        x_coord = int(ROI[1])  # left (column start)
+        # ROI format from ImageJ/MicroManager is: x-y-width-height, matching
+        # MMCore.getROI(label, x, y, xSize, ySize)'s own parameter order
+        # (https://javadoc.scijava.org/Micro-Manager-Core/mmcorej/CMMCore.html).
+        # Example: "728-456-904-812" means x=728, y=456, width=904, height=812.
+        # (Previously read as y-x-width-height -- silently within-bounds on every
+        # Ximea dataset checked since their ROI offsets are small enough that either
+        # ordering happens to fit the sensor, but confirmed wrong against a ZWO
+        # dataset whose larger row offset overflowed the sensor under the old
+        # ordering: "1268-480-1064-1080" on a (2160, 3840) sensor only fits as
+        # x=1268, y=480, not y=1268, x=480.)
+        x_coord = int(ROI[0])  # left (column start)
+        y_coord = int(ROI[1])  # top (row start)
         width = int(ROI[2])  # extent in x-direction (columns)
         height = int(ROI[3])  # extent in y-direction (rows)
 
