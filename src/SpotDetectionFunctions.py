@@ -415,7 +415,16 @@ class SpotDetection_Functions:
         if pixel_size is None:
             pixel_size = self.pixel_size
         if variance is not None:
-            image_for_detection = np.divide(image, variance)
+            # Whitening for a matched filter under Gaussian noise divides by the
+            # noise standard deviation (sigma), not the variance (sigma^2) --
+            # `variance` here is a genuine ADU^2 calibration map (see
+            # CalibrationFunctions.py's own readnoise = sqrt(variance) / gain), so
+            # dividing by it directly (instead of its square root) over-suppresses
+            # signal by an extra, spatially-varying factor of sigma wherever noise
+            # is non-uniform, degrading detection on real (non-uniform-variance)
+            # data. Nothing downstream re-normalises by variance, so this is not
+            # part of a larger compensating formula.
+            image_for_detection = np.divide(image, np.sqrt(variance))
         else:
             image_for_detection = image
         if psf_fun is None:
