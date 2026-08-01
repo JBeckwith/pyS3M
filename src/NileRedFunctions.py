@@ -640,8 +640,8 @@ class NileRed_Functions:
         propagated_err = 1.0 / np.sqrt(np.sum(1.0 / errors ** 2))
         return weighted_avg, propagated_err
 
-    @staticmethod
     def _parallel_fit_wavelengths(
+        self,
         fit_args: list,
         n_workers: int,
         verbose: bool = True,
