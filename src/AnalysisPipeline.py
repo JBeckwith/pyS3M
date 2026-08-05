@@ -215,7 +215,7 @@ class AnalysisPipeline:
             raise RuntimeError(
                 f"calibrate_multicolour_camera returned None for {cal_dir}"
             )
-        offset, variance, gain, rqe, read_noise = result
+        offset, variance, gain, read_noise, rqe = result
         self.offset_map = offset
         self.variance = variance
         self.gain_map = gain

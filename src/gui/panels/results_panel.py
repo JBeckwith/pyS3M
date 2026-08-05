@@ -122,6 +122,9 @@ class ResultsPanel(QWidget):
         self._tabs = QTabWidget()
         lay.addWidget(self._tabs)
 
+        self._calibration_tab = _FigureTab("Run CMOS calibration to see the computed maps.")
+        self._tabs.addTab(self._calibration_tab, "CMOS Calibration")
+
         self._preview_tab = _FigureTab("Run fitting to see a preview.")
         self._tabs.addTab(self._preview_tab, "Preview")
 
@@ -165,27 +168,36 @@ class ResultsPanel(QWidget):
         self._sim_tab = _FigureTab("Configure and run a simulation to see exemplar PSFs.")
         self._tabs.addTab(self._sim_tab, "Simulation")
 
+        self._unmixing_tab = _FigureTab("Run channel unmixing to see the spectral/spatial overlay.")
+        self._tabs.addTab(self._unmixing_tab, "Unmixing")
+
         self._n_fovs = 1
         self._current_fov_idx = 0
         self._fov_prev_btn.clicked.connect(self._on_fov_prev)
         self._fov_next_btn.clicked.connect(self._on_fov_next)
 
         self._tab_index = {
+            "cmos_calibration": self._tabs.indexOf(self._calibration_tab),
             "preview": self._tabs.indexOf(self._preview_tab),
             "localisations": self._tabs.indexOf(self._locs_container),
             "statistics": self._tabs.indexOf(self._stats_tab),
             "drift": self._tabs.indexOf(self._drift_tab),
             "frc": self._tabs.indexOf(self._frc_tab),
             "simulation": self._tabs.indexOf(self._sim_tab),
+            "channel_unmixing": self._tabs.indexOf(self._unmixing_tab),
         }
         # Which result tabs are relevant for each controls-dock context. Contexts
-        # not listed here (e.g. still-placeholder Channel Unmixing/Nile Red tabs)
-        # fall back to showing everything, since they don't yet produce their
-        # own dedicated result tab to switch to.
+        # not listed here (e.g. still-placeholder Nile Red tab) fall back to
+        # showing everything, since they don't yet produce their own dedicated
+        # result tab to switch to.
         self._context_tabs = {
+            "cmos_calibration": {"cmos_calibration"},
             "analysis": {"preview", "localisations", "statistics", "drift"},
             "simulation": {"simulation"},
             "frc": {"frc"},
+            # includes "frc": per-channel FRC (triggered from this tab once
+            # Channel Unmixing has produced a `channel` column) lands there.
+            "channel_unmixing": {"channel_unmixing", "frc"},
         }
 
     # ── FOV navigation ────────────────────────────────────────────────
@@ -219,6 +231,10 @@ class ResultsPanel(QWidget):
 
     # ── public figure setters ─────────────────────────────────────────
 
+    def set_calibration_figure(self, fig: Figure):
+        self._calibration_tab.set_figure(fig)
+        self._tabs.setCurrentWidget(self._calibration_tab)
+
     def set_preview_figure(self, fig: Figure):
         self._preview_tab.set_figure(fig)
         self._tabs.setCurrentWidget(self._preview_tab)
@@ -241,6 +257,10 @@ class ResultsPanel(QWidget):
     def set_simulation_figure(self, fig: Figure):
         self._sim_tab.set_figure(fig)
         self._tabs.setCurrentWidget(self._sim_tab)
+
+    def set_unmixing_figure(self, fig: Figure):
+        self._unmixing_tab.set_figure(fig)
+        self._tabs.setCurrentWidget(self._unmixing_tab)
 
     # ── context-driven tab visibility ─────────────────────────────────
 

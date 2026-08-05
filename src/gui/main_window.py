@@ -12,11 +12,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 
+from pyS3M.gui.panels.calibration_panel import CalibrationCalcPanel
 from pyS3M.gui.panels.setup_panel import SetupPanel
 from pyS3M.gui.panels.fitting_panel import FittingPanel
 from pyS3M.gui.panels.postproc_panel import PostProcPanel
 from pyS3M.gui.panels.drift_panel import DriftPanel
 from pyS3M.gui.panels.frc_panel import FRCPanel
+from pyS3M.gui.panels.channel_unmixing_panel import ChannelUnmixingPanel
 from pyS3M.gui.panels.results_panel import ResultsPanel
 from pyS3M.gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
 from pyS3M.gui.widgets.log_widget import LogWidget, QtLogHandler
@@ -38,7 +40,7 @@ class MainWindow(QMainWindow):
     state_changed = pyqtSignal(str)
 
     # Controls-dock tab index -> ResultsPanel context key (see _on_ctrl_tab_changed).
-    _CTRL_TAB_CONTEXTS = ("analysis", "simulation", "frc", "channel_unmixing", "nile_red")
+    _CTRL_TAB_CONTEXTS = ("analysis", "simulation", "frc", "channel_unmixing", "nile_red", "cmos_calibration")
 
     def __init__(self):
         super().__init__()
@@ -69,12 +71,14 @@ class MainWindow(QMainWindow):
         self.results_panel = ResultsPanel(self)
         self.setCentralWidget(self.results_panel)
 
+        self.calibration_panel = CalibrationCalcPanel(self)
         self.setup_panel = SetupPanel(self)
         self.fitting_panel = FittingPanel(self)
         self.postproc_panel = PostProcPanel(self)
         self.drift_panel = DriftPanel(self)
         self.simulation_panel = SimulationPanel(self)
         self.frc_panel = FRCPanel(self)
+        self.channel_unmixing_panel = ChannelUnmixingPanel(self)
 
         container = QWidget()
         vbox = QVBoxLayout(container)
@@ -107,8 +111,9 @@ class MainWindow(QMainWindow):
             return lbl
 
         self.ctrl_tabs.addTab(self.frc_panel, "FRC")
-        self.ctrl_tabs.addTab(_placeholder("Channel unmixing — coming soon."), "Channel Unmixing")
+        self.ctrl_tabs.addTab(self.channel_unmixing_panel, "Unmixing")
         self.ctrl_tabs.addTab(_placeholder("Nile Red analysis — coming soon."), "Nile Red")
+        self.ctrl_tabs.addTab(self.calibration_panel, "CMOS Calibration")
 
         ctrl_dock = QDockWidget("Controls", self)
         ctrl_dock.setWidget(self.ctrl_tabs)
@@ -147,7 +152,10 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.postproc_panel.on_state_changed)
         self.state_changed.connect(self.drift_panel.on_state_changed)
         self.state_changed.connect(self.frc_panel.on_state_changed)
+        self.state_changed.connect(self.channel_unmixing_panel.on_state_changed)
+        self.state_changed.connect(self.simulation_panel.on_state_changed)
 
+        self.calibration_panel.calibration_compute_requested.connect(self._on_run_calibration)
         self.setup_panel.calibration_requested.connect(self._on_load_calibration)
         self.fitting_panel.preview_requested.connect(self._on_preview_fitting)
         self.fitting_panel.fit_requested.connect(self._on_run_fitting)
@@ -157,8 +165,11 @@ class MainWindow(QMainWindow):
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
         self.drift_panel.undrift_requested.connect(self._on_undrift)
         self.frc_panel.frc_requested.connect(self._on_run_frc)
+        self.channel_unmixing_panel.unmixing_requested.connect(self._on_channel_unmixing)
+        self.channel_unmixing_panel.frc_per_channel_requested.connect(self._on_run_frc_per_channel)
         self.results_panel.fov_requested.connect(self._on_fov_requested)
         self.simulation_panel.simulation_requested.connect(self._on_run_simulation)
+        self.simulation_panel.pattern_simulation_requested.connect(self._on_run_pattern_simulation)
         self.ctrl_tabs.currentChanged.connect(self._on_ctrl_tab_changed)
         self._on_ctrl_tab_changed(self.ctrl_tabs.currentIndex())
 
@@ -192,13 +203,15 @@ class MainWindow(QMainWindow):
         s = QSettings()
         if cal := s.value("cal_dir", ""):
             self.setup_panel.set_cal_dir(cal)
-        if dat := s.value("data_dir", ""):
-            self.fitting_panel.set_data_dir(dat)
+        # data_dir is deliberately not restored — FittingPanel's FolderPicker
+        # already opens into test_tiffs/ by default (see fitting_panel.py's
+        # _TEST_TIFFS_DIR); restoring a remembered last-used path here would
+        # permanently shadow that default once anything else was ever picked.
+        s.remove("data_dir")
 
     def _save_settings(self):
         s = QSettings()
         s.setValue("cal_dir", self.setup_panel.cal_dir)
-        s.setValue("data_dir", self.fitting_panel.data_dir)
 
     # ------------------------------------------------------------------
     # Worker lifecycle helpers
@@ -208,11 +221,13 @@ class MainWindow(QMainWindow):
         return self._worker is not None and self._worker.isRunning()
 
     def _reset_busy(self):
+        self.calibration_panel.set_busy(False)
         self.setup_panel.set_busy(False)
         self.fitting_panel.set_busy(False)
         self.postproc_panel.set_busy(False)
         self.drift_panel.set_busy(False)
         self.frc_panel.set_busy(False)
+        self.channel_unmixing_panel.set_busy(False)
         self.simulation_panel.set_busy(False)
         self.progress_widget.reset()
 
@@ -344,7 +359,7 @@ class MainWindow(QMainWindow):
         if mip is not None:
             ax_mip = fig.add_subplot(1, 2, 1)
             ax_mip.imshow(
-                mip, cmap="gray", aspect="auto",
+                mip, cmap="gray", aspect="equal",
                 vmin=np.percentile(mip, 1), vmax=np.percentile(mip, 99.8),
             )
             ax_mip.set_title("Max Intensity Projection")
@@ -354,7 +369,7 @@ class MainWindow(QMainWindow):
         else:
             ax_render = fig.add_subplot(1, 1, 1)
 
-        ax_render.imshow(render_img, aspect="auto", origin="upper")
+        ax_render.imshow(render_img, aspect="equal", origin="upper")
         ax_render.set_title(f"{title}  ({len(locs):,})")
         ax_render.set_xticks([])
         ax_render.set_yticks([])
@@ -496,6 +511,63 @@ class MainWindow(QMainWindow):
         self.setup_panel.show_calibration_status(f"✓ {shape[0]}×{shape[1]}")
         self.progress_widget.update(1.0, "Calibration loaded")
         self._update_state(AppState.CALIBRATED)
+
+    def _on_run_calibration(self, camera: str, raw_dir: str):
+        if self._worker_running():
+            return
+
+        def _do():
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent))
+            from pyS3M.AnalysisPipeline import AnalysisPipeline
+            from pyS3M.Constants import AnalysisConfig
+            cfg = AnalysisConfig(
+                display=False,
+                progress_callback=lambda f, m: worker.progress.emit(f, m),
+                logging_callback=lambda m: worker.log.emit(m),
+            )
+            pipe = AnalysisPipeline(camera=camera, config=cfg)
+            pipe.calibrate(raw_dir)
+            fig = self._make_calibration_figure(pipe)
+            return pipe, fig
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_calibration_computed)
+        self.calibration_panel.set_busy(True)
+        worker.start()
+
+    def _on_calibration_computed(self, result):
+        pipe, fig = result
+        self.pipeline = pipe
+        self._save_settings()
+        self.calibration_panel.set_busy(False)
+        shape = pipe.gain_map.shape
+        self.calibration_panel.show_calibration_status(f"✓ {shape[0]}×{shape[1]}")
+        self.progress_widget.update(1.0, "Calibration computed")
+        self._update_state(AppState.CALIBRATED)
+        if fig is not None:
+            self.results_panel.set_calibration_figure(fig)
+
+    def _make_calibration_figure(self, pipe) -> Figure:
+        """5-panel imshow grid of the computed calibration maps, direct-Figure
+        style matching _make_drift_figure/_make_frc_figure rather than reusing
+        any notebook-oriented plotting method."""
+        fig = Figure(figsize=(12, 4), dpi=100, layout="constrained")
+        axes = fig.subplots(1, 5)
+        panels = [
+            ("Gain (ADU/e⁻)", pipe.gain_map),
+            ("Offset (ADU)", pipe.offset_map),
+            ("Variance (ADU²)", pipe.variance),
+            ("Read noise (e⁻)", pipe.read_noise),
+            ("Relative QE", pipe.rqe),
+        ]
+        for ax, (title, data) in zip(axes, panels):
+            im = ax.imshow(data, cmap="viridis")
+            ax.set_title(title, fontsize=9)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        return fig
 
     # ------------------------------------------------------------------
     # Preview fitting — runs on the main thread because example_spots_singleframe
@@ -935,6 +1007,181 @@ class MainWindow(QMainWindow):
         return fig
 
     # ------------------------------------------------------------------
+    # Channel unmixing
+    # ------------------------------------------------------------------
+
+    def _on_channel_unmixing(
+        self, n_channels: int, channels_to_use: list, confidence_threshold: float,
+        outlier_rejection: str,
+    ):
+        if self._worker_running() or self.pipeline is None:
+            return
+        if self._sm_db is None or self._sm_db.empty:
+            return  # button is state-gated to "clustered", but guard anyway
+
+        def _do():
+            assigned, metadata = self.pipeline.sm.unmix_channels(
+                self._sm_db,
+                n_channels=n_channels,
+                channels_to_use=channels_to_use,
+                confidence_threshold=confidence_threshold,
+                outlier_rejection=outlier_rejection,
+                verbose=True,
+                plot_results=False,
+            )
+            fig = self._make_channel_unmixing_figure(assigned, channels_to_use, metadata)
+            return assigned, fig
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_channel_unmixing_done)
+        self.channel_unmixing_panel.set_busy(True)
+        worker.start()
+
+    def _on_channel_unmixing_done(self, result):
+        assigned, fig = result
+        self._sm_db = assigned  # adds 'channel'/'channel_confidence'/... columns in place
+        self.channel_unmixing_panel.set_busy(False)
+        self.progress_widget.update(1.0, "Channel unmixing complete")
+        channels = sorted(int(c) for c in assigned["channel"].unique() if c >= 0)
+        self.channel_unmixing_panel.set_available_channels(channels)
+        if fig is not None:
+            self.results_panel.set_unmixing_figure(fig)
+
+    def _make_channel_unmixing_figure(
+        self, assigned: pd.DataFrame, channels_to_use: list, metadata: dict,
+    ) -> Figure:
+        """Two panels: spectral-feature space coloured by assigned channel, and
+        the spatial (xc, yc) scatter in the same per-channel colours — the
+        actual multi-colour overlay this analysis is for. Deliberately a plain
+        coloured scatter, not a composite-colormap render (matching
+        _make_frc_figure/_make_drift_figure's precedent of a direct, simple
+        embeddable figure over reusing the backend's own notebook-oriented
+        diagnostic plotting methods)."""
+        fig = Figure(figsize=(9, 4.5), dpi=100, layout="constrained")
+        ax_spec, ax_spatial = fig.subplots(1, 2)
+
+        n_channels = int(assigned["channel"].max()) + 1 if (assigned["channel"] >= 0).any() else 0
+        colors = ["tab:red", "tab:green", "tab:blue", "tab:purple", "tab:orange"]
+
+        unassigned = assigned["channel"] < 0
+        ax_spec.scatter(
+            assigned.loc[unassigned, channels_to_use[0]],
+            assigned.loc[unassigned, channels_to_use[1]],
+            s=4, alpha=0.3, color="lightgray", label="unassigned", rasterized=True,
+        )
+        ax_spatial.scatter(
+            assigned.loc[unassigned, "xc"], assigned.loc[unassigned, "yc"],
+            s=2, alpha=0.2, color="lightgray", rasterized=True,
+        )
+        for k in range(n_channels):
+            mask = assigned["channel"] == k
+            n_k = int(mask.sum())
+            c = colors[k % len(colors)]
+            ax_spec.scatter(
+                assigned.loc[mask, channels_to_use[0]], assigned.loc[mask, channels_to_use[1]],
+                s=4, alpha=0.5, color=c, label=f"channel {k} (n={n_k:,})", rasterized=True,
+            )
+            ax_spatial.scatter(
+                assigned.loc[mask, "xc"], assigned.loc[mask, "yc"],
+                s=2, alpha=0.6, color=c, rasterized=True,
+            )
+
+        ax_spec.set_xlabel(channels_to_use[0])
+        ax_spec.set_ylabel(channels_to_use[1] if len(channels_to_use) > 1 else "density")
+        ax_spec.set_title("Spectral assignment")
+        ax_spec.legend(fontsize=7, loc="best")
+        ax_spec.grid(True, alpha=0.3)
+
+        ax_spatial.set_xlabel("xc (px)")
+        ax_spatial.set_ylabel("yc (px)")
+        ax_spatial.set_aspect("equal")
+        ax_spatial.set_title("Spatial overlay")
+        ax_spatial.invert_yaxis()
+
+        return fig
+
+    # ------------------------------------------------------------------
+    # FRC per channel (uses sm_db's `channel` column from Channel Unmixing)
+    # ------------------------------------------------------------------
+
+    def _on_run_frc_per_channel(self, channels: list, zoom: float, n_blocks: int, reps: int):
+        if self._worker_running() or self.pipeline is None:
+            return
+        if self._sm_db is None or self._sm_db.empty or "channel" not in self._sm_db.columns:
+            return
+        if not channels:
+            return
+
+        def _do():
+            pixel_size_nm = self.pipeline.pixel_size * 1000.0
+            height, width = self.pipeline.gain_map.shape[:2]
+            return self._make_frc_per_channel_figure(
+                self._sm_db, channels, width, height, pixel_size_nm, zoom, n_blocks, reps,
+            )
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_frc_per_channel_done)
+        self.channel_unmixing_panel.set_busy(True)
+        worker.start()
+
+    def _on_frc_per_channel_done(self, fig):
+        self.channel_unmixing_panel.set_busy(False)
+        self.progress_widget.update(1.0, "Per-channel FRC complete")
+        if fig is not None:
+            self.results_panel.set_frc_figure(fig)
+
+    def _make_frc_per_channel_figure(
+        self,
+        sm_db: pd.DataFrame,
+        channels: list,
+        width: int,
+        height: int,
+        pixel_size_nm: float,
+        zoom: float,
+        n_blocks: int,
+        reps: int,
+    ) -> Figure:
+        """One FRC curve per selected channel, overlaid on shared axes — the
+        per-channel counterpart to _make_frc_figure's single combined curve.
+        Runs on sm_db (per-molecule, post-clustering) rather than raw locs
+        since `channel` only exists there. Colours match
+        _make_channel_unmixing_figure's channel colouring."""
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent.parent))
+        import pyS3M.FRCFunctions as FRCFunctions
+
+        fig = Figure(figsize=(6, 5), dpi=100, layout="constrained")
+        ax = fig.add_subplot(111)
+        colors = ["tab:red", "tab:green", "tab:blue", "tab:purple", "tab:orange"]
+        sz = max(int(width * zoom), int(height * zoom))
+
+        for ch in channels:
+            locs_ch = sm_db[sm_db["channel"] == ch]
+            c = colors[int(ch) % len(colors)]
+            if locs_ch.empty:
+                continue
+            res_nm, frc_curve, _, _ = FRCFunctions.fire(
+                locs_ch, nx=width, ny=height, zoom=zoom,
+                n_blocks=n_blocks, reps=reps, pixel_size_nm=pixel_size_nm,
+            )
+            res_label = f"{res_nm:.0f} nm" if np.isfinite(res_nm) else "unresolved"
+            if len(frc_curve) > 0:
+                q_per_nm = (np.arange(len(frc_curve)) / sz) / (pixel_size_nm / zoom)
+                ax.plot(
+                    q_per_nm, frc_curve, color=c, lw=1.2,
+                    label=f"channel {ch}: {res_label}  (n={len(locs_ch):,})",
+                )
+
+        ax.axhline(1.0 / 7.0, color="gray", ls="--", lw=0.8, label="1/7 threshold")
+        ax.set_xlabel("Spatial frequency (nm⁻¹)")
+        ax.set_ylabel("FRC")
+        ax.set_ylim(-0.2, 1.05)
+        ax.legend(fontsize=8, loc="upper right")
+        ax.set_title("Fourier Ring Correlation — per channel")
+        ax.grid(True, alpha=0.3)
+        return fig
+
+    # ------------------------------------------------------------------
     # Simulation
     # ------------------------------------------------------------------
 
@@ -1115,6 +1362,173 @@ class MainWindow(QMainWindow):
             color="white",
             fontsize=8,
         )
+        return fig
+
+    # ------------------------------------------------------------------
+    # Image-driven STORM/PAINT pattern simulation
+    # ------------------------------------------------------------------
+
+    def _on_run_pattern_simulation(
+        self,
+        image_path: str,
+        colour_to_dye: dict,
+        n_frames: int,
+        density_per_um2: float,
+        modality: str,
+        on_rate: float,
+        off_rate: float,
+        bleach_after_cycles: int,
+        photon_min: float,
+        photon_max: float,
+        background_photons: float,
+        na: float,
+        output_dir: str,
+        run_name: str,
+    ):
+        if self._aux_worker is not None and self._aux_worker.isRunning():
+            return
+        if self.pipeline is None or self.pipeline.gain_map is None:
+            return
+        if not image_path or not colour_to_dye or not output_dir or not run_name:
+            return
+
+        self.simulation_panel.set_busy(True)
+        self.progress_widget.update(0.0, "Simulating acquisition…")
+
+        def _do():
+            return self._simulate_pattern_acquisition(
+                image_path, colour_to_dye, n_frames, density_per_um2, modality,
+                on_rate, off_rate, bleach_after_cycles, photon_min, photon_max,
+                background_photons, na, output_dir, run_name,
+            )
+
+        aux = AnalysisWorker(_do)
+        self._aux_worker = aux
+        aux.result.connect(self._on_pattern_simulation_done)
+        aux.error.connect(
+            lambda msg: (
+                self.log_widget.append(f"Pattern simulation failed:\n{msg}"),
+                self.simulation_panel.set_busy(False),
+                self.progress_widget.update(0.0, "Pattern simulation failed"),
+            )
+        )
+        aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
+        aux.start()
+
+    def _on_pattern_simulation_done(self, result):
+        fig, out_dir, avg_emission_wavelength_nm = result
+        self.simulation_panel.set_busy(False)
+        self.progress_widget.update(1.0, "Pattern simulation complete")
+        peak_wavelength_um = avg_emission_wavelength_nm / 1000.0
+        self.log_widget.append(
+            f"Synthetic acquisition written to {out_dir}\n"
+            f"  Recommended Peak λ for fitting this: {peak_wavelength_um:.3f} µm "
+            f"(the shared PSF wavelength this simulation actually used)"
+        )
+        if fig is not None:
+            self.results_panel.set_simulation_figure(fig)
+
+    def _simulate_pattern_acquisition(
+        self,
+        image_path: str,
+        colour_to_dye: dict,
+        n_frames: int,
+        density_per_um2: float,
+        modality: str,
+        on_rate: float,
+        off_rate: float,
+        bleach_after_cycles: int,
+        photon_min: float,
+        photon_max: float,
+        background_photons: float,
+        na: float,
+        output_dir: str,
+        run_name: str,
+    ):
+        """Render a synthetic STORM/PAINT frame stack from a pattern image and
+        write it to disk as a real, fittable acquisition (TIFF stack +
+        metadata.txt + ground-truth H5), reusing the calibration already
+        loaded on self.pipeline. The actual simulation is pure/GUI-free —
+        see pattern_source.simulate_acquisition, which this wraps — so the
+        same code path is reusable from non-GUI tooling
+        (claude/generate_test_fixtures.py).
+        """
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent.parent))
+        from pyS3M.simulation import pattern_source
+        import pyS3M.IOFunctions as IOFunctions
+
+        camera_pixel_size_nm = self.pipeline.pixel_size * 1000.0
+        width, height = pattern_source.image_fov_camera_pixels(image_path, camera_pixel_size_nm)
+
+        bayer_stack, ground_truth, width, height, avg_emission_wavelength_nm = pattern_source.simulate_acquisition(
+            image=image_path,
+            colour_to_dye=colour_to_dye,
+            camera=self.pipeline.camera,
+            pixel_size_um=self.pipeline.pixel_size,
+            gain_map=self.pipeline.gain_map[:height, :width],
+            offset_map=self.pipeline.offset_map[:height, :width],
+            variance_map=self.pipeline.variance[:height, :width],
+            rqe_map=self.pipeline.rqe[:height, :width],
+            n_frames=n_frames,
+            density_per_um2=density_per_um2,
+            modality=modality,
+            on_rate=on_rate,
+            off_rate=off_rate,
+            bleach_after_cycles=bleach_after_cycles,
+            photon_range=(photon_min, photon_max),
+            background_photons=background_photons,
+            na=na,
+        )
+
+        out_dir = Path(output_dir) / run_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        io = IOFunctions.IO_Functions()
+        io.write_tiff(bayer_stack, out_dir / f"{run_name}_MMStack_Default.ome.tif", bit="uint16", pixel_size=self.pipeline.pixel_size)
+
+        metadata = {"FrameKey-0-0-0": {"ROI": f"0-0-{width}-{height}"}}
+        import json
+        with open(out_dir / f"{run_name}_MMStack_Default_metadata.txt", "w") as f:
+            json.dump(metadata, f)
+
+        io.write_h5_database(ground_truth, out_dir / "ground_truth.h5", verbose=False)
+
+        fig = self._make_pattern_simulation_figure(
+            bayer_stack, ground_truth, colour_to_dye, width, height,
+        )
+        return fig, str(out_dir), avg_emission_wavelength_nm
+
+    def _make_pattern_simulation_figure(
+        self, bayer_stack, ground_truth: pd.DataFrame, colour_to_dye: dict,
+        width: int, height: int,
+    ) -> Figure:
+        """Representative frame (max-intensity projection, to actually show
+        something given the ON duty cycle is only a few percent) alongside
+        the ground-truth candidate positions coloured per dye."""
+        fig = Figure(figsize=(9, 4.5), dpi=100, layout="constrained")
+        ax_frame, ax_gt = fig.subplots(1, 2)
+
+        projection = np.max(bayer_stack, axis=0)
+        ax_frame.imshow(projection.T, cmap="gray", origin="upper")
+        ax_frame.set_title("Max-intensity projection")
+        ax_frame.set_xticks([])
+        ax_frame.set_yticks([])
+
+        for colour, dye in colour_to_dye.items():
+            sub = ground_truth[ground_truth["dye"] == dye]
+            if sub.empty:
+                continue
+            ax_gt.scatter(
+                sub["xc_nm"] / 1000.0, sub["yc_nm"] / 1000.0,
+                s=4, color=[c / 255.0 for c in colour], label=dye, rasterized=True,
+            )
+        ax_gt.set_xlabel("x (µm)")
+        ax_gt.set_ylabel("y (µm)")
+        ax_gt.set_aspect("equal")
+        ax_gt.invert_yaxis()
+        ax_gt.set_title(f"Ground truth ({len(ground_truth):,} candidates)")
+        ax_gt.legend(fontsize=7, loc="best")
+
         return fig
 
     # ------------------------------------------------------------------

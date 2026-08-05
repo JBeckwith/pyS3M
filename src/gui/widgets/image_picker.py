@@ -2,10 +2,12 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton, QFileD
 from PyQt6.QtCore import pyqtSignal
 
 
-class FolderPicker(QWidget):
+class ImagePicker(QWidget):
+    """Same shape as FolderPicker, for picking a single image file."""
+
     path_changed = pyqtSignal(str)
 
-    def __init__(self, placeholder="Select folder…", default_dir="", parent=None):
+    def __init__(self, placeholder="Select pattern image…", default_dir="", parent=None):
         super().__init__(parent)
         self._path = ""
         self._default_dir = default_dir
@@ -21,11 +23,14 @@ class FolderPicker(QWidget):
         lay.addWidget(btn)
 
     def _browse(self):
-        d = QFileDialog.getExistingDirectory(self, "Select folder", self._path or self._default_dir or "")
-        if d:
-            self._path = d
-            self._edit.setText(d)
-            self.path_changed.emit(d)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select pattern image", self._path or self._default_dir or "",
+            "Images (*.png *.tif *.tiff *.jpg *.jpeg *.bmp)",
+        )
+        if path:
+            self._path = path
+            self._edit.setText(path)
+            self.path_changed.emit(path)
 
     @property
     def path(self) -> str:

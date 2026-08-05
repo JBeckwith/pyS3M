@@ -716,7 +716,34 @@ class SuperRes_Functions:
             from pyS3M.PlottingBase import PublicationPlotter
 
             plotter = PublicationPlotter()
-            fig, axs = plotter.two_column_plot(nrows=2, ncols=2, height=8)
+
+            # A separate zoom-in row only adds information for a field of view
+            # large enough that "zoomed in" actually means something; below
+            # ~20x20 um the full-field panels already show essentially the
+            # zoomed-in detail, so the zoom row is redundant clutter.
+            fov_width_um = width * pixel_size
+            fov_height_um = height * pixel_size
+            show_zoom = not (fov_width_um < 20.0 and fov_height_um < 20.0)
+
+            def _adaptive_scalebar_um(field_um: float, target_fraction: float = 0.3) -> float:
+                """Pick a "nice" round scale-bar length proportional to the
+                field it's drawn over, rather than a fixed value that can
+                dwarf (or barely register against) a small/large field."""
+                nice_values = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+                target = field_um * target_fraction
+                candidates = [v for v in nice_values if v <= target]
+                return candidates[-1] if candidates else nice_values[0]
+
+            def _scalebar_label(length_um: float) -> str:
+                return f"{length_um:g} μm"
+
+            fig, axs = plotter.two_column_plot(
+                nrows=2 if show_zoom else 1, ncols=2, height=8 if show_zoom else 4,
+            )
+            axs = np.atleast_2d(axs)
+
+            full_field_um = min(fov_width_um, fov_height_um)
+            full_field_bar_um = _adaptive_scalebar_um(full_field_um)
 
             # Calculate percentiles for consistent display
             vmin_processed = np.percentile(image_to_analyse, 1)
@@ -785,21 +812,22 @@ class SuperRes_Functions:
             plotter.add_scalebar(
                 axs[0, 0],
                 pixelsize=pixel_size * 1000,
-                length_nm=10000,
-                label="10 μm",
+                length_nm=full_field_bar_um * 1000,
+                label=_scalebar_label(full_field_bar_um),
                 color="white",
             )
 
             # Add zoom rectangle
-            rect_00 = patches.Rectangle(
-                (min_x, min_y),
-                max_x - min_x,
-                max_y - min_y,
-                linewidth=1,
-                edgecolor="cyan",
-                facecolor="none",
-            )
-            axs[0, 0].add_patch(rect_00)
+            if show_zoom:
+                rect_00 = patches.Rectangle(
+                    (min_x, min_y),
+                    max_x - min_x,
+                    max_y - min_y,
+                    linewidth=1,
+                    edgecolor="cyan",
+                    facecolor="none",
+                )
+                axs[0, 0].add_patch(rect_00)
 
             # [0,1] Fitted spots on raw image
             im = plotter.create_image_plot(
@@ -817,91 +845,97 @@ class SuperRes_Functions:
             plotter.add_scalebar(
                 axs[0, 1],
                 pixelsize=pixel_size * 1000,
-                length_nm=10000,
-                label="10 μm",
+                length_nm=full_field_bar_um * 1000,
+                label=_scalebar_label(full_field_bar_um),
                 color="white",
             )
 
             # Add zoom rectangle
-            rect_01 = patches.Rectangle(
-                (min_x, min_y),
-                max_x - min_x,
-                max_y - min_y,
-                linewidth=1,
-                edgecolor="cyan",
-                facecolor="none",
-            )
-            axs[0, 1].add_patch(rect_01)
+            if show_zoom:
+                rect_01 = patches.Rectangle(
+                    (min_x, min_y),
+                    max_x - min_x,
+                    max_y - min_y,
+                    linewidth=1,
+                    edgecolor="cyan",
+                    facecolor="none",
+                )
+                axs[0, 1].add_patch(rect_01)
 
-            # Bottom row: Zoomed views
-            # [1,0] Detected spots zoomed
-            im = plotter.create_image_plot(
-                axs[1, 0],
-                image_to_analyse,
-                vmin=vmin_processed,
-                vmax=vmax_processed,
-                cmap="gray",
-            )
-            # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
-            axs[1, 0].scatter(
-                detected_puncta[:, 1],
-                detected_puncta[:, 0],
-                s=s * 5,
-                c="red",
-                marker="o",
-                alpha=0.25,
-            )
-            axs[1, 0].set_xlim(min_x, max_x)
-            axs[1, 0].set_ylim(min_y, max_y)
-            plotter.setup_axis(
-                axs[1, 0],
-                title="Detected Spots (Zoom)",
-                grid=False,
-                equal_aspect=True,
-            )
-            axs[1, 0].set_xticks([])
-            axs[1, 0].set_yticks([])
-            plotter.add_scalebar(
-                axs[1, 0],
-                pixelsize=pixel_size * 1000,
-                length_nm=1000,
-                label="1 μm",
-                color="white",
-            )
+            # Bottom row: Zoomed views — only when show_zoom (below ~20x20 um
+            # the full-field panels above are already the zoomed-in view)
+            if show_zoom:
+                zoom_field_um = (max_x - min_x) * pixel_size
+                zoom_bar_um = _adaptive_scalebar_um(zoom_field_um)
 
-            # [1,1] Fitted spots zoomed
-            im = plotter.create_image_plot(
-                axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
-            )
-            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.25)
-            axs[1, 1].set_xlim(min_x, max_x)
-            axs[1, 1].set_ylim(min_y, max_y)
-            plotter.setup_axis(
-                axs[1, 1],
-                title="Fitted Spots (Zoom)",
-                grid=False,
-                equal_aspect=True,
-            )
-            axs[1, 1].set_xticks([])
-            axs[1, 1].set_yticks([])
-            plotter.add_scalebar(
-                axs[1, 1],
-                pixelsize=pixel_size * 1000,
-                length_nm=1000,
-                label="1 μm",
-                color="white",
-            )
+                # [1,0] Detected spots zoomed
+                im = plotter.create_image_plot(
+                    axs[1, 0],
+                    image_to_analyse,
+                    vmin=vmin_processed,
+                    vmax=vmax_processed,
+                    cmap="gray",
+                )
+                # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
+                axs[1, 0].scatter(
+                    detected_puncta[:, 1],
+                    detected_puncta[:, 0],
+                    s=s * 5,
+                    c="red",
+                    marker="o",
+                    alpha=0.25,
+                )
+                axs[1, 0].set_xlim(min_x, max_x)
+                axs[1, 0].set_ylim(min_y, max_y)
+                plotter.setup_axis(
+                    axs[1, 0],
+                    title="Detected Spots (Zoom)",
+                    grid=False,
+                    equal_aspect=True,
+                )
+                axs[1, 0].set_xticks([])
+                axs[1, 0].set_yticks([])
+                plotter.add_scalebar(
+                    axs[1, 0],
+                    pixelsize=pixel_size * 1000,
+                    length_nm=zoom_bar_um * 1000,
+                    label=_scalebar_label(zoom_bar_um),
+                    color="white",
+                )
 
-            # Store drag config; handler is wired up by the GUI after the Qt canvas is created
-            fig._zoom_drag_data = ([rect_00, rect_01], [axs[1, 0], axs[1, 1]], image_to_analyse.shape)
+                # [1,1] Fitted spots zoomed
+                im = plotter.create_image_plot(
+                    axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+                )
+                axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.25)
+                axs[1, 1].set_xlim(min_x, max_x)
+                axs[1, 1].set_ylim(min_y, max_y)
+                plotter.setup_axis(
+                    axs[1, 1],
+                    title="Fitted Spots (Zoom)",
+                    grid=False,
+                    equal_aspect=True,
+                )
+                axs[1, 1].set_xticks([])
+                axs[1, 1].set_yticks([])
+                plotter.add_scalebar(
+                    axs[1, 1],
+                    pixelsize=pixel_size * 1000,
+                    length_nm=zoom_bar_um * 1000,
+                    label=_scalebar_label(zoom_bar_um),
+                    color="white",
+                )
 
-            engine = fig.get_layout_engine()
-            if engine is not None and hasattr(engine, 'set'):
-                # constrained/compressed — ask the engine to widen the row gap
-                engine.set(h_pad=0.4, hspace=0.15)
-            else:
-                # no layout engine — direct grid spacing is safe
-                fig.subplots_adjust(hspace=0.45, top=0.92)
+                # Store drag config; handler is wired up by the GUI after the Qt canvas is created
+                fig._zoom_drag_data = ([rect_00, rect_01], [axs[1, 0], axs[1, 1]], image_to_analyse.shape)
+
+                engine = fig.get_layout_engine()
+                if engine is not None and hasattr(engine, 'set'):
+                    # constrained/compressed — ask the engine to widen the row gap
+                    engine.set(h_pad=0.4, hspace=0.15)
+                else:
+                    # no layout engine — direct grid spacing is safe
+                    fig.subplots_adjust(hspace=0.45, top=0.92)
 
         else:
             # Fallback to old plotting method

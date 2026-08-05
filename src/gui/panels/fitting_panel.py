@@ -1,10 +1,17 @@
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLineEdit, QCheckBox,
+    QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLineEdit,
 )
 from PyQt6.QtCore import pyqtSignal
 
 from pyS3M.gui.widgets.folder_picker import FolderPicker
+
+# Project root is four levels up from this file (src/gui/panels/fitting_panel.py),
+# same convention as setup_panel.py's _PROJECT_ROOT.
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+_TEST_TIFFS_DIR = _PROJECT_ROOT / "test_tiffs"
 
 _FRET_QD_MODES = ("fret", "qd")
 
@@ -26,7 +33,10 @@ class FittingPanel(QWidget):
         grp = QGroupBox("Fitting")
         form = QFormLayout(grp)
 
-        self._data_dir = FolderPicker("Select data folder…")
+        self._data_dir = FolderPicker(
+            "Select data folder…",
+            default_dir=str(_TEST_TIFFS_DIR) if _TEST_TIFFS_DIR.is_dir() else "",
+        )
         self._data_dir.path_changed.connect(self._update_btns)
         form.addRow("Data folder:", self._data_dir)
 
@@ -62,24 +72,6 @@ class FittingPanel(QWidget):
         self._na.setSingleStep(0.01)
         self._na.setValue(1.49)
         form.addRow("NA:", self._na)
-
-        self._sigma = QDoubleSpinBox()
-        self._sigma.setRange(0.1, 10.0)
-        self._sigma.setDecimals(2)
-        self._sigma.setSingleStep(0.1)
-        self._sigma.setValue(1.5)
-        form.addRow("Sigma:", self._sigma)
-
-        self._frac_true = QDoubleSpinBox()
-        self._frac_true.setRange(0.01, 1.0)
-        self._frac_true.setDecimals(2)
-        self._frac_true.setSingleStep(0.05)
-        self._frac_true.setValue(0.2)
-        form.addRow("Fraction true:", self._frac_true)
-
-        self._var_demosaic = QCheckBox("Variance-aware demosaic")
-        self._var_demosaic.setChecked(True)
-        form.addRow(self._var_demosaic)
 
         # Preview + Run buttons side by side
         btn_row = QWidget()
@@ -136,7 +128,7 @@ class FittingPanel(QWidget):
 
         self._min_photons = QSpinBox()
         self._min_photons.setRange(0, 100_000_000)
-        self._min_photons.setValue(100)
+        self._min_photons.setValue(200)
         self._min_photons.setSingleStep(100)
         flt_form.addRow("Min photons:", self._min_photons)
 
@@ -166,9 +158,8 @@ class FittingPanel(QWidget):
             ROI_size=self._roi_size.value(),
             peak_wavelength=self._wavelength.value(),
             NA=self._na.value(),
-            sigma=self._sigma.value(),
-            fraction_true=self._frac_true.value(),
-            use_variance_aware_demosaic=self._var_demosaic.isChecked(),
+            fraction_true=0.0,
+            use_variance_aware_demosaic=False,
         )
 
     def _extra_kwargs(self) -> dict:
