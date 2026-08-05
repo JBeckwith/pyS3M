@@ -36,6 +36,7 @@ class FittingStrategy(Enum):
     Enumeration of available fitting strategies for multicolour SMLM analysis.
 
     Each strategy represents a different approach to fitting Bayer-filtered camera data:
+
     - STANDARD: Direct fitting with Bayer pattern masks
     - DEMOSAIC: Demosaic the puncta ROI (non-variance-aware; algorithm selectable via
       config.demosaic_strategy), then fit each of the resulting R/G/B images

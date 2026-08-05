@@ -1,42 +1,42 @@
 Spot Detection & PSF Fitting
 =============================
 
-.. automodule:: SpotDetectionFunctions
+.. automodule:: pyS3M.SpotDetectionFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: PSFFunctions
+.. automodule:: pyS3M.PSFFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: gaussoptfuncs
+.. automodule:: pyS3M.gaussoptfuncs
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: localise
+.. automodule:: pyS3M.localise
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: render
+.. automodule:: pyS3M.render
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: postprocess
+.. automodule:: pyS3M.postprocess
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: lib
+.. automodule:: pyS3M.lib
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: MaskFunctions
+.. automodule:: pyS3M.MaskFunctions
    :members:
    :undoc-members:
    :show-inheritance:

@@ -47,7 +47,7 @@ class FittingConfig:
     peak_wavelength: float = 0.638
     NA: float = 1.49
     sigma: float = 1.5
-    fraction_true: float = 0.2
+    fraction_true: float = 0.0
     image_type: str = ".tif"
     use_variance_aware_demosaic: bool = True
 

@@ -599,6 +599,7 @@ class StandardIGFittingProcessor(StandardFittingProcessor):
     WLS_model_nobounds parameter layout:
         [x, y, sigma_y, sigma_x, sqrt(bg_B), sqrt(bg_G), sqrt(bg_R),
          sqrt(A_B), sqrt(A_G), sqrt(A_R)]
+
     Note sigma_y precedes sigma_x — opposite of the NOCOLOUR convention —
     so the seed swaps them at indices 2/3.
     """

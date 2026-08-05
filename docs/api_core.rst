@@ -1,22 +1,22 @@
 Core Analysis
 =============
 
-.. automodule:: SR_Functions
+.. automodule:: pyS3M.SR_Functions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: AnalysisPipeline
+.. automodule:: pyS3M.AnalysisPipeline
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: SM_extractionfunctions
+.. automodule:: pyS3M.SM_extractionfunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: ImageAnalysisFunctions
+.. automodule:: pyS3M.ImageAnalysisFunctions
    :members:
    :undoc-members:
    :show-inheritance:

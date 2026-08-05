@@ -1,37 +1,37 @@
 Calibration & Camera
 =====================
 
-.. automodule:: CalibrationFunctions
+.. automodule:: pyS3M.CalibrationFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: SpectralFunctions
+.. automodule:: pyS3M.SpectralFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: sCMOSFunctions
+.. automodule:: pyS3M.sCMOSFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CameraDefaults
+.. automodule:: pyS3M.CameraDefaults
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: FRCFunctions
+.. automodule:: pyS3M.FRCFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: channel_unmixing
+.. automodule:: pyS3M.channel_unmixing
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: NileRedFunctions
+.. automodule:: pyS3M.NileRedFunctions
    :members:
    :undoc-members:
    :show-inheritance:

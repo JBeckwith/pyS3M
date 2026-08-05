@@ -484,7 +484,7 @@ class SuperRes_Functions:
         pixel_size: float | None = None,
         s: int = 5,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         use_variance_aware_demosaic: bool = True,
         frame_index: int = 0,
         n_frames_sum: int = 1,
@@ -512,7 +512,7 @@ class SuperRes_Functions:
             pixel_size (float): Pixel size in µm (default: 0.069)
             s (int): Scatter plot marker size (default: 5)
             sigma (float): Gaussian sigma for detection (default: 1.5)
-            fraction_true (float): Expected fraction of true spots (default: 0.2)
+            fraction_true (float): Expected fraction of true spots (default: 0.0)
             use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default: True)
             frame_index (int): Which frame to start from (default: 0)
             n_frames_sum (int): Number of frames to sum for spot detection (default: 1).
@@ -942,7 +942,7 @@ class SuperRes_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         # Change point detection parameters
         cp_model: str = "l2",
         cp_min_size: int = 5,
@@ -979,7 +979,7 @@ class SuperRes_Functions:
             mf_factor: Matched filter factor (default: 3.0)
             local_factor: Local threshold factor (default: 3.0)
             sigma: Gaussian sigma for detection (default: 1.5)
-            fraction_true: Expected fraction of true spots (default: 0.2)
+            fraction_true: Expected fraction of true spots (default: 0.0)
             cp_model: Ruptures model for change point detection ("l2", "rbf", "normal")
             cp_min_size: Minimum segment size for change points (default: 5)
             cp_penalty_factor: Multiplier for automatic penalty (default: 1.0)
@@ -1279,7 +1279,7 @@ class SuperRes_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         # Fitting parameters
         ROI_size: int = 16,
         peak_wavelength: float = 0.638,
@@ -1314,7 +1314,7 @@ class SuperRes_Functions:
             mf_factor: Matched filter factor (default: 3.0)
             local_factor: Local threshold factor (default: 3.0)
             sigma: Gaussian sigma for detection (default: 1.5)
-            fraction_true: Expected fraction of true spots (default: 0.2)
+            fraction_true: Expected fraction of true spots (default: 0.0)
             ROI_size: Size of ROI for fitting (default: 16)
             peak_wavelength: PSF peak wavelength in um (default: 0.638)
             NA: Numerical aperture (default: 1.49)
@@ -1618,7 +1618,7 @@ class SuperRes_Functions:
         NA: float = 1.49,
         pixel_size: float | None = None,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
     ) -> None:
@@ -1637,7 +1637,7 @@ class SuperRes_Functions:
             masks (dict): dict of colour masks
             peak_wavelength (float): peak wavelength of PSF
             sigma (float): sigma parameter for spot detection (default: 1.5)
-            fraction_true (float): fraction of true spots expected (default: 0.2)
+            fraction_true (float): fraction of true spots expected (default: 0.0)
             image_type (str): image string end
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron
@@ -1670,7 +1670,7 @@ class SuperRes_Functions:
         NA: float = 1.49,
         pixel_size: float | None = None,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
         accumulate_frame_numbers: bool = False,
@@ -1880,7 +1880,7 @@ class SuperRes_Functions:
         NA: float = 1.49,
         pixel_size: float | None = None,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
         use_elliptical: bool = True,
@@ -1909,7 +1909,7 @@ class SuperRes_Functions:
             NA (float): Numerical aperture (default 1.49).
             pixel_size (float): Pixel size in µm (default 0.069).
             sigma (float): Spot detection sigma parameter (default 1.5).
-            fraction_true (float): Expected fraction of true spots (default 0.2).
+            fraction_true (float): Expected fraction of true spots (default 0.0).
             image_type (str): Image file extension (default ".tif").
             use_variance_aware_demosaic (bool): Use variance-aware demosaicing (default True).
             use_elliptical (bool): Use rotated elliptical Gaussian model (default True).
@@ -2402,7 +2402,7 @@ class SuperRes_Functions:
         NA: float = 1.49,
         pixel_size: float | None = None,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         image_type: str = ".tif",
         use_variance_aware_demosaic: bool = True,
     ) -> None:
@@ -2425,7 +2425,7 @@ class SuperRes_Functions:
             NA (float): Numerical aperture (default: 1.49)
             pixel_size (float): Pixel size in microns (default: 0.069)
             sigma (float): sigma parameter for spot detection (default: 1.5)
-            fraction_true (float): fraction of true spots expected (default: 0.2)
+            fraction_true (float): fraction of true spots expected (default: 0.0)
             image_type (str): image file extension (default: ".tif")
             use_variance_aware_demosaic (bool): Whether to use variance-aware demosaicing for spot detection.
                 If True (default), uses gain, offset, and variance maps to create robust photoelectron

@@ -1,7 +1,7 @@
 Step Detection & FRET
 ======================
 
-.. automodule:: StepDetector
+.. automodule:: pyS3M.StepDetector
    :members:
    :undoc-members:
    :show-inheritance:

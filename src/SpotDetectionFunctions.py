@@ -133,7 +133,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         return_quality: bool = False,
     ) -> NDArray[np.int32] | tuple[NDArray[np.int32], dict[str, NDArray]]:
         """
@@ -277,7 +277,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         return_quality: bool = False,
     ) -> list[NDArray[np.int32]] | tuple[list[NDArray[np.int32]], dict[str, NDArray]]:
         """detect_puncta_in_image: Returns spots from an image supplied
@@ -381,7 +381,7 @@ class SpotDetection_Functions:
         mf_factor: float = 3.0,
         local_factor: float = 3.0,
         sigma: float = 1.5,
-        fraction_true: float = 0.2,
+        fraction_true: float = 0.0,
         return_quality: bool = False,
     ) -> NDArray[np.int32] | tuple[NDArray[np.int32], dict[str, NDArray]]:
         """detect_puncta_in_image: Returns spots from an image supplied
@@ -502,7 +502,7 @@ class SpotDetection_Functions:
         guard_interval,
         reference_interval,
         sigma=1.5,
-        fraction_true=0.2,
+        fraction_true=0.0,
         return_quality=False,
     ) -> NDArray[np.bool_] | tuple[NDArray[np.bool_], dict[str, NDArray]]:
         """
@@ -514,7 +514,7 @@ class SpotDetection_Functions:
             guard_interval (int): Range of internal hole.
             reference_interval (int): Width of non-zero band.
             sigma (float): Threshold sigma multiplier (default: 1.5).
-            fraction_true (float): Fraction of inner pixels that must exceed threshold (default: 0.2).
+            fraction_true (float): Fraction of inner pixels that must exceed threshold (default: 0.0).
             return_quality (bool): If True, return quality metrics dict in addition to indices.
 
         Returns:
@@ -1042,7 +1042,7 @@ def _detect_puncta_in_images_standalone(
     mf_factor: float = 3.0,
     local_factor: float = 3.0,
     sigma: float = 1.5,
-    fraction_true: float = 0.2,
+    fraction_true: float = 0.0,
     return_quality: bool = False,
 ):
     """Standalone version of detect_puncta_in_images for multiprocessing.

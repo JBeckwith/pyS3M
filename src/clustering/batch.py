@@ -81,9 +81,14 @@ class BatchMixin:
             clustering_method (str): "HDBSCAN", "DBSCAN", or "linked".
             min_cluster_size (int): Minimum cluster size for HDBSCAN/DBSCAN.
             criteria (FilteringCriteria, optional): Quality filter bundle.
-            chi_val, max_localisation_error, max_colour_error, min_sigma,
-            max_sigma, max_sigma_error, min_photons, max_photons:
-                Quality filter parameters.
+            chi_val (float, optional): Quality filter parameter.
+            max_localisation_error (float): Quality filter parameter.
+            max_colour_error (float): Quality filter parameter.
+            min_sigma (float, optional): Quality filter parameter.
+            max_sigma (float, optional): Quality filter parameter.
+            max_sigma_error (float, optional): Quality filter parameter.
+            min_photons (float): Quality filter parameter.
+            max_photons (float): Quality filter parameter.
             max_distance (float): Maximum distance for linked method (pixels).
             max_frames (int): Maximum frame gap for linked method.
             epsilon_multiplier (float): DBSCAN epsilon multiplier.
@@ -400,9 +405,14 @@ class BatchMixin:
             clustering_method (str): "HDBSCAN", "DBSCAN", or "linked".
             build_accumulation (bool): Build photon accumulation database?
             min_cluster_size (int): Minimum cluster size for HDBSCAN/DBSCAN.
-            chi_val, max_localisation_error, max_colour_error, min_sigma,
-            max_sigma, max_sigma_error, min_photons, max_photons:
-                Quality filter parameters.
+            chi_val (float, optional): Quality filter parameter.
+            max_localisation_error (float): Quality filter parameter.
+            max_colour_error (float): Quality filter parameter.
+            min_sigma (float, optional): Quality filter parameter.
+            max_sigma (float, optional): Quality filter parameter.
+            max_sigma_error (float, optional): Quality filter parameter.
+            min_photons (float): Quality filter parameter.
+            max_photons (float): Quality filter parameter.
             max_distance (float): Maximum distance for linked method (pixels).
             max_frames (int): Maximum frame gap for linked method.
             epsilon_multiplier (float): DBSCAN epsilon multiplier.

@@ -43,23 +43,8 @@ from the repository root without installing.
 
 ## Quickstart
 
-```python
-from pathlib import Path
-from pyS3M.AnalysisPipeline import AnalysisPipeline, FittingConfig
-from pyS3M.Constants import AnalysisConfig, FilteringCriteria
-from pyS3M.clustering import ClusteringConfig
-
-cfg = AnalysisConfig(display=False, save_figures=True,
-                     output_dir=Path("results/"), dpi=150)
-pipe = AnalysisPipeline(camera="ximea", config=cfg)
-pipe.load_calibration(Path("Camera_Calibrations/Ximea_Camera"))
-
-fc = FittingConfig(peak_wavelength=0.638, pfa=1e-3)
-pipe.fit(data_dir, mode="smlm", fitting_config=fc)
-
-locs = pipe.load_localisations(data_dir)
-sm_db, sf_db = pipe.filter_and_cluster(locs)
-```
+See the Getting Started guide for a minimal worked example and installation/GUI details:
+https://pys3m.readthedocs.io/en/latest/getting-started.html
 
 See `notebooks/` for fuller worked examples (per-camera calibration, drift correction, FRC,
 channel unmixing, simulation).

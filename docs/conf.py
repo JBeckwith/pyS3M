@@ -1,7 +1,3 @@
-import os
-import sys
-sys.path.insert(0, os.path.abspath('../src'))
-
 project = 'pyS3M'
 copyright = '2026, University of Cambridge'
 author = 'Joseph S. Beckwith'
@@ -15,6 +11,13 @@ extensions = [
 ]
 
 napoleon_custom_sections = [('Returns', 'params_style')]
+# Render docstring "Attributes:" sections as :ivar: cross-references into the
+# real attribute object instead of a second, separate `.. attribute::` block --
+# without this, autodoc's :undoc-members: (which documents dataclass fields
+# directly from introspection) and napoleon's own Attributes:-section expansion
+# both register the same fully-qualified name, causing "duplicate object
+# description" warnings for every documented dataclass.
+napoleon_use_ivar = True
 auto_doc_default_options = {'autosummary': True}
 
 # Mock heavy optional dependencies that are unavailable on headless build servers

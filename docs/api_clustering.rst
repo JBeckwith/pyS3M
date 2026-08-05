@@ -1,17 +1,17 @@
 Clustering & Coordinate Processing
 ===================================
 
-.. automodule:: clustering
+.. automodule:: pyS3M.clustering
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CoordinateProcessing
+.. automodule:: pyS3M.CoordinateProcessing
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: LinkingFunctions
+.. automodule:: pyS3M.LinkingFunctions
    :members:
    :undoc-members:
    :show-inheritance:

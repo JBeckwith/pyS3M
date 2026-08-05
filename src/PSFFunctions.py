@@ -422,12 +422,12 @@ class PSF_Functions:
             QE_per_channel_all: QE values per channel for each frame and dye
                                 Shape: (n_frames, n_dyes, n_channels)
                                 Example: QE_per_channel_all[frame=5, dye=0, :] = [0.1, 0.7, 0.2] for B,G,R
-            mask_stack: Bayer mask stack
-                        Shape: (w, h, n_channels) -- static, broadcast across all frames.
-                        Or:   (n_frames, w, h, n_channels) -- per-frame, e.g. a genuinely
-                              random pixel-colour arrangement drawn independently per
-                              bootstrap sample rather than one fixed pattern.
-                        Example: mask_stack[:,:,0] = Blue pixel mask (static case)
+            mask_stack: Bayer mask stack. Shape ``(w, h, n_channels)`` for a static
+                pattern broadcast across all frames, or ``(n_frames, w, h, n_channels)``
+                for a per-frame pattern (e.g. a genuinely random pixel-colour
+                arrangement drawn independently per bootstrap sample rather than one
+                fixed pattern). Example: ``mask_stack[:,:,0]`` = Blue pixel mask
+                (static case).
 
         Returns:
             n_photoelectrons: Photoelectrons for all frames

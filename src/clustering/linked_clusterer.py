@@ -51,9 +51,14 @@ class LinkedMixin:
             max_distance (float): Maximum linking distance in pixels.
             max_frames (int): Maximum frame gap for linking.
             criteria (FilteringCriteria, optional): Quality filter bundle.
-            chi_val, max_localisation_error, max_colour_error, min_sigma,
-            max_sigma, max_sigma_error, min_photons, max_photons:
-                Quality filter parameters (see filter_quality_localisations).
+            chi_val (float, optional): Quality filter parameter (see filter_quality_localisations).
+            max_localisation_error (float): Quality filter parameter (see filter_quality_localisations).
+            max_colour_error (float): Quality filter parameter (see filter_quality_localisations).
+            min_sigma (float, optional): Quality filter parameter (see filter_quality_localisations).
+            max_sigma (float, optional): Quality filter parameter (see filter_quality_localisations).
+            max_sigma_error (float, optional): Quality filter parameter (see filter_quality_localisations).
+            min_photons (float): Quality filter parameter (see filter_quality_localisations).
+            max_photons (float, optional): Quality filter parameter (see filter_quality_localisations).
             start_frame (int): Discard localisations before this frame.
 
         Returns:

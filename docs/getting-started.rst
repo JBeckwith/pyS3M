@@ -59,8 +59,9 @@ A minimal analysis looks like:
 
    from pathlib import Path
    from pyS3M.AnalysisPipeline import AnalysisPipeline, FittingConfig
-   from pyS3M.Constants import AnalysisConfig, FilteringCriteria
-   from pyS3M.clustering import ClusteringConfig
+   from pyS3M.Constants import AnalysisConfig
+
+   data_dir = Path("path/to/tiffs/")
 
    cfg = AnalysisConfig(display=False, save_figures=True,
                         output_dir=Path("results/"), dpi=150)

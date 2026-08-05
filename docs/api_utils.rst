@@ -1,32 +1,32 @@
 Utilities
 =========
 
-.. automodule:: IOFunctions
+.. automodule:: pyS3M.IOFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: HelperFunctions
+.. automodule:: pyS3M.HelperFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: ImportManager
+.. automodule:: pyS3M.ImportManager
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: LoggingFramework
+.. automodule:: pyS3M.LoggingFramework
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: ProgressUtils
+.. automodule:: pyS3M.ProgressUtils
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: Constants
+.. automodule:: pyS3M.Constants
    :members:
    :undoc-members:
    :show-inheritance:

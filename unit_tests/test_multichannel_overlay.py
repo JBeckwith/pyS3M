@@ -2,6 +2,11 @@
 Test multichannel overlay plotting functionality.
 
 Tests the new multichannel_overlay_plot method in PlottingBase.py
+
+Saves use dpi=72 rather than save_or_show's publication-quality default (600):
+these tests only check the output file exists and has a plausible size, so a
+600 DPI render of a 10x10" figure (6000x6000px) is pure wasted work -- 72 DPI
+is ~10x faster and just as sufficient for that check.
 """
 
 import sys
@@ -49,7 +54,7 @@ def test_basic_two_channel_overlay(test_output_dir):
 
     # Save output
     output_path = test_output_dir / 'test_multichannel_basic.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     # Verify file was created
     assert os.path.exists(output_path), "Output file not created"
@@ -85,7 +90,7 @@ def test_three_channel_overlay(test_output_dir):
     )
 
     output_path = test_output_dir / 'test_multichannel_three.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     assert os.path.exists(output_path)
     print(f"✓ Three-channel overlay test passed. Output: {output_path}")
@@ -114,7 +119,7 @@ def test_with_colorbars(test_output_dir):
     )
 
     output_path = test_output_dir / 'test_multichannel_colorbars.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     assert os.path.exists(output_path)
     print(f"✓ Colorbar test passed. Output: {output_path}")
@@ -143,7 +148,7 @@ def test_custom_intensity_scaling(test_output_dir):
     )
 
     output_path = test_output_dir / 'test_multichannel_custom_scaling.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     assert os.path.exists(output_path)
     print(f"✓ Custom scaling test passed. Output: {output_path}")
@@ -173,7 +178,7 @@ def test_white_background(test_output_dir):
     )
 
     output_path = test_output_dir / 'test_multichannel_white_bg.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     assert os.path.exists(output_path)
     print(f"✓ White background test passed. Output: {output_path}")
@@ -245,7 +250,7 @@ def test_analysis_plotter(test_output_dir):
     )
 
     output_path = test_output_dir / 'test_multichannel_analysis.png'
-    plotter.save_or_show(fig, save_path=output_path)
+    plotter.save_or_show(fig, save_path=output_path, dpi=72)
 
     assert os.path.exists(output_path)
     print(f"✓ AnalysisPlotter test passed. Output: {output_path}")

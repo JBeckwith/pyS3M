@@ -303,9 +303,15 @@ def compare_fitting_methods(df, verbose=True):
     return results
 
 
-def test_scaling(n_samples_list=[1000, 5000, 10000, 50000], verbose=True):
+def test_scaling(n_samples_list=[20, 100], verbose=False):
     """
-    Test how performance scales with dataset size.
+    Confirm EM and pygmmis GMM fitting both work at more than one dataset size,
+    each producing a converged, correctly-shaped, finite fit.
+
+    n_samples_list was originally [1000, 5000, 10000, 50000] as a genuine
+    performance-scaling benchmark (the largest size alone took ~16s); shrunk
+    since a unit test only needs to confirm both code paths still work across
+    sizes, not measure how fast they are.
 
     Args:
         n_samples_list: List of sample sizes to test
@@ -331,15 +337,34 @@ def test_scaling(n_samples_list=[1000, 5000, 10000, 50000], verbose=True):
 
         # Time EM
         start = time.time()
-        _, _ = extractor.unmix_channels(df, n_channels=2, channels_to_use=['A_R', 'A_G'],
-                                        gmm_fit_method='EM', confidence_threshold=0.95, verbose=False)
+        assigned_em, metadata_em = extractor.unmix_channels(
+            df, n_channels=2, channels_to_use=['A_R', 'A_G'],
+            gmm_fit_method='EM', confidence_threshold=0.95, verbose=False,
+        )
         time_em = time.time() - start
 
         # Time pygmmis
         start = time.time()
-        _, _ = extractor.unmix_channels(df, n_channels=2, channels_to_use=['A_R', 'A_G'],
-                                        gmm_fit_method='extreme_deconvolution', confidence_threshold=0.95, verbose=False)
+        assigned_pygmmis, metadata_pygmmis = extractor.unmix_channels(
+            df, n_channels=2, channels_to_use=['A_R', 'A_G'],
+            gmm_fit_method='extreme_deconvolution', confidence_threshold=0.95, verbose=False,
+        )
         time_pygmmis = time.time() - start
+
+        # Real assertions: both methods must actually fit this dataset size,
+        # not just run without raising.
+        assert len(assigned_em) == len(df)
+        assert len(assigned_pygmmis) == len(df)
+        assert metadata_em['converged'], f"EM did not converge at n={n_samples_per_dye*2}"
+        assert metadata_pygmmis['converged'], f"pygmmis did not converge at n={n_samples_per_dye*2}"
+        assert metadata_em['means'].shape == (2, 2)
+        assert metadata_pygmmis['means'].shape == (2, 2)
+        assert np.all(np.isfinite(metadata_em['means']))
+        assert np.all(np.isfinite(metadata_pygmmis['means']))
+        assert np.all(np.isfinite(metadata_em['covariances']))
+        assert np.all(np.isfinite(metadata_pygmmis['covariances']))
+        assert time_em > 0
+        assert time_pygmmis > 0
 
         speedup = time_em / time_pygmmis
 
