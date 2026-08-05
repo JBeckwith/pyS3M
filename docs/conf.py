@@ -8,7 +8,17 @@ extensions = [
     'sphinx.ext.napoleon',
     'autodocsumm',
     'sphinx.ext.coverage',
+    'sphinx.ext.intersphinx',
+    'sphinx.ext.viewcode',
 ]
+
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
+    'pandas': ('https://pandas.pydata.org/docs/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
+}
 
 napoleon_custom_sections = [('Returns', 'params_style')]
 # Render docstring "Attributes:" sections as :ivar: cross-references into the

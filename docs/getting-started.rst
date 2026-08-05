@@ -8,8 +8,8 @@ be found on `bioRxiv <https://www.biorxiv.org/content/10.64898/2026.04.08.715690
 The package provides a set of Python classes that can be used from scripts,
 interactive Jupyter notebooks, or a bundled PyQt6 GUI to:
 
-- Fit Bayer-mosaic SMLM data across multiple colour channels simultaneously
-- Correct lateral drift using fiducial beads or image cross-correlation
+- Fit single-molecule data from spatially patterned detectors
+- Correct lateral drift using fiducial beads or AIM (Adaptive Intersection Maximization)
 - Cluster and co-localise multi-channel localisations
 - Simulate multicolour SMLM experiments for method validation
 - Detect and characterise single-molecule steps and FRET transitions
@@ -53,7 +53,14 @@ Getting Started
 ===============
 
 Example notebooks covering the main workflows are provided in ``notebooks/``.
-A minimal analysis looks like:
+A minimal analysis looks like, using :class:`~pyS3M.AnalysisPipeline.AnalysisPipeline`
+configured via :class:`~pyS3M.AnalysisPipeline.FittingConfig` and
+:class:`~pyS3M.Constants.AnalysisConfig`, then
+:meth:`~pyS3M.AnalysisPipeline.AnalysisPipeline.load_calibration`,
+:meth:`~pyS3M.AnalysisPipeline.AnalysisPipeline.fit`,
+:meth:`~pyS3M.AnalysisPipeline.AnalysisPipeline.load_localisations`, and
+:meth:`~pyS3M.AnalysisPipeline.AnalysisPipeline.filter_and_cluster` (see the
+:doc:`Core Analysis API reference <api_core>` for full parameter documentation):
 
 .. code-block:: python
 

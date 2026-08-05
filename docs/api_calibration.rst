@@ -31,6 +31,11 @@ Calibration & Camera
    :undoc-members:
    :show-inheritance:
 
+.. automodule:: pyS3M.mixture_analysis
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. automodule:: pyS3M.NileRedFunctions
    :members:
    :undoc-members:

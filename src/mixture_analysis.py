@@ -414,13 +414,13 @@ class MixtureAnalysisMixin:
         3. Analytically calculate overlap/error rates from distributions
 
         Two modes of operation:
-        A. **Photon accumulation database + threshold**: Use highest-photon data only
-           - Pass photon_accumulation_db with reference_photon_threshold
-           - Extracts molecules reaching threshold for stable mean estimates
 
-        B. **Single molecule database**: Use all molecules (no threshold)
-           - Pass single_molecule_database with reference_photon_threshold=None
-           - Uses averaged RGB values from all molecules
+        - **Photon accumulation database + threshold**: Use highest-photon data only.
+          Pass photon_accumulation_db with reference_photon_threshold to extract
+          molecules reaching threshold for stable mean estimates.
+        - **Single molecule database**: Use all molecules (no threshold). Pass
+          single_molecule_database with reference_photon_threshold=None to use
+          averaged RGB values from all molecules.
 
         Args:
             data_db (pd.DataFrame): Either:
@@ -442,13 +442,7 @@ class MixtureAnalysisMixin:
         Returns:
             tuple: (reference_means, reference_db, gmm_model)
                 - reference_means (np.ndarray): Shape (n_components, 2) - fixed means for [A_R, A_G]
-                - reference_db (pd.DataFrame): Reference molecules with assignments:
-                    - molecular_index: Unique molecule ID
-                    - true_label: 0 or 1 (e.g., 0=Red, 1=Green)
-                    - A_R_ref, A_G_ref, A_B_ref: Reference RGB values
-                    - posterior_prob_0, posterior_prob_1: Posterior probabilities
-                    - photons (if from single molecule DB) or max_photons (if from accumulation DB)
-                    - fov_index, fov_name: FOV tracking (if available)
+                - reference_db (pd.DataFrame): Reference molecules with assignments — molecular_index (unique molecule ID), true_label (0 or 1, e.g. 0=Red, 1=Green), A_R_ref/A_G_ref/A_B_ref (reference RGB values), posterior_prob_0/posterior_prob_1 (posterior probabilities), photons or max_photons (from single molecule DB or accumulation DB respectively), fov_index/fov_name (FOV tracking, if available)
                 - gmm_model (GaussianMixture): Fitted GMM (for reference only)
 
         Examples:
@@ -1306,16 +1300,11 @@ class MixtureAnalysisMixin:
 
         Returns:
             dict: Misidentification statistics with keys:
-                - 'confusion_matrix': np.ndarray of shape (n_components, n_components)
-                    Entry [i, j] = P(classified as j | true component i)
-                - 'accuracy_per_component': np.ndarray of shape (n_components,)
-                    Probability of correct classification for each component
-                - 'overall_accuracy': float
-                    Weighted average accuracy
-                - 'error_rate_per_component': np.ndarray of shape (n_components,)
-                    Probability of misclassification for each component
-                - 'overall_error_rate': float
-                    Weighted average error rate
+                - 'confusion_matrix': shape (n_components, n_components); entry [i, j] = P(classified as j | true component i)
+                - 'accuracy_per_component': shape (n_components,); probability of correct classification for each component
+                - 'overall_accuracy': float; weighted average accuracy
+                - 'error_rate_per_component': shape (n_components,); probability of misclassification for each component
+                - 'overall_error_rate': float; weighted average error rate
 
         Example:
             >>> # After fitting covariances at specific photon level
@@ -1324,7 +1313,7 @@ class MixtureAnalysisMixin:
             ...     fixed_means, cov, weights, n_samples=10000
             ... )
             >>> print(f"Overall accuracy: {stats['overall_accuracy']:.3f}")
-            >>> print(f"Confusion matrix:\n{stats['confusion_matrix']}")
+            >>> print(f"Confusion matrix:\\n{stats['confusion_matrix']}")
         """
         np.random.seed(random_state)
 
@@ -1412,10 +1401,10 @@ class MixtureAnalysisMixin:
         3. Provides stable and interpretable error rate predictions
 
         Workflow:
-        1. For each photon bin:
-           a. Extract data at that photon level
-           b. Robustly fit covariances with fixed means using M-estimators
-           c. Analytically calculate misidentification from overlap
+
+        1. For each photon bin, extract data at that photon level, robustly fit
+           covariances with fixed means using M-estimators, and analytically
+           calculate misidentification from overlap
         2. Return summary of error rates vs photon count
 
         Args:
@@ -1425,7 +1414,7 @@ class MixtureAnalysisMixin:
             reference_db (pd.DataFrame): Reference molecules from extract_reference_means()
             photon_bins (array-like): Photon bin edges (e.g., [1000, 2000, 5000, 10000])
             reference_covariances (np.ndarray, optional): Reference covariances from high-photon fit
-                for comparison/diagnostics. Can be obtained from gmm.covariances_ after extract_reference_means()
+                for comparison/diagnostics. Can be obtained from ``gmm.covariances_`` after extract_reference_means()
             use_earliest_entry (bool): If True, use earliest crossing into each bin.
                 If False, use midpoint of bin. (default: True)
             n_mc_samples (int): Monte Carlo samples for analytical error calculation (default: 10,000)
