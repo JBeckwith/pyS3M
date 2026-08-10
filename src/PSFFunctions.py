@@ -381,9 +381,16 @@ class PSF_Functions:
         Returns:
             n_photoelectrons (numpy.2darray): 2D matrix of photoelectrons generated
         """
-        n_photons_hitting_detector = np.array(
-            n_photons_hitting_detector.clip(0, np.inf), dtype=np.int64
-        )
+        # np.clip(..., 0, None) (not np.inf) avoids an unnecessary float64
+        # upcast + two redundant full-size copies -- clipping an int64 array
+        # against a float bound (np.inf) forces NumPy to promote to float64
+        # for the clip, which the previous np.array(..., dtype=np.int64) then
+        # had to copy back down; at (n_frames, w, h, n_channels) scale in the
+        # vectorized caller this tripled peak memory for no numeric benefit
+        # (there is no upper bound here, only a floor at 0).
+        n_photons_hitting_detector = np.clip(
+            n_photons_hitting_detector, 0, None
+        ).astype(np.int64, copy=False)
 
         # Sanitize abs_QE to ensure valid probability values for binomial distribution
         abs_QE = np.array(abs_QE)

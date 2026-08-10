@@ -230,10 +230,27 @@ def sample_n_positions_in_mask(
     mask: np.ndarray,
     n: int,
     rng: Optional[np.random.Generator] = None,
+    min_dist_px: float = 0.0,
+    max_tries_per_point: int = 500,
 ) -> np.ndarray:
-    """Draw exactly *n* candidate emitter positions from the ``True`` region
-    of *mask* (with replacement — positions are independent draws, so the
-    same mask pixel can be hit more than once).
+    """Draw up to *n* candidate emitter positions from the ``True`` region of
+    *mask*.
+
+    With ``min_dist_px <= 0`` (the default): draws exactly *n* positions with
+    replacement — independent draws, so the same mask pixel can be hit more
+    than once, and two candidates can land arbitrarily close together purely
+    by chance.
+
+    With ``min_dist_px > 0``: rejection-samples instead (same pattern as
+    ``claude/generate_test_fixtures.py``'s own ``_sample_separated_points``,
+    applied here to mask-derived positions rather than an open range) so no
+    two accepted candidates are closer than *min_dist_px* — needed whenever
+    candidates must stay individually resolvable/fittable, e.g. bright,
+    always-on drift-correction fiducials that are never sparsified by
+    blinking. May return fewer than *n* positions if the mask is too small
+    or dense to fit *n* separated points (a warning is logged); this is
+    treated as an acceptable shortfall, not an error, since the caller's
+    target *n* is itself usually a Poisson draw, not an exact requirement.
 
     Positions are pixel indices into *mask* plus a uniform sub-pixel jitter,
     so multiple candidates landing in the same mask pixel still separate out
@@ -245,11 +262,17 @@ def sample_n_positions_in_mask(
         n: Number of positions to draw.
         rng: Random generator. A fresh :func:`numpy.random.default_rng` is
             used if omitted.
+        min_dist_px: Minimum centre-to-centre distance between any two
+            accepted candidates, in *mask* pixel units. ``0`` (default)
+            disables the constraint and uses the fast with-replacement path.
+        max_tries_per_point: Rejection-sampling attempts per point before
+            giving up (only relevant when ``min_dist_px > 0``).
 
     Returns:
-        ``(2, n)`` float array of ``[x, y]`` positions in *mask* pixel
-        coordinates (fractional). Shape ``(2, 0)`` if the mask is empty or
-        ``n <= 0``.
+        ``(2, k)`` float array of ``[x, y]`` positions in *mask* pixel
+        coordinates (fractional), ``k <= n`` (``k == n`` unless
+        ``min_dist_px > 0`` and the mask can't fit that many separated
+        points). Shape ``(2, 0)`` if the mask is empty or ``n <= 0``.
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -258,11 +281,37 @@ def sample_n_positions_in_mask(
     if len(xs) == 0 or n <= 0:
         return np.zeros((2, 0))
 
-    idx = rng.integers(0, len(xs), size=n)
-    jitter = rng.uniform(-0.5, 0.5, size=(n, 2))
-    x = xs[idx].astype(np.float64) + jitter[:, 0]
-    y = ys[idx].astype(np.float64) + jitter[:, 1]
-    return np.vstack([x, y])
+    if min_dist_px <= 0:
+        idx = rng.integers(0, len(xs), size=n)
+        jitter = rng.uniform(-0.5, 0.5, size=(n, 2))
+        x = xs[idx].astype(np.float64) + jitter[:, 0]
+        y = ys[idx].astype(np.float64) + jitter[:, 1]
+        return np.vstack([x, y])
+
+    accepted: List[Tuple[float, float]] = []
+    min_dist2 = min_dist_px ** 2
+    for _ in range(n * max_tries_per_point):
+        if len(accepted) >= n:
+            break
+        idx = int(rng.integers(0, len(xs)))
+        jx, jy = rng.uniform(-0.5, 0.5, size=2)
+        x, y = xs[idx] + jx, ys[idx] + jy
+        if accepted:
+            acc = np.asarray(accepted)
+            if np.min((acc[:, 0] - x) ** 2 + (acc[:, 1] - y) ** 2) < min_dist2:
+                continue
+        accepted.append((x, y))
+
+    if len(accepted) < n:
+        import warnings
+        warnings.warn(
+            f"Could only place {len(accepted)}/{n} candidates with "
+            f"min_dist_px={min_dist_px:.1f} in this mask — mask may be too "
+            "small/dense for this separation at this candidate count."
+        )
+    if not accepted:
+        return np.zeros((2, 0))
+    return np.asarray(accepted).T
 
 
 def sample_positions_in_mask(
@@ -270,6 +319,7 @@ def sample_positions_in_mask(
     density_per_um2: float,
     pixel_size_nm: Optional[float] = None,
     rng: Optional[np.random.Generator] = None,
+    min_dist_nm: float = 0.0,
 ) -> np.ndarray:
     """Draw candidate emitter positions from the ``True`` region of *mask*.
 
@@ -287,6 +337,10 @@ def sample_positions_in_mask(
             :data:`DEFAULT_PATTERN_FOV_UM`) if omitted.
         rng: Random generator. A fresh :func:`numpy.random.default_rng` is
             used if omitted.
+        min_dist_nm: Minimum centre-to-centre distance between any two
+            candidates, in nm. ``0`` (default) disables the constraint —
+            see :func:`sample_n_positions_in_mask` for the rejection-sampling
+            behaviour this enables.
 
     Returns:
         ``(2, N)`` float array of ``[x, y]`` positions in *mask* pixel
@@ -302,7 +356,8 @@ def sample_positions_in_mask(
     area_per_px_um2 = (pixel_size_nm / 1000.0) ** 2
     expected_n = density_per_um2 * n_px * area_per_px_um2
     n = int(rng.poisson(expected_n)) if expected_n > 0 else 0
-    return sample_n_positions_in_mask(mask, n, rng)
+    min_dist_px = (min_dist_nm / pixel_size_nm) if min_dist_nm > 0 else 0.0
+    return sample_n_positions_in_mask(mask, n, rng, min_dist_px=min_dist_px)
 
 
 def sample_positions_per_colour(
@@ -310,6 +365,7 @@ def sample_positions_per_colour(
     density_per_um2: float,
     pixel_size_nm: Optional[float] = None,
     rng: Optional[np.random.Generator] = None,
+    min_dist_nm: float = 0.0,
 ) -> Dict[RGBTuple, np.ndarray]:
     """Apply :func:`sample_positions_in_mask` to every colour in *masks*.
 
@@ -322,6 +378,7 @@ def sample_positions_per_colour(
         density_per_um2: Forwarded to :func:`sample_positions_in_mask`.
         pixel_size_nm: Forwarded to :func:`sample_positions_in_mask`.
         rng: Random generator, shared across colours.
+        min_dist_nm: Forwarded to :func:`sample_positions_in_mask`.
 
     Returns:
         Dict mapping each colour to its ``(2, N)`` position array.
@@ -329,7 +386,7 @@ def sample_positions_per_colour(
     if rng is None:
         rng = np.random.default_rng()
     return {
-        colour: sample_positions_in_mask(mask, density_per_um2, pixel_size_nm, rng)
+        colour: sample_positions_in_mask(mask, density_per_um2, pixel_size_nm, rng, min_dist_nm)
         for colour, mask in masks.items()
     }
 
@@ -610,9 +667,159 @@ def per_frame_photon_budget(
     return rng.uniform(photon_range[0], photon_range[1], size=n_frames)
 
 
+class Scatterer:
+    """A non-fluorescent point scatterer (e.g. a gold-nanoparticle
+    drift-correction fiducial), for use as a :func:`simulate_acquisition`
+    ``colour_to_dye`` value in place of a dye name string.
+
+    Real fiducial markers don't fluoresce — they elastically (Rayleigh/Mie)
+    scatter the illumination light itself, so unlike a dye pulled from
+    :class:`~pyS3M.SpectralFunctions.Spectral_Funcs`'s database (a broad,
+    Stokes-shifted emission spectrum), there is no emission spectrum to look
+    up. Represented as a narrow synthetic spectrum at the illumination
+    wavelength (no Stokes shift) and fed through
+    :meth:`~pyS3M.SpectralFunctions.Spectral_Funcs.get_pixel_fractions_rawspectra`
+    — the same raw-spectrum pipeline ``simulation.multicolour`` already uses
+    for other simulated (non-database) spectra — rather than a bespoke
+    formula.
+    """
+
+    __slots__ = ("wavelength_nm", "label", "linewidth_nm")
+
+    def __init__(self, wavelength_nm: float, label: str = "scatterer", linewidth_nm: float = 2.0):
+        self.wavelength_nm = float(wavelength_nm)
+        self.label = label
+        self.linewidth_nm = float(linewidth_nm)
+
+    def __repr__(self) -> str:
+        return f"Scatterer({self.label!r}, {self.wavelength_nm:.0f} nm)"
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, Scatterer)
+            and self.wavelength_nm == other.wavelength_nm
+            and self.label == other.label
+        )
+
+    def __hash__(self) -> int:
+        return hash((Scatterer, self.wavelength_nm, self.label))
+
+
+def scatterer_spectrum(
+    scatterer: "Scatterer", wavelength_grid_nm: np.ndarray, spectral,
+) -> np.ndarray:
+    """Narrow synthetic Gaussian spectrum standing in for *scatterer*'s
+    effective single-wavelength illumination — reuses
+    :meth:`Spectral_Funcs.gaussian_model` (already used for e.g. Nile Red's
+    synthetic spectra) rather than a one-off formula. Narrow (default 2 nm
+    FWHM) rather than a literal delta function so it integrates cleanly
+    through :meth:`Spectral_Funcs.get_pixel_fractions_rawspectra`'s
+    ``np.trapz``-based normalization.
+
+    Args:
+        scatterer: The :class:`Scatterer` to build a spectrum for.
+        wavelength_grid_nm: Wavelength grid to evaluate the spectrum on, in nm.
+        spectral: A ``Spectral_Funcs`` instance (reused, not constructed here,
+            to avoid re-opening the spectral database).
+
+    Returns:
+        ``(n_wavelengths,)`` spectrum array on *wavelength_grid_nm*.
+    """
+    sigma_nm = spectral.fwhm_sigma_conversion(scatterer.linewidth_nm, sigma_given=False)
+    return spectral.gaussian_model([1.0, scatterer.wavelength_nm, sigma_nm], wavelength_grid_nm)
+
+
+class NileRedEnvironment:
+    """A Nile Red population in a specific local (polarity) environment, for
+    use as a :func:`simulate_acquisition` ``colour_to_dye`` value in place of
+    a dye name string.
+
+    Nile Red is solvatochromic — its emission peak red-shifts with increasing
+    local polarity, which is the whole quantity Nile Red imaging probes.
+    There is no single fixed "Nile Red" emission spectrum to look up in the
+    dye database; instead this represents one environment's real skew-Gaussian
+    emission spectrum via
+    :meth:`~pyS3M.NileRedFunctions.NileRed_Functions.generate_nile_red_spectrum`
+    (the same physical model
+    ``NileRed_Functions.fit_wavelengths_pixelated`` itself fits against), fed
+    through :meth:`~pyS3M.SpectralFunctions.Spectral_Funcs.get_pixel_fractions_rawspectra`
+    like :class:`Scatterer` — real environment physics, not a narrow
+    synthetic line or a database lookup.
+
+    ``wavelength_nm`` is the *reported* wavelength — what
+    ``NileRed_Functions.fit_wavelengths_pixelated`` should recover, i.e. the
+    fitted spectrum's centre of mass — not the underlying skew-Gaussian's
+    energy-space location parameter (``wavelength_center``), which is a
+    different, non-equal quantity (see
+    :meth:`~pyS3M.NileRedFunctions.NileRed_Functions.spectral_centre_of_mass`'s
+    docstring for why). :func:`nile_red_environment_spectrum` resolves the
+    correct ``wavelength_center`` to render via
+    :meth:`~pyS3M.NileRedFunctions.NileRed_Functions.wavelength_center_for_centre_of_mass`
+    so that a noiseless round-trip through the real fit recovers
+    ``wavelength_nm`` directly — verified empirically to close the loop with
+    ~0 nm residual bias.
+    """
+
+    __slots__ = ("wavelength_nm", "label")
+
+    def __init__(self, wavelength_nm: float, label: str | None = None):
+        self.wavelength_nm = float(wavelength_nm)
+        self.label = label or f"Nile Red ({wavelength_nm:.0f} nm environment)"
+
+    def __repr__(self) -> str:
+        return f"NileRedEnvironment({self.label!r}, {self.wavelength_nm:.0f} nm)"
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, NileRedEnvironment)
+            and self.wavelength_nm == other.wavelength_nm
+            and self.label == other.label
+        )
+
+    def __hash__(self) -> int:
+        return hash((NileRedEnvironment, self.wavelength_nm, self.label))
+
+
+def nile_red_environment_spectrum(
+    environment: "NileRedEnvironment",
+    wavelength_grid_nm: np.ndarray,
+    nile_red_functions,
+    filter_spectra: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Real Nile Red skew-Gaussian emission spectrum for *environment*,
+    resolved so its centre of mass — what
+    ``NileRed_Functions.fit_wavelengths_pixelated`` actually reports — lands
+    at ``environment.wavelength_nm``.
+
+    Args:
+        environment: The :class:`NileRedEnvironment` to build a spectrum for.
+        wavelength_grid_nm: Wavelength grid to evaluate the spectrum on, in nm.
+        nile_red_functions: A ``NileRed_Functions`` instance (reused, not
+            constructed here).
+        filter_spectra: Optional ``(n_filters, n_wavelengths)`` optical filter
+            transmission curves (e.g. from
+            ``Spectral_Funcs.get_dye_or_filter_data(..., dye_or_filter=False)``)
+            — applied the same way the real fit's own forward model does
+            (``NileRed_Functions.apply_optical_filters``), so the simulated
+            per-channel colour ratios match what a real filtered acquisition
+            (and the fit that assumes those same filters) would see. Omit for
+            an unfiltered emission spectrum.
+
+    Returns:
+        ``(n_wavelengths,)`` spectrum array on *wavelength_grid_nm*.
+    """
+    wavelength_center = nile_red_functions.wavelength_center_for_centre_of_mass(
+        environment.wavelength_nm, wavelength_grid_nm,
+    )
+    spectrum = nile_red_functions.generate_nile_red_spectrum(wavelength_center, wavelength_grid_nm)
+    if filter_spectra is not None:
+        spectrum = nile_red_functions.apply_optical_filters(spectrum, filter_spectra)
+    return spectrum
+
+
 def simulate_acquisition(
     image: Union[str, Path, np.ndarray],
-    colour_to_dye: Dict[RGBTuple, str],
+    colour_to_dye: Dict[RGBTuple, Union[str, Scatterer, NileRedEnvironment]],
     camera: str,
     pixel_size_um: float,
     gain_map: np.ndarray,
@@ -629,6 +836,9 @@ def simulate_acquisition(
     background_photons: float = 5.0,
     na: float = 1.49,
     drift_nm: Optional[np.ndarray] = None,
+    min_separation_nm: float = 0.0,
+    nile_red_filter_names: Optional[List[str]] = None,
+    frame_chunk_size: Optional[int] = None,
     rng: Optional[np.random.Generator] = None,
 ):
     """Render a synthetic STORM/PAINT frame stack from a pattern image.
@@ -649,9 +859,13 @@ def simulate_acquisition(
 
     Args:
         image: Path to a pattern image, or an already-loaded RGB/RGBA array.
-        colour_to_dye: ``{(r, g, b): dye_name}`` — which dye each detected
-            pattern colour represents. Two colours may map to the same dye
-            (their candidate pools are merged).
+        colour_to_dye: ``{(r, g, b): dye_name_or_scatterer}`` — which dye (or
+            :class:`Scatterer`, for a non-fluorescent point scatterer such as
+            a gold-nanoparticle fiducial; or :class:`NileRedEnvironment`, for
+            a Nile Red population in a specific local-polarity environment)
+            each detected pattern colour represents. Two colours may map to
+            the same dye/scatterer/environment (their
+            candidate pools are merged).
         camera: Camera name (``"ximea"`` or ``"zwo"``) — sets the Bayer
             mosaic layout.
         pixel_size_um: Camera pixel size, in µm.
@@ -677,6 +891,39 @@ def simulate_acquisition(
             (the return value's ``xc_nm``/``yc_nm``) stay at the undrifted
             reference position, which is what drift correction should
             recover.
+        min_separation_nm: Minimum centre-to-centre distance enforced between
+            every pair of candidates in a colour's static pool, in nm (``0``,
+            the default, disables the constraint). Guarantees that any two
+            candidates that happen to be ON in the same frame are at least
+            this far apart — a real requirement (overlapping PSFs are not
+            individually resolvable/fittable) — by enforcing it across the
+            *whole* static pool rather than per-frame, which is both simpler
+            and strictly sufficient (a pool that is pairwise separated is
+            separated in every frame's ON subset too). See
+            :func:`sample_n_positions_in_mask` for the rejection-sampling
+            mechanics; a warning is logged (not raised) if the mask can't fit
+            the requested pool size at this separation.
+        nile_red_filter_names: Optical filter names to apply to every
+            :class:`NileRedEnvironment` dye's emission spectrum before
+            computing its camera colour ratios (via
+            ``NileRed_Functions.apply_optical_filters``) — should match the
+            filters the Nile Red panel's fit will assume, so the simulated
+            data and the fit's forward model see the same optical path.
+            Ignored if no ``colour_to_dye`` value is a
+            :class:`NileRedEnvironment`.
+        frame_chunk_size: If set, ``gen_camera_image_stack`` is called once
+            per chunk of this many frames instead of once for the whole
+            movie, bounding peak memory to roughly ``O(frame_chunk_size)``
+            instead of ``O(n_frames)`` — several working arrays inside that
+            function's vectorized photoelectron path scale with
+            ``(n_frames, width, height, n_channels)``, which for long movies
+            (tens of thousands of frames) can reach tens to hundreds of GB
+            even though the final per-frame output is a small uint16/uint8
+            array. ``None`` (default) preserves the original single-call
+            behaviour exactly, for movies short enough that this doesn't
+            matter. Same streaming-reduction shape as
+            ``Calibration_Functions._process_calibration_files``'s
+            ``chunk_size``.
         rng: Random generator. A fresh :func:`numpy.random.default_rng` is
             used if omitted.
 
@@ -712,9 +959,11 @@ def simulate_acquisition(
         for colour, mask in masks.items()
     }
 
+    min_dist_px = (min_separation_nm / pixel_size_nm) if min_separation_nm > 0 else 0.0
     positions_by_colour = {
         colour: sample_n_positions_in_mask(
             mask, pool_size_for_density(density_per_um2, mask_area_um2[colour], n_frames), rng,
+            min_dist_px=min_dist_px,
         )
         for colour, mask in masks.items()
     }
@@ -741,13 +990,17 @@ def simulate_acquisition(
         "masks": masks_cam,
     }
 
-    dye_to_colours: Dict[str, List[RGBTuple]] = {}
+    dye_to_colours: Dict[Union[str, Scatterer, NileRedEnvironment], List[RGBTuple]] = {}
     for colour, dye in colour_to_dye.items():
         dye_to_colours.setdefault(dye, []).append(colour)
+
+    nile_red_functions = None  # lazily constructed only if a NileRedEnvironment is used
+    nile_red_filter_spectra = None  # lazily computed alongside nile_red_functions
 
     x0y0, n_photons = {}, {}
     dye_efficiency_rows, avg_wavelengths, gt_rows = [], [], []
     for dye, colours_for_dye in dye_to_colours.items():
+        dye_label = dye.label if isinstance(dye, (Scatterer, NileRedEnvironment)) else dye
         pos_chunks, on_chunks = [], []
         for colour in colours_for_dye:
             pos_px = positions_by_colour.get(colour, np.zeros((2, 0)))
@@ -762,7 +1015,7 @@ def simulate_acquisition(
             on_chunks.append(on_state)
             for k in range(pos_px.shape[1]):
                 gt_rows.append({
-                    "dye": dye, "colour": "#%02x%02x%02x" % colour,
+                    "dye": dye_label, "colour": "#%02x%02x%02x" % colour,
                     "xc_nm": pos_nm[0, k], "yc_nm": pos_nm[1, k],
                     "n_frames_on": int(on_state[:, k].sum()),
                 })
@@ -775,9 +1028,25 @@ def simulate_acquisition(
             track = track + np.asarray(drift_nm)[:, :, None]
         x0y0[dye] = track
         n_photons[dye] = per_frame_photon_budget(n_frames, photon_range, rng)
-        avg_wl, fracs = spectral.get_pixel_fractions_dye_and_filters(
-            dyes=[dye], filters=None, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
-        )
+        if isinstance(dye, Scatterer):
+            spectrum = scatterer_spectrum(dye, wl, spectral)
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+        elif isinstance(dye, NileRedEnvironment):
+            if nile_red_functions is None:
+                import pyS3M.NileRedFunctions as NileRedFunctions
+                nile_red_functions = NileRedFunctions.NileRed_Functions()
+                if nile_red_filter_names:
+                    nile_red_filter_spectra = spectral.get_dye_or_filter_data(
+                        names=nile_red_filter_names, wavelength=wl, dye_or_filter=False,
+                    )
+            spectrum = nile_red_environment_spectrum(
+                dye, wl, nile_red_functions, filter_spectra=nile_red_filter_spectra,
+            )
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+        else:
+            avg_wl, fracs = spectral.get_pixel_fractions_dye_and_filters(
+                dyes=[dye], filters=None, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
+            )
         dye_efficiency_rows.append(fracs)
         avg_wavelengths.append(float(avg_wl))
 
@@ -798,16 +1067,47 @@ def simulate_acquisition(
     average_emission_wavelength = float(np.mean(avg_wavelengths))
 
     sim = MultiC_Sim_Funcs_Refactored(camera=camera, pixel_size=pixel_size_um, mosaic_unit=cam_cfg.mosaic_unit)
-    bayer_stack, _, _ = sim.gen_camera_image_stack(
-        camera_calibration=camera_calibration,
-        wavelength=wl,
-        average_emission_wavelengths=average_emission_wavelength,
-        dye_pixel_efficiency=dye_pixel_efficiency,
-        n_photons=n_photons,
-        x0y0=x0y0,
-        background_photons=background_photons,
-        NA=na,
-    )
+
+    def _run_stack(x0y0_arg, n_photons_arg):
+        return sim.gen_camera_image_stack(
+            camera_calibration=camera_calibration,
+            wavelength=wl,
+            average_emission_wavelengths=average_emission_wavelength,
+            dye_pixel_efficiency=dye_pixel_efficiency,
+            n_photons=n_photons_arg,
+            x0y0=x0y0_arg,
+            background_photons=background_photons,
+            NA=na,
+        )
+
+    if frame_chunk_size is None or frame_chunk_size >= n_frames:
+        bayer_stack, _, _ = _run_stack(x0y0, n_photons)
+    else:
+        # Chunked generation — see the frame_chunk_size docstring entry above
+        # for why. Slices x0y0/n_photons per dye into frame_chunk_size-sized
+        # chunks and calls gen_camera_image_stack once per chunk, writing
+        # each chunk straight into a pre-allocated output array so only one
+        # chunk's worth of the expensive (chunk_size, w, h, n_channels)
+        # intermediates is ever alive at once.
+        bayer_stack = None
+        for chunk_start in range(0, n_frames, frame_chunk_size):
+            chunk_end = min(chunk_start + frame_chunk_size, n_frames)
+            x0y0_chunk = {dye: track[chunk_start:chunk_end] for dye, track in x0y0.items()}
+            n_photons_chunk = {dye: arr[chunk_start:chunk_end] for dye, arr in n_photons.items()}
+            chunk_stack, _, _ = _run_stack(x0y0_chunk, n_photons_chunk)
+            if chunk_stack.ndim == 2:
+                # gen_camera_image_stack np.squeeze()s its output — a
+                # single-frame chunk (e.g. the last, partial chunk) loses
+                # its leading frame axis and must be restored.
+                chunk_stack = chunk_stack[np.newaxis, ...]
+            if bayer_stack is None:
+                bayer_stack = np.empty((n_frames,) + chunk_stack.shape[1:], dtype=chunk_stack.dtype)
+            elif chunk_stack.dtype != bayer_stack.dtype:
+                # A later chunk needed a wider dtype than the first (e.g. an
+                # unusually bright frame pushed it from uint16 to float32) —
+                # upgrade the accumulator rather than silently truncating.
+                bayer_stack = bayer_stack.astype(chunk_stack.dtype)
+            bayer_stack[chunk_start:chunk_end] = chunk_stack
 
     ground_truth = pd.DataFrame(gt_rows)
     return bayer_stack, ground_truth, width, height, average_emission_wavelength
