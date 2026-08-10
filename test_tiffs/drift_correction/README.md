@@ -1,14 +1,17 @@
 # drift_correction
 
-Simulated dye(s): ATTO 647N
-Recommended Peak λ for fitting (FittingPanel "Peak λ"): 0.685 µm
+Simulated dye(s): Gold nanoparticle (561 nm elastic scatter)
+Recommended Peak λ for fitting (FittingPanel "Peak λ"): 0.561 µm
   — mean of the simulated dyes' average emission wavelengths, the single shared
   value the renderer used for PSF sigma; matching it here keeps the fit's PSF-sigma
   expectation consistent with what was actually simulated.
 Modality: PAINT
-Candidate density: 0.3 /µm² (pool size scales with density x area x n_frames — see pattern_source.pool_size_for_density)
+Candidate density: 0.015 /µm² (pool size scales with density x area x n_frames — see pattern_source.pool_size_for_density)
 N frames: 300
-N candidates (ground-truth pool size): 610
+N candidates (ground-truth pool size): 30
+Minimum candidate separation: 1000 nm centre-to-centre, enforced across the whole candidate pool (not just per-frame ON subsets, which this conservatively subsumes) — see pattern_source.sample_n_positions_in_mask.
+
+Emitters simulate gold-nanoparticle fiducials, not a fluorescent dye: non-blinking, non-bleaching elastic (Rayleigh/Mie) point scatterers at an effective illumination wavelength of 561 nm (no Stokes shift — the 'dye' the pipeline sees is a narrow synthetic spectrum centred there, not a database lookup). on_rate=1.0/off_rate=0.0 keeps every candidate ON for the whole movie, matching real fiducial usage. ~10,000 photons/frame (uniform 9000-11000, i.e. shot-noise-level frame-to-frame variation only, no stochastic blinking) — much brighter than the dye fixtures' 1000-10000 photon range, matching how real gold-NP fiducials read out.
 
 Injected linear drift trajectory: (0,0) -> (1000, 500) nm over the movie (ground_truth/injected_drift_nm.npy, shape (n_frames, 2), [dx, dy] in nm). Ground truth xc_nm/yc_nm are the undrifted reference positions drift correction should recover.
 
