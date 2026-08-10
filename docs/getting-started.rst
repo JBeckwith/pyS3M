@@ -52,7 +52,11 @@ Running the GUI
 Getting Started
 ===============
 
-Example notebooks covering the main workflows are provided in ``notebooks/``.
+Example notebooks covering the main workflows are provided in ``notebooks/analyses/``
+(fitting, drift correction, clustering, channel unmixing, FRC, Nile Red) and
+``notebooks/simulations/`` (generating your own synthetic acquisitions) — this is the
+exact worked example from ``01_getting_started_smlm_fitting.ipynb``, runnable end-to-end
+against data already bundled with the repo.
 A minimal analysis looks like, using :class:`~pyS3M.AnalysisPipeline.AnalysisPipeline`
 configured via :class:`~pyS3M.AnalysisPipeline.FittingConfig` and
 :class:`~pyS3M.Constants.AnalysisConfig`, then
@@ -81,8 +85,9 @@ configured via :class:`~pyS3M.AnalysisPipeline.FittingConfig` and
    locs = pipe.load_localisations(data_dir)
    sm_db, sf_db = pipe.filter_and_cluster(locs)
 
-See ``notebooks/`` for fuller worked examples (per-camera calibration, drift
-correction, FRC, channel unmixing, simulation).
+See ``notebooks/analyses/`` for fuller worked examples (multi-FOV fitting, drift
+correction, clustering, channel unmixing, FRC, Nile Red) and ``notebooks/simulations/``
+for how to generate your own synthetic acquisitions.
 
 Contributing
 ============

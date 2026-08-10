@@ -4,7 +4,9 @@
 is a Python package of classes for analysing spatial-spectral single-molecule localisation
 microscopy data — fitting, quality filtering, clustering, drift correction, FRC, and
 simulation — usable from scripts, notebooks, or its desktop GUI. Example notebooks are
-provided under `notebooks/`, showing worked analyses end-to-end.
+provided under `notebooks/analyses/` (fitting through resolution estimation) and
+`notebooks/simulations/` (generating your own synthetic acquisitions), each running
+end-to-end against data already bundled with the repo.
 
 Documentation: https://pys3m.readthedocs.io/en/latest/index.html
 
@@ -46,8 +48,9 @@ from the repository root without installing.
 See the Getting Started guide for a minimal worked example and installation/GUI details:
 https://pys3m.readthedocs.io/en/latest/getting-started.html
 
-See `notebooks/` for fuller worked examples (per-camera calibration, drift correction, FRC,
-channel unmixing, simulation).
+See `notebooks/analyses/` for fuller worked examples (multi-FOV fitting, drift correction,
+clustering, channel unmixing, FRC, Nile Red) and `notebooks/simulations/` for how to
+generate your own synthetic acquisitions.
 
 ## License
 
