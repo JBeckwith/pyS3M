@@ -86,13 +86,41 @@ class Calibration_Functions:
         files = np.sort([x for x in files if string2 in x])
         return files
 
-    def calibrate_multicolour_camera(self, directory: Path | str, imtype: str = ".tif") -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]] | None:
+    def _discover_intensity_strings(self, folder: Path | str, imtype: str) -> np.ndarray:
+        """Sorted ``"Intensity_<value>"`` strings found among *imtype* files in
+        *folder* — shared by both the per-colour (RGB) and single-folder (NIR)
+        branches of :meth:`calibrate_multicolour_camera`."""
+        files = np.unique([p.name for p in Path(folder).iterdir()])
+        files = np.sort([x for x in files if imtype in x])
+        intensity_strings = np.sort(
+            np.unique([x.split("Intensity_")[1].split("_")[0] for x in files])
+        )
+        return np.asarray(
+            np.full(len(intensity_strings), "Intensity_")
+            + np.asarray(intensity_strings, dtype="object"),
+            dtype=str,
+        )
+
+    def calibrate_multicolour_camera(
+        self, directory: Path | str, imtype: str = ".tif", mode: str = "rgb"
+    ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]] | None:
         """
         Calibrates multicolour camera.
 
         Args:
             directory (string): Folder containing tifs
             imtype (string): image type to read in
+            mode (string): ``"rgb"`` (default) expects one flat-field
+                subfolder per Bayer colour (named exactly matching
+                ``np.unique(self.mosaic_unit)``, e.g. "R"/"G"/"B"), each
+                illuminated separately and masked into its own Bayer
+                positions. ``"nir"`` expects exactly one flat-field
+                subfolder (any name) alongside ``dark`` — the Ximea/ZWO
+                Bayer filters' R/G/B transmission spectra converge above
+                ~750 nm, so a single >750 nm flat-field acquisition
+                illuminates every pixel identically regardless of its
+                Bayer colour, and is applied uniformly (no per-colour
+                masking) rather than requiring separate per-colour data.
 
         Returns:
             offset (np.2darray): offset matrix
@@ -101,10 +129,7 @@ class Calibration_Functions:
             read_noise (np.2darray): read noise matrix
             r_QE (np.2darray): relative QE matrix
         """
-        colours = np.unique(self.mosaic_unit)
-
         directories = [p.name for p in Path(directory).iterdir()]
-        colour_directories = np.sort([x for x in directories if x in colours])
         dark_directory = np.sort([x for x in directories if "dark" in x])
         try:
             if len(dark_directory) != 1:
@@ -114,54 +139,82 @@ class Calibration_Functions:
             return
         dark_directory = str(dark_directory[0])
 
-        n_powermatrix = np.zeros(len(colour_directories))
-        for i, colour in enumerate(colour_directories):
-            files = np.unique([p.name for p in (Path(directory) / colour).iterdir()])
-            files = np.sort([x for x in files if imtype in x])
-            intensity_strings = np.sort(
-                np.unique([x.split("Intensity_")[1].split("_")[0] for x in files])
-            )
-            intensity_strings = np.asarray(
-                np.full(len(intensity_strings), "Intensity_")
-                + np.asarray(intensity_strings, dtype="object"),
-                dtype=str,
-            )
-            n_powermatrix[i] = len(intensity_strings)
-
-        try:
-            if n_powermatrix.ptp() != 0:
-                raise Exception(
-                    "Incorrect number of intensity values for each colour; should be equal"
-                )
-        except Exception as error:
-            logger.warning("Caught this error: " + repr(error))
-            return
-
-        n_powers = int(np.unique(n_powermatrix))
-        # calculate dark offset and variance for all colours (single pass)
+        # calculate dark offset and variance (single pass)
         offset, variance = self.calculate_offset_and_variance(
             Path(directory) / dark_directory, "dark"
         )
 
-        offset_intensities = np.zeros([offset.shape[0], offset.shape[1], n_powers])
-        variance_intensities = np.zeros(
-            [variance.shape[0], variance.shape[1], n_powers]
-        )
+        if mode == "nir":
+            nir_directories = [x for x in directories if x != dark_directory]
+            try:
+                if len(nir_directories) != 1:
+                    raise Exception(
+                        "Incorrect number of NIR folders; should be exactly 1 "
+                        "(Bayer colours respond identically above ~750 nm, so "
+                        "only one flat-field folder is needed)"
+                    )
+            except Exception as error:
+                logger.warning("Caught this error: " + repr(error))
+                return
+            nir_directory = str(nir_directories[0])
 
-        masks = self.Mask.get_masks(
-            mosaic_unit=self.mosaic_unit, size_x=offset.shape[0], size_y=offset.shape[1]
-        )
+            intensity_strings = self._discover_intensity_strings(
+                Path(directory) / nir_directory, imtype
+            )
+            n_powers = len(intensity_strings)
 
-        for i, intensity in enumerate(intensity_strings):
-            for colour in colour_directories:
-                # Single-pass: compute offset and variance for this colour/intensity
-                # together so each channel uses its own correct mean (not a
-                # partially-accumulated cross-channel offset as the old code did).
+            offset_intensities = np.zeros([offset.shape[0], offset.shape[1], n_powers])
+            variance_intensities = np.zeros(
+                [variance.shape[0], variance.shape[1], n_powers]
+            )
+            for i, intensity in enumerate(intensity_strings):
+                # Every pixel gets the same source data — Bayer position stops
+                # mattering above 750 nm, so no colour masking is applied.
                 off_i, var_i = self.calculate_offset_and_variance(
-                    Path(directory) / colour, intensity
+                    Path(directory) / nir_directory, intensity
                 )
-                offset_intensities[:, :, i] += np.multiply(off_i, masks[str(colour)])
-                variance_intensities[:, :, i] += np.multiply(var_i, masks[str(colour)])
+                offset_intensities[:, :, i] = off_i
+                variance_intensities[:, :, i] = var_i
+        else:
+            colours = np.unique(self.mosaic_unit)
+            colour_directories = np.sort([x for x in directories if x in colours])
+
+            n_powermatrix = np.zeros(len(colour_directories))
+            for i, colour in enumerate(colour_directories):
+                intensity_strings = self._discover_intensity_strings(
+                    Path(directory) / colour, imtype
+                )
+                n_powermatrix[i] = len(intensity_strings)
+
+            try:
+                if n_powermatrix.ptp() != 0:
+                    raise Exception(
+                        "Incorrect number of intensity values for each colour; should be equal"
+                    )
+            except Exception as error:
+                logger.warning("Caught this error: " + repr(error))
+                return
+
+            n_powers = int(np.unique(n_powermatrix))
+            offset_intensities = np.zeros([offset.shape[0], offset.shape[1], n_powers])
+            variance_intensities = np.zeros(
+                [variance.shape[0], variance.shape[1], n_powers]
+            )
+
+            masks = self.Mask.get_masks(
+                mosaic_unit=self.mosaic_unit, size_x=offset.shape[0], size_y=offset.shape[1]
+            )
+
+            for i, intensity in enumerate(intensity_strings):
+                for colour in colour_directories:
+                    # Single-pass: compute offset and variance for this colour/intensity
+                    # together so each channel uses its own correct mean (not a
+                    # partially-accumulated cross-channel offset as the old code did).
+                    off_i, var_i = self.calculate_offset_and_variance(
+                        Path(directory) / colour, intensity
+                    )
+                    offset_intensities[:, :, i] += np.multiply(off_i, masks[str(colour)])
+                    variance_intensities[:, :, i] += np.multiply(var_i, masks[str(colour)])
 
         A = np.subtract(variance_intensities, variance[:, :, np.newaxis])
         B = np.subtract(offset_intensities, offset[:, :, np.newaxis])

@@ -20,6 +20,7 @@ class FittingPanel(QWidget):
     fit_requested          = pyqtSignal(str, str, object, object)  # data_dir, mode, FittingConfig, extra_kwargs
     preview_requested      = pyqtSignal(str, object)               # data_dir, FittingConfig
     stats_refresh_requested = pyqtSignal(tuple)                    # (min_photons, max_photons)
+    clear_requested        = pyqtSignal()                          # discard fitting results, try again
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -85,8 +86,13 @@ class FittingPanel(QWidget):
         self._run_btn = QPushButton("Run Fitting")
         self._run_btn.setEnabled(False)
         self._run_btn.clicked.connect(self._on_run_clicked)
+        self._clear_btn = QPushButton("Clear Results")
+        self._clear_btn.setEnabled(False)
+        self._clear_btn.setToolTip("Discard fitting results so you can try again with different parameters")
+        self._clear_btn.clicked.connect(self.clear_requested.emit)
         btn_lay.addWidget(self._preview_btn)
         btn_lay.addWidget(self._run_btn)
+        btn_lay.addWidget(self._clear_btn)
         form.addRow(btn_row)
 
         outer.addWidget(grp)
@@ -227,6 +233,8 @@ class FittingPanel(QWidget):
         self._run_btn.setEnabled(not busy)
         self._run_btn.setText("Running…" if busy else "Run Fitting")
         self._preview_btn.setEnabled(not busy and self._enabled_by_state and bool(self._data_dir.path))
+        if busy:
+            self._clear_btn.setEnabled(False)
 
     def set_busy(self, busy: bool):
         """Reset both buttons (used by error handler)."""
@@ -234,8 +242,13 @@ class FittingPanel(QWidget):
         self._preview_btn.setText("Preview Fit")
         self._run_btn.setEnabled(not busy)
         self._run_btn.setText("Run Fitting")
+        if busy:
+            self._clear_btn.setEnabled(False)
         if not busy:
             self._update_btns()
+
+    def set_clear_enabled(self, enabled: bool):
+        self._clear_btn.setEnabled(enabled)
 
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("calibrated", "fitted", "clustered")

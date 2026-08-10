@@ -316,6 +316,48 @@ class NileRed_Functions:
         result = minimize_scalar(_objective, bounds=bounds, method="bounded")
         return float(result.x)
 
+    def wavelength_center_for_centre_of_mass(
+        self,
+        target_centre_of_mass: float,
+        wavelength_array: np.ndarray,
+        sigma_energy: Optional[float] = None,
+        alpha: Optional[float] = None,
+        bounds: tuple[float, float] = (450.0, 800.0),
+    ) -> float:
+        """Find the `wavelength_center` whose spectral centre of mass equals
+        `target_centre_of_mass` -- the inverse of :meth:`spectral_centre_of_mass`.
+
+        `fit_nile_red_wavelength` reports the spectral *centre of mass*, not the raw
+        `wavelength_center` location parameter (see `spectral_centre_of_mass`'s
+        docstring) -- so simulating ground truth data meant to be *recovered at* a
+        known wavelength (e.g. for a synthetic test fixture) needs this inverse, not
+        `wavelength_center_for_peak` (which targets the rendered spectrum's peak/mode,
+        a different quantity again). Solved numerically (bounded 1-D optimisation),
+        the same pattern as `wavelength_center_for_peak`.
+
+        Args:
+            target_centre_of_mass: Desired centre-of-mass wavelength of the rendered
+                spectrum (nm) -- i.e. the value `fit_nile_red_wavelength` should recover.
+            wavelength_array: Wavelength grid used to render candidate spectra and
+                compute their centre of mass.
+            sigma_energy: Gaussian width in energy space (eV), default from __init__
+            alpha: Skewness parameter, default from __init__
+            bounds: Search range for wavelength_center (nm).
+
+        Returns:
+            wavelength_center: Value to pass to generate_nile_red_spectrum so the
+                rendered spectrum's centre of mass is (approximately)
+                target_centre_of_mass.
+        """
+        def _objective(wavelength_center: float) -> float:
+            com = self.spectral_centre_of_mass(
+                wavelength_center, wavelength_array, sigma_energy=sigma_energy, alpha=alpha,
+            )
+            return (com - target_centre_of_mass) ** 2
+
+        result = minimize_scalar(_objective, bounds=bounds, method="bounded")
+        return float(result.x)
+
     def apply_optical_filters(
         self, spectrum: np.ndarray, filter_spectra: np.ndarray
     ) -> np.ndarray:

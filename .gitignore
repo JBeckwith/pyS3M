@@ -32,6 +32,11 @@ threshold_parameters.json
 analysis_log*.txt
 *_memorysafe_*.txt
 
+# unit_tests/conftest.py's test_output_dir fixture -- figures/artifacts generated during a
+# test session, deleted automatically at session end; ignored as a backstop in case a run
+# is interrupted before that cleanup runs.
+unit_tests/test_output/
+
 # unit_tests/test_quality_metrics_real_data.py writes+deletes this in the bundled fixture
 # folder each run; ignored as a backstop in case cleanup is ever interrupted mid-test.
 test_tiffs/quality_metrics_sample/Localisations.h5

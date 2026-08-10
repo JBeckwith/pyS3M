@@ -10,6 +10,7 @@ class PostProcPanel(QWidget):
     cluster_requested  = pyqtSignal(object, object)  # FilteringCriteria, ClusteringConfig
     load_locs_requested = pyqtSignal(str)             # path to .h5 file
     save_requested     = pyqtSignal()                 # triggered by Save Results button
+    clear_requested    = pyqtSignal()                 # discard clustering results, try again
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -106,6 +107,18 @@ class PostProcPanel(QWidget):
         self._cluster_btn.setEnabled(False)
         self._cluster_btn.clicked.connect(self._on_cluster_clicked)
 
+        self._clear_btn = QPushButton("Clear Results")
+        self._clear_btn.setEnabled(False)
+        self._clear_btn.setToolTip("Discard clustering results so you can try again with different parameters")
+        self._clear_btn.clicked.connect(self.clear_requested.emit)
+
+        cluster_btn_row = QWidget()
+        cluster_btn_lay = QHBoxLayout(cluster_btn_row)
+        cluster_btn_lay.setContentsMargins(0, 0, 0, 0)
+        cluster_btn_lay.setSpacing(6)
+        cluster_btn_lay.addWidget(self._cluster_btn)
+        cluster_btn_lay.addWidget(self._clear_btn)
+
         self._result_label = QLabel("—")
 
         self._save_btn = QPushButton("Save Results…")
@@ -115,7 +128,7 @@ class PostProcPanel(QWidget):
 
         outer.addWidget(fgrp)
         outer.addWidget(cgrp)
-        outer.addWidget(self._cluster_btn)
+        outer.addWidget(cluster_btn_row)
         outer.addWidget(self._result_label)
         outer.addWidget(self._save_btn)
 
@@ -156,10 +169,20 @@ class PostProcPanel(QWidget):
     def set_busy(self, busy: bool):
         self._cluster_btn.setEnabled(not busy)
         self._cluster_btn.setText("Running…" if busy else "Filter & Cluster")
+        if busy:
+            self._clear_btn.setEnabled(False)
+
+    def set_clear_enabled(self, enabled: bool):
+        self._clear_btn.setEnabled(enabled)
 
     def show_result(self, n_sm: int, n_sf: int):
         self._result_label.setText(f"{n_sm} molecules from {n_sf} localisations")
         self._save_btn.setEnabled(True)
+
+    def clear_result(self):
+        """Reset the result label/save button back to their pre-clustering state."""
+        self._result_label.setText("—")
+        self._save_btn.setEnabled(False)
 
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("fitted", "undrifted", "clustered")
