@@ -42,7 +42,7 @@ class FittingPanel(QWidget):
 
         self._mode = QComboBox()
         self._mode.addItem("Single-FOV (SMLM)", userData="smlm")
-        self._mode.addItem("Multi-FOV (SMLM, multiple files)", userData="imaging")
+        self._mode.addItem("Multi-FOV (SMLM, multiple files)", userData="smlm")
         self._mode.addItem("Multi-FOV FRET (change-point detection, multi-file)", userData="fret")
         self._mode.addItem("Multi-FOV Quantum Dot (full time series, multi-file)", userData="qd")
         self._mode.currentIndexChanged.connect(self._on_mode_changed)

@@ -411,10 +411,14 @@ class AnalysisPipeline:
             except KeyError:
                 logger.debug("Skipping %s — no 'data' key", f.name)
                 continue
-            tif = f.with_suffix(".tif")
-            if not tif.exists():
-                tif = f.with_suffix(".tiff")
-            result.append((df, str(tif) if tif.exists() else None))
+            # H5 filenames are derived from the TIFF stem up to its *first*
+            # "." (see SR_Functions._fit_files), so a TIFF with a compound
+            # extension like "foo.ome.tif" produces "foo.h5" — plain
+            # with_suffix(".tif") would look for "foo.tif" and miss it.
+            # Glob for anything sharing the H5's stem instead.
+            tif_matches = sorted(folder.glob(f"{f.stem}*.tif")) or sorted(folder.glob(f"{f.stem}*.tiff"))
+            tif = tif_matches[0] if tif_matches else None
+            result.append((df, str(tif) if tif is not None else None))
         return result
 
     # ------------------------------------------------------------------

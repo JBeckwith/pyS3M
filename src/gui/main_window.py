@@ -774,10 +774,44 @@ class MainWindow(QMainWindow):
         def _do():
             # Prefer the drift-corrected localisations if undrift has been run
             # (they live in memory only, not reloaded from _fitted_data_dir).
-            locs = (
-                self._undrifted_locs if self._undrifted_locs is not None
-                else self.pipeline.load_localisations(self._fitted_data_dir)
-            )
+            if self._undrifted_locs is not None:
+                locs = self._undrifted_locs
+            elif len(self._fov_data) > 1:
+                # Multiple independent FOVs: xc/yc are local pixel coordinates
+                # within each FOV's own field of view, so clustering across a
+                # flat concatenation of all FOVs risks merging unrelated
+                # molecules that happen to share similar local coordinates in
+                # different FOVs. Cluster each FOV separately instead, then
+                # concatenate with fov_index/fov_name columns and a running
+                # molecular_index offset to keep indices globally unique.
+                sm_parts, sf_parts = [], []
+                molecular_index_offset = 0
+                for fov_idx, (fov_locs, tif_path) in enumerate(self._fov_data):
+                    fov_name = Path(tif_path).stem if tif_path else f"fov_{fov_idx}"
+                    sm_fov, sf_fov = self.pipeline.filter_and_cluster(
+                        fov_locs, criteria=criteria, clustering_config=clustering_config
+                    )
+                    if sm_fov.empty:
+                        continue
+                    sm_fov = sm_fov.assign(
+                        fov_index=fov_idx, fov_name=fov_name,
+                        molecular_index=sm_fov["molecular_index"] + molecular_index_offset,
+                    )
+                    sf_fov = sf_fov.assign(
+                        fov_index=fov_idx, fov_name=fov_name,
+                        molecular_index=sf_fov["molecular_index"] + molecular_index_offset,
+                    )
+                    sm_parts.append(sm_fov)
+                    sf_parts.append(sf_fov)
+                    molecular_index_offset = int(sm_fov["molecular_index"].max()) + 1
+                if not sm_parts:
+                    return pd.DataFrame(), pd.DataFrame()
+                return (
+                    pd.concat(sm_parts, ignore_index=True),
+                    pd.concat(sf_parts, ignore_index=True),
+                )
+            else:
+                locs = self.pipeline.load_localisations(self._fitted_data_dir)
             return self.pipeline.filter_and_cluster(
                 locs, criteria=criteria, clustering_config=clustering_config
             )
