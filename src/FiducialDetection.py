@@ -656,8 +656,6 @@ class DriftPlotter(AnalysisPlotter):
                 nrows=3,
                 width_ratios=[1.0, 1.0],
                 height_ratios=[1.0, 1.0, 0.8],
-                width=14,
-                height=12,
                 big=True,
             )
 
@@ -738,8 +736,12 @@ class DriftPlotter(AnalysisPlotter):
                     ax4.text(0.5, 0.5, f"Error plotting groups: {e}",
                              transform=ax4.transAxes, ha="center", va="center")
 
-            ax5 = axes[2, :]
-            ax5.axis("off")
+            # axes[2, :] is a row of 2 separate Axes (two_column_plot has no
+            # gridspec-merge support to span them as one) -- hide both, write
+            # the summary text on the first.
+            for _ax in axes[2, :]:
+                _ax.axis("off")
+            ax5 = axes[2, 0]
             summary_text = "Detection Summary:\n"
             summary_text += f"• Total candidates found: {len(all_picks)}\n"
             summary_text += f"• Valid fiducials: {len(valid_picks)}\n"
@@ -751,7 +753,6 @@ class DriftPlotter(AnalysisPlotter):
                      verticalalignment="top",
                      bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.5))
 
-            plt.tight_layout()
             self.save_or_show(fig, save_path=save_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
@@ -833,8 +834,6 @@ class DriftPlotter(AnalysisPlotter):
                      verticalalignment="top", fontsize=9,
                      bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.8))
 
-            plt.tight_layout()
-            plt.subplots_adjust(left=0.15)
             self.save_or_show(fig, save_path=save_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
@@ -903,7 +902,7 @@ class DriftPlotter(AnalysisPlotter):
     ) -> None:
         """Create visualization of puncta selection results with optimized rendering."""
         try:
-            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=5)
+            fig, axes = self.two_column_plot(nrows=2, ncols=2)
             axes = axes.flatten()
 
             ax = axes[0]
@@ -970,7 +969,6 @@ class DriftPlotter(AnalysisPlotter):
             ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
             plt.suptitle(title, fontsize=14, fontweight="bold")
-            plt.tight_layout()
             self.save_or_show(fig, save_path=output_figure_path, show=self.io_config.display, dpi=self.io_config.dpi)
 
         except Exception as e:
@@ -995,8 +993,7 @@ class DriftPlotter(AnalysisPlotter):
 
             cols = min(3, n_validated)
             rows = (n_validated + cols - 1) // cols
-            fig, axes = self.two_column_plot(
-                nrows=rows, ncols=cols, width=6 * cols, height=5 * rows, big=True)
+            fig, axes = self.two_column_plot(nrows=rows, ncols=cols, big=True)
             if n_validated == 1:
                 axes = [axes]
             elif rows > 1:
@@ -1022,7 +1019,6 @@ class DriftPlotter(AnalysisPlotter):
                 axes[i].set_visible(False)
 
             plt.suptitle(f"{title} - Individual Clustering Details", fontsize=14)
-            plt.tight_layout()
             filename = f"{base_path}_details.{self.io_config.figure_format}"
             self.save_or_show(fig, save_path=filename, show=self.io_config.display, dpi=self.io_config.dpi)
             logger.info(f"Saved individual clustering details: {filename}")
@@ -1046,7 +1042,7 @@ class DriftPlotter(AnalysisPlotter):
                 logger.warning("⚠️ No puncta regions to plot")
                 return
 
-            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
+            fig, axes = self.two_column_plot(nrows=2, ncols=2)
             axes = axes.flatten()
 
             ax = axes[0]
@@ -1109,7 +1105,6 @@ class DriftPlotter(AnalysisPlotter):
             ax.set_title("Summary Statistics")
 
             plt.suptitle(f"{title} - Clustering Results", fontsize=14)
-            plt.tight_layout()
 
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
@@ -1140,7 +1135,7 @@ class DriftPlotter(AnalysisPlotter):
                 logger.warning("⚠️ No data to plot in summary")
                 return
 
-            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=8)
+            fig, axes = self.two_column_plot(nrows=2, ncols=2)
             axes = axes.flatten()
 
             n_locs = [len(s) for s in selected_puncta]
@@ -1201,7 +1196,6 @@ class DriftPlotter(AnalysisPlotter):
             ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
             plt.suptitle(f"{title} - Clustering Summary", fontsize=14, fontweight="bold")
-            plt.tight_layout()
 
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]
@@ -1230,7 +1224,7 @@ class DriftPlotter(AnalysisPlotter):
     ) -> None:
         """Create 4-panel density detection visualization."""
         try:
-            fig, axes = self.two_column_plot(nrows=2, ncols=2, height=5)
+            fig, axes = self.two_column_plot(nrows=2, ncols=2)
             axes = axes.flatten()
 
             axes[0].imshow(smoothed_image, cmap="hot", origin="lower")
@@ -1258,8 +1252,6 @@ class DriftPlotter(AnalysisPlotter):
                              ha="center", va="center", fontsize=8)
             self.setup_axis(axes[3], xlabel="X (pixels)", ylabel="Y (pixels)",
                             title=f"{title} – {len(region_centres)} regions", grid=False)
-
-            plt.tight_layout()
 
             if output_figure_path:
                 base_path = (output_figure_path.rsplit(".", 1)[0]

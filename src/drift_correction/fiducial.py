@@ -300,8 +300,8 @@ class FiducialDriftCorrector(DriftCorrector):
             width,
             height,
             picks,
-            "Circle",
-            pick_size=box / 2,
+            "Rectangle",
+            pick_size=box,
             add_group=False,
         )
 

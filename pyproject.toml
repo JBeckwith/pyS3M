@@ -100,3 +100,19 @@ packages = [
 
 [tool.setuptools.dynamic]
 version = {attr = "pyS3M.__version__"}
+
+[tool.coverage.run]
+# "src", not "pyS3M": pyS3M.X is import-mapped to src/X.py (package-dir above), but an
+# editable install's import finder has no real on-disk pyS3M/ tree for coverage to walk
+# when looking for files that were never imported -- pointing coverage at the real "src"
+# directory instead gets both correct attribution (hits already land on real src/ paths,
+# confirmed via `pyS3M.AnalysisPipeline.__file__`) and complete discovery (files never
+# imported by any test still show up as real 0%, instead of silently vanishing from the
+# denominator). Requires an editable install (`pip install -e .`) to attribute correctly --
+# a non-editable `pip install .` runs a frozen site-packages copy, so hits land on that
+# copy's path instead and every src/ file reports a false 0%.
+source = ["src"]
+omit = ["src/gui/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true

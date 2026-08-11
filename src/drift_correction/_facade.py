@@ -542,20 +542,17 @@ class Drift_Correction_Functions:
                 avg_y = np.mean([pos[1] for pos in track])
                 picks.append(((avg_x - half_box, avg_y), (avg_x + half_box, avg_y)))
 
-        # Create combined image and histogram for visualization
-        if len(chunk_images) > 0:
-            combined_image = np.mean(chunk_images, axis=0)
-            combined_hist_counts = np.sum(all_chunk_histograms, axis=0)
-            if len(all_chunk_histograms) > 0:
-                bin_edges = np.histogram(combined_image.flatten(), bins=histogram_bins)[1]
-                combined_hist = (combined_hist_counts, bin_edges)
-            else:
-                combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
-            threshold = np.percentile(combined_hist_counts, threshold_percentile)
-        else:
-            combined_image = np.zeros((100, 100))
-            combined_hist = np.histogram(combined_image.flatten(), bins=histogram_bins)
-            threshold = 0
+        # Create combined image and histogram for visualization. chunk_images
+        # and all_chunk_histograms always grow together (both appended per
+        # successful chunk, before the per-chunk detection try/except that
+        # could skip just one of them) -- and the len(chunk_candidates) == 0
+        # guard above already ensures at least one chunk got this far -- so
+        # both are always non-empty here.
+        combined_image = np.mean(chunk_images, axis=0)
+        combined_hist_counts = np.sum(all_chunk_histograms, axis=0)
+        bin_edges = np.histogram(combined_image.flatten(), bins=histogram_bins)[1]
+        combined_hist = (combined_hist_counts, bin_edges)
+        threshold = np.percentile(combined_hist_counts, threshold_percentile)
 
         logger.info(f"Final result: {len(picks)} robust fiducial candidates")
         return picks, combined_image, combined_hist, threshold
@@ -582,9 +579,9 @@ class Drift_Correction_Functions:
             chunk_candidates = chunks_candidates[chunk_idx]
 
             for track in tracks:
-                if len(track) == 0:
-                    continue
-
+                # tracks are only ever created with one entry ([candidate],
+                # above and at the bottom of this loop) and only ever grow --
+                # never emptied -- so `len(track) == 0` can't happen.
                 last_pos = track[-1]
                 last_x, last_y = last_pos[0], last_pos[1]
 
@@ -1427,15 +1424,12 @@ class Drift_Correction_Functions:
         drift_x = np.ma.average(ma_x, weights=ma_x_err, axis=1)
         drift_y = np.ma.average(ma_y, weights=ma_y_err, axis=1)
 
-        if isinstance(drift_x, np.ma.MaskedArray):
-            mask_x = np.ma.getmaskarray(drift_x)
-        else:
-            mask_x = np.zeros(len(drift_x), dtype=bool)
-
-        if isinstance(drift_y, np.ma.MaskedArray):
-            mask_y = np.ma.getmaskarray(drift_y)
-        else:
-            mask_y = np.zeros(len(drift_y), dtype=bool)
+        # np.ma.average() on MaskedArray inputs always returns a MaskedArray
+        # (confirmed directly, including the fully-masked-row case), so
+        # getmaskarray() is always the right call here -- no plain-ndarray
+        # fallback is reachable.
+        mask_x = np.ma.getmaskarray(drift_x)
+        mask_y = np.ma.getmaskarray(drift_y)
 
         valid_frame_mask = np.logical_not(mask_x | mask_y)
 
@@ -1449,24 +1443,19 @@ class Drift_Correction_Functions:
         if len(drift_x) > 0:
             logger.info(f"  - drift_x first 5 values: {drift_x[:5]}")
             logger.info(f"  - drift_y first 5 values: {drift_y[:5]}")
-        if np.sum(valid_frame_mask) == 0:
-            logger.info(f"  ⚠️ WARNING: No valid frames! All drift values are masked/NaN")
-            logger.info(f"  - Checking all_corrected arrays:")
-            logger.info(f"    - all_corrected_x shape: {all_corrected_x.shape}")
-            logger.info(f"    - all_corrected_y shape: {all_corrected_y.shape}")
-            logger.info(f"    - Non-NaN entries in all_corrected_x: {np.sum(~np.isnan(all_corrected_x))}")
-            logger.info(f"    - Non-NaN entries in all_corrected_y: {np.sum(~np.isnan(all_corrected_y))}")
+        # np.sum(valid_frame_mask) == 0 here would mean every single row of
+        # all_corrected_x/_y is fully NaN across all fiducials -- but that's
+        # exactly the condition the "No valid fiducials found after median
+        # subtraction" ValueError above already rules out, so at least one
+        # row (and therefore at least one unmasked, valid frame) is always
+        # guaranteed once we reach this point.
 
         valid_frame_numbers = unique_frames[valid_frame_mask]
+        # Boolean-mask indexing on a 1-D array always returns an ndarray
+        # (never a bare Python scalar, even for a single/zero-element
+        # result), so there's no np.isscalar(...) case to special-case here.
         valid_drift_x = np.asarray(drift_x[valid_frame_mask])
         valid_drift_y = np.asarray(drift_y[valid_frame_mask])
-
-        if np.isscalar(valid_frame_numbers):
-            valid_frame_numbers = np.array([valid_frame_numbers])
-        if np.isscalar(valid_drift_x):
-            valid_drift_x = np.array([valid_drift_x])
-        if np.isscalar(valid_drift_y):
-            valid_drift_y = np.array([valid_drift_y])
 
         frame_mask = np.isin(locs.frame, valid_frame_numbers)
         corrected_locs = locs[frame_mask].copy()

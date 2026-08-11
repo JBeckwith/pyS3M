@@ -1081,7 +1081,7 @@ class BasePlotter(ABC):
 
         if title and not show_axes:
             # Add title even when axes are off
-            ax.set_title(title, fontsize=self.config.axis_label_size)
+            ax.set_title(title, fontsize=self.config.axis_labelsize)
 
         if colorbar:
             self.add_colorbar(im, ax, label=colorbar_label)

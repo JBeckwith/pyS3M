@@ -4,8 +4,10 @@
 
     Handy functions and classes
 
-    :author: Joerg Schnitzbauer, 2016
+    :original author: Joerg Schnitzbauer, 2016
     :copyright: Copyright (c) 2016 Jungmann Lab, MPI of Biochemistry
+
+    Updated by jsb92, 2026/05/18
 """
 
 from __future__ import annotations
