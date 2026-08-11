@@ -23,7 +23,6 @@ from scipy.special import iv
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing as mp
 import itertools
-import lmfit
 from collections import OrderedDict
 
 sys.path.append(str(Path(__file__).parent))
@@ -31,13 +30,6 @@ from pyS3M.ImportManager import get_module, is_available
 from pyS3M.Constants import AnalysisConfig
 import pyS3M.lib as lib
 import pyS3M.render as render
-from pyS3M.LinkingFunctions import (
-    _link_group_count,
-    _link_group_sum,
-    _link_group_mean,
-    _link_group_weighted_mean,
-    _link_group_min_max,
-)
 from threading import Thread
 import pyS3M.ProgressUtils as ProgressUtils
 from numpy.lib.recfunctions import stack_arrays
@@ -46,81 +38,6 @@ logger = logging.getLogger(__name__)
 
 
 plt = get_module("matplotlib.pyplot")
-
-
-def _plot_drift_analysis(drift, shift_x, shift_y, bounds, save_path=None,
-                         display: bool = True, config: AnalysisConfig = None):
-    """Create standardized drift analysis plot using consolidated plotting."""
-    _display = config.display if config is not None else display
-    _dpi = config.dpi if config is not None else 300
-
-    if not is_available("matplotlib.pyplot"):
-        logger.warning("⚠️ Matplotlib not available - skipping drift plot display")
-        return None, None
-
-    try:
-        from pyS3M.PlottingBase import AnalysisPlotter
-
-        plotter = AnalysisPlotter()
-
-        fig, axes = plotter.two_column_plot(nrows=1, ncols=2, width=17, height=6, big=True)
-        fig.suptitle("Estimated drift")
-
-        # Calculate time points for original measurements
-        t = (bounds[1:] + bounds[:-1]) / 2
-
-        # Left panel: Time series
-        ax1 = axes[0]
-        ax1.plot(drift.x, label="x interpolated")
-        ax1.plot(drift.y, label="y interpolated")
-        ax1.plot(t, shift_x, "o", label="x")
-        ax1.plot(t, shift_y, "o", label="y")
-        plotter.setup_axis(
-            ax1, xlabel="Frame", ylabel="Drift (pixel)", title="", legend=True
-        )
-
-        # Right panel: Trajectory
-        ax2 = axes[1]
-        ax2.plot(drift.x, drift.y)
-        ax2.plot(shift_x, shift_y, "o")
-        plotter.setup_axis(ax2, xlabel="x", ylabel="y", equal_aspect=True)
-
-        plotter.save_or_show(fig, save_path=save_path, show=_display, dpi=_dpi)
-        return fig, axes
-
-    except ImportError:
-        # Fallback to basic matplotlib if PlottingBase not available
-        if plt is None:
-            logger.warning("⚠️ Plotting not available - skipping drift analysis display")
-            return None, None
-
-        fig = plt.figure(figsize=(17, 6))
-        plt.suptitle("Estimated drift")
-
-        t = (bounds[1:] + bounds[:-1]) / 2
-
-        plt.subplot(1, 2, 1)
-        plt.plot(drift.x, label="x interpolated")
-        plt.plot(drift.y, label="y interpolated")
-        plt.plot(t, shift_x, "o", label="x")
-        plt.plot(t, shift_y, "o", label="y")
-        plt.legend(loc="best")
-        plt.xlabel("Frame")
-        plt.ylabel("Drift (pixel)")
-
-        plt.subplot(1, 2, 2)
-        plt.plot(drift.x, drift.y)
-        plt.plot(shift_x, shift_y, "o")
-        plt.axis("equal")
-        plt.xlabel("x")
-        plt.ylabel("y")
-
-        if save_path:
-            plt.savefig(save_path, dpi=_dpi, bbox_inches="tight")
-        if _display:
-            plt.show()
-        plt.close(fig)
-        return fig, None
 
 
 def get_index_blocks(locs: np.recarray, width: float, height: float, size: float, callback: Callable | None = None) -> tuple[np.recarray, float, NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32], int, int]:
@@ -340,126 +257,6 @@ def picked_locs(
         return picked_locs
 
 
-def nena(locs: np.recarray, info: list[dict[str, Any]], callback: Callable | None = None) -> tuple[Any, float]:
-    bin_centers, dnfl_ = next_frame_neighbor_distance_histogram(locs, callback)
-
-    def func(d, delta_a, s, ac, dc, sc):
-        a = ac + delta_a  # make sure a >= ac
-        p_single = a * (d / (2 * s**2)) * np.exp(-(d**2) / (4 * s**2))
-        p_short = ac / (sc * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((d - dc) / sc) ** 2)
-        return p_single + p_short
-
-    pdf_model = lmfit.Model(func)
-    params = lmfit.Parameters()
-    area = np.trapz(dnfl_, bin_centers)
-    median_lp = np.mean(
-        [np.median(locs.xc_err), np.median(locs.yc_err)]
-    )  # Changed to _err convention
-    params.add("delta_a", value=0.8 * area, min=0)
-    params.add("s", value=median_lp, min=0)
-    params.add("ac", value=0.1 * area, min=0)
-    params.add("dc", value=2 * median_lp, min=0)
-    params.add("sc", value=median_lp, min=0)
-    result = pdf_model.fit(dnfl_, params, d=bin_centers)
-    return result, result.best_values["s"]
-
-
-def next_frame_neighbor_distance_histogram(locs: np.recarray, callback: Callable | None = None) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    locs.sort(kind="mergesort", order="frame")
-    frame = locs.frame
-    x = locs.xc
-    y = locs.yc
-    if hasattr(locs, "group"):
-        group = locs.group
-    else:
-        group = np.zeros(len(locs), dtype=np.int32)
-    bin_size = 0.001
-    d_max = 1.0
-    return _nfndh(frame, x, y, group, d_max, bin_size, callback)
-
-
-def _nfndh(frame, x, y, group, d_max, bin_size, callback=None):
-    N = len(frame)
-    bins = np.arange(0, d_max, bin_size)
-    dnfl = np.zeros(len(bins))
-    one_percent = int(N / 100)
-    starts = one_percent * np.arange(100)
-    for k, start in enumerate(starts):
-        for i in range(start, start + one_percent):
-            _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size)
-        if callback is not None:
-            callback(k + 1)
-    bin_centers = bins + bin_size / 2
-    return bin_centers, dnfl
-
-
-@numba.jit(nopython=True)
-def _fill_dnfl(N, frame, x, y, group, i, d_max, dnfl, bin_size):
-    frame_i = frame[i]
-    x_i = x[i]
-    y_i = y[i]
-    group_i = group[i]
-    min_frame = frame_i + 1
-    for min_index in range(i + 1, N):
-        if frame[min_index] >= min_frame:
-            break
-    max_frame = frame_i + 1
-    for max_index in range(min_index, N):
-        if frame[max_index] > max_frame:
-            break
-    d_max_2 = d_max**2
-    for j in range(min_index, max_index):
-        if group[j] == group_i:
-            dx2 = (x_i - x[j]) ** 2
-            if dx2 <= d_max_2:
-                dy2 = (y_i - y[j]) ** 2
-                if dy2 <= d_max_2:
-                    d = np.sqrt(dx2 + dy2)
-                    if d <= d_max:
-                        bin = int(d / bin_size)
-                        dnfl[bin] += 1
-
-
-def link(
-    locs: np.recarray,
-    info: list[dict[str, Any]],
-    r_max: float = 0.05,
-    max_dark_time: int = 1,
-    combine_mode: str = "average",
-    remove_ambiguous_lengths: bool = True,
-) -> np.recarray:
-    if len(locs) == 0:
-        linked_locs = locs.copy()
-        if hasattr(locs, "frame"):
-            linked_locs = lib.append_to_rec(
-                linked_locs, np.array([], dtype=np.int32), "len"
-            )
-            linked_locs = lib.append_to_rec(
-                linked_locs, np.array([], dtype=np.int32), "n"
-            )
-        if hasattr(locs, "photons"):
-            linked_locs = lib.append_to_rec(
-                linked_locs, np.array([], dtype=np.float32), "photon_rate"
-            )
-    else:
-        locs.sort(kind="mergesort", order="frame")
-        if hasattr(locs, "group"):
-            group = locs.group
-        else:
-            group = np.zeros(len(locs), dtype=np.int32)
-        link_group = get_link_groups(locs, r_max, max_dark_time, group)
-        if combine_mode == "average":
-            linked_locs = link_loc_groups(
-                locs,
-                info,
-                link_group,
-                remove_ambiguous_lengths=remove_ambiguous_lengths,
-            )
-        elif combine_mode == "refit":
-            pass  # TODO
-    return linked_locs
-
-
 @numba.jit(nopython=True)
 def get_link_groups(locs, d_max, max_dark_time, group):
     """Assumes that locs are sorted by frame"""
@@ -531,90 +328,6 @@ def _get_next_loc_index_in_link_group(
                         if dx2 + dy2 <= d_max_2:
                             return j
     return -1
-
-
-# _link_group_count, _link_group_sum, _link_group_mean, _link_group_weighted_mean,
-# and _link_group_min_max are imported from LinkingFunctions (canonical definitions).
-
-@numba.jit(nopython=True)
-def _link_group_last(column, link_group, n_locs, n_groups):
-    result = np.zeros(n_groups, dtype=column.dtype)
-    for i in range(n_locs):
-        i_ = link_group[i]
-        result[i_] = column[i]
-    return result
-
-
-def link_loc_groups(locs: np.recarray, info: list[dict[str, Any]], link_group: NDArray[np.int32], remove_ambiguous_lengths: bool = True) -> np.recarray:
-    n_locs = len(link_group)
-    n_groups = link_group.max() + 1
-    n_ = _link_group_count(link_group, n_locs, n_groups)
-    columns = OrderedDict()
-    if hasattr(locs, "frame"):
-        first_frame_, last_frame_ = _link_group_min_max(
-            locs.frame, link_group, n_locs, n_groups
-        )
-        columns["frame"] = first_frame_
-    if hasattr(locs, "xc"):
-        weights_x = 1 / locs.xc_err**2  # Changed to _err convention
-        columns["xc"], sum_weights_x_ = _link_group_weighted_mean(
-            locs.xc, weights_x, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "yc"):
-        weights_y = 1 / locs.yc_err**2  # Changed to _err convention
-        columns["yc"], sum_weights_y_ = _link_group_weighted_mean(
-            locs.yc, weights_y, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "photons"):
-        columns["photons"] = _link_group_sum(locs.photons, link_group, n_locs, n_groups)
-    if hasattr(locs, "s_x"):
-        columns["s_x"] = _link_group_mean(locs.s_x, link_group, n_locs, n_groups, n_)
-    if hasattr(locs, "s_y"):
-        columns["s_y"] = _link_group_mean(locs.s_y, link_group, n_locs, n_groups, n_)
-    if hasattr(locs, "bg"):
-        columns["bg"] = _link_group_sum(locs.bg, link_group, n_locs, n_groups)
-    if hasattr(locs, "xc"):  # Changed from "x" to "xc"
-        columns["xc_err"] = np.sqrt(
-            1 / sum_weights_x_
-        )  # Changed from "lpx" to "xc_err"
-    if hasattr(locs, "yc"):  # Changed from "y" to "yc"
-        columns["yc_err"] = np.sqrt(
-            1 / sum_weights_y_
-        )  # Changed from "lpy" to "yc_err"
-    if hasattr(locs, "ellipticity"):
-        columns["ellipticity"] = _link_group_mean(
-            locs.ellipticity, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "net_gradient"):
-        columns["net_gradient"] = _link_group_mean(
-            locs.net_gradient, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "likelihood"):
-        columns["likelihood"] = _link_group_mean(
-            locs.likelihood, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "iterations"):
-        columns["iterations"] = _link_group_mean(
-            locs.iterations, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "z"):
-        columns["z"] = _link_group_mean(locs.z, link_group, n_locs, n_groups, n_)
-    if hasattr(locs, "d_zcalib"):
-        columns["d_zcalib"] = _link_group_mean(
-            locs.d_zcalib, link_group, n_locs, n_groups, n_
-        )
-    if hasattr(locs, "group"):
-        columns["group"] = _link_group_last(locs.group, link_group, n_locs, n_groups)
-    if hasattr(locs, "frame"):
-        columns["len"] = last_frame_ - first_frame_ + 1
-    columns["n"] = n_
-    if hasattr(locs, "photons"):
-        columns["photon_rate"] = np.float32(columns["photons"] / n_)
-    linked_locs = np.rec.array(list(columns.values()), names=list(columns.keys()))
-    if remove_ambiguous_lengths:
-        valid = np.logical_and(first_frame_ > 0, last_frame_ < info[0]["Frames"])
-        linked_locs = linked_locs[valid]
-    return linked_locs
 
 
 def undrift_from_picked(picked_locs: list[np.recarray], n_frames: int) -> np.recarray:
