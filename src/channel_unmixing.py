@@ -234,7 +234,9 @@ class ChannelUnmixingMixin:
             if all(col in loc_data_work.columns for col in error_cols):
                 X_err = loc_data_work[error_cols].values
             else:
-                X_err = None
+                X_err = None  # pragma: no cover -- Phase 1 above always
+                # back-fills every f"{col}_err" (or raises), so error_cols
+                # is always fully present here; unreachable defensively.
 
             initial_covariances = self._estimate_initial_covariances_2d(
                 X, initial_means, n_channels, X_err=X_err,
@@ -270,7 +272,7 @@ class ChannelUnmixingMixin:
         if has_errors:
             X_err = loc_data_work[error_cols].values
         else:
-            X_err = None
+            X_err = None  # pragma: no cover -- see Phase 2.5's identical note
 
         # Intelligent method selection: Use pygmmis if errors available, sklearn otherwise
         if gmm_fit_method == "EM":
@@ -281,7 +283,9 @@ class ChannelUnmixingMixin:
                     logger.info(f"Fitting GMM (method: EM → Extreme Deconvolution, covariance: {covariance_type})...")
                     logger.info(f"  Auto-selected pygmmis (error columns detected)")
                     logger.info(f"  Mean errors: {X_err.mean(axis=0)}")
-            else:
+            else:  # pragma: no cover -- has_errors is always True (see above);
+                # 'sklearn_EM' itself is still reachable by naming it directly
+                # via gmm_fit_method, just never through this auto-select arm.
                 # Use sklearn EM (no errors available)
                 actual_method = "sklearn_EM"
                 if verbose:
@@ -294,7 +298,7 @@ class ChannelUnmixingMixin:
                 if has_errors:
                     logger.info(f"  Error columns available (mean errors: {X_err.mean(axis=0)})")
                 else:
-                    logger.info("  No error columns found")
+                    logger.info("  No error columns found")  # pragma: no cover -- has_errors always True
 
         if actual_method == "sklearn_EM":
             # Use sklearn GMM without error weighting (pure EM)
@@ -367,8 +371,12 @@ class ChannelUnmixingMixin:
             else:
                 if len(channels_to_use) != 2:
                     raise ValueError("EM_weighted method only supports 2D (len(channels_to_use)==2). Use gmm_fit_method='EM' for N-D support.")
-                sigma_A_R = None
-                sigma_A_G = None
+                # has_errors is always True (Phase 1 back-fills every _err
+                # column or raises), so this else is only ever entered via
+                # len(channels_to_use) != 2 -- which the guard above always
+                # raises on first. Unreachable defensively.
+                sigma_A_R = None  # pragma: no cover
+                sigma_A_G = None  # pragma: no cover
 
             means, covariances, weights, converged = self._fit_gmm_em(
                 X=X,
@@ -388,7 +396,7 @@ class ChannelUnmixingMixin:
 
         elif actual_method == "extreme_deconvolution":
             # Use pygmmis Extreme Deconvolution for proper error handling
-            if not has_errors:
+            if not has_errors:  # pragma: no cover -- has_errors always True (see Phase 3 above)
                 raise ValueError(
                     "Extreme Deconvolution requires error columns (A_R_err, A_G_err, etc.). "
                     "This should not happen when auto-selected by gmm_fit_method='EM'."
@@ -1284,7 +1292,10 @@ class ChannelUnmixingMixin:
             # ── Figure 2: spectral histograms ─────────────────────────────
             n_feat = len(channels_to_use)
             fig2, axs2 = plt.subplots(1, n_feat, figsize=(4.5 * n_feat, 3.5))
-            if n_feat == 1:
+            if n_feat == 1:  # pragma: no cover -- Figure 1 above unconditionally
+                # indexes cluster_X[:, 1] and channels_to_use[1], so a real
+                # single-feature call raises there first (caught by this
+                # function's own broad except below) and never reaches here.
                 axs2 = [axs2]
 
             n_bins = 120

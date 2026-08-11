@@ -1,0 +1,809 @@
+#!/usr/bin/env python3
+"""
+Full coverage tests for pyS3M.channel_unmixing (ChannelUnmixingMixin).
+
+Checked usage across src/, unit_tests/, and both main/developer-branch
+notebooks first (same workflow as the rest of this session's coverage push).
+Deleted (per user decision, 2026-08-11) an entire dead chain rooted at
+`unmix_channels_with_spatial_refinement` (8 methods, ~930 lines) -- the
+code's own header comment already said it was "[REPLACED] ... retained for
+reference but disabled", superseded by `unmix_channels_joint_cluster`.
+
+Everything tested below is real: `unmix_channels` (GUI's
+ChannelUnmixingPanel, test_pygmmis_integration.py), `unmix_channels_joint_cluster`
+(developer-branch DNA-PAINT notebook), `find_exemplar_dye_pair`/
+`get_exemplar_crop` (developer-branch dye-discrimination notebooks).
+
+Uses deliberately tiny synthetic datasets (tens of points, not thousands) so
+GMM/pygmmis fitting stays fast -- these are unit tests for branch coverage,
+not statistical-accuracy benchmarks.
+"""
+from __future__ import annotations
+
+import sys
+
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import pandas as pd
+import pytest
+import tifffile
+
+import pyS3M.SM_extractionfunctions as SM_E
+
+
+# ======================================================================
+# Shared fixtures / data generators
+# ======================================================================
+
+@pytest.fixture
+def sm():
+    return SM_E.extract_SMs(camera="ximea")
+
+
+def _unmix_df(n_per_channel=25, means=((0.2, 0.2), (0.8, 0.8)), std=0.03,
+              seed=0, with_errors=True, extra_cols=None):
+    """Small, well-separated 2D (A_R, A_G) synthetic dataset."""
+    rng = np.random.default_rng(seed)
+    parts = []
+    for mx, my in means:
+        ar = rng.normal(mx, std, n_per_channel)
+        ag = rng.normal(my, std, n_per_channel)
+        parts.append(pd.DataFrame({"A_R": ar, "A_G": ag}))
+    df = pd.concat(parts, ignore_index=True)
+    if with_errors:
+        df["A_R_err"] = std
+        df["A_G_err"] = std
+    if extra_cols:
+        for k, v in extra_cols.items():
+            df[k] = v
+    return df
+
+
+def _linked_df(n_molecules_per_channel=4, n_blinks=4,
+               means=((0.2, 0.2), (0.8, 0.8)), spatial_spacing=5.0,
+               err=0.02, seed=0, n_isolated=3):
+    """Temporally-linked (has column 'n') blink-event table for
+    unmix_channels_joint_cluster: several clustered molecules per channel
+    (n_blinks blink events each, tightly grouped in space+spectrum) plus a
+    handful of isolated singleton blinks."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for ch, (mx, my) in enumerate(means):
+        for m in range(n_molecules_per_channel):
+            x0 = 10.0 + spatial_spacing * (ch * n_molecules_per_channel + m)
+            y0 = 10.0
+            for _ in range(n_blinks):
+                rows.append({
+                    "xc": x0 + rng.normal(0, 0.05),
+                    "yc": y0 + rng.normal(0, 0.05),
+                    "A_R": mx + rng.normal(0, err / 3),
+                    "A_G": my + rng.normal(0, err / 3),
+                    "xc_err": 0.05, "yc_err": 0.05,
+                    "A_R_err": err, "A_G_err": err,
+                    "n": 1,
+                })
+    # Isolated singleton blinks, far away spatially so they never cluster.
+    for i in range(n_isolated):
+        ch = i % len(means)
+        mx, my = means[ch]
+        rows.append({
+            "xc": 500.0 + 20.0 * i, "yc": 500.0,
+            "A_R": mx + rng.normal(0, err / 3), "A_G": my + rng.normal(0, err / 3),
+            "xc_err": 0.05, "yc_err": 0.05,
+            "A_R_err": err, "A_G_err": err,
+            "n": 1,
+        })
+    return pd.DataFrame(rows)
+
+
+def _sf_db(seed=0):
+    """Single-frame DataFrame for find_exemplar_dye_pair: two spectral
+    classes, co-located in the same (fov_index, frame) group, at a known
+    spatial separation."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    idx = 0
+    for frame in range(3):
+        # class 0 molecule
+        rows.append(dict(xc=10.0, yc=10.0, A_R=0.2, A_G=0.2, photons=5000.0,
+                          frame=frame, fov_index=0, molecular_index=idx))
+        idx += 1
+        # class 1 molecule, ~50 px away (well above default min_spatial_dist_nm
+        # once multiplied by pixel_size, but we pass a small pixel_size in tests)
+        rows.append(dict(xc=60.0, yc=10.0, A_R=0.8, A_G=0.8, photons=5000.0,
+                          frame=frame, fov_index=0, molecular_index=idx))
+        idx += 1
+    return pd.DataFrame(rows)
+
+
+# ======================================================================
+# unmix_channels -- Phase 1: validation / error auto-generation
+# ======================================================================
+
+class TestUnmixChannelsValidation:
+    def test_missing_required_column_raises(self, sm):
+        df = _unmix_df()
+        df = df.drop(columns=["A_G"])
+        with pytest.raises(ValueError, match="not found in loc_data"):
+            sm.unmix_channels(df, n_channels=2, verbose=False)
+
+    def test_missing_error_autogenerated_from_photons(self, sm):
+        df = _unmix_df(with_errors=False)
+        df["photons"] = 5000.0
+        # Use channels_to_use=['A_R'] so the auto-gen path for 'photons' itself
+        # isn't needed, but exercise the photons-based branch via a channel
+        # named 'photons'.
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "photons"], verbose=True,
+        )
+        assert "channel" in assigned.columns
+
+    def test_missing_error_autogenerated_5pct_fallback(self, sm):
+        df = _unmix_df(with_errors=False)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "A_G"], verbose=True,
+        )
+        assert "channel" in assigned.columns
+
+    def test_missing_error_base_col_not_found_raises(self, sm):
+        # A channel literally named "weird_err" makes the auto-derived error
+        # column "weird_err_err", whose "_err"-stripped base ("weird_err_err"
+        # .replace("_err", "") strips *both* occurrences -> "weird") is a
+        # column that was never required to exist -- the one way to reach
+        # this branch despite Phase 1 already validating channels_to_use
+        # itself is present.
+        df = _unmix_df(with_errors=False)
+        df = df.rename(columns={"A_G": "weird_err"})
+        with pytest.raises(ValueError, match="Cannot auto-generate error"):
+            sm.unmix_channels(
+                df, n_channels=2, channels_to_use=["A_R", "weird_err"],
+                verbose=False,
+            )
+
+
+# ======================================================================
+# unmix_channels -- Phase 2 / 2.5: initial guess dispatch (1D/2D/3D+) and
+# plotting branches
+# ======================================================================
+
+class TestUnmixChannelsInitialGuess:
+    def test_1d_features(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R"], verbose=True,
+        )
+        assert set(meta["n_assigned"].keys()) == {0, 1}
+
+    def test_2d_features_default(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(df, n_channels=2, verbose=True)
+        assert len(assigned) == len(df)
+
+    def test_3d_plus_features_kmeans(self, sm):
+        rng = np.random.default_rng(1)
+        df = _unmix_df()
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "A_G", "A_B"], verbose=True,
+        )
+        assert meta["means"].shape == (2, 3)
+
+    def test_initial_guess_method_kmeans_skips_covariance_block(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, initial_guess_method="kmeans", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_plot_results_2d(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, plot_results=True, verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_plot_results_3d_skips_initial_guess_plot(self, sm):
+        rng = np.random.default_rng(2)
+        df = _unmix_df()
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "A_G", "A_B"],
+            plot_results=True, verbose=True,
+        )
+        assert len(assigned) == len(df)
+
+
+# ======================================================================
+# unmix_channels -- Phase 3: GMM fitting method dispatch
+# ======================================================================
+
+class TestUnmixChannelsGmmFitMethods:
+    def test_em_auto_sklearn_no_errors(self, sm):
+        df = _unmix_df(with_errors=False)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="EM", verbose=True,
+        )
+        assert meta["converged"] in (True, False)
+
+    def test_em_auto_pygmmis_with_errors(self, sm):
+        df = _unmix_df(with_errors=True)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="EM", verbose=True,
+        )
+        assert meta["means"].shape == (2, 2)
+
+    def test_sklearn_em_singular_initial_covariance_regularised(self, sm, monkeypatch):
+        df = _unmix_df(with_errors=False)
+        real_inv = np.linalg.inv
+        calls = {"n": 0}
+
+        def flaky_inv(a):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise np.linalg.LinAlgError("forced singular")
+            return real_inv(a)
+
+        monkeypatch.setattr(np.linalg, "inv", flaky_inv)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="EM", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_with_errors(self, sm):
+        df = _unmix_df(with_errors=True)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_gmm_fit_method_sklearn_em_explicit(self, sm):
+        # "sklearn_EM" is only reachable by naming it directly -- the "EM"
+        # auto-selector always has error columns available (Phase 1
+        # auto-generates them), so it never picks sklearn_EM itself.
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="sklearn_EM", verbose=False,
+        )
+        assert len(assigned) == len(df)
+        assert meta["means"].shape == (2, 2)
+
+    def test_sklearn_em_no_precisions_init_when_covariance_not_full(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="sklearn_EM",
+            covariance_type="diag", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_sklearn_em_singular_precisions_init_regularised(self, sm, monkeypatch):
+        df = _unmix_df()
+        real_method = type(sm)._estimate_initial_covariances_2d
+
+        def bad_covariances(self, X, initial_means, n_channels, **kwargs):
+            covs = real_method(self, X, initial_means, n_channels, **kwargs)
+            covs[0] = np.zeros_like(covs[0])  # singular -> np.linalg.inv raises
+            return covs
+
+        monkeypatch.setattr(type(sm), "_estimate_initial_covariances_2d", bad_covariances)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="sklearn_EM", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_A_B_A_G_dims(self, sm):
+        rng = np.random.default_rng(6)
+        df = _unmix_df()
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        df["A_B_err"] = 0.03
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_B", "A_G"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_A_G_A_R_dims(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_G", "A_R"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_photons_A_G_dims(self, sm):
+        df = _unmix_df(with_errors=True)
+        df["photons"] = 5000.0
+        df["photons_err"] = 50.0
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["photons", "A_G"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_custom_dim0_name(self, sm):
+        df = _unmix_df(with_errors=True)
+        df["A_custom"] = df["A_R"]
+        df["A_custom_err"] = df["A_R_err"]
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_custom", "A_G"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_A_R_A_B_dims(self, sm):
+        rng = np.random.default_rng(9)
+        df = _unmix_df()
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        df["A_B_err"] = 0.03
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "A_B"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_A_G_A_B_dims(self, sm):
+        rng = np.random.default_rng(3)
+        df = _unmix_df(means=((0.2, 0.2), (0.8, 0.8)))
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        df["A_B_err"] = 0.03
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_G", "A_B"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_photons_dim(self, sm):
+        df = _unmix_df(with_errors=True)
+        df["photons"] = 5000.0
+        df["photons_err"] = 50.0
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "photons"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_custom_column_name(self, sm):
+        df = _unmix_df(with_errors=True)
+        df["A_custom"] = df["A_G"]
+        df["A_custom_err"] = df["A_G_err"]
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R", "A_custom"],
+            gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_no_errors_uses_none_sigma(self, sm):
+        df = _unmix_df(with_errors=False)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="EM_weighted", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_em_weighted_wrong_dims_raises(self, sm):
+        rng = np.random.default_rng(4)
+        df = _unmix_df(with_errors=False)
+        df["A_B"] = rng.normal(0.5, 0.05, len(df))
+        with pytest.raises(ValueError, match="only supports 2D"):
+            sm.unmix_channels(
+                df, n_channels=2, channels_to_use=["A_R", "A_G", "A_B"],
+                gmm_fit_method="EM_weighted", verbose=False,
+            )
+
+    def test_fixed_method(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="fixed", verbose=True,
+        )
+        assert meta["converged"] is True
+
+    def test_fixed_method_requires_histogram_peaks_init(self, sm):
+        df = _unmix_df()
+        with pytest.raises(ValueError, match="requires initial_guess_method"):
+            sm.unmix_channels(
+                df, n_channels=2, gmm_fit_method="fixed",
+                initial_guess_method="kmeans", verbose=False,
+            )
+
+    def test_fixed_method_regularises_non_positive_definite(self, sm, monkeypatch):
+        # Patch _estimate_initial_covariances_2d itself (rather than
+        # np.linalg.eigvalsh globally, which Phase 2.5's own verbose
+        # logging also calls -- fragile to intercept by call count) so
+        # channel 0's initial covariance is deliberately non-positive-
+        # definite when gmm_fit_method="fixed" validates it.
+        df = _unmix_df()
+        real_method = type(sm)._estimate_initial_covariances_2d
+
+        def bad_covariances(self, X, initial_means, n_channels, **kwargs):
+            covs = real_method(self, X, initial_means, n_channels, **kwargs)
+            covs[0] = -np.eye(covs.shape[-1]) * 0.01
+            return covs
+
+        monkeypatch.setattr(type(sm), "_estimate_initial_covariances_2d", bad_covariances)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, gmm_fit_method="fixed", verbose=True,
+        )
+        assert len(assigned) == len(df)
+
+    def test_unknown_gmm_fit_method_raises(self, sm):
+        df = _unmix_df()
+        with pytest.raises(ValueError, match="Unknown gmm_fit_method"):
+            sm.unmix_channels(df, n_channels=2, gmm_fit_method="bogus", verbose=False)
+
+
+# ======================================================================
+# unmix_channels -- Phase 4/5: confidence threshold, FPR, outlier rejection
+# ======================================================================
+
+class TestUnmixChannelsAssignmentAndOutliers:
+    def test_false_positive_rate_sets_threshold(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, false_positive_rate=0.05, verbose=True,
+        )
+        assert "confusion_matrix" in meta
+        assert "assignment_purity" in meta
+        assert "false_positive_rates" in meta
+
+    def test_outlier_rejection_mahalanobis(self, sm):
+        rng = np.random.default_rng(5)
+        df = _unmix_df(n_per_channel=30, std=0.02)
+        # Inject a few far-flung outliers into channel 0's region.
+        outliers = pd.DataFrame({
+            "A_R": [0.2, 0.2], "A_G": [0.9, -0.5],
+            "A_R_err": [0.02, 0.02], "A_G_err": [0.02, 0.02],
+        })
+        df = pd.concat([df, outliers], ignore_index=True)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="mahalanobis", verbose=True,
+        )
+        assert "is_outlier" in assigned.columns
+
+    def test_outlier_rejection_none_still_computes_diagnostics(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="none", verbose=False,
+        )
+        assert (assigned["is_outlier"] == False).all()
+
+    def test_outlier_rejection_mahalanobis_empty_channel_mask(self, sm, monkeypatch):
+        # 3 channels requested but only 2 real clusters -> one channel ends up
+        # with (almost certainly) zero assigned points, hitting the
+        # `continue`-on-empty-mask branch in both the mahalanobis and the
+        # diagnostics-only code paths.
+        df = _unmix_df(n_per_channel=30, std=0.02)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=3, confidence_threshold=0.999,
+            outlier_rejection="mahalanobis", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_outlier_rejection_none_empty_channel_mask(self, sm):
+        # Same "3 channels, only 2 real clusters" trick as the mahalanobis
+        # version above, but through the diagnostics-only (outlier_rejection
+        # != "mahalanobis") branch's own empty-channel-mask `continue`.
+        df = _unmix_df(n_per_channel=30, std=0.02)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=3, confidence_threshold=0.999,
+            outlier_rejection="none", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_outlier_rejection_singular_covariance_regularised(self, sm, monkeypatch):
+        df = _unmix_df()
+        # Dry run to learn the real (deterministic, random_state=42) fitted
+        # covariance for channel 0, then patch np.linalg.inv to fail only
+        # for that exact matrix -- the regularised retry (a different,
+        # perturbed matrix) goes through the untouched real np.linalg.inv.
+        _, meta_dry = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="mahalanobis", verbose=False,
+        )
+        target_cov = meta_dry["covariances"][0].copy()
+
+        real_inv = np.linalg.inv
+
+        def flaky_inv(a):
+            if np.array_equal(a, target_cov):
+                raise np.linalg.LinAlgError("forced singular")
+            return real_inv(a)
+
+        monkeypatch.setattr(np.linalg, "inv", flaky_inv)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="mahalanobis", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+    def test_outlier_rejection_diagnostics_singular_covariance_regularised(self, sm, monkeypatch):
+        # Same forced-singular scenario, but through the outlier_rejection
+        # != "mahalanobis" diagnostics-only branch's own try/except.
+        df = _unmix_df()
+        _, meta_dry = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="none", verbose=False,
+        )
+        target_cov = meta_dry["covariances"][0].copy()
+
+        real_inv = np.linalg.inv
+
+        def flaky_inv(a):
+            if np.array_equal(a, target_cov):
+                raise np.linalg.LinAlgError("forced singular")
+            return real_inv(a)
+
+        monkeypatch.setattr(np.linalg, "inv", flaky_inv)
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, outlier_rejection="none", verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+
+# ======================================================================
+# unmix_channels -- Phase 7: plot_results end-to-end (both n_features)
+# ======================================================================
+
+class TestUnmixChannelsPlotting:
+    def test_plot_results_end_to_end_2d_with_confusion_matrix(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, plot_results=True, false_positive_rate=0.05,
+            verbose=False,
+        )
+        assert "confusion_matrix" in meta
+
+    def test_plot_results_end_to_end_1d(self, sm):
+        df = _unmix_df()
+        assigned, meta = sm.unmix_channels(
+            df, n_channels=2, channels_to_use=["A_R"], plot_results=True,
+            verbose=False,
+        )
+        assert len(assigned) == len(df)
+
+
+# ======================================================================
+# unmix_channels_joint_cluster
+# ======================================================================
+
+class TestUnmixChannelsJointCluster:
+    def test_basic_success_with_isolated_events(self, sm):
+        df = _linked_df()
+        result, meta = sm.unmix_channels_joint_cluster(
+            df, n_channels=2, plot_results=False, verbose=True,
+        )
+        assert meta["n_clusters"] >= 2
+        assert meta["n_isolated"] > 0
+        assert "channel" in result.columns
+        assert "assignment_code" in result.columns
+
+    def test_too_few_clusters_raises(self, sm):
+        df = _linked_df(n_molecules_per_channel=1, n_blinks=4, n_isolated=0)
+        with pytest.raises(ValueError, match="cluster"):
+            sm.unmix_channels_joint_cluster(
+                df, n_channels=5, plot_results=False, verbose=False,
+            )
+
+    def test_plot_results_true(self, sm):
+        df = _linked_df()
+        result, meta = sm.unmix_channels_joint_cluster(
+            df, n_channels=2, plot_results=True, verbose=False,
+        )
+        assert len(result) == len(df)
+
+    def test_plot_results_datashader_import_error_fallback(self, sm, monkeypatch):
+        df = _linked_df()
+        monkeypatch.setitem(sys.modules, "datashader", None)
+        result, meta = sm.unmix_channels_joint_cluster(
+            df, n_channels=2, plot_results=True, verbose=False,
+        )
+        assert len(result) == len(df)
+
+    def test_plot_joint_cluster_results_handles_internal_exception(self, sm, monkeypatch):
+        # _plot_joint_cluster_results wraps its whole body in try/except and
+        # just logs a warning -- force gmm.predict to blow up to hit that path.
+        df = _linked_df()
+        result, meta = sm.unmix_channels_joint_cluster(
+            df, n_channels=2, plot_results=False, verbose=False,
+        )
+
+        class _BoomGmm:
+            def predict(self, X):
+                raise RuntimeError("boom")
+
+        # Should not raise -- the exception is caught and logged internally.
+        sm._plot_joint_cluster_results(
+            result, ["A_R", "A_G"], _BoomGmm(), 2,
+            result[["A_R", "A_G"]].to_numpy(), df,
+        )
+
+    def test_plot_joint_cluster_results_empty_channel_and_unassigned(self, sm):
+        # Directly drive _plot_joint_cluster_results with a hand-built
+        # `result` covering: a channel with zero assigned rows (the
+        # `continue` in both the scatter-layers loop and the histogram
+        # loop), and some unassigned (channel == -1) rows (the datashader
+        # "unassigned" layer branch).
+        rng = np.random.default_rng(7)
+        n = 20
+        result = pd.DataFrame({
+            "A_R": rng.normal(0.2, 0.02, n),
+            "A_G": rng.normal(0.2, 0.02, n),
+            "channel": [0] * (n - 3) + [-1] * 3,  # channel 1 never appears
+        })
+        cluster_X = result.loc[result["channel"] == 0, ["A_R", "A_G"]].to_numpy()
+
+        class _FakeGmm:
+            def predict(self, X):
+                return np.zeros(len(X), dtype=int)
+
+        sm._plot_joint_cluster_results(
+            result, ["A_R", "A_G"], _FakeGmm(), 2, cluster_X, result,
+        )
+
+    def test_plot_joint_cluster_results_single_feature(self, sm):
+        rng = np.random.default_rng(8)
+        n = 15
+        result = pd.DataFrame({
+            "A_R": rng.normal(0.2, 0.02, n),
+            "channel": [0] * n,
+        })
+        cluster_X = result[["A_R"]].to_numpy()
+
+        class _FakeGmm:
+            def predict(self, X):
+                return np.zeros(len(X), dtype=int)
+
+        sm._plot_joint_cluster_results(
+            result, ["A_R"], _FakeGmm(), 1, cluster_X, result,
+        )
+
+    def test_no_loc_data_original_defaults_to_result(self, sm):
+        df = _linked_df()
+        result, meta = sm.unmix_channels_joint_cluster(
+            df, n_channels=2, plot_results=False, verbose=False,
+        )
+        sm._plot_joint_cluster_results(
+            result, ["A_R", "A_G"], meta["gmm"], 2,
+            result.loc[result["joint_cluster_id"] >= 0, ["A_R", "A_G"]].to_numpy(),
+            None,
+        )
+
+
+# ======================================================================
+# find_exemplar_dye_pair
+# ======================================================================
+
+class TestFindExemplarDyePair:
+    def test_success(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1.0, min_photons=100.0,
+            pixel_size=1.0,
+        )
+        assert result is not None
+        assert len(result) > 0
+        assert "spatial_dist_nm" in result.columns
+
+    def test_uses_self_pixel_size_when_none(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1.0, min_photons=100.0,
+            pixel_size=None,
+        )
+        assert result is not None
+
+    def test_no_candidates_for_a_class_returns_none(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[5.0, 5.0],
+            spectral_tol=0.01, min_photons=100.0, pixel_size=1.0,
+        )
+        assert result is None
+
+    def test_no_common_fov_frame_group_returns_none(self, sm):
+        sf_db = _sf_db()
+        # Force class-1 candidates into frames that never overlap class-0's.
+        sf_db.loc[sf_db["A_R"] > 0.5, "frame"] += 100
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_photons=100.0, pixel_size=1.0,
+        )
+        assert result is None
+
+    def test_fov_name_fallback_column(self, sm):
+        sf_db = _sf_db().rename(columns={"fov_index": "fov_name"})
+        sf_db["fov_name"] = "fov0"
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1.0, min_photons=100.0,
+            pixel_size=1.0,
+        )
+        assert result is not None
+        assert "fov_name" in result.columns
+
+    def test_max_spatial_dist_nm_filters(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1.0,
+            max_spatial_dist_nm=1000.0, min_photons=100.0, pixel_size=1.0,
+        )
+        assert result is not None
+
+    def test_no_pairs_within_spatial_constraints_returns_none(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1e9, min_photons=100.0,
+            pixel_size=1.0,
+        )
+        assert result is None
+
+    def test_self_pairs_removed_returns_none(self, sm):
+        # Both means identical -> every molecule is a candidate for both
+        # classes -> every pair is a self-pair (same molecular_index).
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.2, 0.2],
+            spectral_tol=0.5, min_spatial_dist_nm=0.0, min_photons=100.0,
+            pixel_size=1.0,
+        )
+        assert result is None
+
+    def test_min_photons_filters_candidates(self, sm):
+        sf_db = _sf_db()
+        result = sm.find_exemplar_dye_pair(
+            sf_db, mean_0=[0.2, 0.2], mean_1=[0.8, 0.8],
+            spectral_tol=0.05, min_spatial_dist_nm=1.0, min_photons=1e9,
+            pixel_size=1.0,
+        )
+        assert result is None
+
+
+# ======================================================================
+# get_exemplar_crop
+# ======================================================================
+
+class TestGetExemplarCrop:
+    def _write_tiff(self, tmp_path, shape=(3, 100, 100)):
+        arr = np.random.default_rng(0).integers(0, 1000, size=shape).astype(np.uint16)
+        path = tmp_path / "fov0_MMStack_Default.ome.tif"
+        tifffile.imwrite(path, arr)
+        return path
+
+    def test_success_normal_crop(self, sm, tmp_path):
+        self._write_tiff(tmp_path)
+        pair_row = pd.Series({
+            "fov_index": 0, "frame": 1,
+            "xc_0": 50.0, "yc_0": 50.0, "xc_1": 55.0, "yc_1": 50.0,
+        })
+        crop, pair_info = sm.get_exemplar_crop(pair_row, tmp_path, crop_size_px=10)
+        assert crop.shape == (20, 20)
+        assert "xc_0_crop" not in pair_info.columns  # not documented, xc_0 mutated in place instead
+        assert "crop_x0_px" in pair_info.columns
+
+    def test_no_tiff_files_raises(self, sm, tmp_path):
+        pair_row = pd.Series({
+            "fov_index": 0, "frame": 0, "xc_0": 5.0, "yc_0": 5.0,
+            "xc_1": 6.0, "yc_1": 5.0,
+        })
+        with pytest.raises(FileNotFoundError):
+            sm.get_exemplar_crop(pair_row, tmp_path)
+
+    def test_fov_index_out_of_range_raises(self, sm, tmp_path):
+        self._write_tiff(tmp_path)
+        pair_row = pd.Series({
+            "fov_index": 5, "frame": 0, "xc_0": 5.0, "yc_0": 5.0,
+            "xc_1": 6.0, "yc_1": 5.0,
+        })
+        with pytest.raises(IndexError):
+            sm.get_exemplar_crop(pair_row, tmp_path)
+
+    def test_crop_clipped_at_image_boundary(self, sm, tmp_path):
+        self._write_tiff(tmp_path, shape=(2, 50, 50))
+        pair_row = pd.Series({
+            "fov_index": 0, "frame": 0,
+            "xc_0": 1.0, "yc_0": 1.0, "xc_1": 2.0, "yc_1": 1.0,
+        })
+        crop, pair_info = sm.get_exemplar_crop(pair_row, tmp_path, crop_size_px=10)
+        assert crop.shape[0] <= 20 and crop.shape[1] <= 20
+        assert pair_info["crop_x0_px"].iloc[0] == 0
+        assert pair_info["crop_y0_px"].iloc[0] == 0
