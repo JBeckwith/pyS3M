@@ -388,9 +388,14 @@ class PSF_Functions:
         # had to copy back down; at (n_frames, w, h, n_channels) scale in the
         # vectorized caller this tripled peak memory for no numeric benefit
         # (there is no upper bound here, only a floor at 0).
+        # int32, not int64: np.random.binomial's legacy RandomState uses the
+        # platform C `long` for `n` internally (32-bit on Windows), so an
+        # explicit int64 array fails a 'safe'-casting check on Windows only.
+        # Photon counts never approach int32's ~2.1e9 ceiling, so this is
+        # lossless on every platform.
         n_photons_hitting_detector = np.clip(
             n_photons_hitting_detector, 0, None
-        ).astype(np.int64, copy=False)
+        ).astype(np.int32, copy=False)
 
         # Sanitize abs_QE to ensure valid probability values for binomial distribution
         abs_QE = np.array(abs_QE)
@@ -488,10 +493,13 @@ class PSF_Functions:
                 else:
                     mask_stack_broadcast = mask_stack[np.newaxis, :, :, :]  # (1, w, h, n_channels)
 
+                # int32: see gen_photoelectrons' matching comment above --
+                # np.random.binomial's `n` must stay 'safe'-castable to the
+                # platform C `long` (32-bit on Windows).
                 n_photons_per_channel = (
                     n_photons_dye[:, :, :, np.newaxis] *    # (n_frames, w, h, 1)
                     mask_stack_broadcast
-                ).astype(np.int64)
+                ).astype(np.int32)
 
                 # ⚡ VECTORIZED BINOMIAL: Process all frames+channels at once
                 # n_photons_per_channel: (n_frames, w, h, n_channels)

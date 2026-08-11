@@ -1869,18 +1869,28 @@ class MultiC_Sim_Funcs_Refactored:
 
                     if n_photons_this_frame > 0:
                         try:
+                            # x0y0[dye][..., 0, :] / [..., 1, :] hold the true
+                            # (x=column, y=row) emitter position. `gain.shape`
+                            # is (height, width), and `w, h = gain.shape`
+                            # above sizes the PSF grid's axis 0 to height and
+                            # axis 1 to width -- so the row/height coordinate
+                            # (index 1) must be placed on axis 0 ("x0" below,
+                            # positionally) and the column/width coordinate
+                            # (index 0) on axis 1 ("y0"). Swapped here, once,
+                            # so every downstream PSF/motion-blur call below
+                            # stays unchanged.
                             x0 = (
-                                x0y0[dye][frame, 0, :]
-                                if x0y0[dye].ndim > 1
-                                else x0y0[dye][0, :]
-                            )
-                            y0 = (
                                 x0y0[dye][frame, 1, :]
                                 if x0y0[dye].ndim > 1
                                 else x0y0[dye][1, :]
                             )
+                            y0 = (
+                                x0y0[dye][frame, 0, :]
+                                if x0y0[dye].ndim > 1
+                                else x0y0[dye][0, :]
+                            )
                         except (IndexError, TypeError):
-                            x0, y0 = x0y0[dye][0, :], x0y0[dye][1, :]
+                            x0, y0 = x0y0[dye][1, :], x0y0[dye][0, :]
 
                         x0_pixels = x0 / pixel_size
                         y0_pixels = y0 / pixel_size
@@ -2034,19 +2044,24 @@ class MultiC_Sim_Funcs_Refactored:
     
                     if n_photons_this_frame > 0:
                         try:
+                            # See the matching comment in the vectorized branch
+                            # above: axis 0 of the PSF grid is sized to height,
+                            # axis 1 to width, so the row/height coordinate
+                            # (index 1) must be placed on "x0" (axis 0) and the
+                            # column/width coordinate (index 0) on "y0" (axis 1).
                             x0 = (
-                                x0y0[dye][frame, 0, :]
-                                if x0y0[dye].ndim > 1
-                                else x0y0[dye][0, :]
-                            )
-                            y0 = (
                                 x0y0[dye][frame, 1, :]
                                 if x0y0[dye].ndim > 1
                                 else x0y0[dye][1, :]
                             )
+                            y0 = (
+                                x0y0[dye][frame, 0, :]
+                                if x0y0[dye].ndim > 1
+                                else x0y0[dye][0, :]
+                            )
                         except (IndexError, TypeError):
-                            x0, y0 = x0y0[dye][0, :], x0y0[dye][1, :]
-    
+                            x0, y0 = x0y0[dye][1, :], x0y0[dye][0, :]
+
                         # Convert positions from nm to pixels
                         x0_pixels = x0 / pixel_size
                         y0_pixels = y0 / pixel_size
