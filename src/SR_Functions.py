@@ -2203,8 +2203,8 @@ class SuperRes_Functions:
             # Use standard grayscale demosaicing
             return self.scmos.bayer_demosaic_stack_grayscale(raw_data, strategy=strategy)
 
+    @staticmethod
     def _find_change_points_single(
-        self,
         signal: np.ndarray,
         model: str = "l2",
         min_size: int = 5,
@@ -2239,8 +2239,8 @@ class SuperRes_Functions:
 
         return change_points
 
+    @staticmethod
     def _find_change_points_batch(
-        self,
         traces: np.ndarray,
         indices: np.ndarray,
         model: str = "l2",
@@ -2260,7 +2260,9 @@ class SuperRes_Functions:
         results = []
         for i, idx in enumerate(indices):
             signal = traces[i]
-            cps = self._find_change_points_single(signal, model, min_size, penalty_factor)
+            cps = SuperRes_Functions._find_change_points_single(
+                signal, model, min_size, penalty_factor
+            )
             results.append((idx, cps))
         return results
 
@@ -2302,7 +2304,14 @@ class SuperRes_Functions:
         # Build index ranges for each task
         start_indices = np.cumsum([0] + puncta_per_task[:-1])
 
-        # Submit tasks
+        # Submit tasks. _find_change_points_batch/_single are @staticmethod
+        # (no `self`) precisely so this submits a plain, cheaply-picklable
+        # function -- submitting a bound method would pickle the whole
+        # SuperRes_Functions instance (calibration arrays and all) once per
+        # task. That's a no-op cost under fork (Linux/Mac; child processes
+        # share memory, nothing is actually pickled), but under Windows'
+        # spawn-only multiprocessing every task really does re-pickle it,
+        # which reliably crashed every worker ("terminated abruptly") there.
         frames_to_fit = {}
         with futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
             fs = []
