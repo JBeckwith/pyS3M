@@ -1051,6 +1051,18 @@ class MainWindow(QMainWindow):
         """Discard drift-correction results (and clustering/unmixing/FRC
         results derived from them) so the user can re-run undrift with
         different segmentation/intersect_d/roi_r parameters."""
+        # Undrift also writes undrifted_locs.h5 next to the fitted data
+        # (see the run-undrift worker below) so it survives a session
+        # restart. Leaving it on disk after clearing means the *next*
+        # load_localisations(self._fitted_data_dir) call -- e.g. the one
+        # undrift itself does to fetch its input -- globs it back in
+        # alongside the original fit output, silently duplicating locs.
+        if self._fitted_data_dir is not None:
+            stale_path = Path(self._fitted_data_dir) / "undrifted_locs.h5"
+            try:
+                stale_path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Could not remove stale %s: %s", stale_path, e)
         self._undrifted_locs = None
         self._sm_db = None
         self._sf_db = None

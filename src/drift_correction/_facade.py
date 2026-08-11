@@ -671,7 +671,6 @@ class Drift_Correction_Functions:
                 )[1]
 
                 hist = np.histogram(image.flatten(), bins=histogram_bins)
-                threshold = np.percentile(hist[0], threshold_percentile)
 
                 try:
                     import pyS3M.localise as localise
@@ -679,6 +678,20 @@ class Drift_Correction_Functions:
                     raise DriftCorrectionError(
                         "localise module required for fiducial detection"
                     )
+
+                # `identify_in_image`'s threshold filters on each local
+                # maximum's net gradient (a spot-sharpness measure), not on
+                # raw pixel intensity or (the previous, dimensionally wrong)
+                # histogram bin counts -- so the percentile must be taken
+                # over that same net-gradient distribution. A first,
+                # unthresholded pass collects every candidate's gradient;
+                # the real threshold is then this distribution's percentile.
+                _, _, all_ng = localise.identify_in_image(image, -np.inf, box=box)
+                threshold = (
+                    np.percentile(all_ng, threshold_percentile)
+                    if len(all_ng) > 0
+                    else np.inf
+                )
 
                 y, x, _ = localise.identify_in_image(image, threshold, box=box)
                 half_box = box // 2
