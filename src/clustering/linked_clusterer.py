@@ -202,8 +202,8 @@ class LinkedMixin:
             cur_indices = np.where(frame_mask)[0]
             n_cur = len(cur_indices)
 
-            if n_cur == 0:
-                continue
+            if n_cur == 0:  # pragma: no cover -- unreachable: current_frame is
+                continue    # drawn from np.unique(frames_arr), so the mask always matches
 
             cur_x = xc[cur_indices]
             cur_y = yc[cur_indices]

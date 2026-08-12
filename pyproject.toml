@@ -115,3 +115,6 @@ omit = ["src/gui/*", "*/__pycache__/*"]
 
 [tool.coverage.report]
 show_missing = true
+# Appends to (doesn't replace) coverage.py's built-in "pragma: no cover" default --
+# script-entry-point demo blocks never execute under pytest and aren't meant to.
+exclude_also = ["if __name__ == .__main__.:"]

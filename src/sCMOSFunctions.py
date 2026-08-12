@@ -11,9 +11,7 @@ from pathlib import Path
 import sys
 from concurrent import futures
 from scipy.ndimage import uniform_filter
-from skimage.filters import gaussian, median
-from skimage.measure import block_reduce
-from skimage.transform import resize
+from skimage.filters import gaussian
 from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA_Bayer_bilinear, demosaicing_CFA_Bayer_DDFAPD, demosaicing_CFA_Bayer_Menon2007
 
 sys.path.append(str(Path(__file__).parent))
@@ -335,37 +333,6 @@ class sCMOS_Functions:
         else:
             return RGB_image, None
 
-    def bayer_bin_stack(self, image, bin_width=2):
-        """
-        Apply binning of the noise across the four pixels of the bayer mask.
-
-        Args:
-            image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
-                                where H is height, W is width, and C is the number of channels.
-            bin_width (int): width of bins.
-
-        Returns:
-            binned_image (np.ndarray): binned image
-        """
-        image = image.astype(np.float32)
-        binned_image = np.zeros_like(image)
-        if len(image.shape) > 2:
-            for i in np.arange(image.shape[0]):
-                binned_image[i, :, :] = resize(
-                    block_reduce(image[i, :, :], block_size=bin_width),
-                    image[i, :, :].shape,
-                    anti_aliasing=False,
-                    order=0,
-                )
-        else:
-            binned_image = resize(
-                block_reduce(image, block_size=bin_width),
-                image.shape,
-                anti_aliasing=False,
-                order=0,
-            )
-        return binned_image
-
     def gaussian_filter_stack(self, image, sigma):
         """
         Apply gaussian filter to an image using a gaussian of width sigma.
@@ -385,24 +352,6 @@ class sCMOS_Functions:
                 filtered_image[i, :, :] = gaussian(image[i, :, :], sigma=sigma)
         else:
             filtered_image = gaussian(image, sigma=sigma)
-        return filtered_image
-
-    def median_filter_stack(self, image, footprint):
-        """
-        Apply median filter to an image using a specified footprint kernel.
-
-        Args:
-            image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
-                                where H is height, W is width, and C is the number of channels.
-            footprint (np.2darray): smoothing kernel.
-
-        Returns:
-            filtered_image (np.ndarray): smoothed image
-        """
-        image = image.astype(np.float32)
-        filtered_image = np.zeros_like(image)
-        for i in np.arange(image.shape[0]):
-            filtered_image[i, :, :] = median(image[i, :, :], footprint=footprint)
         return filtered_image
 
     def var_weighted_uniform_filter(self, image, variance_map, kernel_size):
