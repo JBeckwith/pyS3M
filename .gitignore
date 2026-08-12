@@ -6,13 +6,14 @@ notebooks/EBI_Upload/
 *Old*
 DriftCorrection_Example.py
 DriftCorrection_README.md
-*.png
 .claude/
 claude/
 *_backup.py
 archive/
 *.tex
 logs/
+outputs/
+unit_tests/claude/
 
 # Python cache files (comprehensive)
 *.pyc
@@ -211,3 +212,4 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+coverage.json

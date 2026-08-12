@@ -1,5 +1,10 @@
 ## pyS3M
 
+[![Tests](https://github.com/JBeckwith/pyS3M/actions/workflows/tests.yml/badge.svg)](https://github.com/JBeckwith/pyS3M/actions/workflows/tests.yml)
+[![Coverage](https://JBeckwith.github.io/pyS3M/badges/coverage.svg)](https://github.com/JBeckwith/pyS3M/actions/workflows/tests.yml)
+[![Documentation](https://readthedocs.org/projects/pys3m/badge/?version=latest)](https://pys3m.readthedocs.io/en/latest/?badge=latest)
+[![DOI](https://zenodo.org/badge/1197322070.svg)](https://zenodo.org/badge/latestdoi/1197322070)
+
 `pyS3M` (written in support of https://www.biorxiv.org/content/10.64898/2026.04.08.715690v1)
 is a Python package of classes for analysing spatial-spectral single-molecule localisation
 microscopy data — fitting, quality filtering, clustering, drift correction, FRC, and
