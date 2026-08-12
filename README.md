@@ -12,8 +12,7 @@ Documentation: https://pys3m.readthedocs.io/en/latest/index.html
 
 ## Installation
 
-Requires Python >=3.11, <3.13 (tested on 3.12.3) — the ceiling comes from a real
-dependency constraint (`colour-demosaicing` caps at <3.13).
+Requires Python >=3.11, <3.13 (tested on 3.12.3).
 
 Clone the repository, then from its root:
 
