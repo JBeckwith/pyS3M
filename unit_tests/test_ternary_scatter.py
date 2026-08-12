@@ -52,6 +52,7 @@ def test_basic_scatter(test_output_dir):
 
     plt.tight_layout()
     output_path = test_output_dir / 'test_ternary_scatter_basic.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150)
     print(f"Saved to {output_path}")
     plt.close()
@@ -114,6 +115,7 @@ def test_multi_panel(test_output_dir):
 
     # Note: skip tight_layout when using colorbars to avoid layout engine conflicts
     output_path = test_output_dir / 'test_ternary_scatter_multipanel.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved to {output_path}")
     plt.close()
@@ -183,6 +185,7 @@ def test_with_plotter_methods(test_output_dir):
 
     plt.tight_layout()
     output_path = test_output_dir / 'test_ternary_scatter_groups.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150)
     print(f"Saved to {output_path}")
     plt.close()
@@ -226,6 +229,7 @@ def test_colormap_scatter(test_output_dir):
 
     # Note: skip tight_layout when using colorbars to avoid layout engine conflicts
     output_path = test_output_dir / 'test_ternary_scatter_colormap.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved to {output_path}")
     plt.close()

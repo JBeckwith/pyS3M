@@ -8,10 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-import fnmatch
 
 import numpy as np
-import polars as pl
 from numpy.typing import NDArray
 
 
@@ -26,26 +24,6 @@ class Helper_Functions:
     def __init__(self) -> None:
         """Initialize Helper_Functions class."""
         pass
-
-    def clean_database(self, database: pl.DataFrame, columns: list[str]) -> pl.DataFrame:
-        """
-
-        clean_database function replaces columns that are not filename (assumed last)
-        with floats
-
-        Args:
-            database (pl.DataFrame): database in question
-            colunms (list): columns
-
-        Returns:
-            database (pl.DataFrame): cleaned database
-        """
-        for i, column in enumerate(columns[:-1]):
-            database = database.replace_column(
-                i,
-                pl.Series(column, np.array(database[column].to_numpy(), dtype="float")),
-            )
-        return database
 
     def file_search(self, folder: Path | str, string1: str, string2: str) -> list[str]:
         """

@@ -827,9 +827,9 @@ class MixtureAnalysisMixin:
             "A_R_ref": reference_df["A_R"].values,
             "A_G_ref": reference_df["A_G"].values,
             "A_B_ref": reference_df["A_B"].values,
-            "posterior_prob_0": posteriors[:, 0],
-            "posterior_prob_1": posteriors[:, 1],
         }
+        for i in range(n_components):
+            ref_db_dict[f"posterior_prob_{i}"] = posteriors[:, i]
 
         # Add molecular_index if available
         if "molecular_index" in reference_df.columns:

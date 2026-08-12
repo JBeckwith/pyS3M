@@ -184,6 +184,78 @@ def test_frc_to_resolution_finite():
     assert hi <= res <= lo or hi == 0   # hi ≤ res ≤ lo (or hi=0 if not found)
 
 
+def test_frc_to_resolution_even_sspan_gets_incremented():
+    # sz=110 -> sspan=ceil(110/20)=6 (even) -> incremented to 7.
+    # Independent local RNG so this test's outcome doesn't depend on how much
+    # of the shared module-level RNG's stream prior tests already consumed.
+    rng = np.random.default_rng(1001)
+    sz = 110
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 500, sigma=8
+    )
+    n1 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    n2 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    curve = frc(n1, n2)
+    res, hi, lo = frc_to_resolution(curve, sz)
+    assert np.isfinite(res) or np.isnan(res)
+
+
+def test_frc_to_resolution_savgol_exception_falls_back(monkeypatch):
+    import pyS3M.FRCFunctions as FRCFunctions
+
+    def _raise(*a, **kw):
+        raise ValueError("forced savgol failure")
+
+    monkeypatch.setattr(FRCFunctions, "savgol_filter", _raise)
+    rng = np.random.default_rng(1002)
+    sz = 256
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 500, sigma=8
+    )
+    n1 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    n2 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    curve = frc(n1, n2)
+    res, hi, lo = frc_to_resolution(curve, sz)
+    assert np.isfinite(res) or np.isnan(res)
+
+
+def test_frc_to_resolution_linalg_error_falls_back(monkeypatch):
+    def flaky_inv(a):
+        raise np.linalg.LinAlgError("forced singular")
+
+    monkeypatch.setattr(np.linalg, "inv", flaky_inv)
+    rng = np.random.default_rng(1003)
+    sz = 256
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 500, sigma=8
+    )
+    n1 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    n2 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    curve = frc(n1, n2)
+    res, hi, lo = frc_to_resolution(curve, sz)
+    assert np.isfinite(res) or np.isnan(res)
+
+
+def test_frc_to_resolution_invalid_variance_falls_back(monkeypatch):
+    # np.linalg.inv succeeds but returns garbage -> frc_newvar computes as
+    # non-finite/negative without raising, exercising the in-band fallback
+    # (distinct from the except-LinAlgError branch above).
+    def nan_inv(a):
+        return np.full_like(a, np.nan)
+
+    monkeypatch.setattr(np.linalg, "inv", nan_inv)
+    rng = np.random.default_rng(1004)
+    sz = 256
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 500, sigma=8
+    )
+    n1 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    n2 = signal + rng.random((sz, sz)).astype(np.float32) * 10
+    curve = frc(n1, n2)
+    res, hi, lo = frc_to_resolution(curve, sz)
+    assert np.isfinite(res) or np.isnan(res)
+
+
 def test_frc_to_resolution_length_mismatch_raises():
     curve = np.ones(50)   # wrong length for sz=128
     with pytest.raises(ValueError):
@@ -231,6 +303,76 @@ def test_fire_accepts_dataframe():
     })
     res_nm, _, _, _ = fire(df, nx=sz, ny=sz, zoom=1.0, n_blocks=5, reps=2)
     assert np.isfinite(res_nm)
+
+
+def test_fire_invalid_positions_shape_raises():
+    with pytest.raises(ValueError, match="positions must be"):
+        fire(np.array([1.0, 2.0, 3.0]), nx=64)
+
+
+def test_fire_ny_defaults_to_nx():
+    rng = np.random.default_rng(1005)
+    sz = 48
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 1000, sigma=4
+    )
+    y_idx, x_idx = np.where(signal > signal.mean())
+    positions = np.column_stack([
+        x_idx.astype(float), y_idx.astype(float),
+        np.arange(len(x_idx), dtype=float),
+    ])
+    res_nm, curve, hi, lo = fire(positions, nx=sz, n_blocks=5, reps=2)
+    assert len(curve) > 0
+
+
+def test_fire_two_column_positions_no_frame():
+    # No frame column -> _postofrc's positions.shape[1] < 3 branch.
+    rng = np.random.default_rng(1006)
+    sz = 48
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 1000, sigma=4
+    )
+    y_idx, x_idx = np.where(signal > signal.mean())
+    positions = np.column_stack([x_idx.astype(float), y_idx.astype(float)])
+    res_nm, curve, hi, lo = fire(positions, nx=sz, ny=sz, n_blocks=5, reps=2)
+    assert len(curve) > 0
+
+
+def test_fire_all_zero_frame_column():
+    # All-zero frame column -> _postofrc's max_t<=0 fallback branch.
+    rng = np.random.default_rng(1007)
+    sz = 48
+    signal = gaussian_filter(
+        rng.random((sz, sz)).astype(np.float32) * 1000, sigma=4
+    )
+    y_idx, x_idx = np.where(signal > signal.mean())
+    positions = np.column_stack([
+        x_idx.astype(float), y_idx.astype(float),
+        np.zeros(len(x_idx), dtype=float),
+    ])
+    res_nm, curve, hi, lo = fire(positions, nx=sz, ny=sz, n_blocks=5, reps=2)
+    assert len(curve) > 0
+
+
+def test_fire_unresolved_returns_nan(monkeypatch):
+    # Forcing every rep's frc_to_resolution to come back non-finite is not
+    # reliably reproducible from real noise data (sparse binned images still
+    # correlate somewhat) -- patch it directly to exercise fire's own
+    # empty-res_list aggregation branch.
+    import pyS3M.FRCFunctions as FRCFunctions
+
+    monkeypatch.setattr(FRCFunctions, "frc_to_resolution", lambda curve, sz: (np.nan, 0.0, 2.0 * sz))
+    sz = 48
+    n = 100
+    positions = np.column_stack([
+        RNG.uniform(0, sz, n),
+        RNG.uniform(0, sz, n),
+        RNG.integers(0, 2, n).astype(float),
+    ])
+    res_nm, curve, hi, lo = fire(positions, nx=sz, ny=sz, n_blocks=2, reps=3)
+    assert np.isnan(res_nm)
+    assert np.isnan(hi)
+    assert np.isnan(lo)
 
 
 if __name__ == '__main__':

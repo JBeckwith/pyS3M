@@ -236,6 +236,7 @@ def test_full_pipeline(test_output_dir):
 
     plt.tight_layout()
     output_path = test_output_dir / 'full_pipeline_test.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"   Saved to: {output_path}")
 

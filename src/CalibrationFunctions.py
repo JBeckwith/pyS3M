@@ -318,6 +318,10 @@ class Calibration_Functions:
                 if len(image.shape) == 2:
                     n_frames = 1
                 else:
+                    # read_tiff returns frame-first (N, H, W); process_multi_frame_fn
+                    # expects (H, W, N) -- same contract the low-memory chunked path
+                    # below transposes to, so match it here too.
+                    image = np.transpose(image, (1, 2, 0))
                     n_frames = image.shape[-1]
                 if n_frames == 1:
                     accumulator = process_single_frame_fn(accumulator, image)

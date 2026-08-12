@@ -31,29 +31,6 @@ import pyS3M.sCMOSFunctions as sCMOSFunctions
 import pyS3M.HelperFunctions as HelperFunctions
 
 
-class ArrayPool:
-    """Memory pool for frequently allocated arrays to reduce allocation overhead."""
-
-    def __init__(self):
-        self.pools = {}
-
-    def get_array(self, shape, dtype=np.float32):
-        key = (shape, dtype)
-        if key not in self.pools:
-            self.pools[key] = []
-
-        if self.pools[key]:
-            arr = self.pools[key].pop()
-            arr.fill(0)
-            return arr
-        return np.zeros(shape, dtype=dtype)
-
-    def return_array(self, arr):
-        key = (arr.shape, arr.dtype)
-        if key in self.pools and len(self.pools[key]) < 10:
-            self.pools[key].append(arr)
-
-
 class KernelCache:
     """Cache for expensive PSF and filter kernel calculations."""
 
@@ -118,7 +95,6 @@ class SpotDetection_Functions:
         )
 
         # Initialize optimisation components
-        self.array_pool = ArrayPool()
         self.kernel_cache = KernelCache()
 
     def detect_puncta_in_stack_parallel(
@@ -1015,18 +991,6 @@ class SpotDetection_Functions:
             mask = detector_type(T, pfa, local_max_range, kernel)
         points = self.mask2points(mask)
         return points
-
-    def cleanup_memory(self):
-        """Clean up cached arrays and kernels to free memory."""
-        self.array_pool = ArrayPool()
-        self.kernel_cache = KernelCache()
-
-    def get_performance_stats(self):
-        """Return performance statistics for monitoring."""
-        return {
-            "kernel_cache_size": len(self.kernel_cache.cache),
-            "array_pool_sizes": {k: len(v) for k, v in self.array_pool.pools.items()},
-        }
 
 
 # Module-level standalone functions for multiprocessing (pickleable)

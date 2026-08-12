@@ -17,7 +17,7 @@ This module handles:
 """
 
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any, Union
+from typing import Tuple, Optional, Dict
 from scipy.interpolate import InterpolatedUnivariateSpline
 import warnings
 
@@ -56,51 +56,6 @@ class SegmentationHandler:
             Frame indices starting at 1
         """
         return locs.frame + 1 - locs.frame.min()
-
-    @staticmethod
-    def temporal_coordinate_segmentation(
-        locs: np.recarray,
-        segment_size_frames: int = 1000,
-        overlap_frames: int = 100,
-    ) -> List[np.recarray]:
-        """Segment localisation data temporally with optional overlap.
-
-        Args:
-            locs: Localisation data with frame field
-            segment_size_frames: Size of each segment in frames
-            overlap_frames: Number of overlapping frames between segments
-
-        Returns:
-            List of localisation segments
-        """
-        if not hasattr(locs, "frame"):
-            raise DriftCorrectionError("Localisation data must have 'frame' field")
-
-        min_frame = locs.frame.min()
-        max_frame = locs.frame.max()
-        n_frames = max_frame - min_frame + 1
-
-        segments = []
-        start_frame = min_frame
-
-        while start_frame <= max_frame:
-            end_frame = min(start_frame + segment_size_frames, max_frame + 1)
-
-            # Extract localisations in this segment
-            mask = (locs.frame >= start_frame) & (locs.frame < end_frame)
-            segment_locs = locs[mask]
-
-            if len(segment_locs) > 0:
-                segments.append(segment_locs)
-
-            # Move to next segment with overlap
-            start_frame += segment_size_frames - overlap_frames
-
-            # Prevent infinite loop if overlap >= segment_size
-            if overlap_frames >= segment_size_frames:
-                start_frame = end_frame
-
-        return segments
 
 
 class CoordinateProcessor:
@@ -292,36 +247,6 @@ class CoordinateProcessor:
         return hist
 
     @staticmethod
-    def calculate_centre_of_mass(
-        locs: np.recarray,
-        weights: Optional[np.ndarray] = None,
-    ) -> Tuple[float, float, Optional[float]]:
-        """Calculate centre of mass of localisation data.
-
-        Args:
-            locs: Localisation data with xc, yc fields (and optionally zc)
-            weights: Optional weights for each localisation
-
-        Returns:
-            Tuple of (centre_x, centre_y, centre_z) where centre_z is None for 2D data
-        """
-        if weights is None:
-            weights = np.ones(len(locs))
-
-        total_weight = weights.sum()
-        if total_weight == 0:
-            return 0.0, 0.0, None
-
-        centre_x = np.sum(locs.xc * weights) / total_weight
-        centre_y = np.sum(locs.yc * weights) / total_weight
-
-        centre_z = None
-        if hasattr(locs, "zc"):
-            centre_z = np.sum(locs.zc * weights) / total_weight
-
-        return centre_x, centre_y, centre_z
-
-    @staticmethod
     def interpolate_coordinates(
         source_frames: np.ndarray,
         source_coords: np.ndarray,
@@ -409,115 +334,3 @@ class CoordinateProcessor:
                 drift_values[invalid_indices] = interpolated
 
             return drift_values
-
-    @staticmethod
-    def interpolate_drift(
-        bounds: np.ndarray,
-        shift_x: np.ndarray,
-        shift_y: np.ndarray,
-        n_frames: int,
-        method: str = "cubic",
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Interpolate drift to all frames using splines.
-
-        Args:
-            bounds: Segment boundaries
-            shift_x: X shifts between segments
-            shift_y: Y shifts between segments
-            n_frames: Total number of frames
-            method: Interpolation method ('linear', 'cubic')
-
-        Returns:
-            Tuple of (drift_x, drift_y) for all frames
-        """
-        # Calculate segment centres
-        t = (bounds[1:] + bounds[:-1]) / 2
-
-        # Interpolate to all frames
-        t_inter = np.arange(n_frames)
-
-        if method == "cubic" and len(t) >= 4:
-            # Use cubic spline interpolation
-            drift_x_pol = InterpolatedUnivariateSpline(t, shift_x, k=3)
-            drift_y_pol = InterpolatedUnivariateSpline(t, shift_y, k=3)
-
-            drift_x = drift_x_pol(t_inter)
-            drift_y = drift_y_pol(t_inter)
-        else:
-            # Fall back to linear interpolation
-            drift_x = np.interp(t_inter, t, shift_x)
-            drift_y = np.interp(t_inter, t, shift_y)
-
-        return drift_x, drift_y
-
-    @staticmethod
-    def cubic_spline_interpolation(
-        x: np.ndarray, y: np.ndarray, x_new: np.ndarray, k: int = 3
-    ) -> np.ndarray:
-        """Perform cubic spline interpolation.
-
-        Args:
-            x: Known x coordinates
-            y: Known y values
-            x_new: New x coordinates for interpolation
-            k: Spline order (default 3 for cubic)
-
-        Returns:
-            Interpolated y values at x_new
-        """
-        if len(x) < k + 1:
-            # Not enough points for requested order, use linear
-            return np.interp(x_new, x, y)
-
-        spline = InterpolatedUnivariateSpline(x, y, k=k)
-        return spline(x_new)
-
-    @staticmethod
-    def _validate_coordinate_arrays(
-        coords: np.ndarray,
-        expected_dimensions: int = 2,
-    ) -> bool:
-        """Validate coordinate array format and dimensions.
-
-        Args:
-            coords: Coordinate array to validate
-            expected_dimensions: Expected number of spatial dimensions
-
-        Returns:
-            True if coordinates are valid, False otherwise
-        """
-        if not isinstance(coords, np.ndarray):
-            return False
-
-        if coords.ndim == 1 and expected_dimensions == 1:
-            return True
-
-        if coords.ndim == 2 and coords.shape[1] == expected_dimensions:
-            return True
-
-        return False
-
-    @staticmethod
-    def _apply_coordinate_transformation(
-        coords: np.ndarray,
-        transformation_matrix: np.ndarray,
-        translation: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Apply linear transformation to coordinates.
-
-        Args:
-            coords: Input coordinates (N, D) where D is dimensionality
-            transformation_matrix: Transformation matrix (D, D)
-            translation: Optional translation vector (D,)
-
-        Returns:
-            Transformed coordinates
-        """
-        # Apply matrix transformation
-        transformed = coords @ transformation_matrix.T
-
-        # Apply translation if provided
-        if translation is not None:
-            transformed += translation
-
-        return transformed

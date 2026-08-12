@@ -119,21 +119,6 @@ class NileRed_Functions:
         self.psf_funcs = PSFFunctions.PSF_Functions()
         self.io = IOFunctions.IO_Functions()
 
-    def compute_sigma_psf_array(
-        self, wavelength_array: np.ndarray, NA: float = 1.49
-    ) -> np.ndarray:
-        """Compute wavelength-dependent PSF widths.
-
-        Args:
-            wavelength_array: Wavelength grid (nm)
-            NA: Numerical aperture (default: 1.49)
-
-        Returns:
-            sigma_psf_array: PSF width at each wavelength (nm)
-        """
-        sigma_psf_array = self.psf_funcs.sigma_PSF(wavelength_array, NA)
-        return sigma_psf_array
-
     def setup_optical_system(
         self, filter_names: list
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -490,45 +475,6 @@ class NileRed_Functions:
         }
 
         return predictions
-
-    def chi_squared_nile_red(
-        self,
-        wavelength_center: float,
-        observed_data: dict[str, float],
-        errors: dict[str, float],
-        filter_spectra: np.ndarray,
-        wavelength_array: np.ndarray,
-        pixel_QYs: np.ndarray,
-        NA: float = 1.49,
-    ) -> float:
-        """Chi-squared for fitting central wavelength to experimental data.
-
-        This is a convenience function that computes chi² = sum(residuals²).
-        Uses residuals_nile_red internally to avoid code duplication.
-
-        Args:
-            wavelength_center: Central wavelength to test (nm)
-            observed_data: dict with 'R', 'G', 'B', 'sigma_x', 'sigma_y'
-            errors: dict with same keys as observed_data
-            filter_spectra: Optical filter transmission curves
-            wavelength_array: Wavelength grid (nm)
-            pixel_QYs: Pixel quantum yields
-            NA: Numerical aperture (default: 1.49)
-
-        Returns:
-            chi2: Chi-squared value
-        """
-        # Get residual vector and compute chi-squared
-        residuals = self.residuals_nile_red(
-            np.array([wavelength_center]),
-            observed_data,
-            errors,
-            filter_spectra,
-            wavelength_array,
-            pixel_QYs,
-            NA,
-        )
-        return float(np.sum(residuals**2))
 
     def residuals_nile_red(
         self,

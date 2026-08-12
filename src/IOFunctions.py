@@ -172,36 +172,6 @@ class IO_Functions:
 
         return df
 
-    def _apply_frame_offset(self, df, filepath):
-        """Apply frame offset when appending to ensure continuous frame numbering.
-
-        Reads the maximum frame number from existing HDF5 file and offsets
-        the new data's frame numbers to continue sequentially.
-
-        Args:
-            df: DataFrame to append
-            filepath: Path to existing HDF5 file
-
-        Returns:
-            DataFrame with adjusted frame numbers
-        """
-        try:
-            # Read only the frame column from existing data to get max frame
-            with pd.HDFStore(filepath, mode="r") as store:
-                if "data" in store:
-                    # Read just the frame column for efficiency
-                    existing_frames = store.select("data", columns=["frame"])
-                    if len(existing_frames) > 0:
-                        max_existing_frame = existing_frames["frame"].max()
-                        # Offset new frames to continue from max existing frame
-                        df = df.copy()  # Avoid modifying original
-                        df["frame"] = df["frame"] + max_existing_frame
-        except Exception as e:
-            # If anything goes wrong, log warning but continue without offset
-            logger.warning(f"Warning: Could not apply frame offset for {filepath}: {e}")
-
-        return df
-
     def sort_h5_by_frame(self, filepath: Path | str, backup: bool = True) -> None:
         """Sort existing HDF5 file by frame number.
 
@@ -359,17 +329,6 @@ class IO_Functions:
             logger.warning(f"Warning: Could not check HDF5 compatibility: {e}")
             logger.info("Proceeding with original DataFrame")
             return df
-
-    def _write_csv_dataframe(self, df, filepath, append=False, normalise_photons=False):
-        if df.shape[0] > 0:
-            # Add photon columns if amplitude columns are present
-            df = self._add_photon_columns(df, normalise=normalise_photons)
-
-            if append and Path(filepath).is_file():
-                with open(filepath, mode="ab") as f:
-                    df.write_csv(f, include_header=False)
-            else:
-                df.write_csv(filepath)
 
     def read_json(self, filename: Path | str, encoding: str = "ISO-8859-1") -> dict[str, Any]:
         """
@@ -551,13 +510,6 @@ class IO_Functions:
         # ROI format from ImageJ/MicroManager is: x-y-width-height, matching
         # MMCore.getROI(label, x, y, xSize, ySize)'s own parameter order
         # (https://javadoc.scijava.org/Micro-Manager-Core/mmcorej/CMMCore.html).
-        # Example: "728-456-904-812" means x=728, y=456, width=904, height=812.
-        # (Previously read as y-x-width-height -- silently within-bounds on every
-        # Ximea dataset checked since their ROI offsets are small enough that either
-        # ordering happens to fit the sensor, but confirmed wrong against a ZWO
-        # dataset whose larger row offset overflowed the sensor under the old
-        # ordering: "1268-480-1064-1080" on a (2160, 3840) sensor only fits as
-        # x=1268, y=480, not y=1268, x=480.)
         x_coord = int(ROI[0])  # left (column start)
         y_coord = int(ROI[1])  # top (row start)
         width = int(ROI[2])  # extent in x-direction (columns)
@@ -603,26 +555,6 @@ class IO_Functions:
         width = int(data["ROIWidth_pixels"])
         height = int(data["ROIHeight_pixels"])
         return x_coord, y_coord, width, height
-
-    def make_directory(self, directory_path: Path | str) -> None:
-        """
-        Creates a directory if it doesn't exist.
-
-        Args:
-            directory_path (str): The path of the directory to be created.
-        """
-        Path(directory_path).mkdir(parents=True, exist_ok=True)
-
-    def write_json(self, data: dict[str, Any], file_name: Path | str) -> None:
-        """
-        Saves data to a JSON file.
-
-        Args:
-            data (dict): The data to be saved in JSON format.
-            file_name (str): The name of the JSON file.
-        """
-        with open(file_name, "w") as json_file:
-            json.dump(data, json_file, indent=4)
 
     def _read_tiff_robust(self, file_path, frames, dtype="float32"):
         """
@@ -902,14 +834,16 @@ class IO_Functions:
                 gain_map = 1.0
                 offset_map = 0.0
 
+        rqe_is_array = type(rqe) is not float
         if type(gain_map) is not float:
             if len(data.shape) > 2:
+                rqe_term = rqe[np.newaxis, :, :] if rqe_is_array else rqe
                 photoelectron_data = np.divide(
                     np.divide(
                         np.subtract(data, offset_map[np.newaxis, :, :]),
                         gain_map[np.newaxis, :, :],
                     ),
-                    rqe[np.newaxis, :, :],
+                    rqe_term,
                 )
             else:
                 photoelectron_data = np.divide(
@@ -1038,51 +972,6 @@ class IO_Functions:
             weights_map[hot_pixels] = 1e-8
 
         return weights_map.astype(dtype)
-
-    def process_roi_to_photoelectrons(
-        self,
-        raw_roi: NDArray,
-        smoothing_function: Any,
-        gain_map: float | NDArray[np.float32] = 1.0,
-        offset_map: float | NDArray[np.float32] = 0.0,
-        rqe: float | NDArray[np.float32] = 1.0,
-        read_noise: float | NDArray[np.float32] = 1.0,
-        hot_pixel_threshold: float = 20,
-        dtype: str = "double",
-    ) -> tuple[NDArray, NDArray, NDArray]:
-        """
-        Memory-efficient conversion of a single ROI from raw data to photoelectrons,
-        smoothed data, and weights. This is the core function for the new workflow.
-
-        Args:
-            raw_roi (np.ndarray): Raw ROI data
-            smoothing_function: Smoothing function object
-            gain_map (matrix or float): Gain map (ROI-sized or scalar)
-            offset_map (matrix or float): Offset map (ROI-sized or scalar)
-            rqe (matrix or float): Relative quantum efficiency (ROI-sized or scalar)
-            read_noise (matrix or float): Read noise (ROI-sized or scalar)
-            hot_pixel_threshold (float): Hot pixel threshold
-            dtype (str): Output data type
-
-        Returns:
-            tuple: (photoelectron_roi, smoothed_roi, weights_roi)
-        """
-        # Convert to photoelectrons
-        photoelectron_roi = self.convert_to_photoelectrons(
-            raw_roi, gain_map, offset_map, rqe
-        )
-
-        # Apply smoothing
-        smoothed_roi = self.apply_smoothing(
-            photoelectron_roi, smoothing_function, dtype
-        )
-
-        # Generate weights
-        weights_roi = self.generate_weights(
-            smoothed_roi, read_noise, hot_pixel_threshold, dtype
-        )
-
-        return photoelectron_roi, smoothed_roi, weights_roi
 
     def write_tiff(self, volume: NDArray, file_path: Path | str, bit: str | type = "double", pixel_size: float = 0.069, photometric: str | None = None) -> None:
         """
@@ -1238,87 +1127,6 @@ class IO_Functions:
                 + "_NA_"
                 + b_save
                 + "_background_RMSE_std_bootstrapping.csv"
-            )
-        )
-        return
-
-    def save_simulation_results_pixelsize(
-        self,
-        save_folder: Path | str,
-        starting_flag: str,
-        default_params: NDArray,
-        pixel_size_space: NDArray[np.float64],
-        fit_RMSE_mean: NDArray[np.float64],
-        fit_RMSE_std: NDArray[np.float64],
-        n_photon: float,
-        NA: float,
-        fit_function_name: Any,
-        error_type: Any,
-        dye: str,
-    ) -> None:
-        """
-        Saves simulation analysis.
-
-        Args:
-            save_folder (string): Folder to save data to.
-            starting_flat (string): Starting flag of data saving.
-            default_params (array): Array of default parameters to be saved.
-            n_photon_space (np.1darray): 1d array of different photon values to save.
-            fit_RMSE_mean (np.2darray): 2d array of fit RMSEs to save
-            fit_RMSE_std (np.2darray): 2d array of fit stds to save
-            pixel_size (float): pixel size of simulations
-            NA (float): NA of simulations
-            fit_function_name (object): fit function name to save
-            error_type (object): error type to save
-            dye (string): dye string
-        """
-        parameters_to_save = list(
-            np.concatenate([np.array(["pixel_size_nm"]), default_params])
-        )
-        means = pl.DataFrame(
-            data=np.vstack([pixel_size_space, fit_RMSE_mean]).T,
-            schema=parameters_to_save,
-        )
-        stds = pl.DataFrame(
-            data=np.vstack([pixel_size_space, fit_RMSE_std]).T,
-            schema=parameters_to_save,
-        )
-        if int(n_photon) == n_photon:
-            px_save = str(int(n_photon))
-        else:
-            px_save = str(np.around(n_photon, 1)).replace(".", "p")
-        if int(NA) == NA:
-            NA_save = str(int(NA))
-        else:
-            NA_save = str(np.around(NA, 2)).replace(".", "p")
-        means.write_csv(
-            Path(save_folder) / (
-                starting_flag
-                + str(fit_function_name)
-                + "_error_"
-                + str(error_type)
-                + "_"
-                + dye
-                + "_"
-                + px_save
-                + "_nphoton_"
-                + NA_save
-                + "_NA_RMSE_mean_bootstrapping.csv",
-            )
-        )
-        stds.write_csv(
-            Path(save_folder) / (
-                starting_flag
-                + str(fit_function_name)
-                + "_error_"
-                + str(error_type)
-                + "_"
-                + dye
-                + "_"
-                + px_save
-                + "_nphoton_"
-                + NA_save
-                + "_NA_RMSE_std_bootstrapping.csv",
             )
         )
         return
