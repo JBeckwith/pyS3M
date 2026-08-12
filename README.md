@@ -52,9 +52,9 @@ from the repository root without installing.
 See the Getting Started guide for a minimal worked example and installation/GUI details:
 https://pys3m.readthedocs.io/en/latest/getting-started.html
 
-See `notebooks/analyses/` for fuller worked examples (multi-FOV fitting, drift correction,
-clustering, channel unmixing, FRC, Nile Red) and `notebooks/simulations/` for how to
-generate your own synthetic acquisitions.
+See `notebooks/analyses/` for fuller worked examples (single- and multi-FOV fitting, drift
+correction, clustering, channel unmixing, Nile Red, FRC) and `notebooks/simulations/` for how
+to generate your own synthetic acquisitions.
 
 ## License
 
