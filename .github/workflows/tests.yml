@@ -7,6 +7,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Serialise runs on the same branch/PR rather than letting them race -- two
+# main-push runs close together can otherwise both reach the coverage-badge
+# step around the same time and non-fast-forward-reject each other's push to
+# gh-pages. Cancel stale runs on a PR (new commit supersedes the old one,
+# nothing there pushes anywhere), but queue (never cancel) on main so every
+# push still gets its own full run and its own badge update.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
