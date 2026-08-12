@@ -5,13 +5,13 @@ closes the two gaps that path doesn't reach: the too-few-localisations
 early-return, and the fast_hdbscan-not-installed import fallback.
 """
 import sys
-import importlib
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import pyS3M.SM_extractionfunctions as SM_extractionfunctions
+import pyS3M.clustering.hdbscan_clusterer as hdbscan_clusterer
 
 
 def _tiny_loc_df(n=2):
@@ -56,21 +56,33 @@ class TestExtractSingleMoleculesHdbscanTooFewLocs:
         assert sf_db.empty
 
 
-class TestHdbscanBackendFallback:
-    def test_import_error_falls_back_to_sklearn(self, monkeypatch):
-        # fast_hdbscan is installed in this environment, so the fallback branch
-        # only triggers if its import genuinely fails -- block it in
-        # sys.modules and reload the module to re-run the top-level try/except.
-        import pyS3M.clustering.hdbscan_clusterer as hdbscan_clusterer
+class TestGetHdbscanCls:
+    """_get_hdbscan_cls is a lazy, memoised loader (see its docstring in
+    hdbscan_clusterer.py for why: fast_hdbscan's own __init__.py
+    unconditionally JIT-compiles its entire numba codebase on import, ~14s
+    with no on-disk cache -- deferring the import out of this module's own
+    top level keeps that cost off every AnalysisPipeline import)."""
 
-        try:
-            monkeypatch.setitem(sys.modules, "fast_hdbscan", None)
-            importlib.reload(hdbscan_clusterer)
-            assert hdbscan_clusterer.HDBSCAN_BACKEND == "sklearn"
-        finally:
-            # monkeypatch only reverts sys.modules["fast_hdbscan"] once this
-            # test function returns -- restore it here first so the module can
-            # actually re-import the real backend before the next test runs.
-            monkeypatch.undo()
-            importlib.reload(hdbscan_clusterer)
-            assert hdbscan_clusterer.HDBSCAN_BACKEND == "fast_hdbscan"
+    def test_prefers_fast_hdbscan_when_available(self, monkeypatch):
+        monkeypatch.setattr(hdbscan_clusterer, "_HDBSCAN_cls", None)
+        cls = hdbscan_clusterer._get_hdbscan_cls()
+        assert hdbscan_clusterer.HDBSCAN_BACKEND == "fast_hdbscan"
+        from fast_hdbscan import HDBSCAN as FastHDBSCAN
+        assert cls is FastHDBSCAN
+
+    def test_import_error_falls_back_to_sklearn(self, monkeypatch):
+        # fast_hdbscan is installed in this environment, so the fallback
+        # branch only triggers if its import genuinely fails -- block it in
+        # sys.modules and force re-resolution by clearing the memoised class.
+        monkeypatch.setattr(hdbscan_clusterer, "_HDBSCAN_cls", None)
+        monkeypatch.setitem(sys.modules, "fast_hdbscan", None)
+        cls = hdbscan_clusterer._get_hdbscan_cls()
+        assert hdbscan_clusterer.HDBSCAN_BACKEND == "sklearn"
+        from sklearn.cluster import HDBSCAN as SklearnHDBSCAN
+        assert cls is SklearnHDBSCAN
+
+    def test_result_is_memoised(self, monkeypatch):
+        monkeypatch.setattr(hdbscan_clusterer, "_HDBSCAN_cls", None)
+        first = hdbscan_clusterer._get_hdbscan_cls()
+        second = hdbscan_clusterer._get_hdbscan_cls()
+        assert first is second

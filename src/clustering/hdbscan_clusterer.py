@@ -16,13 +16,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Prefer the multicore-optimised fast_hdbscan; fall back to sklearn.
-try:
-    from fast_hdbscan import HDBSCAN
-    HDBSCAN_BACKEND = "fast_hdbscan"
-except ImportError:
-    from sklearn.cluster import HDBSCAN
-    HDBSCAN_BACKEND = "sklearn"
+# Prefer the multicore-optimised fast_hdbscan; fall back to sklearn. Imported
+# lazily -- only on the first actual HDBSCAN clustering call, not at module
+# import time -- because fast_hdbscan's own __init__.py unconditionally
+# JIT-compiles every numba function it defines as soon as it's imported (no
+# on-disk cache, ~14s on this dev machine). Since this module must be fully
+# imported just to define HDBSCANMixin (extract_SMs inherits from it), that
+# cost previously landed on every AnalysisPipeline import -- e.g. clicking
+# "Load Calibration" in the GUI, which never touches clustering at all.
+HDBSCAN_BACKEND: str | None = None
+_HDBSCAN_cls = None
+
+
+def _get_hdbscan_cls():
+    global HDBSCAN_BACKEND, _HDBSCAN_cls
+    if _HDBSCAN_cls is None:
+        try:
+            from fast_hdbscan import HDBSCAN as _cls
+            HDBSCAN_BACKEND = "fast_hdbscan"
+        except ImportError:
+            from sklearn.cluster import HDBSCAN as _cls
+            HDBSCAN_BACKEND = "sklearn"
+        _HDBSCAN_cls = _cls
+    return _HDBSCAN_cls
 
 
 class HDBSCANMixin:
@@ -85,6 +101,7 @@ class HDBSCANMixin:
             np.mean(loc_data["xc_err"]) + np.mean(loc_data["yc_err"])
         )
 
+        HDBSCAN = _get_hdbscan_cls()
         logger.info(f"Using {HDBSCAN_BACKEND} for HDBSCAN clustering")
         hdb = HDBSCAN(
             min_cluster_size=min_cluster_size,
