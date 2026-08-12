@@ -6,14 +6,27 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from pyS3M.gui.widgets.folder_picker import FolderPicker
 
-_INSTRUCTIONS = (
-    "Raw-data folder layout required:\n\n"
+_INSTRUCTIONS_RGB = (
+    "Raw-data folder layout required (RGB calibration):\n\n"
     "• One subdirectory with \"dark\" in its name, holding dark frames. Filenames "
     "must contain both \"dark\" and \".tif\".\n\n"
     "• One subdirectory per Bayer colour, named exactly \"R\", \"G\", \"B\" "
     "(uppercase), each holding flat/bright-field frames at several illumination "
     "intensities. Filenames must contain \"Intensity_<value>\" and \".tif\", and the "
     "same set of intensity values must exist in every colour subfolder."
+)
+
+_INSTRUCTIONS_NIR = (
+    "Raw-data folder layout required (NIR calibration):\n\n"
+    "• One subdirectory with \"dark\" in its name, holding dark frames. Filenames "
+    "must contain both \"dark\" and \".tif\".\n\n"
+    "• Exactly one other subdirectory (any name), holding flat/bright-field frames "
+    "taken with a >750 nm (near-infrared) light source, at several illumination "
+    "intensities. Filenames must contain \"Intensity_<value>\" and \".tif\".\n\n"
+    "The Ximea/ZWO Bayer filters' R/G/B transmission spectra converge above ~750 nm, "
+    "so every pixel responds identically regardless of its Bayer colour — one "
+    "flat-field folder is applied uniformly to the whole sensor, no per-colour split "
+    "needed."
 )
 
 
@@ -24,8 +37,10 @@ class CalibrationCalcPanel(QWidget):
     already-computed calibration. Always available (no state gating) — this is the
     entry point that produces what SetupPanel/the rest of the pipeline consumes."""
 
-    # camera, raw_dir
-    calibration_compute_requested = pyqtSignal(str, str)
+    # camera, raw_dir, mode ("rgb"/"nir")
+    calibration_compute_requested = pyqtSignal(str, str, str)
+
+    _MODES = ["rgb", "nir"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -36,14 +51,19 @@ class CalibrationCalcPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(4)
 
-        instructions = QLabel(_INSTRUCTIONS)
-        instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: gray;")
-        instructions.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        outer.addWidget(instructions)
+        self._instructions = QLabel(_INSTRUCTIONS_RGB)
+        self._instructions.setWordWrap(True)
+        self._instructions.setStyleSheet("color: gray;")
+        self._instructions.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        outer.addWidget(self._instructions)
 
         grp = QGroupBox("Compute Calibration")
         form = QFormLayout(grp)
+
+        self._calibration_type = QComboBox()
+        self._calibration_type.addItems(["RGB (per-colour flats)", "NIR (750 nm+, single flat-field folder)"])
+        self._calibration_type.currentIndexChanged.connect(self._on_calibration_type_changed)
+        form.addRow("Calibration type:", self._calibration_type)
 
         self._camera = QComboBox()
         self._camera.addItems(["ximea", "zwo"])
@@ -64,6 +84,9 @@ class CalibrationCalcPanel(QWidget):
         outer.addWidget(grp)
         outer.addStretch()
 
+    def _on_calibration_type_changed(self, index: int):
+        self._instructions.setText(_INSTRUCTIONS_NIR if self._MODES[index] == "nir" else _INSTRUCTIONS_RGB)
+
     def _update_run_btn(self):
         self._run_btn.setEnabled(bool(self._raw_dir.path))
 
@@ -71,6 +94,7 @@ class CalibrationCalcPanel(QWidget):
         self.calibration_compute_requested.emit(
             self._camera.currentText(),
             self._raw_dir.path,
+            self._MODES[self._calibration_type.currentIndex()],
         )
 
     # ── public interface ──────────────────────────────────────────────

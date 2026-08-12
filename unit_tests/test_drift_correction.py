@@ -71,55 +71,6 @@ def generate_test_localizations(
     return locs
 
 
-def generate_fiducial_localizations(
-    n_fiducials: int = 10,
-    n_frames: int = 100,
-    detections_per_frame: int = 8,
-    width: int = 256,
-    height: int = 256,
-    drift_x: np.ndarray = None,
-    drift_y: np.ndarray = None
-) -> np.recarray:
-    """Generate synthetic fiducial marker localizations.
-
-    Creates bright spots that appear in most frames, suitable for
-    testing fiducial-based drift correction.
-    """
-    # Random fiducial positions
-    fid_x = np.random.uniform(20, width - 20, n_fiducials)
-    fid_y = np.random.uniform(20, height - 20, n_fiducials)
-
-    locs_list = []
-
-    for frame in range(n_frames):
-        # Each fiducial detected with high probability
-        for i in range(n_fiducials):
-            if np.random.rand() < 0.8:  # 80% detection rate
-                x = fid_x[i] + np.random.normal(0, 0.1)  # Small localization error
-                y = fid_y[i] + np.random.normal(0, 0.1)
-
-                # Apply drift if provided
-                if drift_x is not None and drift_y is not None:
-                    x += drift_x[frame]
-                    y += drift_y[frame]
-
-                locs_list.append({
-                    'x': x,
-                    'y': y,
-                    'xc': x,
-                    'yc': y,
-                    'photons': np.random.uniform(5000, 10000),  # Bright
-                    'frame': frame,
-                    'bg': 100
-                })
-
-    # Convert to recarray
-    df = pd.DataFrame(locs_list)
-    locs = df.to_records(index=False)
-
-    return locs
-
-
 def generate_linear_drift(n_frames: int, drift_rate: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
     """Generate linear drift pattern.
 
@@ -267,90 +218,6 @@ class TestFiducialDetection:
         assert hasattr(fid, 'select_puncta_from_regions')
         assert hasattr(fid, 'identify_real_fiducials_with_clustering')
 
-    @pytest.mark.skip(reason="detect_fiducials_birch not implemented; use detect_high_density_regions_from_image pipeline")
-    def test_detect_fiducials_birch(self):
-        """Test BIRCH-based fiducial detection."""
-        # Generate fiducial marker data
-        n_frames = 100
-        locs = generate_fiducial_localizations(
-            n_fiducials=10,
-            n_frames=n_frames,
-            width=256,
-            height=256
-        )
-
-        info = [{
-            'Width': 256,
-            'Height': 256,
-            'Frames': n_frames,
-            'Pixelsize': 69
-        }]
-
-        drift_corr = DCF.Drift_Correction_Functions()
-        fid = FiducialDetector(drift_correction_instance=drift_corr)
-
-        # Detect fiducials
-        fiducials, meta = fid.detect_fiducials_birch(
-            locs, info,
-            min_localizations=int(n_frames * 0.3),  # Appear in 30% of frames
-            threshold=0.5,
-            branching_factor=50
-        )
-
-        # Should detect some fiducials
-        assert len(fiducials) > 0
-        assert len(fiducials) <= 10  # Can't detect more than we created
-
-        # Each fiducial should have frame data
-        for fiducial_locs in fiducials:
-            assert len(fiducial_locs) > 0
-            assert 'x' in fiducial_locs.dtype.names
-            assert 'y' in fiducial_locs.dtype.names
-            assert 'frame' in fiducial_locs.dtype.names
-
-    @pytest.mark.skip(reason="compute_drift_from_fiducials not implemented; use FiducialDriftCorrector.calculate_drift")
-    def test_compute_drift_from_fiducials(self):
-        """Test drift calculation from fiducial tracks."""
-        # Generate fiducials with known drift
-        n_frames = 100
-        drift_x_true, drift_y_true = generate_linear_drift(n_frames, drift_rate=0.1)
-
-        locs = generate_fiducial_localizations(
-            n_fiducials=15,
-            n_frames=n_frames,
-            drift_x=drift_x_true,
-            drift_y=drift_y_true
-        )
-
-        info = [{
-            'Width': 256,
-            'Height': 256,
-            'Frames': n_frames,
-            'Pixelsize': 69
-        }]
-
-        drift_corr = DCF.Drift_Correction_Functions()
-        fid = FiducialDetector(drift_correction_instance=drift_corr)
-
-        # Detect fiducials
-        fiducials, _ = fid.detect_fiducials_birch(
-            locs, info,
-            min_localizations=int(n_frames * 0.5)
-        )
-
-        # Compute drift
-        drift_x, drift_y, meta = fid.compute_drift_from_fiducials(
-            fiducials, info
-        )
-
-        # Check drift shape
-        assert len(drift_x) == n_frames
-        assert len(drift_y) == n_frames
-
-        # Check drift direction (should be monotonic for linear drift)
-        assert np.corrcoef(drift_x, drift_x_true)[0, 1] > 0.95  # High correlation
-        assert np.corrcoef(drift_y, drift_y_true)[0, 1] > 0.95
-
 
 # ============================================================================
 # DriftCorrectionFunctions Integration Tests
@@ -419,44 +286,6 @@ class TestDriftCorrectionIntegration:
         # Just check they're both reasonable
         assert corrected_var_x > 0
         assert original_var_x > 0
-
-    @pytest.mark.skip(reason="Fiducial corrector requires rendered image; synthetic random locs have no high-density regions")
-    def test_undrift_with_fiducials(self):
-        """Test full undrift workflow with fiducial method."""
-        # Generate fiducial data with drift
-        n_frames = 50
-        drift_x_true, drift_y_true = generate_linear_drift(n_frames, drift_rate=0.2)
-
-        locs = generate_fiducial_localizations(
-            n_fiducials=20,
-            n_frames=n_frames,
-            drift_x=drift_x_true,
-            drift_y=drift_y_true
-        )
-
-        info = [{
-            'Width': 256,
-            'Height': 256,
-            'Frames': n_frames,
-            'Pixelsize': 69
-        }]
-
-        # Run drift correction
-        drift_corr = DCF.Drift_Correction_Functions()
-
-        corrected_locs, drift_result = drift_corr.undrift(
-            locs=locs,
-            info=info,
-            method='fiducial',
-        )
-
-        # Check outputs
-        assert len(corrected_locs) > 0  # Some locs should be corrected
-        assert hasattr(drift_result, 'drift_x')
-        assert hasattr(drift_result, 'drift_y')
-
-        # Drift should correlate with true drift
-        assert len(drift_result.drift_x) == n_frames
 
     def test_undrift_auto_method_selection(self):
         """Test automatic method selection."""

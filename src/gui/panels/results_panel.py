@@ -110,6 +110,18 @@ class _FigureTab(QWidget):
         self._lay.addWidget(self._canvas)
         self._canvas.draw()
 
+    def clear(self):
+        """Discard the current figure and revert to the placeholder message."""
+        if self._canvas is not None:
+            self._lay.removeWidget(self._toolbar)
+            self._lay.removeWidget(self._canvas)
+            self._toolbar.deleteLater()
+            self._canvas.deleteLater()
+            self._toolbar = None
+            self._canvas = None
+        self._zoom_drag = None
+        self._placeholder.setVisible(True)
+
 
 class ResultsPanel(QWidget):
     fov_requested = pyqtSignal(int)   # emitted when user navigates to a different FOV
@@ -171,6 +183,9 @@ class ResultsPanel(QWidget):
         self._unmixing_tab = _FigureTab("Run channel unmixing to see the spectral/spatial overlay.")
         self._tabs.addTab(self._unmixing_tab, "Unmixing")
 
+        self._nile_red_tab = _FigureTab("Run Nile Red fitting to see the wavelength map.")
+        self._tabs.addTab(self._nile_red_tab, "Nile Red")
+
         self._n_fovs = 1
         self._current_fov_idx = 0
         self._fov_prev_btn.clicked.connect(self._on_fov_prev)
@@ -185,6 +200,7 @@ class ResultsPanel(QWidget):
             "frc": self._tabs.indexOf(self._frc_tab),
             "simulation": self._tabs.indexOf(self._sim_tab),
             "channel_unmixing": self._tabs.indexOf(self._unmixing_tab),
+            "nile_red": self._tabs.indexOf(self._nile_red_tab),
         }
         # Which result tabs are relevant for each controls-dock context. Contexts
         # not listed here (e.g. still-placeholder Nile Red tab) fall back to
@@ -198,6 +214,7 @@ class ResultsPanel(QWidget):
             # includes "frc": per-channel FRC (triggered from this tab once
             # Channel Unmixing has produced a `channel` column) lands there.
             "channel_unmixing": {"channel_unmixing", "frc"},
+            "nile_red": {"nile_red"},
         }
 
     # ── FOV navigation ────────────────────────────────────────────────
@@ -261,6 +278,35 @@ class ResultsPanel(QWidget):
     def set_unmixing_figure(self, fig: Figure):
         self._unmixing_tab.set_figure(fig)
         self._tabs.setCurrentWidget(self._unmixing_tab)
+
+    def set_nile_red_figure(self, fig: Figure):
+        self._nile_red_tab.set_figure(fig)
+        self._tabs.setCurrentWidget(self._nile_red_tab)
+
+    # ── public figure clearers ────────────────────────────────────────
+    # Mirror the setters above — used by MainWindow's "Clear Results" actions
+    # so a discarded result doesn't linger as a stale figure in its tab.
+
+    def clear_localisations_figure(self):
+        self._locs_tab.clear()
+
+    def clear_stats_figure(self):
+        self._stats_tab.clear()
+
+    def clear_drift_figure(self):
+        self._drift_tab.clear()
+
+    def clear_frc_figure(self):
+        self._frc_tab.clear()
+
+    def clear_simulation_figure(self):
+        self._sim_tab.clear()
+
+    def clear_unmixing_figure(self):
+        self._unmixing_tab.clear()
+
+    def clear_nile_red_figure(self):
+        self._nile_red_tab.clear()
 
     # ── context-driven tab visibility ─────────────────────────────────
 

@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QDoubleSpinBox, QSpinBox, QPushButton, QLabel,
 )
 from PyQt6.QtCore import pyqtSignal
@@ -14,6 +14,7 @@ class DriftPanel(QWidget):
 
     # segmentation (frames), intersect_d (nm), roi_r (nm)
     undrift_requested = pyqtSignal(int, float, float)
+    clear_requested = pyqtSignal()  # discard drift-correction results, try again
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,12 +53,22 @@ class DriftPanel(QWidget):
         self._roi_r.setToolTip("AIM search ROI radius.")
         form.addRow("ROI radius:", self._roi_r)
 
+        btn_row = QWidget()
+        btn_lay = QHBoxLayout(btn_row)
+        btn_lay.setContentsMargins(0, 0, 0, 0)
+        btn_lay.setSpacing(6)
         self._run_btn = QPushButton("Run Undrift")
         self._run_btn.setEnabled(False)
         self._run_btn.clicked.connect(self._on_run_clicked)
+        self._clear_btn = QPushButton("Clear Results")
+        self._clear_btn.setEnabled(False)
+        self._clear_btn.setToolTip("Discard drift-correction results so you can try again with different parameters")
+        self._clear_btn.clicked.connect(self.clear_requested.emit)
+        btn_lay.addWidget(self._run_btn)
+        btn_lay.addWidget(self._clear_btn)
 
         outer.addWidget(grp)
-        outer.addWidget(self._run_btn)
+        outer.addWidget(btn_row)
 
     def _on_run_clicked(self):
         self.undrift_requested.emit(
@@ -71,6 +82,11 @@ class DriftPanel(QWidget):
     def set_busy(self, busy: bool):
         self._run_btn.setEnabled(not busy and self._enabled_by_state)
         self._run_btn.setText("Running…" if busy else "Run Undrift")
+        if busy:
+            self._clear_btn.setEnabled(False)
+
+    def set_clear_enabled(self, enabled: bool):
+        self._clear_btn.setEnabled(enabled)
 
     def on_state_changed(self, state: str):
         self._enabled_by_state = state in ("fitted", "undrifted")

@@ -253,6 +253,42 @@ class TestBuildSpectralWeights:
         assert np.all(weights >= 0), "Weights should be non-negative"
         assert np.any(weights > 0), "At least some weights should be positive"
 
+    def test_real_spectral_functions_with_filters_and_no_objective(self):
+        """Real pyS3M.SpectralFunctions.Spectral_Funcs instance (not a mock):
+        exercises the SpectralDataType-lookup-via-instance-module branch
+        (only reachable when the class's own module already has
+        SpectralDataType, unlike a plain mock class), plus filters != None
+        and include_objective=False."""
+        import pyS3M.SpectralFunctions as SpectralFunctions
+
+        sf = SpectralFunctions.Spectral_Funcs()
+        wl_nm = np.linspace(600, 700, 20)
+        n_ch = 3
+        pixel_QYs = np.random.uniform(0, 0.5, size=(n_ch, len(wl_nm)))
+
+        weights = VectorialPSF.build_spectral_weights(
+            spectral_functions=sf,
+            dye=sf.dye_names[0],
+            filters=[sf.filter_names[0]],
+            wavelengths_nm=wl_nm,
+            pixel_QYs=pixel_QYs,
+            include_objective=False,
+        )
+        assert weights.shape == (len(wl_nm), n_ch)
+        assert np.all(weights >= 0)
+
+
+# ---------------------------------------------------------------------------
+# _compute_padding
+# ---------------------------------------------------------------------------
+
+class TestComputePadding:
+    def test_odd_total_bumped_to_even(self, psf):
+        # wavelength=0.400um with this psf's NA/pix_obj_um/N_pupil gives an
+        # odd N_total_exact rounding, exercising the "+= 1" parity fix-up.
+        pad = psf._compute_padding(0.400)
+        assert pad == 61
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

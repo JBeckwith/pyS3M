@@ -254,12 +254,6 @@ class FiducialDriftCorrector(DriftCorrector):
             blur_method="smooth",
         )[1]
 
-        # Create histogram with user-specified number of bins
-        hist = np.histogram(image.flatten(), bins=params.fiducial_histogram_bins)
-
-        # Use user-specified threshold percentile
-        threshold = np.percentile(hist[0], params.fiducial_threshold_percentile)
-
         # Calculate box size from nanometer specification
         box = int(np.round(params.fiducial_box_size_nm / pixelsize))
         box = box + 1 if box % 2 == 0 else box  # Ensure odd
@@ -271,6 +265,19 @@ class FiducialDriftCorrector(DriftCorrector):
             raise DriftCorrectionError(
                 "localise module required for fiducial detection"
             )
+
+        # `identify_in_image`'s threshold filters on each local maximum's net
+        # gradient (a spot-sharpness measure), not on raw pixel intensity or
+        # (the previous, dimensionally wrong) histogram bin counts -- so the
+        # percentile must be taken over that same net-gradient distribution.
+        # A first, unthresholded pass collects every candidate's gradient;
+        # the real threshold is then this distribution's percentile.
+        _, _, all_ng = localise.identify_in_image(image, -np.inf, box=box)
+        threshold = (
+            np.percentile(all_ng, params.fiducial_threshold_percentile)
+            if len(all_ng) > 0
+            else np.inf
+        )
 
         y, x, _ = localise.identify_in_image(image, threshold, box=box)
         # Format picks as rectangles centreed on detected points
@@ -300,8 +307,8 @@ class FiducialDriftCorrector(DriftCorrector):
             width,
             height,
             picks,
-            "Circle",
-            pick_size=box / 2,
+            "Rectangle",
+            pick_size=box,
             add_group=False,
         )
 

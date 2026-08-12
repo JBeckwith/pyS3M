@@ -16,7 +16,6 @@ import warnings
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import matplotlib.font_manager as font_manager
 from matplotlib.ticker import MultipleLocator
 from matplotlib.colors import LinearSegmentedColormap
@@ -719,63 +718,6 @@ class BasePlotter(ABC):
         ax.add_artist(scalebar)
         return scalebar
 
-    def create_grouped_scatter(
-        self,
-        ax: matplotlib.axes.Axes,
-        data_groups: Dict[str, Dict[str, np.ndarray]],
-        colors: Optional[List[str]] = None,
-        markers: Optional[List[str]] = None,
-        sizes: Optional[Union[float, List[float]]] = None,
-        alpha: float = 0.7,
-    ) -> List[matplotlib.collections.PathCollection]:
-        """Create scatter plot with grouped data and automatic coloring.
-
-        Args:
-            ax: Axis to plot on
-            data_groups: Dictionary mapping group names to data dicts with 'x' and 'y' keys
-            colors: List of colors for each group (auto-generated if None)
-            markers: List of markers for each group
-            sizes: Marker sizes (single value or list)
-            alpha: Transparency
-
-        Returns:
-            List of scatter plot collections
-        """
-        if colors is None:
-            # Use matplotlib color cycle
-            prop_cycle = plt.rcParams["axes.prop_cycle"]
-            colors = prop_cycle.by_key()["color"]
-
-        if markers is None:
-            markers = ["o"] * len(data_groups)
-
-        if isinstance(sizes, (int, float)):
-            sizes = [sizes] * len(data_groups)
-        elif sizes is None:
-            sizes = [self.config.DEFAULT_MARKER_SIZE] * len(data_groups)
-
-        scatters = []
-        for i, (group_name, data) in enumerate(data_groups.items()):
-            color = colors[i % len(colors)]
-            marker = markers[i % len(markers)]
-            size = sizes[i % len(sizes)]
-
-            scatter = ax.scatter(
-                data["x"],
-                data["y"],
-                c=color,
-                marker=marker,
-                s=size,
-                alpha=alpha,
-                label=group_name,
-            )
-            scatters.append(scatter)
-
-        if len(data_groups) > 1:
-            ax.legend()
-
-        return scatters
-
     # Convenience plotting methods for common plot types
     def line_plot(
         self,
@@ -1081,7 +1023,7 @@ class BasePlotter(ABC):
 
         if title and not show_axes:
             # Add title even when axes are off
-            ax.set_title(title, fontsize=self.config.axis_label_size)
+            ax.set_title(title, fontsize=self.config.axis_labelsize)
 
         if colorbar:
             self.add_colorbar(im, ax, label=colorbar_label)
@@ -1179,190 +1121,6 @@ class BasePlotter(ABC):
             )
 
         return axs
-
-    def contour_plot(
-        self,
-        ax: matplotlib.axes.Axes,
-        x: np.ndarray,
-        y: np.ndarray,
-        z: np.ndarray,
-        xlabel: str = "x axis",
-        ylabel: str = "y axis",
-        title: str = "",
-        levels: int = 10,
-        cmap: str = "viridis",
-        colorbar: bool = True,
-        colorbar_label: str = "",
-        filled: bool = True,
-    ) -> Tuple[matplotlib.axes.Axes, Any]:
-        """Create a contour plot with consistent styling.
-
-        Args:
-            ax: Axes object to plot on
-            x: X coordinates (1D or 2D array)
-            y: Y coordinates (1D or 2D array)
-            z: Z values (2D array)
-            xlabel: X axis label
-            ylabel: Y axis label
-            title: Plot title
-            levels: Number of contour levels
-            cmap: Colormap name
-            colorbar: Whether to add colorbar
-            colorbar_label: Label for colorbar
-            filled: Whether to use filled contours (contourf) vs lines (contour)
-
-        Returns:
-            Tuple of (modified axes, contour object)
-        """
-        if filled:
-            contours = ax.contourf(x, y, z, levels=levels, cmap=cmap)
-        else:
-            contours = ax.contour(x, y, z, levels=levels, cmap=cmap)
-
-        self.setup_axis(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=False)
-
-        if colorbar:
-            self.add_colorbar(contours, ax, label=colorbar_label)
-
-        return ax, contours
-
-    def overlay_localisations_with_contours(
-        self,
-        ax: matplotlib.axes.Axes,
-        image_data: np.ndarray,
-        positions_x: np.ndarray,
-        positions_y: np.ndarray,
-        colors: Optional[Union[np.ndarray, list]] = None,
-        pixelsize: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
-        marker_size: float = 50,
-        marker_style: str = 'x',
-        marker_linewidth: float = 1.5,
-        contour_sigma: float = 50.0,
-        contour_levels: int = 3,
-        contour_alpha: float = 0.6,
-        show_image: bool = True,
-        image_cmap: str = 'gray',
-        image_vmin: Optional[float] = None,
-        image_vmax: Optional[float] = None,
-    ) -> matplotlib.axes.Axes:
-        """
-        Overlay super-resolved localisations as crosses with Gaussian contours on an image.
-
-        This function is useful for comparing localised positions to raw camera images,
-        showing both the precise localisation (cross) and the uncertainty/PSF (contour).
-        Positions are automatically shifted by 0.5 pixels to align with matplotlib's
-        imshow coordinate system. Axis labels and ticks are removed for clean display.
-
-        Args:
-            ax: Axes object to plot on
-            image_data: 2D array of camera image data (e.g., Bayer-filtered image)
-            positions_x: X coordinates of localisations in nm
-            positions_y: Y coordinates of localisations in nm
-            colors: Color for each localisation (RGB tuple, hex string, or matplotlib color).
-                    If None, uses default cycle. If single color, applies to all.
-            pixelsize: Physical pixel size in nm (default: 69.0 for camera pixels)
-            marker_size: Size of cross markers (default: 50)
-            marker_style: Matplotlib marker style (default: 'x' for crosses)
-            marker_linewidth: Line width for markers (default: 1.5)
-            contour_sigma: Standard deviation of Gaussian contour in nm (default: 50.0)
-            contour_levels: Number of contour levels to draw (default: 3)
-            contour_alpha: Transparency of contours (default: 0.6)
-            show_image: Whether to show the background image (default: True)
-            image_cmap: Colormap for background image (default: 'gray')
-            image_vmin: Minimum value for image colormap (auto if None)
-            image_vmax: Maximum value for image colormap (auto if None)
-
-        Returns:
-            Modified axes object with no axis labels or ticks
-
-        Example:
-            >>> fig, ax = plotter.one_column_plot()
-            >>> ax = plotter.overlay_localisations_with_contours(
-            ...     ax, bayer_image, x_coords, y_coords,
-            ...     colors=['red', 'blue', 'green'],
-            ...     contour_sigma=30.0
-            ... )
-        """
-        # Convert positions from nm to pixels and shift by half pixel
-        # to align with matplotlib's imshow coordinate system
-        pos_x_pixels = positions_x / pixelsize + 0.5
-        pos_y_pixels = positions_y / pixelsize + 0.5
-        contour_sigma_pixels = contour_sigma / pixelsize
-
-        # Show background image if requested
-        if show_image:
-            ax.imshow(
-                image_data,
-                cmap=image_cmap,
-                vmin=image_vmin,
-                vmax=image_vmax,
-                origin='lower',
-                extent=[0, image_data.shape[1], 0, image_data.shape[0]],
-            )
-
-        # Handle colors
-        if colors is None:
-            # Use default color cycle
-            colors = [f'C{i%10}' for i in range(len(positions_x))]
-        elif isinstance(colors, (str, tuple)):
-            # Single color for all
-            colors = [colors] * len(positions_x)
-        elif len(colors) != len(positions_x):
-            raise ValueError(f"Number of colors ({len(colors)}) must match number of positions ({len(positions_x)})")
-
-        # Get image dimensions
-        image_height, image_width = image_data.shape
-
-        # Plot each localization
-        for i, (x_px, y_px, color) in enumerate(zip(pos_x_pixels, pos_y_pixels, colors)):
-            # Plot cross marker
-            ax.scatter(
-                x_px, y_px,
-                marker=marker_style,
-                s=marker_size,
-                c=[color],
-                linewidths=marker_linewidth,
-                zorder=10,
-            )
-
-            # Create local high-resolution grid around this localization
-            # Use 4*sigma extent for smooth, circular contours
-            extent = 4 * contour_sigma_pixels
-            grid_resolution = 0.1  # Fine resolution for smooth circles
-
-            x_local = np.arange(x_px - extent, x_px + extent, grid_resolution)
-            y_local = np.arange(y_px - extent, y_px + extent, grid_resolution)
-            X_local, Y_local = np.meshgrid(x_local, y_local)
-
-            # Generate Gaussian contour
-            gaussian = np.exp(-((X_local - x_px)**2 + (Y_local - y_px)**2) / (2 * contour_sigma_pixels**2))
-
-            # Normalize to [0, 1]
-            gaussian = gaussian / gaussian.max()
-
-            # Draw contours at specific levels
-            levels = np.linspace(0.1, 0.9, contour_levels)
-            ax.contour(
-                X_local, Y_local, gaussian,
-                levels=levels,
-                colors=[color],
-                linewidths=1.0,
-                alpha=contour_alpha,
-                zorder=9,
-            )
-
-        # Set axis limits to match image
-        ax.set_xlim(0, image_width)
-        ax.set_ylim(0, image_height)
-        ax.set_aspect('equal')
-
-        # Remove axis labels and ticks for cleaner image display
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_xlabel('')
-        ax.set_ylabel('')
-
-        return ax
 
     def save_or_show(
         self,
@@ -1468,46 +1226,6 @@ class ImagePlotMixin:
         )
 
         return cmap
-
-    def create_image_with_overlay(
-        self,
-        ax: matplotlib.axes.Axes,
-        image: np.ndarray,
-        overlay_points: Optional[Dict[str, np.ndarray]] = None,
-        overlay_regions: Optional[List[patches.Rectangle]] = None,
-        **image_kwargs,
-    ) -> matplotlib.image.AxesImage:
-        """Create image plot with optional overlays.
-
-        Args:
-            ax: Axis to plot on
-            image: Background image data
-            overlay_points: Dictionary with 'x', 'y' arrays for point overlays
-            overlay_regions: List of rectangular patches to overlay
-            **image_kwargs: Arguments passed to create_image_plot
-
-        Returns:
-            AxesImage object
-        """
-        im = self.create_image_plot(ax, image, **image_kwargs)
-
-        # Add point overlays
-        if overlay_points:
-            ax.scatter(
-                overlay_points["x"],
-                overlay_points["y"],
-                c="red",
-                s=10,
-                marker="x",
-                alpha=0.8,
-            )
-
-        # Add region overlays
-        if overlay_regions:
-            for region in overlay_regions:
-                ax.add_patch(region)
-
-        return im
 
     def multichannel_overlay_plot(
         self,
@@ -2289,7 +2007,7 @@ class TernaryPlotMixin:
             ax.set_title(title, pad=20)
 
         # Adjust layout
-        plt.tight_layout()
+        _safe_tight_layout(fig)
 
         return fig, ax
 
@@ -2397,7 +2115,7 @@ class TernaryPlotMixin:
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
             n_invalid = (~valid_mask).sum()
-            logger.warning("Removed %d invalid values from KDE calculation", n_invalid)
+            logger.warning("Removed %s invalid values from KDE calculation", n_invalid)
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]
@@ -2579,108 +2297,6 @@ class TernaryPlotMixin:
                          e, levels_to_plot, np.nanmin(kde_values), np.nanmax(kde_values))
             return
 
-    def plot_ternary_hexbin(
-        self,
-        ax,
-        R: np.ndarray,
-        G: np.ndarray,
-        B: np.ndarray,
-        gridsize: int = 30,
-        cmap: str = 'viridis',
-        mincnt: int = 1,
-        show_colorbar: bool = True,
-        colorbar_label: str = 'Count',
-        **kwargs
-    ):
-        """Plot hexbin density on an existing ternary axis.
-
-        This method adds a hexagonal binning density plot to an existing ternary axis.
-        Use this when you want to add a ternary hexbin to a multi-panel figure.
-
-        Args:
-            ax: Existing ternary axis (must have projection='ternary')
-            R: Red channel values (normalized, 0-1)
-            G: Green channel values (normalized, 0-1)
-            B: Blue channel values (normalized, 0-1)
-            gridsize: Number of hexagons in x direction (default: 30)
-            cmap: Colormap name (default: 'viridis')
-            mincnt: Minimum count to display hexagon (default: 1)
-            show_colorbar: Whether to show colorbar (default: True)
-            colorbar_label: Label for colorbar (default: 'Count')
-            **kwargs: Additional arguments passed to ax.hexbin()
-
-        Returns:
-            hexbin: The hexbin plot object (can be used for colorbar, etc.)
-
-        Example:
-            >>> import matplotlib.pyplot as plt
-            >>> import mpltern
-            >>> fig = plt.figure(figsize=(12, 3))
-            >>> ax1 = fig.add_subplot(1, 3, 1)  # Regular plot
-            >>> ax2 = fig.add_subplot(1, 3, 2)  # Regular plot
-            >>> ax3 = fig.add_subplot(1, 3, 3, projection='ternary')  # Ternary plot
-            >>>
-            >>> # Add hexbin to the ternary axis
-            >>> plotter = PublicationPlotter()
-            >>> hexbin = plotter.plot_ternary_hexbin(
-            ...     ax3, R_data, G_data, B_data,
-            ...     gridsize=50,
-            ...     cmap='hot'
-            ... )
-
-        Notes:
-            - Requires mpltern: `pip install mpltern`
-            - RGB values should be normalized (sum to 1 for each point)
-            - If not normalized, the function will normalize them automatically
-            - The axis must already exist with projection='ternary'
-        """
-        # Validate inputs
-        if len(R) != len(G) or len(R) != len(B):
-            raise ValueError("R, G, B arrays must have the same length")
-
-        # Convert to numpy arrays if needed
-        R = np.asarray(R)
-        G = np.asarray(G)
-        B = np.asarray(B)
-
-        # Check for and handle normalization
-        totals = R + G + B
-        if not np.allclose(totals, 1.0, atol=1e-6):
-            # Normalize
-            R = R / totals
-            G = G / totals
-            B = B / totals
-
-        # Create hexbin plot
-        # mpltern uses (t, l, r) ordering where t=top, l=left, r=right
-        # For RGB: t=R (top), l=G (left), r=B (right)
-        hexbin = ax.hexbin(
-            R, G, B,
-            gridsize=gridsize,
-            cmap=cmap,
-            mincnt=mincnt,
-            linewidths=0.2,
-            edgecolors='face',
-            **kwargs
-        )
-
-        # Label the axes with colors
-        ax.set_tlabel('R', color='darkred', fontsize=12)
-        ax.set_llabel('G', color='darkgreen', fontsize=12)
-        ax.set_rlabel('B', color='darkblue', fontsize=12)
-
-        # Color the tick parameters
-        ax.taxis.set_tick_params(colors='darkred', which='both', length=5, width=1.5)
-        ax.laxis.set_tick_params(colors='darkgreen', which='both', length=5, width=1.5)
-        ax.raxis.set_tick_params(colors='darkblue', which='both', length=5, width=1.5)
-
-        # Add colorbar if requested
-        if show_colorbar:
-            cbar = plt.colorbar(hexbin, ax=ax, pad=0.1, fraction=0.05)
-            cbar.set_label(colorbar_label, rotation=270, labelpad=20)
-
-        return hexbin
-
     def plot_ternary_kde(
         self,
         ax,
@@ -2759,7 +2375,7 @@ class TernaryPlotMixin:
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
             n_invalid = (~valid_mask).sum()
-            logger.warning("Removed %d invalid values from KDE calculation", n_invalid)
+            logger.warning("Removed %s invalid values from KDE calculation", n_invalid)
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]
@@ -2953,7 +2569,7 @@ class TernaryPlotMixin:
         # Remove NaN/Inf values
         valid_mask = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
         if not np.all(valid_mask):
-            logger.warning("Removing %d invalid points (NaN/Inf)", np.sum(~valid_mask))
+            logger.warning("Removing %s invalid points (NaN/Inf)", np.sum(~valid_mask))
             R = R[valid_mask]
             G = G[valid_mask]
             B = B[valid_mask]

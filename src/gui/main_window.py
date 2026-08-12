@@ -2,6 +2,7 @@ import enum
 import logging
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
@@ -19,6 +20,7 @@ from pyS3M.gui.panels.postproc_panel import PostProcPanel
 from pyS3M.gui.panels.drift_panel import DriftPanel
 from pyS3M.gui.panels.frc_panel import FRCPanel
 from pyS3M.gui.panels.channel_unmixing_panel import ChannelUnmixingPanel
+from pyS3M.gui.panels.nile_red_panel import NileRedPanel
 from pyS3M.gui.panels.results_panel import ResultsPanel
 from pyS3M.gui.panels.simulation_panel import SimulationPanel, _PHOTON_LEVELS
 from pyS3M.gui.widgets.log_widget import LogWidget, QtLogHandler
@@ -56,6 +58,9 @@ class MainWindow(QMainWindow):
         self._undrifted_locs = None                      # DataFrame, set once undrift succeeds
         self._sm_db = None
         self._sf_db = None
+        self._nile_red_db = None                          # per-loc DataFrame + wl_pixel columns
+        self._nile_red_grid = None                        # grid_info dict from fit_wavelengths_pixelated
+        self._nile_red_input_df = None                     # explicitly-loaded override for sf_db
 
         self._build_ui()
         self._connect_signals()
@@ -79,6 +84,7 @@ class MainWindow(QMainWindow):
         self.simulation_panel = SimulationPanel(self)
         self.frc_panel = FRCPanel(self)
         self.channel_unmixing_panel = ChannelUnmixingPanel(self)
+        self.nile_red_panel = NileRedPanel(self)
 
         container = QWidget()
         vbox = QVBoxLayout(container)
@@ -104,15 +110,9 @@ class MainWindow(QMainWindow):
         sim_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.ctrl_tabs.addTab(sim_scroll, "Simulation")
 
-        def _placeholder(msg: str) -> QLabel:
-            lbl = QLabel(msg)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet("color: gray; font-size: 11pt;")
-            return lbl
-
         self.ctrl_tabs.addTab(self.frc_panel, "FRC")
         self.ctrl_tabs.addTab(self.channel_unmixing_panel, "Unmixing")
-        self.ctrl_tabs.addTab(_placeholder("Nile Red analysis — coming soon."), "Nile Red")
+        self.ctrl_tabs.addTab(self.nile_red_panel, "Nile Red")
         self.ctrl_tabs.addTab(self.calibration_panel, "CMOS Calibration")
 
         ctrl_dock = QDockWidget("Controls", self)
@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.frc_panel.on_state_changed)
         self.state_changed.connect(self.channel_unmixing_panel.on_state_changed)
         self.state_changed.connect(self.simulation_panel.on_state_changed)
+        self.state_changed.connect(self.nile_red_panel.on_state_changed)
 
         self.calibration_panel.calibration_compute_requested.connect(self._on_run_calibration)
         self.setup_panel.calibration_requested.connect(self._on_load_calibration)
@@ -163,13 +164,20 @@ class MainWindow(QMainWindow):
         self.postproc_panel.load_locs_requested.connect(self._on_load_locs)
         self.postproc_panel.cluster_requested.connect(self._on_run_clustering)
         self.postproc_panel.save_requested.connect(self._on_save_clustering)
+        self.postproc_panel.clear_requested.connect(self._on_clear_clustering)
         self.drift_panel.undrift_requested.connect(self._on_undrift)
+        self.drift_panel.clear_requested.connect(self._on_clear_drift)
         self.frc_panel.frc_requested.connect(self._on_run_frc)
         self.channel_unmixing_panel.unmixing_requested.connect(self._on_channel_unmixing)
         self.channel_unmixing_panel.frc_per_channel_requested.connect(self._on_run_frc_per_channel)
+        self.nile_red_panel.fit_requested.connect(self._on_run_nile_red)
+        self.nile_red_panel.clear_requested.connect(self._on_clear_nile_red)
+        self.nile_red_panel.load_locs_requested.connect(self._on_load_nile_red_locs)
         self.results_panel.fov_requested.connect(self._on_fov_requested)
         self.simulation_panel.simulation_requested.connect(self._on_run_simulation)
         self.simulation_panel.pattern_simulation_requested.connect(self._on_run_pattern_simulation)
+        self.simulation_panel.clear_pattern_requested.connect(self._on_clear_pattern_simulation)
+        self.fitting_panel.clear_requested.connect(self._on_clear_fitting)
         self.ctrl_tabs.currentChanged.connect(self._on_ctrl_tab_changed)
         self._on_ctrl_tab_changed(self.ctrl_tabs.currentIndex())
 
@@ -220,6 +228,15 @@ class MainWindow(QMainWindow):
     def _worker_running(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
+    def _invalidate_nile_red(self):
+        """Nile Red results are derived from sf_db — call whenever fitting,
+        drift correction, or clustering are (re-)run or cleared, so a stale
+        wavelength map never lingers against data it no longer matches."""
+        self._nile_red_db = None
+        self._nile_red_grid = None
+        self.nile_red_panel.set_clear_enabled(False)
+        self.results_panel.clear_nile_red_figure()
+
     def _reset_busy(self):
         self.calibration_panel.set_busy(False)
         self.setup_panel.set_busy(False)
@@ -229,6 +246,14 @@ class MainWindow(QMainWindow):
         self.frc_panel.set_busy(False)
         self.channel_unmixing_panel.set_busy(False)
         self.simulation_panel.set_busy(False)
+        self.nile_red_panel.set_busy(False)
+        # set_busy(True) unconditionally disables each panel's "Clear Results"
+        # button; restore it to whatever's actually true (matters after a
+        # failed re-run when a still-valid prior result exists to clear).
+        self.fitting_panel.set_clear_enabled(self._fitted_data_dir is not None)
+        self.drift_panel.set_clear_enabled(self._undrifted_locs is not None)
+        self.postproc_panel.set_clear_enabled(self._sm_db is not None)
+        self.nile_red_panel.set_clear_enabled(self._nile_red_db is not None)
         self.progress_widget.reset()
 
     def _start_worker(self, fn) -> AnalysisWorker:
@@ -512,7 +537,7 @@ class MainWindow(QMainWindow):
         self.progress_widget.update(1.0, "Calibration loaded")
         self._update_state(AppState.CALIBRATED)
 
-    def _on_run_calibration(self, camera: str, raw_dir: str):
+    def _on_run_calibration(self, camera: str, raw_dir: str, mode: str = "rgb"):
         if self._worker_running():
             return
 
@@ -527,7 +552,7 @@ class MainWindow(QMainWindow):
                 logging_callback=lambda m: worker.log.emit(m),
             )
             pipe = AnalysisPipeline(camera=camera, config=cfg)
-            pipe.calibrate(raw_dir)
+            pipe.calibrate(raw_dir, mode=mode)
             fig = self._make_calibration_figure(pipe)
             return pipe, fig
 
@@ -654,7 +679,15 @@ class MainWindow(QMainWindow):
         self._fitted_data_dir = data_dir
         self._fov_data = fov_data
         self._undrifted_locs = None
+        self._sm_db = None
+        self._sf_db = None
         self.fitting_panel.set_fit_busy(False)
+        self.fitting_panel.set_clear_enabled(True)
+        self.drift_panel.set_clear_enabled(False)
+        self.postproc_panel.set_clear_enabled(False)
+        self.postproc_panel.clear_result()
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
         self.progress_widget.update(1.0, "Fitting complete")
         self._update_state(AppState.FITTED)
         self.results_panel.set_fov_count(len(fov_data))
@@ -662,6 +695,31 @@ class MainWindow(QMainWindow):
             self.results_panel.set_localisations_figure(locs_fig)
         if stats_fig is not None:
             self.results_panel.set_stats_figure(stats_fig)
+
+    def _on_clear_fitting(self):
+        """Discard fitting results (and everything downstream that depended
+        on them) so the user can re-fit with different parameters without
+        re-selecting the data folder."""
+        self._fitted_data_dir = None
+        self._fov_data = []
+        self._undrifted_locs = None
+        self._sm_db = None
+        self._sf_db = None
+        self.fitting_panel.set_clear_enabled(False)
+        self.drift_panel.set_clear_enabled(False)
+        self.postproc_panel.set_clear_enabled(False)
+        self.postproc_panel.clear_result()
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
+        self.results_panel.set_fov_count(1)
+        self.results_panel.clear_localisations_figure()
+        self.results_panel.clear_stats_figure()
+        self.results_panel.clear_drift_figure()
+        self.results_panel.clear_unmixing_figure()
+        self.results_panel.clear_frc_figure()
+        self.progress_widget.reset()
+        self._update_state(AppState.CALIBRATED if self.pipeline is not None else AppState.IDLE)
+        self.log_widget.append("Cleared fitting results — ready to fit again.")
 
     # ------------------------------------------------------------------
     # FOV navigation
@@ -757,6 +815,14 @@ class MainWindow(QMainWindow):
         self._fitted_data_dir = folder
         self._fov_data = []
         self._undrifted_locs = None
+        self._sm_db = None
+        self._sf_db = None
+        self.fitting_panel.set_clear_enabled(True)
+        self.drift_panel.set_clear_enabled(False)
+        self.postproc_panel.set_clear_enabled(False)
+        self.postproc_panel.clear_result()
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
         self.results_panel.set_fov_count(1)
         self.results_panel.set_localisations_figure(scatter_fig)
         self.results_panel.set_stats_figure(stats_fig)
@@ -827,10 +893,30 @@ class MainWindow(QMainWindow):
         self._sf_db = sf_db
         self.postproc_panel.set_busy(False)
         self.postproc_panel.show_result(len(sm_db), len(sf_db))
+        self.postproc_panel.set_clear_enabled(True)
+        self._invalidate_nile_red()
         self.progress_widget.update(1.0, "Clustering complete")
         self._update_state(AppState.CLUSTERED)
         if not sm_db.empty:
             self._refresh_render_figure(sm_db, title="Single molecules", stats_locs=sf_db, stats_sm=sm_db)
+
+    def _on_clear_clustering(self):
+        """Discard clustering results (and channel-unmixing/per-channel-FRC
+        results derived from them) so the user can re-cluster with different
+        parameters — also re-enables the Drift Correction panel, which is
+        disabled once the app state moves past "fitted"/"undrifted"."""
+        self._sm_db = None
+        self._sf_db = None
+        self.postproc_panel.clear_result()
+        self.postproc_panel.set_clear_enabled(False)
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
+        self.results_panel.clear_unmixing_figure()
+        self.results_panel.clear_frc_figure()
+        self.progress_widget.reset()
+        new_state = AppState.UNDRIFTED if self._undrifted_locs is not None else AppState.FITTED
+        self._update_state(new_state)
+        self.log_widget.append("Cleared clustering results — ready to cluster again.")
 
     def _refresh_render_figure(self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None):
         """Launch an aux worker to build and display the render (and optionally stats) figure."""
@@ -941,7 +1027,18 @@ class MainWindow(QMainWindow):
     def _on_undrift_done(self, result):
         corrected_df, drift_fig = result
         self._undrifted_locs = corrected_df
+        # Any prior clustering was run against the pre-undrift (or a
+        # differently-parameterised undrift) locs — no longer valid.
+        self._sm_db = None
+        self._sf_db = None
         self.drift_panel.set_busy(False)
+        self.drift_panel.set_clear_enabled(True)
+        self.postproc_panel.clear_result()
+        self.postproc_panel.set_clear_enabled(False)
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
+        self.results_panel.clear_unmixing_figure()
+        self.results_panel.clear_frc_figure()
         self.progress_widget.update(1.0, "Undrift complete")
         self._update_state(AppState.UNDRIFTED)
         if drift_fig is not None:
@@ -949,6 +1046,37 @@ class MainWindow(QMainWindow):
         self._refresh_render_figure(
             corrected_df, title="Undrifted localisations", stats_locs=corrected_df,
         )
+
+    def _on_clear_drift(self):
+        """Discard drift-correction results (and clustering/unmixing/FRC
+        results derived from them) so the user can re-run undrift with
+        different segmentation/intersect_d/roi_r parameters."""
+        # Undrift also writes undrifted_locs.h5 next to the fitted data
+        # (see the run-undrift worker below) so it survives a session
+        # restart. Leaving it on disk after clearing means the *next*
+        # load_localisations(self._fitted_data_dir) call -- e.g. the one
+        # undrift itself does to fetch its input -- globs it back in
+        # alongside the original fit output, silently duplicating locs.
+        if self._fitted_data_dir is not None:
+            stale_path = Path(self._fitted_data_dir) / "undrifted_locs.h5"
+            try:
+                stale_path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Could not remove stale %s: %s", stale_path, e)
+        self._undrifted_locs = None
+        self._sm_db = None
+        self._sf_db = None
+        self.drift_panel.set_clear_enabled(False)
+        self.postproc_panel.clear_result()
+        self.postproc_panel.set_clear_enabled(False)
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
+        self.results_panel.clear_drift_figure()
+        self.results_panel.clear_unmixing_figure()
+        self.results_panel.clear_frc_figure()
+        self.progress_widget.reset()
+        self._update_state(AppState.FITTED)
+        self.log_widget.append("Cleared drift-correction results — ready to undrift again.")
 
     def _make_drift_figure(self, drift_result, pixel_size_nm: float) -> Figure:
         fig = Figure(figsize=(7, 4), dpi=100, layout="constrained")
@@ -1044,18 +1172,40 @@ class MainWindow(QMainWindow):
     # Channel unmixing
     # ------------------------------------------------------------------
 
+    def _unmixing_source_locs(self) -> pd.DataFrame | None:
+        """Best-available localisation table for channel unmixing.
+
+        Prefers the post-clustering per-molecule table (sm_db) — its averaged
+        A_R/A_G values give much tighter spectral clusters than any
+        single-frame row — but falls back to undrifted or raw per-FOV fitted
+        locs so a user can try unmixing as soon as there's any analysed data,
+        not only once clustering has produced sm_db.
+        """
+        if self._sm_db is not None and not self._sm_db.empty:
+            return self._sm_db
+        if self._undrifted_locs is not None and not self._undrifted_locs.empty:
+            return self._undrifted_locs
+        if self._fov_data:
+            return pd.concat([locs for locs, _ in self._fov_data], ignore_index=True)
+        return None
+
     def _on_channel_unmixing(
         self, n_channels: int, channels_to_use: list, confidence_threshold: float,
         outlier_rejection: str,
     ):
         if self._worker_running() or self.pipeline is None:
             return
-        if self._sm_db is None or self._sm_db.empty:
-            return  # button is state-gated to "clustered", but guard anyway
+        loc_data = self._unmixing_source_locs()
+        if loc_data is None or loc_data.empty:
+            return  # button is state-gated, but guard anyway
+        # sm_db identity check (not equality) at completion time to decide
+        # whether to write results back into it, since the run's own input
+        # will otherwise be indistinguishable from an sm_db-derived result.
+        ran_on_sm_db = loc_data is self._sm_db
 
         def _do():
             assigned, metadata = self.pipeline.sm.unmix_channels(
-                self._sm_db,
+                loc_data,
                 n_channels=n_channels,
                 channels_to_use=channels_to_use,
                 confidence_threshold=confidence_threshold,
@@ -1064,7 +1214,7 @@ class MainWindow(QMainWindow):
                 plot_results=False,
             )
             fig = self._make_channel_unmixing_figure(assigned, channels_to_use, metadata)
-            return assigned, fig
+            return assigned, fig, ran_on_sm_db
 
         worker = self._start_worker(_do)
         worker.result.connect(self._on_channel_unmixing_done)
@@ -1072,12 +1222,18 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_channel_unmixing_done(self, result):
-        assigned, fig = result
-        self._sm_db = assigned  # adds 'channel'/'channel_confidence'/... columns in place
+        assigned, fig, ran_on_sm_db = result
         self.channel_unmixing_panel.set_busy(False)
         self.progress_widget.update(1.0, "Channel unmixing complete")
-        channels = sorted(int(c) for c in assigned["channel"].unique() if c >= 0)
-        self.channel_unmixing_panel.set_available_channels(channels)
+        if ran_on_sm_db:
+            self._sm_db = assigned  # adds 'channel'/'channel_confidence'/... columns in place
+            channels = sorted(int(c) for c in assigned["channel"].unique() if c >= 0)
+            self.channel_unmixing_panel.set_available_channels(channels)
+        else:
+            # Pre-clustering preview: show the assignment figure but don't
+            # promote it into sm_db -- Per-Channel FRC and downstream steps
+            # still need the real clustered table.
+            self.channel_unmixing_panel.set_available_channels([])
         if fig is not None:
             self.results_panel.set_unmixing_figure(fig)
 
@@ -1213,6 +1369,169 @@ class MainWindow(QMainWindow):
         ax.legend(fontsize=8, loc="upper right")
         ax.set_title("Fourier Ring Correlation — per channel")
         ax.grid(True, alpha=0.3)
+        return fig
+
+    # ------------------------------------------------------------------
+    # Nile Red — pixelated wavelength fit (uses sf_db, post-clustering)
+    # ------------------------------------------------------------------
+
+    def _on_run_nile_red(
+        self, filter_ids: list, wl_min: float, wl_max: float, na: float,
+        pixel_size_nm: float, min_locs: int,
+    ):
+        if self._worker_running() or self.pipeline is None:
+            return
+        locs = self._nile_red_input_df if self._nile_red_input_df is not None else self._sf_db
+        if locs is None or locs.empty:
+            return  # button is state-gated to "clustered" (or a loaded file), but guard anyway
+        aggregate_id_column = "molecular_index" if "molecular_index" in locs.columns else None
+
+        def _do():
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent))
+            import tempfile
+            import os
+            from pyS3M.IOFunctions import IO_Functions
+            import pyS3M.SpectralFunctions as SpectralFunctions
+
+            fd, tmp_path = tempfile.mkstemp(suffix=".h5")
+            os.close(fd)
+            try:
+                IO_Functions().write_h5_database(
+                    locs, tmp_path, normalise_photons=False, verbose=False,
+                )
+                R_qe, G_qe, B_qe, wl = SpectralFunctions.Spectral_Funcs(
+                    camera=self.pipeline.camera
+                ).getpixelefficiency()
+                camera_parameters = {
+                    "pixel_QYs": np.vstack([B_qe, G_qe, R_qe]), "wavelength": wl,
+                }
+                df, grid_info = self.pipeline.nile_red.fit_wavelengths_pixelated(
+                    tmp_path, filter_ids, camera_parameters,
+                    pixel_size_nm=pixel_size_nm,
+                    wavelength_bounds=(wl_min, wl_max),
+                    NA=na,
+                    min_localisations=min_locs,
+                    aggregate_id_column=aggregate_id_column,
+                    verbose=True,
+                    return_grid=True,
+                )
+            finally:
+                os.unlink(tmp_path)
+            fig = self._make_nile_red_figure(grid_info, wl_min, wl_max)
+            return df, grid_info, fig
+
+        worker = self._start_worker(_do)
+        worker.result.connect(self._on_nile_red_done)
+        self.nile_red_panel.set_busy(True)
+        worker.start()
+
+    def _on_nile_red_done(self, result):
+        db, grid_info, fig = result
+        self._nile_red_db = db
+        self._nile_red_grid = grid_info
+        self.nile_red_panel.set_busy(False)
+        self.nile_red_panel.set_clear_enabled(True)
+        self.progress_widget.update(
+            1.0,
+            f"Nile Red fit complete ({grid_info['n_pixels_fitted']} pixels fitted, "
+            f"{grid_info['n_pixels_skipped']} skipped)",
+        )
+        if fig is not None:
+            self.results_panel.set_nile_red_figure(fig)
+
+    def _on_clear_nile_red(self):
+        self._nile_red_db = None
+        self._nile_red_grid = None
+        self._nile_red_input_df = None
+        self.nile_red_panel.set_clear_enabled(False)
+        self.results_panel.clear_nile_red_figure()
+        self.log_widget.append("Cleared Nile Red results — ready to fit again.")
+
+    def _on_load_nile_red_locs(self, h5_path: str):
+        if self._aux_worker is not None and self._aux_worker.isRunning():
+            return
+
+        def _do():
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent))
+            from pyS3M.IOFunctions import IO_Functions
+            df = IO_Functions().read_h5_database(h5_path)
+            required = ["xc", "yc", "A_R", "A_G", "A_B", "s_x", "s_y",
+                        "A_R_err", "A_G_err", "A_B_err", "s_x_err", "s_y_err"]
+            missing = [c for c in required if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"{h5_path} is missing required columns: {missing}\n"
+                    f"Available columns: {list(df.columns)}"
+                )
+            return df
+
+        aux = AnalysisWorker(_do)
+        self._aux_worker = aux
+        aux.result.connect(lambda df: self._on_nile_red_locs_loaded(df, h5_path))
+        aux.error.connect(lambda msg: self.log_widget.append(f"Load H5 failed: {msg[:300]}"))
+        aux.finished.connect(lambda w=aux: self._on_aux_worker_finished(w))
+        aux.start()
+
+    def _on_nile_red_locs_loaded(self, df: pd.DataFrame, h5_path: str):
+        self._nile_red_input_df = df
+        self.nile_red_panel.set_loaded(h5_path, len(df))
+        self.log_widget.append(f"Loaded {len(df):,} localisations from {h5_path} for Nile Red fitting.")
+
+    def _make_nile_red_figure(self, grid_info: dict, wl_min: float, wl_max: float) -> Figure:
+        """Left: histogram of the fitted per-pixel wavelengths. Right: the
+        pixelated wavelength map itself (grid_info['wl_grid']) rendered
+        directly as an image — the real spatial output of the pixelated fit,
+        and the right choice for performance too: imshow's cost is fixed by
+        the grid size (bounded by the field of view), not by how many
+        localisations fed into it, unlike a per-localisation scatter which
+        gets slower and heavier the denser the data (exactly the dense,
+        overlapping-coverage regime this panel targets).
+
+        Colour range is the fitted values' own 1st-99th percentile, not the
+        full fit search range (wl_min/wl_max, e.g. 500-750 nm) — real fitted
+        wavelengths usually span a much narrower band, and stretching the
+        colour scale across the whole search range would wash out any real
+        spatial contrast. Unfit grid pixels (NaN) render as black — set via
+        a masked array + cmap.set_bad, not the default (transparent, reads
+        as white against this app's light background)."""
+        wl_grid = grid_info["wl_grid"]
+        pixel_size_nm = grid_info["pixel_size_nm"]
+        x0, y0 = grid_info["origin_nm"]
+        ny, nx = grid_info["grid_shape"]
+
+        fig = Figure(figsize=(9, 4.5), dpi=100, layout="constrained")
+        ax_hist, ax_map = fig.subplots(1, 2)
+
+        valid = wl_grid[~np.isnan(wl_grid)]
+        vmin, vmax = (
+            tuple(np.percentile(valid, [1, 99])) if valid.size > 0 else (wl_min, wl_max)
+        )
+        if vmin == vmax:
+            vmin, vmax = wl_min, wl_max
+
+        ax_hist.hist(valid, bins=40, range=(vmin, vmax), color="tab:purple", alpha=0.8)
+        ax_hist.set_xlabel("Wavelength (nm)")
+        ax_hist.set_ylabel("Pixel count")
+        ax_hist.set_title(
+            f"Wavelength distribution\n"
+            f"({grid_info['n_pixels_fitted']} fitted, {grid_info['n_pixels_skipped']} skipped)"
+        )
+        ax_hist.grid(True, alpha=0.3)
+
+        cmap = matplotlib.colormaps["nipy_spectral"].copy()
+        cmap.set_bad(color="black")
+        extent = (x0, x0 + nx * pixel_size_nm, y0, y0 + ny * pixel_size_nm)
+        im = ax_map.imshow(
+            np.ma.masked_invalid(wl_grid), cmap=cmap, vmin=vmin, vmax=vmax,
+            origin="lower", extent=extent, aspect="equal",
+        )
+        fig.colorbar(im, ax=ax_map, label="Wavelength (nm)", fraction=0.046, pad=0.04)
+        ax_map.set_xlabel("x (nm)")
+        ax_map.set_ylabel("y (nm)")
+        ax_map.set_title("Pixelated wavelength map")
+
         return fig
 
     # ------------------------------------------------------------------
@@ -1452,6 +1771,7 @@ class MainWindow(QMainWindow):
     def _on_pattern_simulation_done(self, result):
         fig, out_dir, avg_emission_wavelength_nm = result
         self.simulation_panel.set_busy(False)
+        self.simulation_panel.set_clear_enabled(True)
         self.progress_widget.update(1.0, "Pattern simulation complete")
         peak_wavelength_um = avg_emission_wavelength_nm / 1000.0
         self.log_widget.append(
@@ -1461,6 +1781,14 @@ class MainWindow(QMainWindow):
         )
         if fig is not None:
             self.results_panel.set_simulation_figure(fig)
+
+    def _on_clear_pattern_simulation(self):
+        """Clear the simulation preview so the user can try again with
+        different parameters. The written acquisition on disk is untouched —
+        this only clears the in-GUI preview/state."""
+        self.simulation_panel.set_clear_enabled(False)
+        self.results_panel.clear_simulation_figure()
+        self.log_widget.append("Cleared simulation preview.")
 
     def _simulate_pattern_acquisition(
         self,

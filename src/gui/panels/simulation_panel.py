@@ -43,7 +43,16 @@ _CURATED_FILTERS = [
     ("LP 561",               "semrock-blp02-561r"),
     ("LP 568",               "semrock-blp01-568r"),
     ("LP 635",               "semrock-blp01-635r"),
+    ("LP 515",               "semrock-ff01-515-lp"),
+    ("Dichroic R514",        "semrock-di03-r514-t1-25x36"),
 ]
+
+# Default-checked filters for Nile Red pixelated fitting — the exact optical
+# path used throughout the S. Aureus Nile Red notebooks
+# (notebooks/saureus/SAureus_PostAnalysis.ipynb / SAureus_ZWO_PostAnalysis.ipynb).
+NILE_RED_DEFAULT_FILTERS = {
+    "semrock-di03-r514-t1-25x36", "semrock-ff01-515-lp", "semrock-ff01-650-200",
+}
 
 # Fixed photon levels to sweep (rows in the PSF grid)
 _PHOTON_LEVELS = [200, 500, 1_000, 5_000]
@@ -63,6 +72,7 @@ class SimulationPanel(QWidget):
     pattern_simulation_requested = pyqtSignal(
         str, dict, int, float, str, float, float, int, float, float, float, float, str, str,
     )
+    clear_pattern_requested = pyqtSignal()  # discard the simulation preview, try again
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -255,10 +265,20 @@ class SimulationPanel(QWidget):
         self._run_name.textChanged.connect(self._update_pattern_run_btn)
         pat_outer.addWidget(self._run_name)
 
+        pattern_btn_row = QWidget()
+        pattern_btn_lay = QHBoxLayout(pattern_btn_row)
+        pattern_btn_lay.setContentsMargins(0, 0, 0, 0)
+        pattern_btn_lay.setSpacing(6)
         self._pattern_run_btn = QPushButton("Simulate Acquisition")
         self._pattern_run_btn.setEnabled(False)
         self._pattern_run_btn.clicked.connect(self._on_run_pattern_simulation)
-        pat_outer.addWidget(self._pattern_run_btn)
+        self._pattern_clear_btn = QPushButton("Clear Preview")
+        self._pattern_clear_btn.setEnabled(False)
+        self._pattern_clear_btn.setToolTip("Clear the simulation preview so you can try again with different parameters")
+        self._pattern_clear_btn.clicked.connect(self.clear_pattern_requested.emit)
+        pattern_btn_lay.addWidget(self._pattern_run_btn)
+        pattern_btn_lay.addWidget(self._pattern_clear_btn)
+        pat_outer.addWidget(pattern_btn_row)
 
         outer.addWidget(pat_grp)
 
@@ -352,8 +372,12 @@ class SimulationPanel(QWidget):
         self._pattern_run_btn.setText("Running…" if busy else "Simulate Acquisition")
         if busy:
             self._pattern_run_btn.setEnabled(False)
+            self._pattern_clear_btn.setEnabled(False)
         else:
             self._update_pattern_run_btn()
+
+    def set_clear_enabled(self, enabled: bool):
+        self._pattern_clear_btn.setEnabled(enabled)
 
     def on_state_changed(self, state: str):
         # Only the image-driven group gates on state (it needs a real loaded

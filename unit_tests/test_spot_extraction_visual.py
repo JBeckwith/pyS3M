@@ -278,6 +278,7 @@ def test_spot_extraction(test_output_dir):
     plt.suptitle('Spot Detection and ROI Extraction Test', fontsize=14, weight='bold')
 
     output_path = test_output_dir / 'spot_extraction_visual_test.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"   Saved to: {output_path}")
 

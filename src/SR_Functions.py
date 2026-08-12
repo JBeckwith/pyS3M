@@ -700,249 +700,230 @@ class SuperRes_Functions:
         ]
         fit_results = pd.DataFrame(fit_results, columns=columns)
         # Create figure using PlottingBase for cleaner code
-        try:
-            from pyS3M.PlottingBase import AnalysisPlotter
+        import matplotlib.patches as patches
+        from pyS3M.PlottingBase import PublicationPlotter
 
-            plotter = AnalysisPlotter(
-                datashader_threshold=None
-            )  # Use matplotlib for single frame
-        except ImportError:
-            # Fallback to old plotter
-            plotter = None
+        plotter = PublicationPlotter()
 
-        if plotter is not None:
-            # Use new PlottingBase infrastructure
-            import matplotlib.patches as patches
-            from pyS3M.PlottingBase import PublicationPlotter
+        # A separate zoom-in row only adds information for a field of view
+        # large enough that "zoomed in" actually means something; below
+        # ~20x20 um the full-field panels already show essentially the
+        # zoomed-in detail, so the zoom row is redundant clutter.
+        fov_width_um = width * pixel_size
+        fov_height_um = height * pixel_size
+        show_zoom = not (fov_width_um < 20.0 and fov_height_um < 20.0)
 
-            plotter = PublicationPlotter()
+        def _adaptive_scalebar_um(field_um: float, target_fraction: float = 0.3) -> float:
+            """Pick a "nice" round scale-bar length proportional to the
+            field it's drawn over, rather than a fixed value that can
+            dwarf (or barely register against) a small/large field."""
+            nice_values = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+            target = field_um * target_fraction
+            candidates = [v for v in nice_values if v <= target]
+            return candidates[-1] if candidates else nice_values[0]
 
-            # A separate zoom-in row only adds information for a field of view
-            # large enough that "zoomed in" actually means something; below
-            # ~20x20 um the full-field panels already show essentially the
-            # zoomed-in detail, so the zoom row is redundant clutter.
-            fov_width_um = width * pixel_size
-            fov_height_um = height * pixel_size
-            show_zoom = not (fov_width_um < 20.0 and fov_height_um < 20.0)
+        def _scalebar_label(length_um: float) -> str:
+            return f"{length_um:g} μm"
 
-            def _adaptive_scalebar_um(field_um: float, target_fraction: float = 0.3) -> float:
-                """Pick a "nice" round scale-bar length proportional to the
-                field it's drawn over, rather than a fixed value that can
-                dwarf (or barely register against) a small/large field."""
-                nice_values = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
-                target = field_um * target_fraction
-                candidates = [v for v in nice_values if v <= target]
-                return candidates[-1] if candidates else nice_values[0]
+        fig, axs = plotter.two_column_plot(
+            nrows=2 if show_zoom else 1, ncols=2, height=8 if show_zoom else 4,
+        )
+        axs = np.atleast_2d(axs)
 
-            def _scalebar_label(length_um: float) -> str:
-                return f"{length_um:g} μm"
+        full_field_um = min(fov_width_um, fov_height_um)
+        full_field_bar_um = _adaptive_scalebar_um(full_field_um)
 
-            fig, axs = plotter.two_column_plot(
-                nrows=2 if show_zoom else 1, ncols=2, height=8 if show_zoom else 4,
+        # Calculate percentiles for consistent display
+        vmin_processed = np.percentile(image_to_analyse, 1)
+        vmax_processed = np.percentile(image_to_analyse, 99.8)
+
+        # Plot the photoelectron image that was actually fitted
+        vmin_raw = np.percentile(raw_image_for_fitting, 1)
+        vmax_raw = np.percentile(raw_image_for_fitting, 99.8)
+
+        # Find highest density region for zoom
+        x_fit = fit_results["xc"].to_numpy()
+        y_fit = fit_results["yc"].to_numpy()
+        valid_mask = ~np.isnan(x_fit) & ~np.isnan(y_fit)
+        x_valid = x_fit[valid_mask]
+        y_valid = y_fit[valid_mask]
+
+        if len(x_valid) > 0:
+            density_hist, x_edges, y_edges = np.histogram2d(
+                x_valid, y_valid, bins=50
             )
-            axs = np.atleast_2d(axs)
+            max_density_idx = np.unravel_index(
+                np.argmax(density_hist), density_hist.shape
+            )
+            # Center of zoom region
+            center_x = (
+                x_edges[max_density_idx[0]] + x_edges[max_density_idx[0] + 1]
+            ) / 2
+            center_y = (
+                y_edges[max_density_idx[1]] + y_edges[max_density_idx[1] + 1]
+            ) / 2
+            # Zoom window (100x100 pixels)
+            zoom_size = 50
+            min_x, max_x = center_x - zoom_size, center_x + zoom_size
+            min_y, max_y = center_y - zoom_size, center_y + zoom_size
+        else:
+            # Default zoom to center if no fits
+            min_x, max_x = width // 2 - 50, width // 2 + 50
+            min_y, max_y = height // 2 - 50, height // 2 + 50
 
-            full_field_um = min(fov_width_um, fov_height_um)
-            full_field_bar_um = _adaptive_scalebar_um(full_field_um)
+        # Top row: Full field views
+        # [0,0] Detected spots on processed image
+        im = plotter.create_image_plot(
+            axs[0, 0],
+            image_to_analyse,
+            vmin=vmin_processed,
+            vmax=vmax_processed,
+            cmap="gray",
+        )
+        # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
+        axs[0, 0].scatter(
+            detected_puncta[:, 1],
+            detected_puncta[:, 0],
+            s=s,
+            c="red",
+            marker="o",
+            alpha=0.25,
+        )
+        plotter.setup_axis(
+            axs[0, 0],
+            title="Detected Spots (Full Field)",
+            grid=False,
+            equal_aspect=True,
+        )
+        axs[0, 0].set_xticks([])
+        axs[0, 0].set_yticks([])
+        plotter.add_scalebar(
+            axs[0, 0],
+            pixelsize=pixel_size * 1000,
+            length_nm=full_field_bar_um * 1000,
+            label=_scalebar_label(full_field_bar_um),
+            color="white",
+        )
 
-            # Calculate percentiles for consistent display
-            vmin_processed = np.percentile(image_to_analyse, 1)
-            vmax_processed = np.percentile(image_to_analyse, 99.8)
+        # Add zoom rectangle
+        if show_zoom:
+            rect_00 = patches.Rectangle(
+                (min_x, min_y),
+                max_x - min_x,
+                max_y - min_y,
+                linewidth=1,
+                edgecolor="cyan",
+                facecolor="none",
+            )
+            axs[0, 0].add_patch(rect_00)
 
-            # Plot the photoelectron image that was actually fitted
-            vmin_raw = np.percentile(raw_image_for_fitting, 1)
-            vmax_raw = np.percentile(raw_image_for_fitting, 99.8)
+        # [0,1] Fitted spots on raw image
+        im = plotter.create_image_plot(
+            axs[0, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+        )
+        axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.25)
+        plotter.setup_axis(
+            axs[0, 1],
+            title="Fitted Spots (Full Field)",
+            grid=False,
+            equal_aspect=True,
+        )
+        axs[0, 1].set_xticks([])
+        axs[0, 1].set_yticks([])
+        plotter.add_scalebar(
+            axs[0, 1],
+            pixelsize=pixel_size * 1000,
+            length_nm=full_field_bar_um * 1000,
+            label=_scalebar_label(full_field_bar_um),
+            color="white",
+        )
 
-            # Find highest density region for zoom
-            x_fit = fit_results["xc"].to_numpy()
-            y_fit = fit_results["yc"].to_numpy()
-            valid_mask = ~np.isnan(x_fit) & ~np.isnan(y_fit)
-            x_valid = x_fit[valid_mask]
-            y_valid = y_fit[valid_mask]
+        # Add zoom rectangle
+        if show_zoom:
+            rect_01 = patches.Rectangle(
+                (min_x, min_y),
+                max_x - min_x,
+                max_y - min_y,
+                linewidth=1,
+                edgecolor="cyan",
+                facecolor="none",
+            )
+            axs[0, 1].add_patch(rect_01)
 
-            if len(x_valid) > 0:
-                density_hist, x_edges, y_edges = np.histogram2d(
-                    x_valid, y_valid, bins=50
-                )
-                max_density_idx = np.unravel_index(
-                    np.argmax(density_hist), density_hist.shape
-                )
-                # Center of zoom region
-                center_x = (
-                    x_edges[max_density_idx[0]] + x_edges[max_density_idx[0] + 1]
-                ) / 2
-                center_y = (
-                    y_edges[max_density_idx[1]] + y_edges[max_density_idx[1] + 1]
-                ) / 2
-                # Zoom window (100x100 pixels)
-                zoom_size = 50
-                min_x, max_x = center_x - zoom_size, center_x + zoom_size
-                min_y, max_y = center_y - zoom_size, center_y + zoom_size
-            else:
-                # Default zoom to center if no fits
-                min_x, max_x = width // 2 - 50, width // 2 + 50
-                min_y, max_y = height // 2 - 50, height // 2 + 50
+        # Bottom row: Zoomed views — only when show_zoom (below ~20x20 um
+        # the full-field panels above are already the zoomed-in view)
+        if show_zoom:
+            zoom_field_um = (max_x - min_x) * pixel_size
+            zoom_bar_um = _adaptive_scalebar_um(zoom_field_um)
 
-            # Top row: Full field views
-            # [0,0] Detected spots on processed image
+            # [1,0] Detected spots zoomed
             im = plotter.create_image_plot(
-                axs[0, 0],
+                axs[1, 0],
                 image_to_analyse,
                 vmin=vmin_processed,
                 vmax=vmax_processed,
                 cmap="gray",
             )
             # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
-            axs[0, 0].scatter(
+            axs[1, 0].scatter(
                 detected_puncta[:, 1],
                 detected_puncta[:, 0],
-                s=s,
+                s=s * 5,
                 c="red",
                 marker="o",
                 alpha=0.25,
             )
+            axs[1, 0].set_xlim(min_x, max_x)
+            axs[1, 0].set_ylim(min_y, max_y)
             plotter.setup_axis(
-                axs[0, 0],
-                title="Detected Spots (Full Field)",
+                axs[1, 0],
+                title="Detected Spots (Zoom)",
                 grid=False,
                 equal_aspect=True,
             )
-            axs[0, 0].set_xticks([])
-            axs[0, 0].set_yticks([])
+            axs[1, 0].set_xticks([])
+            axs[1, 0].set_yticks([])
             plotter.add_scalebar(
-                axs[0, 0],
+                axs[1, 0],
                 pixelsize=pixel_size * 1000,
-                length_nm=full_field_bar_um * 1000,
-                label=_scalebar_label(full_field_bar_um),
+                length_nm=zoom_bar_um * 1000,
+                label=_scalebar_label(zoom_bar_um),
                 color="white",
             )
 
-            # Add zoom rectangle
-            if show_zoom:
-                rect_00 = patches.Rectangle(
-                    (min_x, min_y),
-                    max_x - min_x,
-                    max_y - min_y,
-                    linewidth=1,
-                    edgecolor="cyan",
-                    facecolor="none",
-                )
-                axs[0, 0].add_patch(rect_00)
-
-            # [0,1] Fitted spots on raw image
+            # [1,1] Fitted spots zoomed
             im = plotter.create_image_plot(
-                axs[0, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
+                axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
             )
-            axs[0, 1].scatter(x_fit, y_fit, s=s, c="lime", marker="o", alpha=0.25)
+            axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.25)
+            axs[1, 1].set_xlim(min_x, max_x)
+            axs[1, 1].set_ylim(min_y, max_y)
             plotter.setup_axis(
-                axs[0, 1],
-                title="Fitted Spots (Full Field)",
+                axs[1, 1],
+                title="Fitted Spots (Zoom)",
                 grid=False,
                 equal_aspect=True,
             )
-            axs[0, 1].set_xticks([])
-            axs[0, 1].set_yticks([])
+            axs[1, 1].set_xticks([])
+            axs[1, 1].set_yticks([])
             plotter.add_scalebar(
-                axs[0, 1],
+                axs[1, 1],
                 pixelsize=pixel_size * 1000,
-                length_nm=full_field_bar_um * 1000,
-                label=_scalebar_label(full_field_bar_um),
+                length_nm=zoom_bar_um * 1000,
+                label=_scalebar_label(zoom_bar_um),
                 color="white",
             )
 
-            # Add zoom rectangle
-            if show_zoom:
-                rect_01 = patches.Rectangle(
-                    (min_x, min_y),
-                    max_x - min_x,
-                    max_y - min_y,
-                    linewidth=1,
-                    edgecolor="cyan",
-                    facecolor="none",
-                )
-                axs[0, 1].add_patch(rect_01)
+            # Store drag config; handler is wired up by the GUI after the Qt canvas is created
+            fig._zoom_drag_data = ([rect_00, rect_01], [axs[1, 0], axs[1, 1]], image_to_analyse.shape)
 
-            # Bottom row: Zoomed views — only when show_zoom (below ~20x20 um
-            # the full-field panels above are already the zoomed-in view)
-            if show_zoom:
-                zoom_field_um = (max_x - min_x) * pixel_size
-                zoom_bar_um = _adaptive_scalebar_um(zoom_field_um)
-
-                # [1,0] Detected spots zoomed
-                im = plotter.create_image_plot(
-                    axs[1, 0],
-                    image_to_analyse,
-                    vmin=vmin_processed,
-                    vmax=vmax_processed,
-                    cmap="gray",
-                )
-                # detected_puncta stores [row, col] = [y, x], but scatter needs (x, y)
-                axs[1, 0].scatter(
-                    detected_puncta[:, 1],
-                    detected_puncta[:, 0],
-                    s=s * 5,
-                    c="red",
-                    marker="o",
-                    alpha=0.25,
-                )
-                axs[1, 0].set_xlim(min_x, max_x)
-                axs[1, 0].set_ylim(min_y, max_y)
-                plotter.setup_axis(
-                    axs[1, 0],
-                    title="Detected Spots (Zoom)",
-                    grid=False,
-                    equal_aspect=True,
-                )
-                axs[1, 0].set_xticks([])
-                axs[1, 0].set_yticks([])
-                plotter.add_scalebar(
-                    axs[1, 0],
-                    pixelsize=pixel_size * 1000,
-                    length_nm=zoom_bar_um * 1000,
-                    label=_scalebar_label(zoom_bar_um),
-                    color="white",
-                )
-
-                # [1,1] Fitted spots zoomed
-                im = plotter.create_image_plot(
-                    axs[1, 1], raw_image_for_fitting, vmin=vmin_raw, vmax=vmax_raw, cmap="gray"
-                )
-                axs[1, 1].scatter(x_fit, y_fit, s=s * 5, c="lime", marker="o", alpha=0.25)
-                axs[1, 1].set_xlim(min_x, max_x)
-                axs[1, 1].set_ylim(min_y, max_y)
-                plotter.setup_axis(
-                    axs[1, 1],
-                    title="Fitted Spots (Zoom)",
-                    grid=False,
-                    equal_aspect=True,
-                )
-                axs[1, 1].set_xticks([])
-                axs[1, 1].set_yticks([])
-                plotter.add_scalebar(
-                    axs[1, 1],
-                    pixelsize=pixel_size * 1000,
-                    length_nm=zoom_bar_um * 1000,
-                    label=_scalebar_label(zoom_bar_um),
-                    color="white",
-                )
-
-                # Store drag config; handler is wired up by the GUI after the Qt canvas is created
-                fig._zoom_drag_data = ([rect_00, rect_01], [axs[1, 0], axs[1, 1]], image_to_analyse.shape)
-
-                engine = fig.get_layout_engine()
-                if engine is not None and hasattr(engine, 'set'):
-                    # constrained/compressed — ask the engine to widen the row gap
-                    engine.set(h_pad=0.4, hspace=0.15)
-                else:
-                    # no layout engine — direct grid spacing is safe
-                    fig.subplots_adjust(hspace=0.45, top=0.92)
-
-        else:
-            # Fallback to old plotting method
-            fig, axs = self.plotter.two_column_plot(
-                ncolumns=2, nrows=2, widthratio=[1, 1], heightratio=[1, 1]
-            )
-            # ... (keep original plotting code as fallback)
+            engine = fig.get_layout_engine()
+            if engine is not None and hasattr(engine, 'set'):
+                # constrained/compressed — ask the engine to widen the row gap
+                engine.set(h_pad=0.4, hspace=0.15)
+            else:
+                # no layout engine — direct grid spacing is safe
+                fig.subplots_adjust(hspace=0.45, top=0.92)
 
         # Clean up
         del raw_data
@@ -2078,8 +2059,6 @@ class SuperRes_Functions:
                     all_quality_metrics.append(filtered_quality_metrics)
 
                 del raw_data, detected_puncta, quality_metrics, image_to_analyse
-                if "buffer_data" in locals() and buffer_data is not None:
-                    del buffer_data
                 gc.collect()
 
             logger.info(f"  Found {len(all_puncta_tofit)} puncta across all chunks")
@@ -2203,8 +2182,8 @@ class SuperRes_Functions:
             # Use standard grayscale demosaicing
             return self.scmos.bayer_demosaic_stack_grayscale(raw_data, strategy=strategy)
 
+    @staticmethod
     def _find_change_points_single(
-        self,
         signal: np.ndarray,
         model: str = "l2",
         min_size: int = 5,
@@ -2239,8 +2218,8 @@ class SuperRes_Functions:
 
         return change_points
 
+    @staticmethod
     def _find_change_points_batch(
-        self,
         traces: np.ndarray,
         indices: np.ndarray,
         model: str = "l2",
@@ -2260,7 +2239,9 @@ class SuperRes_Functions:
         results = []
         for i, idx in enumerate(indices):
             signal = traces[i]
-            cps = self._find_change_points_single(signal, model, min_size, penalty_factor)
+            cps = SuperRes_Functions._find_change_points_single(
+                signal, model, min_size, penalty_factor
+            )
             results.append((idx, cps))
         return results
 
@@ -2302,7 +2283,14 @@ class SuperRes_Functions:
         # Build index ranges for each task
         start_indices = np.cumsum([0] + puncta_per_task[:-1])
 
-        # Submit tasks
+        # Submit tasks. _find_change_points_batch/_single are @staticmethod
+        # (no `self`) precisely so this submits a plain, cheaply-picklable
+        # function -- submitting a bound method would pickle the whole
+        # SuperRes_Functions instance (calibration arrays and all) once per
+        # task. That's a no-op cost under fork (Linux/Mac; child processes
+        # share memory, nothing is actually pickled), but under Windows'
+        # spawn-only multiprocessing every task really does re-pickle it,
+        # which reliably crashed every worker ("terminated abruptly") there.
         frames_to_fit = {}
         with futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
             fs = []
@@ -2336,90 +2324,6 @@ class SuperRes_Functions:
                     pbar.update(1)
 
         return frames_to_fit
-
-    def _extract_roi_traces(
-        self,
-        image_files: list,
-        detected_puncta: np.ndarray,
-        ROI_size: int,
-        width: int,
-        height: int,
-        gain_map: np.ndarray,
-        offset_map: np.ndarray,
-        rqe: np.ndarray,
-        chunk_size: int = 500,
-    ) -> np.ndarray:
-        """Extract time traces for each detected puncta by summing ROI intensities.
-
-        Args:
-            image_files: List of image file paths
-            detected_puncta: Array of shape (n_puncta, 2) with [row, col] coordinates
-            ROI_size: Size of ROI to extract around each puncta
-            width, height: Image dimensions
-            gain_map, offset_map, rqe: Calibration maps (cropped to ROI)
-            chunk_size: Number of frames to load at once
-
-        Returns:
-            Array of shape (n_puncta, total_frames) containing summed photoelectrons
-            in each ROI at each frame.
-        """
-        from tqdm import tqdm
-
-        # Calculate total frames across all files
-        file_frame_counts = [self.io.get_num_pages_in_TIF(f) for f in image_files]
-        total_frames = sum(file_frame_counts)
-        n_puncta = len(detected_puncta)
-
-        # Pre-compute ROI bounds for each puncta
-        roi_bounds = []
-        for i in range(n_puncta):
-            # detected_puncta stores [row, col] = [y, x]
-            ycentre = int(detected_puncta[i, 0])
-            xcentre = int(detected_puncta[i, 1])
-            bounds = self.helper.calculate_roi_bounds(xcentre, ycentre, ROI_size, width, height)
-            roi_bounds.append(bounds)
-
-        # Initialize output array
-        traces = np.zeros((n_puncta, total_frames), dtype=np.float32)
-
-        # Process files
-        global_frame_idx = 0
-        for file_idx, file in enumerate(image_files):
-            n_frames_in_file = file_frame_counts[file_idx]
-
-            # Process in chunks
-            for chunk_start in range(0, n_frames_in_file, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, n_frames_in_file)
-                chunk_frames = list(range(chunk_start, chunk_end))
-                n_chunk = len(chunk_frames)
-
-                # Load chunk
-                raw_data = self.io.read_tiff(file, dtype="float32", frame=chunk_frames)
-                if raw_data.ndim == 2:
-                    raw_data = raw_data[np.newaxis, :, :]
-
-                # Convert to photoelectrons
-                photoelectrons = self.io.convert_to_photoelectrons(
-                    raw_data, gain_map=gain_map, offset_map=offset_map, rqe=rqe
-                )
-
-                # Extract ROI sums for each puncta
-                for puncta_idx, bounds in enumerate(roi_bounds):
-                    if bounds is None:
-                        continue
-                    xmin, xmax, ymin, ymax = bounds
-                    # Sum over ROI for each frame in chunk
-                    roi_data = photoelectrons[:, ymin:ymax, xmin:xmax]
-                    roi_sums = np.sum(roi_data, axis=(1, 2))
-                    traces[puncta_idx, global_frame_idx:global_frame_idx + n_chunk] = roi_sums
-
-                global_frame_idx += n_chunk
-
-                # Clean up
-                del raw_data, photoelectrons
-                gc.collect()
-
-        return traces
 
     def fit_imaging_data(
         self,

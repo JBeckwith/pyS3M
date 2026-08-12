@@ -150,6 +150,7 @@ def test_coordinate_system(test_output_dir):
 
     plt.tight_layout()
     output_path = test_output_dir / 'array_indexing_test.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"\nVisualization saved to: {output_path}")
 

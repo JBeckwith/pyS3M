@@ -269,6 +269,7 @@ def visualize_detection(image, detected_puncta, true_spots):
 
     plt.tight_layout()
     output_path = test_output_dir / 'real_spot_detection_test.png'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"\n6. Visualization saved to: {output_path}")
 

@@ -23,9 +23,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 import numpy as np
 from scipy.sparse import diags_array
 from scipy.spatial.distance import cdist
-from typing import Optional, Tuple, List, Dict, Set
+from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass, field
-from numba import jit
 from pyS3M.Constants import DriftConstants
 import logging
 logger = logging.getLogger(__name__)
@@ -89,217 +88,47 @@ class Molecule:
 
 class BindingKinetics:
     """
-    Handles binding/unbinding kinetics between molecules using Gillespie algorithm.
-
-    Two modes:
-
-    1. LEGACY: Uses macroscopic k_on/k_off matrices (concentration-dependent)
-    2. MICROSCOPIC: Uses microscopic k, γ, ρ parameters (Fange et al. 2010).
-       Automatically calculates scale-dependent mesoscopic rates q_a(h), q_d(h).
-
-    The Gillespie algorithm ensures correct stochastic kinetics.
+    Handles binding/unbinding kinetics between molecules using the Gillespie
+    algorithm, driven by macroscopic k_on/k_off matrices (concentration-
+    dependent), which ensures correct stochastic kinetics.
     """
 
     def __init__(self, colors: List[str], k_on_matrix: np.ndarray = None,
-                 k_off_matrix: np.ndarray = None, binding_radius: float = 100.0,
-                 reaction_radius: float = None, k_micro_matrix: np.ndarray = None,
-                 gamma_matrix: np.ndarray = None, use_microscopic: bool = False):
+                 k_off_matrix: np.ndarray = None, binding_radius: float = 100.0):
         """
         Initialize binding kinetics.
 
-        LEGACY MODE (use_microscopic=False):
+        Args:
+            colors: List of color labels (e.g., ['R', 'G', 'B'])
             k_on_matrix: 2D array of binding rates (1/(nM·s)) between color pairs
             k_off_matrix: 2D array of unbinding rates (1/s) for each pair
             binding_radius: Distance threshold for binding (nm)
-
-        MICROSCOPIC MODE (use_microscopic=True, recommended):
-            reaction_radius: ρ (nm) - contact distance for binding
-            k_micro_matrix: 2D array of intrinsic on-rates k (1/s) at contact
-            gamma_matrix: 2D array of intrinsic off-rates γ (1/s)
-            binding_radius: Distance threshold for finding pairs (nm)
-                           Should be 3-5× reaction_radius
-
-        Args:
-            colors: List of color labels (e.g., ['R', 'G', 'B'])
-            use_microscopic: If True, use Fange et al. 2010 framework
         """
         self.colors = colors
         self.color_to_idx = {c: i for i, c in enumerate(colors)}
         self.binding_radius = binding_radius
-        self.use_microscopic = use_microscopic
 
         n_colors = len(colors)
 
-        if use_microscopic:
-            # Microscopic framework (Fange et al. 2010)
-            if reaction_radius is None or k_micro_matrix is None or gamma_matrix is None:
-                raise ValueError("Microscopic mode requires: reaction_radius, k_micro_matrix, gamma_matrix")
+        if k_on_matrix is None or k_off_matrix is None:
+            raise ValueError("BindingKinetics requires: k_on_matrix, k_off_matrix")
 
-            self.reaction_radius = reaction_radius  # ρ (nm)
-            self.k_micro_matrix = np.array(k_micro_matrix)  # k (1/s)
-            self.gamma_matrix = np.array(gamma_matrix)      # γ (1/s)
+        self.k_on_matrix = np.array(k_on_matrix)
+        self.k_off_matrix = np.array(k_off_matrix)
 
-            # Validate
-            assert self.k_micro_matrix.shape == (n_colors, n_colors), \
-                f"k_micro_matrix shape {self.k_micro_matrix.shape} != ({n_colors}, {n_colors})"
-            assert self.gamma_matrix.shape == (n_colors, n_colors), \
-                f"gamma_matrix shape {self.gamma_matrix.shape} != ({n_colors}, {n_colors})"
+        # Validate
+        assert self.k_on_matrix.shape == (n_colors, n_colors), \
+            f"k_on_matrix shape {self.k_on_matrix.shape} != ({n_colors}, {n_colors})"
+        assert self.k_off_matrix.shape == (n_colors, n_colors), \
+            f"k_off_matrix shape {self.k_off_matrix.shape} != ({n_colors}, {n_colors})"
 
-            # Make symmetric
-            self.k_micro_matrix = (self.k_micro_matrix + self.k_micro_matrix.T) / 2
-            self.gamma_matrix = (self.gamma_matrix + self.gamma_matrix.T) / 2
-
-            # Legacy matrices will be calculated on-demand via calculate_mesoscopic_rates()
-            self.k_on_matrix = None
-            self.k_off_matrix = None
-
-        else:
-            # Legacy macroscopic framework
-            if k_on_matrix is None or k_off_matrix is None:
-                raise ValueError("Legacy mode requires: k_on_matrix, k_off_matrix")
-
-            self.k_on_matrix = np.array(k_on_matrix)
-            self.k_off_matrix = np.array(k_off_matrix)
-            self.reaction_radius = None
-            self.k_micro_matrix = None
-            self.gamma_matrix = None
-
-            # Validate
-            assert self.k_on_matrix.shape == (n_colors, n_colors), \
-                f"k_on_matrix shape {self.k_on_matrix.shape} != ({n_colors}, {n_colors})"
-            assert self.k_off_matrix.shape == (n_colors, n_colors), \
-                f"k_off_matrix shape {self.k_off_matrix.shape} != ({n_colors}, {n_colors})"
-
-            # Make symmetric
-            self.k_on_matrix = (self.k_on_matrix + self.k_on_matrix.T) / 2
-            self.k_off_matrix = (self.k_off_matrix + self.k_off_matrix.T) / 2
+        # Make symmetric
+        self.k_on_matrix = (self.k_on_matrix + self.k_on_matrix.T) / 2
+        self.k_off_matrix = (self.k_off_matrix + self.k_off_matrix.T) / 2
 
         # Track binding events for analysis
         self.binding_events: List[Dict] = []
         self.unbinding_events: List[Dict] = []
-
-    def calculate_mesoscopic_rates(self, lattice_spacing: float,
-                                   diffusion_coeff: float,
-                                   dimensionality: int = 3) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Calculate scale-dependent mesoscopic rates q_a(h) and q_d(h).
-
-        Based on Fange et al. (2010) PNAS 107(46):19820-19825, Eqs. 1-2 and 7-8.
-        This fixes the RDME divergence problem at fine spatial discretization.
-
-        The mesoscopic rates account for:
-        - Spatial discretization effects (lattice spacing h)
-        - Diffusion-controlled vs reaction-controlled kinetics (parameter α)
-        - Reactions between neighboring subvolumes (Cartesian grids)
-        - Microscopic rebinding after dissociation
-
-        Args:
-            lattice_spacing: h (nm) - size of spatial discretization (voxel side length)
-            diffusion_coeff: D (nm²/ms) - combined diffusion D_A + D_B
-            dimensionality: 2 or 3 for 2D/3D systems
-
-        Returns:
-            q_a_matrix: Mesoscopic association rates
-                       Units: 1/ms (propensity per pair in contact)
-            q_d_matrix: Mesoscopic dissociation rates
-                       Units: 1/ms
-
-        Notes:
-            - For 3D: Rates converge to macroscopic values at h >> ρ
-            - For 2D: Rates are scale-dependent at ALL discretizations
-            - Satisfies detailed balance: q_a/q_d = K (equilibrium constant)
-            - Include neighbor reactions: h_eff calculated from 7ℓ³ (3D) or 5ℓ² (2D)
-
-        References:
-            Fange et al. (2010) doi:10.1073/pnas.1006565107
-        """
-        if not self.use_microscopic:
-            raise RuntimeError("calculate_mesoscopic_rates() requires use_microscopic=True mode")
-
-        if dimensionality not in [2, 3]:
-            raise ValueError("dimensionality must be 2 or 3")
-
-        n_colors = len(self.colors)
-        q_a_matrix = np.zeros((n_colors, n_colors))
-        q_d_matrix = np.zeros((n_colors, n_colors))
-
-        # Calculate effective reaction radius from lattice spacing + neighbors
-        # This accounts for reactions between molecules in neighboring voxels
-        if dimensionality == 3:
-            # Central voxel + 6 neighbors: 4π(h+ρ)³/3 = 7ℓ³
-            # Solve for h: (h+ρ)³ = 7ℓ³ × 3/(4π)
-            h_eff = ((7 * lattice_spacing**3 * 3 / (4*np.pi)))**(1/3) - self.reaction_radius
-        else:  # 2D
-            # Central voxel + 4 neighbors: π(h+ρ)² = 5ℓ²
-            # Solve for h: (h+ρ)² = 5ℓ²/π
-            h_eff = np.sqrt(5 * lattice_spacing**2 / np.pi) - self.reaction_radius
-
-        # For very fine discretization, h_eff can be negative
-        # This is OK - it means β → 1 and rates → microscopic k, γ
-        # Only warn if lattice is MUCH smaller than expected
-        if lattice_spacing < 0.1 * self.reaction_radius:
-            import warnings
-            warnings.warn(f"Lattice spacing {lattice_spacing:.1f} nm is very fine "
-                         f"compared to reaction radius {self.reaction_radius:.1f} nm. "
-                         f"Results may be inaccurate.")
-
-        # Clip h_eff to avoid numerical issues, but allow negative values
-        # (negative h_eff just means very fine grid, β close to 1)
-        h_eff = max(h_eff, -0.9 * self.reaction_radius)
-
-        # Discretization parameter β = ρ/(ρ+h)
-        # β → 1: fine discretization (h → 0), rates → microscopic k, γ
-        # β → 0: coarse discretization (h → ∞), rates → macroscopic k_a, k_d
-        beta = self.reaction_radius / (self.reaction_radius + h_eff)
-
-        # Ensure β is in valid range [0, 1]
-        # If h_eff is very negative, β can exceed 1, which is non-physical
-        # Clip to ensure well-defined behavior
-        beta = np.clip(beta, 0.0, 0.999)  # Don't allow exactly 1 to avoid division issues
-
-        for i in range(n_colors):
-            for j in range(n_colors):
-                k_micro = self.k_micro_matrix[i, j]  # Intrinsic on-rate (1/s)
-                gamma = self.gamma_matrix[i, j]       # Intrinsic off-rate (1/s)
-
-                if k_micro == 0:
-                    # No binding allowed
-                    continue
-
-                # Degree of diffusion control α
-                # α → 0: reaction-limited (slow k, fast diffusion)
-                # α → ∞: diffusion-limited (fast k, slow diffusion)
-                # Note: k_micro is in 1/s, diffusion_coeff is in nm²/ms
-                # Convert D to nm²/s for consistent units
-                D_nm2_per_s = diffusion_coeff * 1000.0
-                if dimensionality == 3:
-                    alpha = k_micro / (4 * np.pi * self.reaction_radius * D_nm2_per_s)
-                else:  # 2D
-                    alpha = k_micro / (2 * np.pi * D_nm2_per_s)
-
-                # Calculate mesoscopic association rate q_a(h)
-                if dimensionality == 3:
-                    # Fange Eq. 1 (approximate form, excellent agreement)
-                    # Exact form is Eq. 7 (more complex, see SI)
-                    q_a = k_micro / (1 + alpha * (1-beta) * (1 - 0.58*beta))
-                else:  # 2D
-                    # Fange Eq. 2
-                    # In 2D, no macroscopic limit exists (always scale-dependent)
-                    if beta < 0.999:  # Avoid log(0)
-                        q_a = k_micro / (1 + alpha * np.log(1 + 0.544*(1-beta)/beta))
-                    else:
-                        q_a = k_micro  # Very fine discretization
-
-                # Mesoscopic dissociation rate q_d(h)
-                # Detailed balance requires q_a/q_d = k/γ = K
-                K = k_micro / gamma  # Equilibrium constant
-                q_d = q_a / K
-
-                # Convert from 1/s to 1/ms
-                q_a_matrix[i, j] = q_a / 1000.0
-                q_d_matrix[i, j] = q_d / 1000.0
-
-        return q_a_matrix, q_d_matrix
 
     def can_bind(self, mol1: Molecule, mol2: Molecule) -> bool:
         """
@@ -319,11 +148,7 @@ class BindingKinetics:
         # Check if binding rate is non-zero
         idx1 = self.color_to_idx[mol1.color]
         idx2 = self.color_to_idx[mol2.color]
-
-        if self.use_microscopic:
-            return self.k_micro_matrix[idx1, idx2] > 0
-        else:
-            return self.k_on_matrix[idx1, idx2] > 0
+        return self.k_on_matrix[idx1, idx2] > 0
 
     def get_binding_rate(self, mol1: Molecule, mol2: Molecule) -> float:
         """
@@ -387,26 +212,16 @@ class BindingKinetics:
 
         return pairs
 
-    def calculate_propensities(self, molecules: List[Molecule], area: float,
-                              lattice_spacing: float = None,
-                              diffusion_coeff: float = None) -> Tuple[List, List, float]:
+    def calculate_propensities(self, molecules: List[Molecule], area: float) -> Tuple[List, List, float]:
         """
         Calculate all binding and unbinding propensities.
 
-        LEGACY MODE:
-            Propensity = k_on × effective_concentration × volume
-            (concentration-dependent, volume-based calculation)
-
-        MICROSCOPIC MODE:
-            Propensity = q_a(h) or q_d(h)
-            (intrinsic rates, no volume dependence)
-            Requires lattice_spacing and diffusion_coeff parameters
+        Propensity = k_on × effective_concentration × volume
+        (concentration-dependent, volume-based calculation)
 
         Args:
             molecules: List of all molecules
-            area: Simulation area (nm²) - only used in legacy mode
-            lattice_spacing: h (nm) - spatial discretization (microscopic mode only)
-            diffusion_coeff: D (nm²/ms) - combined diffusion (microscopic mode only)
+            area: Simulation area (nm²)
 
         Returns:
             binding_propensities: List of (mol1, mol2, propensity) for binding events
@@ -419,57 +234,24 @@ class BindingKinetics:
         # Find potential binding pairs
         pairs = self.find_potential_binding_pairs(molecules)
 
-        if self.use_microscopic:
-            # MICROSCOPIC MODE: Use mesoscopic rates q_a(h), q_d(h)
-            if lattice_spacing is None or diffusion_coeff is None:
-                raise ValueError("Microscopic mode requires lattice_spacing and diffusion_coeff")
+        # For surface diffusion: effective concentration ~ 1/area
+        # Propensity = k_on × (effective concentration)
+        effective_volume = area * 1.0  # nm² × 1 nm height = nm³
+        nM_to_nm3 = 1e-9 / 6.022e23 * 1e24  # Convert nM to molecules/nm³
 
-            # Calculate mesoscopic rates for current discretization
-            q_a_matrix, q_d_matrix = self.calculate_mesoscopic_rates(
-                lattice_spacing, diffusion_coeff, dimensionality=3
-            )
+        for mol1, mol2, dist in pairs:
+            k_on = self.get_binding_rate(mol1, mol2)
+            # Propensity increases as molecules get closer
+            # Use simple model: full rate within binding radius
+            propensity = k_on * nM_to_nm3 * effective_volume
+            binding_propensities.append((mol1, mol2, propensity))
 
-            # Calculate binding propensities
-            for mol1, mol2, dist in pairs:
-                idx1 = self.color_to_idx[mol1.color]
-                idx2 = self.color_to_idx[mol2.color]
-                q_a = q_a_matrix[idx1, idx2]  # Already in 1/ms
-
-                if q_a > 0:
-                    # Propensity is just the mesoscopic rate
-                    # No volume normalization! Molecules are already in contact
-                    propensity = q_a  # 1/ms
-                    binding_propensities.append((mol1, mol2, propensity))
-
-            # Calculate unbinding propensities
-            bound_pairs = self._get_bound_pairs(molecules)
-            for mol1, mol2 in bound_pairs:
-                idx1 = self.color_to_idx[mol1.color]
-                idx2 = self.color_to_idx[mol2.color]
-                q_d = q_d_matrix[idx1, idx2]  # Already in 1/ms
-                unbinding_propensities.append((mol1, mol2, q_d))
-
-        else:
-            # LEGACY MODE: Use macroscopic k_on, k_off with volume-based calculation
-            # Calculate binding propensities
-            # For surface diffusion: effective concentration ~ 1/area
-            # Propensity = k_on × (effective concentration)
-            effective_volume = area * 1.0  # nm² × 1 nm height = nm³
-            nM_to_nm3 = 1e-9 / 6.022e23 * 1e24  # Convert nM to molecules/nm³
-
-            for mol1, mol2, dist in pairs:
-                k_on = self.get_binding_rate(mol1, mol2)
-                # Propensity increases as molecules get closer
-                # Use simple model: full rate within binding radius
-                propensity = k_on * nM_to_nm3 * effective_volume
-                binding_propensities.append((mol1, mol2, propensity))
-
-            # Calculate unbinding propensities
-            bound_pairs = self._get_bound_pairs(molecules)
-            for mol1, mol2 in bound_pairs:
-                k_off = self.get_unbinding_rate(mol1, mol2)
-                # Convert from 1/s to 1/ms
-                unbinding_propensities.append((mol1, mol2, k_off / 1000.0))
+        # Calculate unbinding propensities
+        bound_pairs = self._get_bound_pairs(molecules)
+        for mol1, mol2 in bound_pairs:
+            k_off = self.get_unbinding_rate(mol1, mol2)
+            # Convert from 1/s to 1/ms
+            unbinding_propensities.append((mol1, mol2, k_off / 1000.0))
 
         # Total propensity
         total = sum(p[2] for p in binding_propensities) + \
@@ -585,9 +367,7 @@ class BindingKinetics:
         })
 
     def process_events(self, molecules: List[Molecule], dt: float,
-                      area: float, current_time: float,
-                      lattice_spacing: Optional[float] = None,
-                      diffusion_coeff: Optional[float] = None) -> int:
+                      area: float, current_time: float) -> int:
         """
         Process binding/unbinding events during a timestep.
 
@@ -598,18 +378,13 @@ class BindingKinetics:
             dt: Timestep duration (ms)
             area: Simulation area (nm²)
             current_time: Current simulation time (ms)
-            lattice_spacing: Lattice spacing for microscopic mode (nm)
-            diffusion_coeff: Combined diffusion coefficient for microscopic mode (nm²/ms)
 
         Returns:
             n_events: Number of events that occurred
         """
         n_events = 0
 
-        # Calculate propensities (pass lattice_spacing and diffusion_coeff for microscopic mode)
-        bind_props, unbind_props, total_prop = self.calculate_propensities(
-            molecules, area, lattice_spacing=lattice_spacing, diffusion_coeff=diffusion_coeff
-        )
+        bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
 
         if total_prop == 0:
             return 0
@@ -642,9 +417,7 @@ class BindingKinetics:
             time_elapsed += tau
 
             # Recalculate propensities after event
-            bind_props, unbind_props, total_prop = self.calculate_propensities(
-                molecules, area, lattice_spacing=lattice_spacing, diffusion_coeff=diffusion_coeff
-            )
+            bind_props, unbind_props, total_prop = self.calculate_propensities(molecules, area)
 
             if total_prop == 0:
                 break
@@ -783,8 +556,7 @@ class DiffusionSimulator2D:
     def __init__(self, area: Tuple[float, float], dt: float, t_exposure: float,
                  sigma0: float, s0: float, R: float = 1.0/6,
                  boundary: str = 'reflective',
-                 binding_kinetics: Optional[BindingKinetics] = None,
-                 lattice_spacing: float = 50.0):
+                 binding_kinetics: Optional[BindingKinetics] = None):
         """
         Initialize 2D diffusion simulator.
 
@@ -797,14 +569,12 @@ class DiffusionSimulator2D:
             R: Motion blur coefficient (default 1/6)
             boundary: Boundary condition ('periodic', 'reflective', 'absorbing')
             binding_kinetics: Optional BindingKinetics object for binding/unbinding
-            lattice_spacing: Lattice spacing for microscopic binding rates (nm, default: 50.0)
         """
         self.area = np.array(area)
         self.dt = dt
         self.t_exposure = t_exposure
         self.boundary = boundary
         self.current_time = 0.0
-        self.lattice_spacing = lattice_spacing
 
         # Diffusion engine
         self.diffusion_engine = LangevinDiffusion2D(sigma0, s0, R)
@@ -966,24 +736,8 @@ class DiffusionSimulator2D:
             # Process binding/unbinding events
             area_nm2 = self.area[0] * self.area[1]
 
-            # Calculate combined diffusion coefficient for microscopic mode
-            # Use average of all unbound molecules' D_free (typical approach)
-            if self.binding_kinetics.use_microscopic:
-                D_values = [mol.D_free for mol in self.molecules if not mol.is_bound]
-                if D_values:
-                    # Combined D ≈ D1 + D2 for two molecules
-                    # Use 2× mean D as representative combined diffusion
-                    combined_D = 2.0 * np.mean(D_values)
-                else:
-                    # Fallback if all molecules are bound
-                    combined_D = np.mean([mol.D_free for mol in self.molecules]) * 2.0
-            else:
-                combined_D = None
-
             self.binding_kinetics.process_events(
                 self.molecules, current_chunk * self.dt, area_nm2, self.current_time,
-                lattice_spacing=self.lattice_spacing,
-                diffusion_coeff=combined_D
             )
 
             # Generate trajectories for this chunk
@@ -1158,190 +912,6 @@ def estimate_D_from_msd(tau_array: np.ndarray, msd_array: np.ndarray,
 
 
 # =============================================================================
-# OLSF MSD Analysis (from pyDiffusion_LeeLab)
-# =============================================================================
-
-def autocorrFFT(x: np.ndarray) -> np.ndarray:
-    """
-    Compute the autocorrelation of a 1D signal using FFT.
-
-    Args:
-        x: Input signal
-
-    Returns:
-        res: Autocorrelation of the input signal
-    """
-    N = len(x)
-    F = np.fft.fft(x, n=2 * N)  # 2*N because of zero-padding
-    PSD = F * F.conjugate()
-    res = np.fft.ifft(PSD)
-    res = (res[:N]).real  # now we have the autocorrelation in convention B
-    n = N * np.ones(N) - np.arange(0, N)  # divide res(m) by (N-m)
-    return res / n  # this is the autocorrelation in convention A
-
-
-def msd_fft(r: np.ndarray) -> np.ndarray:
-    """
-    Compute the mean squared displacement (MSD) using FFT.
-
-    Args:
-        r: Trajectory data, shape (N, n_d) with positions at each timepoint
-
-    Returns:
-        S: MSD computed for each time step
-    """
-    N = len(r)
-    D = np.square(r).sum(axis=1)
-    D = np.append(D, 0)
-    S2 = sum([autocorrFFT(r[:, i]) for i in range(r.shape[1])])
-    Q = 2 * D.sum()
-    S1 = np.zeros(N)
-    for m in range(N):
-        Q = Q - D[m - 1] - D[N - m]
-        S1[m] = Q / (N - m)
-    S = S1 - 2 * S2
-    return S[1:]
-
-
-@jit(nopython=True)
-def PMin_XM(x: float, N: int) -> Tuple[int, int]:
-    """
-    Calculate optimal fit point from Michalet (2010).
-
-    Args:
-        x: Input value
-        N: Number of trajectory points
-
-    Returns:
-        pa: Optimal fit point for parameter 'a'
-        pb: Optimal fit point for parameter 'b'
-    """
-    fa = 2 + 1.6 * (x**0.51)
-    La = 3 + ((4.5 * (N**0.4) - 8.5) ** 1.2)
-
-    fb = 2 + 1.35 * x**0.6
-    Lb = 0.8 + (0.564 * N)
-
-    if np.isinf(x):
-        pa = int(np.floor(La))
-        pb = int(np.floor(Lb))
-    else:
-        pa = int(np.floor(fa * La / (fa**3 + La**3) ** 0.33))
-        pb = min(
-            int(np.floor(Lb)), int(np.floor(fb * Lb / (fb**3 + Lb**3) ** 0.33))
-        )
-
-    # Make sure nothing is zero
-    pa = max(2, pa)
-    pb = max(2, pb)
-
-    return pa, pb
-
-
-def estimate_D_OLSF(trajectory: np.ndarray, dt: float, R: float = 1.0/6,
-                    n_d: int = 2, maxiter: int = 100,
-                    min_points: int = 10) -> Tuple[float, float]:
-    """
-    Estimate diffusion coefficient using Optimal Least Squares Fit (OLSF).
-
-    This is the optimal method from Michalet & Berglund (2012) that properly
-    accounts for localization error and finite trajectory length.
-
-    Args:
-        trajectory: Array of shape (N, n_d) with positions
-        dt: Timestep (ms)
-        R: Motion blur coefficient (default 1/6)
-        n_d: Number of dimensions (default 2)
-        maxiter: Maximum iterations (default 100)
-        min_points: Minimum points required (default 10)
-
-    Returns:
-        D: Diffusion coefficient estimate (nm²/ms)
-        var: Localization variance estimate (nm²)
-    """
-    coordinates = trajectory
-
-    if n_d > 1:
-        if coordinates.shape[1] != n_d:
-            logger.error("Dimension mismatch. Expected %d, got %d", n_d, coordinates.shape[1])
-            return np.nan, np.nan
-
-    if coordinates.shape[0] < min_points:
-        logger.error("Not enough points (%d < %d)", coordinates.shape[0], min_points)
-        return np.nan, np.nan
-
-    NXM = len(coordinates.ravel())
-    pa = np.array([int(np.floor(NXM / 10))])
-    pb = np.array([int(np.floor(NXM / 10))])
-    donea = False
-    doneb = False
-    iter_count = 1
-    rho = []
-
-    D = np.nan
-    var = np.nan
-
-    while iter_count <= maxiter and (not donea or not doneb):
-        if iter_count == maxiter:
-            donea = True
-            doneb = True
-            D = np.nan
-            var = np.nan
-            logger.warning("OLSF did not converge in %d iterations", maxiter)
-            break
-
-        if np.max(np.hstack([pa, pb])) > len(rho):
-            rho = msd_fft(coordinates)
-        rho_subset = rho[: np.max(np.hstack([pa, pb]))]
-
-        if not donea:
-            A = np.vstack((np.ones(pa[-1]), np.arange(1, pa[-1] + 1))).T
-            B = np.asarray(rho_subset[: A.shape[0]])
-            if B.shape[0] != A.shape[0]:
-                donea = True
-                doneb = True
-                D = np.nan
-                var = np.nan
-                logger.warning("OLSF did not converge in %d iterations", maxiter)
-                break
-
-            X = np.linalg.lstsq(A, B, rcond=None)[0]
-            aa, ba = X
-            xa = 0 if aa < 0 else np.inf if ba < 0 else aa / ba
-            newpa, _ = PMin_XM(xa, NXM)
-            if np.any(np.isin(newpa, pa)):
-                Da = ba / (2 * dt * n_d)
-                var = (aa + 4 * Da * R * dt) / (2 * n_d)
-                donea = True
-            pa = np.hstack([pa, newpa])
-
-        if not doneb:
-            A = np.vstack((np.ones(pb[-1]), np.arange(1, pb[-1] + 1))).T
-            B = np.asarray(rho_subset[: int(pb[-1])])
-            if B.shape[0] != A.shape[0]:
-                donea = True
-                doneb = True
-                D = np.nan
-                var = np.nan
-                logger.warning("OLSF did not converge in %d iterations", maxiter)
-                break
-
-            X = np.linalg.lstsq(A, B, rcond=None)[0]
-            ab, bb = X
-            xb = 0 if ab < 0 else np.inf if bb < 0 else ab / bb
-            _, newpb = PMin_XM(xb, NXM)
-            if np.any(np.isin(newpb, pb)):
-                D = bb / (2 * dt * n_d)
-                var = (ab + 4 * D * R * dt) / (2 * n_d)
-                doneb = True
-            pb = np.hstack([pb, newpb])
-
-        iter_count += 1
-
-    return D, var
-
-
-# =============================================================================
 # Camera Imaging Adapter - Converts diffusion trajectories to TIFF movies
 # =============================================================================
 
@@ -1469,189 +1039,6 @@ class CameraAdapter:
             spectral_profiles[dye_name] = profiles
 
         return x0y0, n_photons, spectral_profiles
-
-    def generate_tiff_stack(
-        self,
-        camera_parameters: Dict,
-        wavelength: np.ndarray,
-        n_photons_per_dye: Dict[str, float],
-        smoothing_function,
-        output_path: str,
-        frame_indices: Optional[np.ndarray] = None,
-        blinking_probability: Optional[Dict[str, float]] = None,
-        poisson_brightness: bool = True,
-        background_photons: float = 40.0,
-        background_colour: List[float] = None,
-        NA: float = 1.49,
-        pixel_size: float = DriftConstants.XIMEA_PIXEL_SIZE_NM,
-        save_tiff: bool = True,
-        random_state: Optional[np.random.Generator] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Generate TIFF movie from diffusion trajectories using Multicolour_Simulation_Functions.
-
-        This is the main method that converts diffusion simulation output to camera images.
-
-        Args:
-            camera_parameters: Camera calibration dict (gain, offset, variance, masks, etc.)
-            wavelength: Wavelength array for spectral calculations (nm)
-            n_photons_per_dye: Mean photon count per dye {'R': 1000, 'G': 800, ...}
-            smoothing_function: Smoothing function for PSF (from Multicolour_Simulation_Functions)
-            output_path: Path to save TIFF file
-            frame_indices: Frames to render (default: all)
-            blinking_probability: Per-color blinking probability (default: None)
-            poisson_brightness: Use Poisson brightness sampling (default: True)
-            background_photons: Background photons per pixel (default: 40)
-            background_colour: RGB background weights (default: [1,1,1])
-            NA: Numerical aperture (default: 1.49)
-            pixel_size: Camera pixel size in nm (default: 69)
-            save_tiff: Whether to save TIFF file (default: True)
-            random_state: Random generator for reproducibility
-
-        Returns:
-            bayer_image: Raw Bayer-filtered image stack (n_frames, w, h)
-            smoothed_image: Smoothed image stack (n_frames, w, h)
-        """
-        # Import required module
-        _dir = str(Path(__file__).parent.parent)
-        if _dir not in sys.path:
-            sys.path.insert(0, _dir)
-
-        import pyS3M.Multicolour_Simulation_Functions as MSF
-        import pyS3M.IOFunctions as IOFunctions
-
-        # Initialize simulation functions
-        sim_funcs = MSF.MultiC_Sim_Funcs()
-        io_funcs = IOFunctions.IO_Functions()
-
-        if background_colour is None:
-            background_colour = [1, 1, 1]
-
-        if random_state is None:
-            random_state = np.random.default_rng()
-
-        # Prepare localisation data
-        x0y0, n_photons, spectral_profiles = self.prepare_localisations_for_imaging(
-            n_photons_per_dye=n_photons_per_dye,
-            frame_indices=frame_indices,
-            blinking_probability=blinking_probability,
-            poisson_brightness=poisson_brightness,
-            random_state=random_state,
-        )
-
-        # Calculate average emission wavelengths and pixel efficiencies per dye
-        # For now, use simple weighted average based on spectral profiles
-        # More sophisticated: could use SpectralFunctions.get_pixel_fractions_rawspectra
-
-        average_emission_wavelengths = {}
-        dye_pixel_efficiencies = {}
-
-        for dye_name, profiles in spectral_profiles.items():
-            # Average spectral profile across molecules
-            avg_profile = np.mean(profiles, axis=0)  # (A_R, A_G, A_B)
-
-            # Store as pixel efficiency
-            dye_pixel_efficiencies[dye_name] = avg_profile
-
-            # Estimate average wavelength (rough approximation)
-            # R ~ 630nm, G ~ 530nm, B ~ 470nm
-            wavelength_map = np.array([630.0, 530.0, 470.0])  # R, G, B
-            avg_wavelength = np.sum(avg_profile * wavelength_map) / np.sum(avg_profile)
-            average_emission_wavelengths[dye_name] = avg_wavelength
-
-        # Convert to format expected by gen_camera_image_stack
-        # Need single dye_pixel_efficiency array if all dyes have same color ratios
-        # Otherwise, need to handle multiple dyes separately
-
-        # For simplicity, merge all dyes into single "mixture"
-        # by concatenating molecules along last axis
-
-        # Determine total number of molecules and frames
-        n_frames = len(frame_indices) if frame_indices is not None else len(self.simulator.molecules[0].trajectory)
-
-        # Merge x0y0 and n_photons across dyes
-        all_positions = []
-        all_photons = []
-        all_wavelengths = []
-        all_efficiencies = []
-
-        for dye_name in x0y0.keys():
-            n_mols_this_dye = x0y0[dye_name].shape[2]
-
-            all_positions.append(x0y0[dye_name])  # (n_frames, 2, n_mols)
-            all_photons.append(n_photons[dye_name])  # (n_frames, n_mols)
-
-            # Repeat wavelength and efficiency for each molecule
-            all_wavelengths.extend([average_emission_wavelengths[dye_name]] * n_mols_this_dye)
-            all_efficiencies.append(np.tile(dye_pixel_efficiencies[dye_name], (n_mols_this_dye, 1)))
-
-        # Concatenate across molecules
-        merged_positions = np.concatenate(all_positions, axis=2)  # (n_frames, 2, total_mols)
-        merged_photons = np.concatenate(all_photons, axis=1)  # (n_frames, total_mols)
-        merged_efficiencies = np.vstack(all_efficiencies)  # (total_mols, 3)
-
-        # Format for gen_camera_image_stack expects:
-        # x0y0: Dict[str, array(n_frames, 2, n_molecules)]
-        # n_photons: Dict[str, array(n_frames)]  -- BUT we need per-molecule!
-        # dye_pixel_efficiency: array(n_molecules, 3) or (3,)
-
-        # Since gen_camera_image_stack expects single photon count per dye per frame,
-        # we need to call it frame-by-frame with individual molecules
-
-        logger.info("Generating %d frames with %d molecules...", n_frames, merged_positions.shape[2])
-
-        w, h = camera_parameters['gain'].shape
-        bayer_image_stack = np.zeros((n_frames, w, h))
-        smoothed_image_stack = np.zeros((n_frames, w, h))
-
-        # Process frame by frame
-        for frame_idx in range(n_frames):
-            # For this frame, create x0y0 and n_photons for each molecule
-            # Each "molecule" is treated as a separate "dye"
-
-            frame_x0y0 = {}
-            frame_n_photons = {}
-
-            for mol_idx in range(merged_positions.shape[2]):
-                mol_name = f"mol_{mol_idx}"
-
-                # Position for this molecule: (2, 1)
-                frame_x0y0[mol_name] = merged_positions[frame_idx, :, mol_idx:mol_idx+1]
-
-                # Photons for this molecule: scalar
-                frame_n_photons[mol_name] = merged_photons[frame_idx, mol_idx]
-
-            # Call gen_camera_image_stack for this frame
-            # Use merged_efficiencies (different per molecule)
-            bayer_frame, smoothed_frame, _ = sim_funcs.gen_camera_image_stack(
-                camera_calibration=camera_parameters,
-                wavelength=wavelength,
-                average_emission_wavelengths=np.array(all_wavelengths),
-                dye_pixel_efficiency=merged_efficiencies,
-                n_photons=frame_n_photons,
-                x0y0=frame_x0y0,
-                smoothing_function=smoothing_function,
-                background_photons=background_photons,
-                background_colour=background_colour,
-                NA=NA,
-                pixel_size=pixel_size,
-                return_normal_image=False,
-            )
-
-            bayer_image_stack[frame_idx] = bayer_frame
-            smoothed_image_stack[frame_idx] = smoothed_frame
-
-            if frame_idx % 10 == 0:
-                logger.debug("  Frame %d/%d complete", frame_idx, n_frames)
-
-        logger.info("Image generation complete!")
-
-        # Save TIFF if requested
-        if save_tiff:
-            io_funcs.write_tiff(bayer_image_stack.astype(np.uint16), output_path)
-            logger.info("Saved TIFF stack to: %s", output_path)
-
-        return bayer_image_stack, smoothed_image_stack
 
     def generate_ground_truth_rgb_video(
         self,

@@ -105,6 +105,7 @@ class AnalysisPipeline:
         self._sr: Any | None = None
         self._sm: Any | None = None
         self._dcf: Any | None = None
+        self._nile_red: Any | None = None
 
         # Calibration state — populated by load_calibration() or calibrate()
         self.gain_map: NDArray[np.float32] | None = None
@@ -157,6 +158,17 @@ class AnalysisPipeline:
             )
         return self._dcf
 
+    @property
+    def nile_red(self) -> Any:
+        """Lazily-created :class:`~NileRedFunctions.NileRed_Functions` instance."""
+        if self._nile_red is None:
+            import pyS3M.NileRedFunctions as NileRedFunctions
+            self._nile_red = NileRedFunctions.NileRed_Functions(
+                camera=self.camera,
+                pixel_size=self.pixel_size,
+            )
+        return self._nile_red
+
     # ------------------------------------------------------------------
     # Calibration
     # ------------------------------------------------------------------
@@ -194,7 +206,7 @@ class AnalysisPipeline:
         if self.config.logging_callback:
             self.config.logging_callback(f"Calibration loaded from {cal_dir}")
 
-    def calibrate(self, cal_dir: Path | str, imtype: str = ".tif") -> None:
+    def calibrate(self, cal_dir: Path | str, imtype: str = ".tif", mode: str = "rgb") -> None:
         """Compute calibration from flat-field / dark frames in *cal_dir*.
 
         Runs :meth:`~CalibrationFunctions.Calibration_Functions.calibrate_multicolour_camera`
@@ -203,6 +215,10 @@ class AnalysisPipeline:
         Args:
             cal_dir: Directory containing flat-field and dark-frame images.
             imtype: Image file extension (default ``".tif"``).
+            mode: ``"rgb"`` (default) expects one flat-field subfolder per
+                Bayer colour; ``"nir"`` expects exactly one flat-field
+                subfolder (any name), applied uniformly to every pixel —
+                see :meth:`~CalibrationFunctions.Calibration_Functions.calibrate_multicolour_camera`.
 
         Raises:
             RuntimeError: If :meth:`~CalibrationFunctions.Calibration_Functions.calibrate_multicolour_camera`
@@ -210,7 +226,7 @@ class AnalysisPipeline:
         """
         import pyS3M.CalibrationFunctions as CalibrationFunctions
         cf = CalibrationFunctions.Calibration_Functions(camera=self.camera)
-        result = cf.calibrate_multicolour_camera(cal_dir, imtype=imtype)
+        result = cf.calibrate_multicolour_camera(cal_dir, imtype=imtype, mode=mode)
         if result is None:
             raise RuntimeError(
                 f"calibrate_multicolour_camera returned None for {cal_dir}"

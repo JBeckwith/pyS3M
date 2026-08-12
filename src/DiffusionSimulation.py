@@ -12,9 +12,5 @@ from pyS3M.simulation.diffusion import (  # noqa: F401
     DiffusionSimulator2D,
     compute_msd_from_trajectory,
     estimate_D_from_msd,
-    autocorrFFT,
-    msd_fft,
-    PMin_XM,
-    estimate_D_OLSF,
     CameraAdapter,
 )

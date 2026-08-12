@@ -540,38 +540,6 @@ class Spectral_Funcs:
         moments = np.array([m0, m1, m2, m3])
         return moments[:order]
 
-    def spectral_initial_guess(
-        self, spectrum: np.ndarray, wavelength: np.ndarray, model_length: int = 3
-    ) -> np.ndarray:
-        """Generate initial parameter guess for spectral fitting.
-
-        Args:
-            spectrum: Spectral intensity data.
-            wavelength: Wavelength array.
-            model_length: Number of parameters for initial guess (3 for Gaussian, 4 for skewed).
-
-        Returns:
-            Initial parameter guess array with NaN values replaced by zeros.
-        """
-        # Convert to energy domain for better fitting properties
-        energy = self.wavelength_to_energy(wavelength)
-
-        # Apply weighting factor for dipole moment representation
-        weighting_factor = energy ** (-3) * wavelength**2
-        spectrum_weighted = spectrum * weighting_factor
-
-        # Sort by energy for proper integration
-        sort_indices = np.argsort(energy)
-        energy_sorted = energy[sort_indices]
-        spectrum_sorted = spectrum_weighted[sort_indices]
-
-        # Calculate moments for initial guess
-        initial_guess = self.moment_calculations(
-            energy_sorted, spectrum_sorted, model_length
-        )
-
-        return np.nan_to_num(initial_guess)
-
     def wavelength_to_energy(self, wavelength: np.ndarray) -> np.ndarray:
         """Convert wavelength to photon energy.
 

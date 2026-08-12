@@ -1277,28 +1277,6 @@ class PosthenColourFittingProcessor(FittingProcessor):
             punctum, raw_punctum, smoothed_punctum, weights, masks, relative_coords
         )
 
-    def _generate_initial_guess(
-        self, smoothed_punctum: np.ndarray, masks: np.ndarray
-    ) -> np.ndarray:
-        """Generate initial guess for post-colour fitting."""
-        centre = np.array(smoothed_punctum.shape) // 2
-        max_val = np.max(smoothed_punctum)
-
-        return np.array(
-            [
-                centre[1],
-                centre[0],  # x, y
-                1.0,
-                1.0,  # sigmas
-                max_val * 0.4,
-                max_val * 0.6,  # Enhanced colour ratios
-                np.min(smoothed_punctum),
-                np.min(smoothed_punctum),  # backgrounds
-                0.0,
-                0.0,  # theta, offset
-            ]
-        )
-
     def _perform_posthencolour_fit(
         self,
         grayscale_punctum: np.ndarray,
@@ -1390,7 +1368,9 @@ class PosthenColourFittingProcessor(FittingProcessor):
             )
 
             # Calculate errors for colour component
-            perr_colour_leastsq = FittingResultProcessor.calculate_errors(pcov_colour)
+            perr_colour_leastsq = FittingResultProcessor.calculate_errors(
+                pcov_colour, FittingStrategy.RAWCOLOUR
+            )
 
             # Combine position and colour results
             pfit_leastsq = np.concatenate(

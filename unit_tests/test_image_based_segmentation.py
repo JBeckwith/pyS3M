@@ -13,19 +13,10 @@ Author: Claude Code / jbeckwith
 Date: 2025-11-03
 """
 
-import sys
-import os
 import numpy as np
 import pandas as pd
 
-# Add src to path
-
-import pytest
-
 from pyS3M.postprocess import segment_locs_by_rendered_image
-import pyS3M.IOFunctions as IOFunctions
-
-IO = IOFunctions.IO_Functions()
 
 
 def test_basic_segmentation():
@@ -89,83 +80,6 @@ def test_basic_segmentation():
     print(f"Total localizations in aggregates: {len(aggregate_locs)}")
     print(f"\nPer-aggregate statistics:")
     print(stats)
-
-    return aggregate_locs, stats
-
-
-@pytest.mark.skip(
-    reason="Needs an 'h5_file_path' fixture that is not defined anywhere "
-    "(not in this file, not in any conftest.py) -- this test could never "
-    "have run. Needs a real fixture (e.g. parametrized via a --h5-file-path "
-    "CLI option, or a bundled small localisations.h5 fixture) before it can "
-    "be un-skipped."
-)
-def test_with_real_data(h5_file_path):
-    """Test with real experimental data."""
-    print("\n" + "=" * 60)
-    print("Test 2: Segmentation with Real Data")
-    print("=" * 60)
-
-    # Load data
-    print(f"Loading data from: {h5_file_path}")
-    locs = pd.read_hdf(h5_file_path)
-
-    print(f"Loaded {len(locs)} localizations")
-    print(f"Columns: {list(locs.columns)}")
-
-    # Estimate image dimensions
-    width = np.ceil(locs["xc"].max()).astype(int) + 10
-    height = np.ceil(locs["yc"].max()).astype(int) + 10
-
-    print(f"Image dimensions: {width} x {height} pixels")
-
-    # Run segmentation
-    aggregate_locs, stats = segment_locs_by_rendered_image(
-        locs,
-        width=width,
-        height=height,
-        oversampling=8,
-        min_area_nm2=3_100_000.0,  # 3.1 µm² minimum area
-        min_localisations=100,
-        threshold_method="li",  # Li thresholding often works better for real data
-        callback="console",
-    )
-
-    print("\n" + "=" * 60)
-    print("Results:")
-    print("=" * 60)
-    print(f"Total aggregates found: {len(stats)}")
-    print(f"Total localizations in aggregates: {len(aggregate_locs)}")
-    print(
-        f"Percentage of localizations in aggregates: "
-        f"{100 * len(aggregate_locs) / len(locs):.1f}%"
-    )
-
-    print(f"\nAggregate size distribution:")
-    print(f"  Min area: {stats['area_nm2'].min():.1f} nm²")
-    print(f"  Max area: {stats['area_nm2'].max():.1f} nm²")
-    print(f"  Mean area: {stats['area_nm2'].mean():.1f} nm²")
-
-    print(f"\nLocalizations per aggregate:")
-    print(f"  Min: {stats['n_localizations'].min()}")
-    print(f"  Max: {stats['n_localizations'].max()}")
-    print(f"  Mean: {stats['n_localizations'].mean():.1f}")
-
-    # Save results
-    output_dir = os.path.dirname(h5_file_path)
-    base_name = os.path.splitext(os.path.basename(h5_file_path))[0]
-
-    aggregate_locs_path = os.path.join(
-        output_dir, f"{base_name}_aggregatelocs.h5"
-    )
-    stats_path = os.path.join(output_dir, f"{base_name}_aggregatestats.h5")
-
-    aggregate_locs.to_hdf(aggregate_locs_path, key="locs", mode="w")
-    stats.to_hdf(stats_path, key="stats", mode="w")
-
-    print(f"\nSaved results:")
-    print(f"  Aggregate localizations: {aggregate_locs_path}")
-    print(f"  Aggregate statistics: {stats_path}")
 
     return aggregate_locs, stats
 

@@ -8,16 +8,13 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import sys
-import gc
 
 sys.path.append(str(Path(__file__).parent))
 import pyS3M.IOFunctions as IOFunctions
-from pyS3M.Constants import DriftConstants, FilteringConstants, FilteringCriteria
+from pyS3M.Constants import FilteringConstants, FilteringCriteria
 from pyS3M.clustering import ClusteringBaseMixin, HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin
 from pyS3M.mixture_analysis import MixtureAnalysisMixin
 from pyS3M.channel_unmixing import ChannelUnmixingMixin
-import logging
-logger = logging.getLogger(__name__)
 
 
 
@@ -203,40 +200,6 @@ class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
         df = pd.DataFrame.from_dict(dict_obj)
         # Normalise photon fractions using centralised IOFunctions method
         return df
-
-    def collect_traces(self, data, dbscan_labels, image_stack, image_size=12):
-        """
-        Collect intensity traces for clustered single molecules.
-
-        Args:
-            data (pd.DataFrame): Localization data with positions
-            dbscan_labels (np.array): Cluster labels from DBSCAN/HDBSCAN
-            image_stack (np.array): Full image stack [frames, x, y]
-            image_size (int): Size of extraction window around molecule
-
-        Returns:
-            tuple: (locations, trace_matrix) where locations are [x,y] positions
-                   and trace_matrix is [molecules, frames] intensity traces
-        """
-        labels = np.sort(np.unique(dbscan_labels))
-        labels = labels[labels > -1]
-        trace_matrix = np.zeros([len(labels), image_stack.shape[0]])
-        locations = np.zeros([2, len(labels)])
-
-        for i, label in enumerate(labels):
-            locations[0, i] = np.nanmean(data["xc"][dbscan_labels == label].to_numpy())
-            locations[1, i] = np.nanmean(data["yc"][dbscan_labels == label].to_numpy())
-            xmin = int(locations[0, i]) - int(image_size / 2)
-            xmax = int(locations[0, i]) + int(image_size / 2)
-            ymin = int(locations[1, i]) - int(image_size / 2)
-            ymax = int(locations[1, i]) + int(image_size / 2)
-            # Extract ROI using correct indexing [frame, y, x]
-            trace_matrix[i, :] = np.sum(
-                np.sum(image_stack[:, ymin:ymax, xmin:xmax], axis=-1), axis=-1
-            )
-            logger.debug("Summed trace {}/{}".format(i + 1, len(labels)))
-
-        return locations, trace_matrix
 
     # ------------------------------------------------------------------
     # Clustering methods: HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin

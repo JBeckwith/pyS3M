@@ -6,14 +6,19 @@ from PyQt6.QtCore import pyqtSignal
 
 
 class ChannelUnmixingPanel(QWidget):
-    """Controls for spectral channel unmixing (channel_unmixing.unmix_channels),
-    run on the post-clustering per-molecule table (sm_db) — its averaged A_R/A_G
-    values give much tighter spectral clusters than any single-frame row, so this
-    panel is only enabled once clustering has produced sm_db. Once unmixing has
-    run and sm_db carries a categorical `channel` column, the "Per-Channel FRC"
-    group below becomes available so resolution can be re-estimated separately
-    per dye population, rather than FRCPanel growing its own colour-based split
-    (see claude/gui.md §3.2a's noted future integration)."""
+    """Controls for spectral channel unmixing (channel_unmixing.unmix_channels).
+
+    Enabled as soon as there's any analysed data (fitted, undrifted, or
+    clustered) — MainWindow picks the best-available localisation table to run
+    on: the post-clustering per-molecule table (sm_db) if clustering has
+    happened (its averaged A_R/A_G values give much tighter spectral clusters
+    than any single-frame row), otherwise the undrifted or raw per-frame fitted
+    locs, letting a user preview unmixing before committing to the full
+    pipeline. Only a run against sm_db is written back into it and unlocks the
+    "Per-Channel FRC" group below (which needs the real clustered/molecule-level
+    table); earlier-stage runs are preview-only, rather than FRCPanel growing
+    its own colour-based split (see claude/gui.md §3.2a's noted future
+    integration)."""
 
     # n_channels, channels_to_use, confidence_threshold, outlier_rejection
     unmixing_requested = pyqtSignal(int, list, float, str)
@@ -161,7 +166,7 @@ class ChannelUnmixingPanel(QWidget):
         self._frc_run_btn.setText("Running…" if busy else "Run FRC per Channel")
 
     def on_state_changed(self, state: str):
-        self._enabled_by_state = state == "clustered"
+        self._enabled_by_state = state in ("fitted", "undrifted", "clustered")
         if not self._run_btn.text().startswith("Running"):
             self._run_btn.setEnabled(self._enabled_by_state)
             self._frc_run_btn.setEnabled(self._enabled_by_state and bool(self._channel_checks))
