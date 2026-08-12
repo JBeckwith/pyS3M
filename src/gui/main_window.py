@@ -1172,18 +1172,40 @@ class MainWindow(QMainWindow):
     # Channel unmixing
     # ------------------------------------------------------------------
 
+    def _unmixing_source_locs(self) -> pd.DataFrame | None:
+        """Best-available localisation table for channel unmixing.
+
+        Prefers the post-clustering per-molecule table (sm_db) — its averaged
+        A_R/A_G values give much tighter spectral clusters than any
+        single-frame row — but falls back to undrifted or raw per-FOV fitted
+        locs so a user can try unmixing as soon as there's any analysed data,
+        not only once clustering has produced sm_db.
+        """
+        if self._sm_db is not None and not self._sm_db.empty:
+            return self._sm_db
+        if self._undrifted_locs is not None and not self._undrifted_locs.empty:
+            return self._undrifted_locs
+        if self._fov_data:
+            return pd.concat([locs for locs, _ in self._fov_data], ignore_index=True)
+        return None
+
     def _on_channel_unmixing(
         self, n_channels: int, channels_to_use: list, confidence_threshold: float,
         outlier_rejection: str,
     ):
         if self._worker_running() or self.pipeline is None:
             return
-        if self._sm_db is None or self._sm_db.empty:
-            return  # button is state-gated to "clustered", but guard anyway
+        loc_data = self._unmixing_source_locs()
+        if loc_data is None or loc_data.empty:
+            return  # button is state-gated, but guard anyway
+        # sm_db identity check (not equality) at completion time to decide
+        # whether to write results back into it, since the run's own input
+        # will otherwise be indistinguishable from an sm_db-derived result.
+        ran_on_sm_db = loc_data is self._sm_db
 
         def _do():
             assigned, metadata = self.pipeline.sm.unmix_channels(
-                self._sm_db,
+                loc_data,
                 n_channels=n_channels,
                 channels_to_use=channels_to_use,
                 confidence_threshold=confidence_threshold,
@@ -1192,7 +1214,7 @@ class MainWindow(QMainWindow):
                 plot_results=False,
             )
             fig = self._make_channel_unmixing_figure(assigned, channels_to_use, metadata)
-            return assigned, fig
+            return assigned, fig, ran_on_sm_db
 
         worker = self._start_worker(_do)
         worker.result.connect(self._on_channel_unmixing_done)
@@ -1200,12 +1222,18 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_channel_unmixing_done(self, result):
-        assigned, fig = result
-        self._sm_db = assigned  # adds 'channel'/'channel_confidence'/... columns in place
+        assigned, fig, ran_on_sm_db = result
         self.channel_unmixing_panel.set_busy(False)
         self.progress_widget.update(1.0, "Channel unmixing complete")
-        channels = sorted(int(c) for c in assigned["channel"].unique() if c >= 0)
-        self.channel_unmixing_panel.set_available_channels(channels)
+        if ran_on_sm_db:
+            self._sm_db = assigned  # adds 'channel'/'channel_confidence'/... columns in place
+            channels = sorted(int(c) for c in assigned["channel"].unique() if c >= 0)
+            self.channel_unmixing_panel.set_available_channels(channels)
+        else:
+            # Pre-clustering preview: show the assignment figure but don't
+            # promote it into sm_db -- Per-Channel FRC and downstream steps
+            # still need the real clustered table.
+            self.channel_unmixing_panel.set_available_channels([])
         if fig is not None:
             self.results_panel.set_unmixing_figure(fig)
 
