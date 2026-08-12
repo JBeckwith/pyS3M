@@ -705,3 +705,22 @@ class TestGenerateGroundTruthRgbVideo:
         )
         assert out.exists()
         assert _dir in sys.path
+
+
+class TestDiffusionSimulationBackwardCompatShim:
+    """pyS3M.DiffusionSimulation is a pure re-export shim (see its own module
+    docstring) kept only so old-style `from src.DiffusionSimulation import X`
+    imports (still used by some developer-branch notebooks) keep working.
+    Identity checks, not just import-succeeds, so a future rename in
+    simulation/diffusion.py that forgets to update the shim gets caught."""
+
+    def test_reexports_are_the_same_objects(self):
+        import pyS3M.DiffusionSimulation as shim
+
+        assert shim.Molecule is diff.Molecule
+        assert shim.BindingKinetics is diff.BindingKinetics
+        assert shim.LangevinDiffusion2D is diff.LangevinDiffusion2D
+        assert shim.DiffusionSimulator2D is diff.DiffusionSimulator2D
+        assert shim.compute_msd_from_trajectory is diff.compute_msd_from_trajectory
+        assert shim.estimate_D_from_msd is diff.estimate_D_from_msd
+        assert shim.CameraAdapter is diff.CameraAdapter
