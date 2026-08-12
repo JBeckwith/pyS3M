@@ -3,18 +3,8 @@
 Full coverage tests for pyS3M.localise -- the net-gradient local-maxima
 detector (local_maxima / gradient_at / net_gradient / identify_in_image).
 
-Part of the coverage push (claude/TODO.md PRIORITY 1). localise.py was
-trimmed from 19 functions down to these 4 (2026-08-11) -- an exhaustive
-caller audit (src/, gui/, unit_tests/, notebooks on both main and the
-developer branch) found the other 15 had zero callers anywhere: the real
-fitting pipeline (SR_Functions.py) reimplements spot-cutting and
-ADU-to-photon conversion under entirely different names
-(`_process_roi`/`IOFunctions.convert_to_photoelectrons`), and NeNA/kinetics
-checking isn't used by the pipeline at all. `identify_in_image` (and its
-three numba helpers) is the only part of this module actually called
-anywhere -- from drift_correction/'s fiducial peak-finding (already
-exercised indirectly there, but not asserted on directly until this file).
-See claude/LOG.md for the full audit and deletion record.
+`identify_in_image` (and its three numba helpers) is called from
+`drift_correction/`'s fiducial peak-finding.
 
 All four functions are `@numba.jit(nopython=True)` -- once JIT-compiled they
 run as machine code that bypasses Python's trace hooks entirely, so

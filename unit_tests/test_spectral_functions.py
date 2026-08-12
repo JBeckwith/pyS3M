@@ -11,14 +11,6 @@ meaningful on literal 4-6 element arrays, matching the `NileRedFunctions.py`/
 `mixture_analysis.py` precedent from this same coverage push. `differential_evolution`
 in `spectral_fit_dye` converges in well under a second on real ~60-point dye spectra,
 so no monkeypatching was needed for speed there.
-
-Deleted 1 confirmed-dead method while auditing this file (zero callers anywhere, main
-or developer branch, including notebooks): `spectral_initial_guess`. Two other
-low-hit-count candidates turned out to be real: `spectral_fit_dye` and
-`get_absolute_pixel_QYs` are both used in `developer`-branch SI notebooks;
-`moment_calculations` (only called by the now-dead `spectral_initial_guess` on `main`)
-is independently used directly in `developer:notebooks/figures/SI/
-Beckwith_Failure_Metric.ipynb`.
 """
 from __future__ import annotations
 

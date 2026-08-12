@@ -12,33 +12,19 @@ Created on August 21, 2025
 
 import sys
 from contextlib import contextmanager
-from typing import Optional, Any, Dict, Union, Iterable
+from typing import Optional, Any, Dict, Iterable
 import os
 
 try:
-    # Check if we're in a Jupyter notebook
-    if "ipykernel" in sys.modules:
-        from tqdm.notebook import tqdm as notebook_tqdm
-        from tqdm import tqdm as text_tqdm
+    # Default to text-based tqdm for better compatibility with carriage return
+    # updates (used in both notebook and terminal environments).
+    from tqdm import tqdm as base_tqdm
 
-        NOTEBOOK_ENV = True
-    else:
-        from tqdm import tqdm as text_tqdm
-
-        notebook_tqdm = None
-
-        NOTEBOOK_ENV = False
-
-    # Default to text-based tqdm for better compatibility with carriage return updates
-    base_tqdm = text_tqdm
     TQDM_AVAILABLE = True
 
 except ImportError:
     # Fallback if tqdm not available - use mock implementation
-    text_tqdm = None
-    notebook_tqdm = None
     base_tqdm = None
-    NOTEBOOK_ENV = False
     TQDM_AVAILABLE = False
 
 
@@ -114,18 +100,6 @@ class ProgressBarConfig:
         )
 
         return base_kwargs
-
-    @classmethod
-    def get_styled_kwargs(cls, colour: Optional[str] = None) -> Dict[str, Any]:
-        """Get styled keyword arguments with color support."""
-        kwargs = cls.get_default_kwargs()
-
-        # Add styling if terminal supports it
-        if colour and hasattr(base_tqdm, "_supports_color"):
-            kwargs["colour"] = colour
-            kwargs["bar_format"] = cls.DEFAULT_BAR_FORMAT
-
-        return kwargs
 
 
 @contextmanager
@@ -238,49 +212,6 @@ def clean_progress_bar(
             sys.stderr.flush()
 
 
-def progress_wrapper(
-    func, iterable: Iterable, desc: str = "Processing", **progress_kwargs
-):
-    """
-    Generator function that applies a function to an iterable with progress tracking.
-
-    Args:
-        func: Function to apply to each item
-        iterable: Items to process
-        desc: Progress bar description
-        **progress_kwargs: Additional progress bar arguments
-
-    Yields:
-        Generator yielding (item, result) tuples
-
-    Example:
-        items = [1, 2, 3, 4, 5]
-
-        for item, result in progress_wrapper(lambda x: x**2, items, "Squaring numbers"):
-            # Process results
-            pass
-    """
-    with clean_progress_bar(iterable=iterable, desc=desc, **progress_kwargs) as pbar:
-        for item in pbar:
-            result = func(item)
-            yield item, result
-
-
-def silent_progress_bar(*args, **kwargs):
-    """
-    Create a silent progress bar that can be used when progress display is disabled.
-
-    This is useful for maintaining the same API when progress bars should be
-    conditionally disabled (e.g., in non-interactive environments).
-
-    Returns:
-        tqdm object with disabled output
-    """
-    kwargs["disable"] = True
-    kwargs["leave"] = False
-    return base_tqdm(*args, **kwargs)
-
-
 class ProgressBarManager:
     """
     Manager class for coordinating multiple progress bars and handling global settings.
@@ -304,29 +235,6 @@ class ProgressBarManager:
             "PYBAYERSMLM_NO_PROGRESS", ""
         ).lower() in ("1", "true", "yes")
 
-    def get_progress_bar(self, *args, **kwargs):
-        """Get a progress bar with global settings applied."""
-        if self.is_globally_disabled():
-            kwargs["disable"] = True
-
-        # Apply default configuration
-        final_kwargs = self._default_config.copy()
-        final_kwargs.update(kwargs)
-
-        return base_tqdm(*args, **final_kwargs)
-
-    @contextmanager
-    def managed_progress_bar(self, *args, **kwargs):
-        """Context manager for managed progress bars."""
-        pbar = None
-        try:
-            pbar = self.get_progress_bar(*args, **kwargs)
-            yield pbar
-        finally:
-            if pbar is not None:
-                pbar.close()
-            sys.stdout.flush()
-
 
 # Global progress bar manager instance
 progress_manager = ProgressBarManager()
@@ -349,11 +257,6 @@ def set_progress_enabled(enabled: bool):
     progress_manager.set_global_disable(not enabled)
 
 
-def is_progress_enabled() -> bool:
-    """Check if progress bars are currently enabled."""
-    return not progress_manager.is_globally_disabled()
-
-
 # Convenience functions for common use cases
 def fitting_progress_bar(total: int, **kwargs) -> "contextmanager":
     """Progress bar optimised for fitting operations."""
@@ -369,33 +272,13 @@ def analysis_progress_bar(total: int, **kwargs) -> "contextmanager":
     return clean_progress_bar(total=total, **kwargs)
 
 
-def io_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimised for I/O operations."""
-    kwargs.setdefault("desc", "Processing files")
-    kwargs.setdefault("colour", "cyan")
-    return clean_progress_bar(total=total, **kwargs)
-
-
-def simulation_progress_bar(total: int, **kwargs) -> "contextmanager":
-    """Progress bar optimised for simulation operations."""
-    kwargs.setdefault("desc", "Running simulation")
-    kwargs.setdefault("colour", "magenta")
-    return clean_progress_bar(total=total, **kwargs)
-
-
 # For backward compatibility, export common tqdm functionality
 __all__ = [
     "clean_progress_bar",
-    "progress_wrapper",
     "ProgressBarConfig",
     "ProgressBarManager",
     "progress_manager",
     "set_progress_enabled",
-    "is_progress_enabled",
     "fitting_progress_bar",
     "analysis_progress_bar",
-    "io_progress_bar",
-    "simulation_progress_bar",
-    "silent_progress_bar",
-    "NOTEBOOK_ENV",
 ]

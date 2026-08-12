@@ -7,16 +7,6 @@ calls converge cleanly and quickly without any file/fixture I/O. Failure and
 exception branches (leastsq non-converged success codes, malformed inputs)
 are reached via `monkeypatch` on `scipy.optimize.leastsq` / `gaussoptfuncs`,
 since realistic small data essentially never fails to converge on its own.
-
-Found and fixed one real bug while writing these tests: PosthenColourFittingProcessor
-._perform_posthencolour_fit called FittingResultProcessor.calculate_errors(pcov_colour)
-missing the required `strategy` argument -- this always raised TypeError, silently
-caught by the method's own except-block, so POSTHENCOLOUR fitting never produced a
-real result. Fixed to pass strategy=FittingStrategy.RAWCOLOUR (the model the
-colour-fit stage actually uses). Also deleted a confirmed-dead method,
-PosthenColourFittingProcessor._generate_initial_guess (zero callers anywhere,
-including its own class -- _perform_posthencolour_fit builds the initial guess via
-gaussoptfuncs.initial_guess directly instead).
 """
 from __future__ import annotations
 

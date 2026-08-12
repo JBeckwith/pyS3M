@@ -10,15 +10,6 @@ file fills the remaining gaps: small branch-level tests for the private helpers
 no image data needed), and dedicated small-synthetic-TIFF tests for the 4 large
 pipeline methods (example_spots_singleframe, fit_FRET_data, fit_QD_data,
 fit_tracking_data) that nothing else in the suite currently touches.
-
-Per this session's usage audit (checked src/, gui/, unit_tests/, notebooks on
-main and the entire developer branch), two confirmed-dead pieces were removed
-from SR_Functions.py before writing these tests: the multi-file `_extract_roi_traces`
-(zero callers anywhere -- only its sibling `_extract_roi_traces_single_file` is
-used) and `example_spots_singleframe`'s AnalysisPlotter-import fallback (dead --
-PlottingBase always imports successfully -- and broken: it called
-`two_column_plot(ncolumns=..., widthratio=..., heightratio=...)`, kwargs that
-don't exist on the real signature).
 """
 from __future__ import annotations
 

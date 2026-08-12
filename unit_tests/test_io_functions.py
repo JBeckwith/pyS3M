@@ -7,12 +7,6 @@ directly in `tmp_path`), no large fixtures. `monkeypatch` is used to reach
 branches no small real file can reach on its own: forced I/O exceptions
 (corrupted TIFF pages, memmap failures, encoding errors), a >10MB file-size
 gate, and HDF5 schema-mismatch dtype coercion paths.
-
-Deleted 6 confirmed-dead methods while auditing this file (zero callers
-anywhere -- src/, gui/, unit_tests/, notebooks on main, and the entire
-developer branch): `_apply_frame_offset`, `_write_csv_dataframe`,
-`make_directory`, `write_json`, `process_roi_to_photoelectrons`,
-`save_simulation_results_pixelsize`.
 """
 from __future__ import annotations
 

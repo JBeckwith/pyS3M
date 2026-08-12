@@ -2,18 +2,6 @@
 """
 Full coverage tests for pyS3M.channel_unmixing (ChannelUnmixingMixin).
 
-Checked usage across src/, unit_tests/, and both main/developer-branch
-notebooks first (same workflow as the rest of this session's coverage push).
-Deleted (per user decision, 2026-08-11) an entire dead chain rooted at
-`unmix_channels_with_spatial_refinement` (8 methods, ~930 lines) -- the
-code's own header comment already said it was "[REPLACED] ... retained for
-reference but disabled", superseded by `unmix_channels_joint_cluster`.
-
-Everything tested below is real: `unmix_channels` (GUI's
-ChannelUnmixingPanel, test_pygmmis_integration.py), `unmix_channels_joint_cluster`
-(developer-branch DNA-PAINT notebook), `find_exemplar_dye_pair`/
-`get_exemplar_crop` (developer-branch dye-discrimination notebooks).
-
 Uses deliberately tiny synthetic datasets (tens of points, not thousands) so
 GMM/pygmmis fitting stays fast -- these are unit tests for branch coverage,
 not statistical-accuracy benchmarks.

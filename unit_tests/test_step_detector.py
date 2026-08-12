@@ -3,14 +3,6 @@
 Full coverage tests for pyS3M.StepDetector -- Gaussian/Poisson likelihood-
 ratio change-point detection (Watkins & Yang 2005 / Jiang's findcp.m).
 
-Checked usage first (same workflow as the rest of this session's coverage
-push): zero callers anywhere in src/, unit_tests/, or main-branch notebooks,
-but one real, working call site on the developer branch
-(notebooks/figures/SI/SI_Single_Dye_Photobleaching.ipynb):
-`StepDetector(win_size=CP_WIN_SIZE, alpha=CP_ALPHA, estimator='gaussian')`.
-Nothing here is dead -- a small, self-contained algorithmic module that
-simply never had a dedicated test file. No deletions.
-
 Uses deliberately tiny hand-built arrays (tens of points, not real
 acquisitions) -- these are unit tests for branch coverage, not statistical
 benchmarks.

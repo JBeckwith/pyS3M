@@ -1,8 +1,5 @@
 """Full coverage tests for pyS3M.HelperFunctions -- ROI geometry, parallel-chunk
 distribution, metadata-fallback file search, and elapsed-time formatting helpers.
-
-Deleted 1 confirmed-dead method while auditing this file: `clean_database` (zero
-callers anywhere, main or developer -- only its own docstring mentions it).
 """
 import types
 

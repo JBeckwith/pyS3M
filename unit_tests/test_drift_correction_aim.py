@@ -2,28 +2,20 @@
 """
 Full coverage tests for pyS3M.drift_correction.aim — AIMDriftCorrector.
 
-Part of the drift_correction/ package coverage push (claude/TODO.md PRIORITY 1).
 The 2D AIM path's core intersection-counting/FFT-peak machinery is already
 exercised by unit_tests/test_drift_correction.py and
 unit_tests/test_drift_correction_simple.py -- this file fills the remaining
-gaps found by the real coverage baseline:
+gaps:
 
 - The 3D AIM path (_intersection_max_z / _point_intersect_3d / _get_fft_peak_z /
-  _run_aim_3d). Confirmed unused anywhere else in this codebase (not called by
-  the GUI drift panel, AnalysisPipeline, or any notebook) but it is real,
-  reachable code, not dead code -- per user decision (2026-08-11), tested
-  properly rather than excluded.
+  _run_aim_3d) -- not called by the GUI drift panel, AnalysisPipeline, or any
+  notebook, but real, reachable code.
 - The 1-indexed-frames branch of _intersection_max and _cubic_spline_interpolation
   (existing tests only exercise 0-indexed frames).
 - The explicit progress_callback branch of _intersection_max (existing tests
   only exercise the default clean_progress_bar path).
 - The sparse-segment carry-forward branch (a segment with zero localisations
   that isn't the first one processed).
-
-Note: the previously-dead `use_vectorized=False` frame-by-frame branch has
-been deleted from aim.py entirely (2026-08-11, per user decision) rather than
-tested -- it was hardcoded unreachable (use_vectorized was a local literal,
-never False), so there was nothing to preserve.
 """
 from __future__ import annotations
 
@@ -97,8 +89,7 @@ class Test2DFrameIndexing:
 
 
 class Test3DAIM:
-    """3D AIM is unused elsewhere in the codebase but is real, reachable
-    code -- tested properly rather than excluded (user decision 2026-08-11)."""
+    """3D AIM is unused elsewhere in the codebase but is real, reachable code."""
 
     def test_calculate_drift_with_z_field_runs_3d_path(self):
         locs, info = _small_3d_locs_and_info()

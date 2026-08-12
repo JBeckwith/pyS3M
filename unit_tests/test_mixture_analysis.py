@@ -9,9 +9,6 @@ unlike pure-numeric modules a handful of points isn't enough for convergence; th
 data is kept as small as still reliably converges. `monkeypatch` is used only for
 branches no real data organically reaches (forced component-assignment edge cases,
 forced singular-matrix recovery, forced import/fit failures).
-
-No dead code and no bugs found while writing these tests (unlike several other files
-audited this session) -- this was a clean audit, confirmed separately in this session.
 """
 from __future__ import annotations
 
@@ -258,6 +255,67 @@ class TestFitGmmPygmmis:
         )
         assert converged is False
         np.testing.assert_allclose(means, initial_means)
+
+    def test_macos_patches_and_restores_pygmmis_pool(self, monkeypatch):
+        # On macOS, pygmmis.fit's internal multiprocessing.Pool() must be
+        # swapped for _SerialPool for the duration of the call only (see
+        # _SerialPool's docstring in mixture_analysis.py) -- force the
+        # platform check to exercise that branch on this (non-macOS) CI box.
+        import pygmmis
+
+        monkeypatch.setattr(sys, "platform", "darwin")
+        original_pool = pygmmis.multiprocessing.Pool
+
+        host = _host()
+        X = _two_component_X(n_per=25, seed=12)
+        X_err = np.full_like(X, 0.02)
+        initial_means = np.array([MEAN0, MEAN1])
+        means, covs, weights, converged = host._fit_gmm_pygmmis(
+            X, X_err, initial_means, n_components=2, max_iter=20,
+        )
+        assert means.shape == (2, 2)
+        # Pool must be restored to the real multiprocessing.Pool afterward,
+        # not left patched to the serial stand-in.
+        assert pygmmis.multiprocessing.Pool is original_pool
+
+    def test_macos_restores_pool_even_on_fit_failure(self, monkeypatch):
+        import pygmmis
+
+        monkeypatch.setattr(sys, "platform", "darwin")
+        original_pool = pygmmis.multiprocessing.Pool
+
+        def _raise(*a, **kw):
+            raise RuntimeError("forced pygmmis failure")
+
+        monkeypatch.setattr(pygmmis, "fit", _raise)
+
+        host = _host()
+        X = _two_component_X(n_per=10, seed=13)
+        X_err = np.full_like(X, 0.02)
+        initial_means = np.array([MEAN0, MEAN1])
+        means, covs, weights, converged = host._fit_gmm_pygmmis(
+            X, X_err, initial_means, n_components=2,
+        )
+        assert converged is False
+        assert pygmmis.multiprocessing.Pool is original_pool
+
+
+class TestSerialPool:
+    """Direct tests for the macOS-only multiprocessing.Pool stand-in itself."""
+
+    def test_serial_pool_result_get_returns_wrapped_value(self):
+        result = mixture_analysis._SerialPoolResult(42)
+        assert result.get() == 42
+
+    def test_apply_async_runs_synchronously_and_returns_result(self):
+        pool = mixture_analysis._SerialPool()
+        result = pool.apply_async(lambda a, b: a + b, (2, 3))
+        assert result.get() == 5
+
+    def test_close_and_join_are_noops(self):
+        pool = mixture_analysis._SerialPool()
+        pool.close()
+        pool.join()
 
 
 # ======================================================================

@@ -18,17 +18,6 @@ duckdb-backed load takes ~0.5s) -- not literal tiny arrays, since the physics (s
 Gaussian emission model, quantum-efficiency-weighted RGB integration) needs a real
 grid to be meaningful. `_parallel_fit_wavelengths` uses tiny (2-4 item) fit_args lists
 so the real ProcessPoolExecutor path stays fast.
-
-Dead-code audit was NOT entirely clean initially -- a first grep-based pass missed 2
-real internal callers (`residuals_nile_red` passed by reference as `least_squares(fun=
-self.residuals_nile_red, ...)`, `_fit_nile_red_wavelength_standalone` passed by
-reference to `executor.submit(...)`) because they're referenced without a trailing "("
-that a naive grep catches; a closer read confirmed both are genuinely alive. Two
-methods were confirmed genuinely dead and deleted with user approval:
-`compute_sigma_psf_array` (thin `psf_funcs.sigma_PSF` wrapper) and
-`chi_squared_nile_red` (a `residuals_nile_red` convenience wrapper whose own
-docstring's stated purpose -- "avoid code duplication" -- was never actually consumed
-by any caller).
 """
 from __future__ import annotations
 

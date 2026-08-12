@@ -4,11 +4,6 @@ Full coverage tests for pyS3M.simulation.pattern_source -- turning a pattern
 image into per-dye candidate positions, blinking schedules, and (via
 simulate_acquisition) full synthetic Bayer acquisitions.
 
-Checked usage first: simulate_acquisition is real (used by
-notebooks/simulations/01_simulating_an_acquisition.ipynb and by
-claude/generate_test_fixtures.py to build every test_tiffs/ fixture this
-whole coverage push leans on). Nothing here is dead.
-
 Deliberately tiny throughout: small hand-built RGBA arrays (tens of pixels)
 for the pure image/geometry functions, and n_frames=1-3 for the
 simulate_acquisition integration tests -- the rendered camera FOV is fixed

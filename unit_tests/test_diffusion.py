@@ -4,28 +4,6 @@ Full coverage tests for pyS3M.simulation.diffusion -- 2D Langevin diffusion,
 Gillespie binding/unbinding kinetics, MSD analysis, and the CameraAdapter
 bridge to camera-image rendering.
 
-Checked usage first (same workflow as the rest of this session's coverage
-push): real usage confirmed only on the developer branch
-(notebooks/simulation/DiffusionBinding_BasicTest.ipynb uses
-DiffusionSimulator2D/compute_msd_from_trajectory/estimate_D_from_msd;
-notebooks/tracking/Stepwise_Assembly_Simulation.ipynb uses
-DiffusionSimulator2D/BindingKinetics/CameraAdapter/
-generate_ground_truth_rgb_video) -- nothing in GUI or main-branch notebooks.
-
-Deleted (per user decision, 2026-08-11) three chunks confirmed to have zero
-callers anywhere including developer notebooks: the "OLSF MSD Analysis"
-suite (autocorrFFT/msd_fft/PMin_XM/estimate_D_OLSF -- the one developer
-notebook using a same-named msd_fft actually imports it from an unrelated
-external package, pyDiffusion_LeeLab, not this module); CameraAdapter.
-generate_tiff_stack (the developer notebook using CameraAdapter only calls
-generate_ground_truth_rgb_video); and BindingKinetics's microscopic binding
-mode (use_microscopic=True, calculate_mesoscopic_rates, and the microscopic
-branches inside __init__/can_bind/calculate_propensities/process_events).
-The microscopic mode did have a dedicated test file
-(test_simulator_microscopic_integration.py) that was missed in the initial
-usage audit (unit_tests/ wasn't checked, only src/, GUI, and notebooks) --
-deleted alongside the code once confirmed it had no real caller either.
-
 Deliberately tiny throughout: 2-4 molecules, 2-5 simulation steps, small
 areas -- these are unit tests for branch coverage, not statistically
 meaningful diffusion/kinetics validation.

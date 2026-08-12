@@ -3,34 +3,8 @@
 Full coverage tests for pyS3M.FiducialDetection -- FiducialDetector (detection/
 selection/validation logic) and DriftPlotter (its plotting utilities).
 
-Part of the coverage push (claude/TODO.md PRIORITY 1). This file was already at
-64% before any dedicated tests existed for it, as a side effect of the
-drift_correction/ real-fixture tests exercising it indirectly -- this file closes
-the remaining gaps directly, with small synthetic data throughout (no fixture
-needed; nothing here requires real acquisition data).
-
-While writing these tests, found and fixed three real, previously-latent bugs
-in this file's plotting code (2026-08-11) -- none were ever hit by prior usage
-because nothing exercised these code paths with real titles/colorbars/multi-row
-layouts before:
-- 7 call sites had a stale `plt.tight_layout()` (pre-dating PlottingBase's
-  switch to `constrained_layout` globally) -- one combination (a colorbar plus
-  the explicit tight_layout call, in `plot_fiducial_detection_results`) is
-  actively incompatible and raised `RuntimeError` every time, silently
-  swallowed by the method's own `except Exception`. All 7 removed; this file
-  was the only one in `src/` still calling `tight_layout()` after a
-  PlottingBase figure.
-- `PlottingBase.image_plot` referenced `self.config.axis_label_size`, a typo
-  for the real attribute `axis_labelsize` -- crashed any call passing a title
-  with `show_axes=False`, i.e. every call `plot_fiducial_detection_steps` made.
-- `plot_fiducial_detection_steps` treated `axes[2, :]` (an array of 2 Axes,
-  since `two_column_plot` has no gridspec-merge support) as a single Axes,
-  crashing on `.axis("off")`. Fixed to hide both and write the summary text on
-  one.
-Also removed several explicit oversized `width=`/`height=` overrides (e.g.
-`height=12` against an 8.25" cap) that triggered "exceeds maximum" warnings on
-every call -- `two_column_plot`'s own defaults already scale with nrows/ncols
-and are capped automatically, so plain defaults are strictly better here.
+Small synthetic data throughout -- no fixture needed, nothing here requires
+real acquisition data.
 """
 from __future__ import annotations
 

@@ -3,31 +3,10 @@
 Full coverage tests for pyS3M.postprocess -- picking/grouping, temporal linking,
 picked-based undrift, image-based aggregate segmentation, and fiducial removal.
 
-Part of the coverage push (claude/TODO.md PRIORITY 1). Checked usage across
-src/, unit_tests/, and both main/developer-branch notebooks before writing
-anything (per the localise.py/LinkingFunctions.py precedent). Found and
-deleted, per user decision (2026-08-11):
-
-- Three dead call-chains with zero callers anywhere: `_plot_drift_analysis`
-  (standalone, not even called by `undrift_from_picked`, its only plausible
-  caller); `link`/`link_loc_groups`/`_link_group_last` (a self-contained
-  wrapper `clustering/linked_clusterer.py` never routes through -- it calls
-  `get_link_groups` directly instead -- which also orphaned this file's 5
-  imports from `LinkingFunctions`); `nena`/`next_frame_neighbor_distance_
-  histogram`/`_nfndh`/`_fill_dnfl` (NeNA precision estimation, matches the
-  already-deleted `localise.check_nena`/`check_kinetics` which called into
-  this same dead code).
-- `_process_rectangle_pick_chunk`/`_process_circle_pick_chunk`, both
-  self-labelled DEPRECATED ("kept for backward compatibility but is no
-  longer used") in their own docstrings, confirmed zero callers.
-
-Everything tested below is real: `picked_locs` (FiducialDetection.py,
-drift_correction/), `get_link_groups` (clustering/linked_clusterer.py,
-test_spectral_lap_linking.py), `undrift_from_picked`/`remove_fiducials`
-(developer-branch notebooks), `segment_locs_by_rendered_image`
-(test_verbose_segmentation.py/test_image_based_segmentation.py already call
-it directly -- this file targets the gaps those leave, mainly the real
-valid-aggregate success path Step 5 extraction).
+`segment_locs_by_rendered_image` is also exercised by
+`test_verbose_segmentation.py`/`test_image_based_segmentation.py`; this file
+targets the gaps those leave, mainly the real valid-aggregate success path
+Step 5 extraction.
 """
 from __future__ import annotations
 

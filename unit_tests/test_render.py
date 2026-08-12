@@ -1,10 +1,7 @@
 """Full coverage tests for pyS3M.render.
 
 Covers the `render()` dispatcher and its 4 live blur methods (None/hist,
-"gaussian", "gaussian_RGB", "gaussian_colour", "smooth") plus the
-RenderingConfig-adjacent dead code removed this session (render_gaussian_iso,
-render_convolve, RenderingConfig -- confirmed zero callers anywhere, including
-the developer branch, and deleted per user decision).
+"gaussian", "gaussian_RGB", "gaussian_colour", "smooth").
 
 Several private helpers (_render_setup, _render_colour_setup, _fill,
 _fill_gaussian, _fill_colour_gaussian, _fill_RGB_gaussian) are

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,6 +13,40 @@ from sklearn.mixture import GaussianMixture
 import logging
 from pyS3M.PlottingBase import _safe_tight_layout
 logger = logging.getLogger(__name__)
+
+
+class _SerialPoolResult:
+    """`multiprocessing.pool.AsyncResult`-alike wrapping an already-computed value."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+
+class _SerialPool:
+    """In-thread, no-subprocess stand-in for `multiprocessing.Pool`.
+
+    `pygmmis.fit`/`pygmmis.GMM.logL` always spawn a bare `multiprocessing.Pool()`
+    internally with no way to disable it. Creating a real `Pool` from a
+    background `QThread` (the GUI's `AnalysisWorker`) is a known-fragile
+    combination on macOS (Cocoa runtime + `spawn` start method) -- seen as a
+    GUI crash with leaked-semaphore `resource_tracker` warnings during Channel
+    Unmixing, not reproducible on Linux. Swapping `pygmmis`'s `multiprocessing.
+    Pool` for this serial stand-in (macOS only, see `_fit_gmm_pygmmis`) avoids
+    spawning any subprocess at all, at the cost of pygmmis's internal
+    parallelism on that platform.
+    """
+
+    def apply_async(self, func, args=()):
+        return _SerialPoolResult(func(*args))
+
+    def close(self):
+        pass
+
+    def join(self):
+        pass
 
 
 class MixtureAnalysisMixin:
@@ -360,6 +395,15 @@ class MixtureAnalysisMixin:
 
         # Run extreme deconvolution
         # pygmmis returns log-likelihood and component assignments
+        #
+        # On macOS, pygmmis.fit's internal multiprocessing.Pool() must not be
+        # created from a background QThread (see _SerialPool's docstring) --
+        # swap it for an in-thread serial stand-in for the duration of this
+        # call only, then restore it.
+        patch_pool = sys.platform == "darwin"
+        if patch_pool:
+            original_pool = pygmmis.multiprocessing.Pool
+            pygmmis.multiprocessing.Pool = lambda *a, **k: _SerialPool()
         try:
             logL, U = pygmmis.fit(
                 gmm,
@@ -383,6 +427,9 @@ class MixtureAnalysisMixin:
                 logger.info(f"    Warning: Extreme deconvolution failed: {e}")
                 logger.info(f"    Returning initial parameters")
             converged = False
+        finally:
+            if patch_pool:
+                pygmmis.multiprocessing.Pool = original_pool
 
         # Extract results
         means = gmm.mean.copy()
