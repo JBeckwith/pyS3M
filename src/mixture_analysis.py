@@ -49,6 +49,25 @@ class _SerialPool:
         pass
 
 
+def _no_shared_array(a, dtype=None):
+    """Serial-mode stand-in for `pygmmis.createShared`.
+
+    `pygmmis.fit` also builds several `multiprocessing.Array`-backed shared
+    arrays (`data_`, `covar_`, `log_S`, ...) via its own `createShared`
+    helper, independently of the `multiprocessing.Pool` object patched by
+    `_SerialPool` above -- constructing that POSIX shared memory (`mmap` +
+    an internal `Lock`) is itself a second, lower-level macOS crash surface
+    (seen as a `bus error` even after `_SerialPool` alone stopped the
+    `Pool`-related crash and cut the leaked-semaphore count from 7 to 1 --
+    that remaining 1 was this shared array's own lock). Under `_SerialPool`
+    there are no subprocess workers to share memory with in the first
+    place, so a plain in-process `float64` array is a behaviourally
+    identical, zero-risk substitute -- `createShared` itself just returns a
+    flatten-then-reshape copy of the input, no different from `np.array`.
+    """
+    return np.array(a, dtype=np.float64)
+
+
 class MixtureAnalysisMixin:
     """Mixin providing GMM mixture-analysis methods for extract_SMs."""
     def _fit_gmm_mle(
@@ -396,14 +415,17 @@ class MixtureAnalysisMixin:
         # Run extreme deconvolution
         # pygmmis returns log-likelihood and component assignments
         #
-        # On macOS, pygmmis.fit's internal multiprocessing.Pool() must not be
-        # created from a background QThread (see _SerialPool's docstring) --
-        # swap it for an in-thread serial stand-in for the duration of this
-        # call only, then restore it.
+        # On macOS, pygmmis.fit's internal multiprocessing.Pool() and its
+        # multiprocessing.Array-backed shared arrays (via createShared) must
+        # not be created from a background QThread (see _SerialPool's and
+        # _no_shared_array's docstrings) -- swap both for in-thread stand-ins
+        # for the duration of this call only, then restore them.
         patch_pool = sys.platform == "darwin"
         if patch_pool:
             original_pool = pygmmis.multiprocessing.Pool
+            original_shared = pygmmis.createShared
             pygmmis.multiprocessing.Pool = lambda *a, **k: _SerialPool()
+            pygmmis.createShared = _no_shared_array
         try:
             logL, U = pygmmis.fit(
                 gmm,
@@ -430,6 +452,7 @@ class MixtureAnalysisMixin:
         finally:
             if patch_pool:
                 pygmmis.multiprocessing.Pool = original_pool
+                pygmmis.createShared = original_shared
 
         # Extract results
         means = gmm.mean.copy()

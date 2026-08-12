@@ -256,15 +256,18 @@ class TestFitGmmPygmmis:
         assert converged is False
         np.testing.assert_allclose(means, initial_means)
 
-    def test_macos_patches_and_restores_pygmmis_pool(self, monkeypatch):
-        # On macOS, pygmmis.fit's internal multiprocessing.Pool() must be
-        # swapped for _SerialPool for the duration of the call only (see
-        # _SerialPool's docstring in mixture_analysis.py) -- force the
-        # platform check to exercise that branch on this (non-macOS) CI box.
+    def test_macos_patches_and_restores_pygmmis_pool_and_shared(self, monkeypatch):
+        # On macOS, pygmmis.fit's internal multiprocessing.Pool() and its
+        # multiprocessing.Array-backed shared arrays (via createShared) must
+        # both be swapped for in-thread stand-ins for the duration of the
+        # call only (see _SerialPool's/_no_shared_array's docstrings in
+        # mixture_analysis.py) -- force the platform check to exercise that
+        # branch on this (non-macOS) CI box.
         import pygmmis
 
         monkeypatch.setattr(sys, "platform", "darwin")
         original_pool = pygmmis.multiprocessing.Pool
+        original_shared = pygmmis.createShared
 
         host = _host()
         X = _two_component_X(n_per=25, seed=12)
@@ -274,15 +277,17 @@ class TestFitGmmPygmmis:
             X, X_err, initial_means, n_components=2, max_iter=20,
         )
         assert means.shape == (2, 2)
-        # Pool must be restored to the real multiprocessing.Pool afterward,
-        # not left patched to the serial stand-in.
+        # Both must be restored to the real pygmmis internals afterward, not
+        # left patched to the serial/no-shared-memory stand-ins.
         assert pygmmis.multiprocessing.Pool is original_pool
+        assert pygmmis.createShared is original_shared
 
-    def test_macos_restores_pool_even_on_fit_failure(self, monkeypatch):
+    def test_macos_restores_pool_and_shared_even_on_fit_failure(self, monkeypatch):
         import pygmmis
 
         monkeypatch.setattr(sys, "platform", "darwin")
         original_pool = pygmmis.multiprocessing.Pool
+        original_shared = pygmmis.createShared
 
         def _raise(*a, **kw):
             raise RuntimeError("forced pygmmis failure")
@@ -298,6 +303,13 @@ class TestFitGmmPygmmis:
         )
         assert converged is False
         assert pygmmis.multiprocessing.Pool is original_pool
+        assert pygmmis.createShared is original_shared
+
+    def test_no_shared_array_returns_plain_float64_copy(self):
+        arr = mixture_analysis._no_shared_array(np.array([[1, 2], [3, 4]], dtype=np.int32))
+        assert arr.dtype == np.float64
+        assert arr.shape == (2, 2)
+        np.testing.assert_array_equal(arr, [[1.0, 2.0], [3.0, 4.0]])
 
 
 class TestSerialPool:
