@@ -33,8 +33,6 @@ auto_doc_default_options = {'autosummary': True}
 # Mock heavy optional dependencies that are unavailable on headless build servers
 autodoc_mock_imports = [
     'PyQt6',
-    'napari',
-    'napari_animation',
     'numba',
     'datashader',   # imports numba at module level; numba is mocked so version check fails
     'fast_hdbscan', # runs HDBSCAN().fit() at import time, crashes on empty random_data

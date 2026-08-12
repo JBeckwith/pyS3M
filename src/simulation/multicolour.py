@@ -1882,15 +1882,19 @@ class MultiC_Sim_Funcs_Refactored:
                             x0 = (
                                 x0y0[dye][frame, 1, :]
                                 if x0y0[dye].ndim > 1
-                                else x0y0[dye][1, :]
+                                else np.atleast_1d(x0y0[dye][1])
                             )
                             y0 = (
                                 x0y0[dye][frame, 0, :]
                                 if x0y0[dye].ndim > 1
-                                else x0y0[dye][0, :]
+                                else np.atleast_1d(x0y0[dye][0])
                             )
-                        except (IndexError, TypeError):
-                            x0, y0 = x0y0[dye][1, :], x0y0[dye][0, :]
+                        except (IndexError, TypeError):  # pragma: no cover
+                            # Defensive fallback for a caller passing mismatched
+                            # x0y0 shapes across dyes (e.g. fewer bootstrap frames
+                            # for one dye than another) -- not producible by any
+                            # code path in this repo, but kept for external callers.
+                            x0, y0 = np.atleast_1d(x0y0[dye][1]), np.atleast_1d(x0y0[dye][0])
 
                         x0_pixels = x0 / pixel_size
                         y0_pixels = y0 / pixel_size
@@ -2052,15 +2056,19 @@ class MultiC_Sim_Funcs_Refactored:
                             x0 = (
                                 x0y0[dye][frame, 1, :]
                                 if x0y0[dye].ndim > 1
-                                else x0y0[dye][1, :]
+                                else np.atleast_1d(x0y0[dye][1])
                             )
                             y0 = (
                                 x0y0[dye][frame, 0, :]
                                 if x0y0[dye].ndim > 1
-                                else x0y0[dye][0, :]
+                                else np.atleast_1d(x0y0[dye][0])
                             )
-                        except (IndexError, TypeError):
-                            x0, y0 = x0y0[dye][1, :], x0y0[dye][0, :]
+                        except (IndexError, TypeError):  # pragma: no cover
+                            # Defensive fallback for a caller passing mismatched
+                            # x0y0 shapes across dyes (e.g. fewer bootstrap frames
+                            # for one dye than another) -- not producible by any
+                            # code path in this repo, but kept for external callers.
+                            x0, y0 = np.atleast_1d(x0y0[dye][1]), np.atleast_1d(x0y0[dye][0])
 
                         # Convert positions from nm to pixels
                         x0_pixels = x0 / pixel_size
@@ -3516,7 +3524,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
-        from pyS3M.PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter, _safe_tight_layout
 
         # Initialize plotter for consistent styling
         plotter = PublicationPlotter()
@@ -3620,7 +3628,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         ax_acc.axvline(x=0.95, color='red', linestyle='--', linewidth=1, alpha=0.5, label='95% threshold')
         ax_acc.legend(fontsize=8)
 
-        plt.tight_layout()
+        _safe_tight_layout(fig)
 
         _show = show if show is not None else self.config.display
         plotter.save_or_show(fig, save_path=save_path, show=_show, dpi=self.config.dpi)
@@ -3655,7 +3663,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         """
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
-        from pyS3M.PlottingBase import PublicationPlotter
+        from pyS3M.PlottingBase import PublicationPlotter, _safe_tight_layout
 
         # Initialize plotter for consistent styling
         plotter = PublicationPlotter()
@@ -3709,7 +3717,7 @@ class MultiC_Sim_Funcs(MultiC_Sim_Funcs_Compatibility):
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal', adjustable='box')
 
-        plt.tight_layout()
+        _safe_tight_layout(fig)
 
         _show = show if show is not None else self.config.display
         plotter.save_or_show(fig, save_path=save_path, show=_show, dpi=self.config.dpi)

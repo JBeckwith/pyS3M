@@ -13,10 +13,7 @@
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 import sys
 
 import numba
@@ -33,43 +30,6 @@ colors = get_module("matplotlib.colors")
 _DRAW_MAX_SIGMA = 3
 
 
-@dataclass
-class RenderingConfig:
-    """Parameters controlling how localisations are rendered to a super-resolution image.
-
-    Groups the rendering arguments that are passed identically on every call to
-    ``render()``.  Pass a single ``RenderingConfig`` instance instead of the
-    individual keyword arguments to reduce call-site verbosity.
-
-    Example::
-
-        cfg = RenderingConfig(oversampling=10, blur_method="gaussian", min_blur_width=1.0)
-        n, img = render(locs, info, config=cfg)
-
-        # Colour-coded render:
-        cfg = RenderingConfig(
-            oversampling=8,
-            blur_method="gaussian_colour",
-            cparam="A_R",
-            c_min=0.3,
-            c_max=0.75,
-            cmap_string="jet",
-        )
-        n, img_total, img_colour = render(locs, info, config=cfg)
-    """
-
-    oversampling: float = 1
-    blur_method: Optional[str] = None
-    min_blur_width: float = 0
-    cparam: str = "A_R"
-    c_min: float = 0.3
-    c_max: float = 0.75
-    mindensperc: float = 1
-    maxdensperc: float = 99.9
-    densitymin: float = 0.1
-    cmap_string: str = "jet"
-
-
 def render(
     locs: np.recarray,
     info: list[dict] | None = None,
@@ -84,7 +44,6 @@ def render(
     maxdensperc: float = 99.9,
     densitymin: float = 0.1,
     cmap_string: str = "jet",
-    config: Optional[RenderingConfig] = None,
 ) -> tuple[int, NDArray[np.float32]] | tuple[int, NDArray[np.float32], NDArray[np.float32]]:
     """
     Renders locs.
@@ -102,7 +61,7 @@ def render(
         Field of view to be rendered. If None, all locs are rendered
     blur_method : str (default=None)
         Defines localizations' blur. The string has to be one of
-        'gaussian', 'gaussian_iso', 'gaussian_colour', 'smooth', 'convolve'. If None,
+        'gaussian', 'gaussian_colour', 'smooth'. If None,
         no blurring is applied.
     min_blur_width : float (default=0)
         Minimum size of blur (pixels)
@@ -110,8 +69,7 @@ def render(
     Raises
     ------
     Exception
-        If blur_method not one of 'gaussian', 'gaussian_iso', 'gaussian_colour', 'smooth',
-        'convolve' or None
+        If blur_method not one of 'gaussian', 'gaussian_colour', 'smooth' or None
 
     Returns
     -------
@@ -120,18 +78,6 @@ def render(
     np.array
         Rendered image
     """
-
-    if config is not None:
-        oversampling  = config.oversampling
-        blur_method   = config.blur_method
-        min_blur_width = config.min_blur_width
-        cparam        = config.cparam
-        c_min         = config.c_min
-        c_max         = config.c_max
-        mindensperc   = config.mindensperc
-        maxdensperc   = config.maxdensperc
-        densitymin    = config.densitymin
-        cmap_string   = config.cmap_string
 
     if viewport is None:
         try:
@@ -191,17 +137,6 @@ def render(
             densitymin,
             cmap_string,
         )
-    elif blur_method == "gaussian_iso":
-        # individual localization precision (same for x and y)
-        return render_gaussian_iso(
-            locs,
-            oversampling,
-            y_min,
-            x_min,
-            y_max,
-            x_max,
-            min_blur_width,
-        )
     elif blur_method == "smooth":
         # one pixel blur
         return render_smooth(
@@ -211,17 +146,6 @@ def render(
             x_min,
             y_max,
             x_max,
-        )
-    elif blur_method == "convolve":
-        # global localization precision
-        return render_convolve(
-            locs,
-            oversampling,
-            y_min,
-            x_min,
-            y_max,
-            x_max,
-            min_blur_width,
         )
     else:
         raise Exception("blur_method not understood.")
@@ -811,134 +735,6 @@ def render_gaussian(
     _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y)
 
     return len(x), image
-
-
-def render_gaussian_iso(
-    locs: np.recarray,
-    oversampling: float,
-    y_min: float,
-    x_min: float,
-    y_max: float,
-    x_max: float,
-    min_blur_width: float,
-) -> tuple[int, NDArray[np.float32]]:
-    """
-    Renders locs with with individual localization precision which
-    is the same in x and y.
-
-    Parameters
-    ----------
-    locs : np.recarray
-        Localizations to be rendered
-    oversampling : float (default=1)
-        Number of super-resolution pixels per camera pixel
-    y_min : float
-        Minimum y coordinate to be rendered (pixels)
-    x_min : float
-        Minimum x coordinate to be rendered (pixels)
-    y_max : float
-        Maximum y coordinate to be rendered (pixels)
-    x_max : float
-        Maximum x coordinate to be rendered (pixels)
-    min_blur_width : float
-        Minimum localization precision (pixels)
-    ang : tuple (default=None)
-        Rotation angles of locs around x, y and z axes. If None,
-        locs are not rotated.
-
-    Returns
-    -------
-    int
-        Number of localizations rendered
-    np.array
-        Rendered image
-    """
-
-    image, n_pixel_y, n_pixel_x, x, y, in_view = _render_setup(
-        locs,
-        oversampling,
-        y_min,
-        x_min,
-        y_max,
-        x_max,
-    )
-
-    blur_width = oversampling * np.maximum(locs.xc_err, min_blur_width)
-    blur_height = oversampling * np.maximum(locs.yc_err, min_blur_width)
-    sy = (blur_height[in_view] + blur_width[in_view]) / 2
-    sx = sy
-
-    # Extract photon counts, default to 1.0 if not available
-    if hasattr(locs, 'photons'):
-        photons = locs.photons[in_view]
-    else:
-        photons = np.ones(len(x), dtype=np.float32)
-
-    _fill_gaussian(image, x, y, sx, sy, photons, n_pixel_x, n_pixel_y)
-
-    return len(x), image
-
-
-def render_convolve(
-    locs: np.recarray,
-    oversampling: float,
-    y_min: float,
-    x_min: float,
-    y_max: float,
-    x_max: float,
-    min_blur_width: float,
-) -> tuple[int, NDArray[np.float32]]:
-    """
-    Renders locs with with global localization precision, i.e. each
-    localization is blurred by the median localization precision in x
-    and y.
-
-    Parameters
-    ----------
-    locs : np.recarray
-        Localizations to be rendered
-    oversampling : float (default=1)
-        Number of super-resolution pixels per camera pixel
-    y_min : float
-        Minimum y coordinate to be rendered (pixels)
-    x_min : float
-        Minimum x coordinate to be rendered (pixels)
-    y_max : float
-        Maximum y coordinate to be rendered (pixels)
-    x_max : float
-        Maximum x coordinate to be rendered (pixels)
-    min_blur_width : float
-        Minimum localization precision (pixels)
-    ang : tuple (default=None)
-        Rotation angles of locs around x, y and z axes. If None,
-        locs are not rotated.
-
-    Returns
-    -------
-    int
-        Number of localizations rendered
-    np.array
-        Rendered image
-    """
-
-    image, n_pixel_y, n_pixel_x, x, y, in_view = _render_setup(
-        locs,
-        oversampling,
-        y_min,
-        x_min,
-        y_max,
-        x_max,
-    )
-    n = len(x)
-    if n == 0:
-        return 0, image
-    else:
-        _fill(image, x, y)
-        blur_width = oversampling * max(np.median(locs.xc_err[in_view]), min_blur_width)
-        blur_height = oversampling * max(
-            np.median(locs.yc_err[in_view]), min_blur_width
-        )
-        return n, _fftconvolve(image, blur_width, blur_height)
 
 
 def render_smooth(

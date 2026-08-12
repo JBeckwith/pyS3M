@@ -298,8 +298,14 @@ class TestRuptuesImportFallback:
         try:
             reloaded = importlib.reload(SD)
             assert reloaded._RUPTURES_AVAILABLE is False
-            assert not hasattr(reloaded, "_PoissonCost")
+            # Note: reload() re-executes the module body in-place but does
+            # not clear its namespace first, so a `_PoissonCost` name
+            # defined by an earlier successful import is still present here
+            # -- only _RUPTURES_AVAILABLE (and, on a truly fresh interpreter
+            # import, the class definition itself) reflects the fallback.
         finally:
-            # Restore real ruptures for every other test in the session.
+            # sys.modules must be restored *before* re-importing for real --
+            # monkeypatch only undoes it after the test function returns.
+            monkeypatch.undo()
             importlib.reload(SD)
             assert SD._RUPTURES_AVAILABLE is True

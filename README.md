@@ -26,7 +26,7 @@ anywhere — no `sys.path` hacks needed) along with its core analysis dependenci
 extras layer on top as needed:
 
 ```bash
-pip install .[notebooks]  # jupyterlab, napari, seaborn, xarray, plotly, ...
+pip install .[notebooks]  # jupyterlab, seaborn, xarray, plotly, ...
 pip install .[docs]       # Sphinx + the Read the Docs theme, for building docs locally
 pip install .[dev]        # pytest, coverage, black, build
 ```
