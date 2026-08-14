@@ -1902,11 +1902,16 @@ class MainWindow(QMainWindow):
         with open(out_dir / f"{run_name}_MMStack_Default_metadata.txt", "w") as f:
             json.dump(metadata, f)
 
-        # key="ground_truth" (not the default "data") so a later fit run on this
-        # same folder doesn't glob this file in as if it were localisation
-        # results -- load_localisations[_per_fov] already skip files that lack
-        # a "data" key, which now includes this one.
-        io.write_h5_database(ground_truth, out_dir / "ground_truth.h5", verbose=False, key="ground_truth")
+        # Written to a subfolder, under a non-default key, so a later fit run on
+        # out_dir doesn't glob this file in as if it were localisation results:
+        # load_localisations[_per_fov]'s glob is non-recursive (won't descend
+        # into ground_truth/), and even if it did, they already skip files that
+        # lack a "data" key, which now includes this one. Two independent
+        # layers deliberately -- see claude/LOG.md "GUI bug reports from real
+        # Windows/Linux usage".
+        gt_dir = out_dir / "ground_truth"
+        gt_dir.mkdir(parents=True, exist_ok=True)
+        io.write_h5_database(ground_truth, gt_dir / "ground_truth.h5", verbose=False, key="ground_truth")
 
         fig = self._make_pattern_simulation_figure(
             bayer_stack, ground_truth, colour_to_dye, width, height,
