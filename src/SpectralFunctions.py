@@ -16,6 +16,7 @@ jsb92, 2024/01/02
 from typing import Optional, List, Tuple, Union, Dict, Any
 from enum import Enum
 from abc import ABC, abstractmethod
+import functools
 import numpy as np
 import sys
 from pathlib import Path
@@ -67,6 +68,32 @@ class SpectralConstants:
 
     # Gaussian normalization
     GAUSSIAN_NORM_FACTOR = 1 / np.sqrt(2 * np.pi)
+
+
+@functools.lru_cache(maxsize=None)
+def _query_single_name_cached(db_path: Path, name: str, data_type: "SpectralDataType"):
+    """Cached single dye/filter DB lookup.
+
+    `get_spectral_data` queries the database one name at a time (see
+    `DatabaseQueryHandler.query_spectral_data`), and each such query opens
+    its own duckdb connection -- ~9-10ms even though the dye/filter set is
+    small and effectively static. Simulation code routinely rebuilds a fresh
+    `Spectral_Funcs()` per call (see `simulation/multicolour.py`), so the
+    cache is keyed on `db_path` rather than a handler/instance, letting it
+    keep paying off across those rebuilds instead of missing every time.
+    """
+    table_map = {SpectralDataType.DYE: "dyes", SpectralDataType.FILTER: "filters"}
+    name_column_map = {
+        SpectralDataType.DYE: "dye_name",
+        SpectralDataType.FILTER: "filter_name",
+    }
+    with duckdb.connect(db_path, read_only=True) as conn:
+        query = f"""
+            SELECT * FROM {table_map[data_type]}
+            WHERE {name_column_map[data_type]} = ?
+            ORDER BY wavelength_nm
+        """
+        return conn.execute(query, [name]).df()
 
 
 class DatabaseQueryHandler:
@@ -122,24 +149,23 @@ class DatabaseQueryHandler:
             SpectralDataType.FILTER: "filter_name",
         }
 
+        # Single-name lookups go through a cache keyed on db_path -- this is
+        # the path `get_spectral_data` actually uses (one name at a time),
+        # so it's what makes repeated dye/filter lookups across simulation
+        # calls cheap. Returns a copy so callers can't mutate the cached
+        # DataFrame out from under future lookups.
+        if len(names) == 1:
+            return _query_single_name_cached(self.db_path, names[0], data_type).copy()
+
         with duckdb.connect(self.db_path, read_only=True) as conn:
-            # Build safe IN clause with proper parameter binding
-            if len(names) == 1:
-                query = f"""
-                    SELECT * FROM {table_map[data_type]} 
-                    WHERE {name_column_map[data_type]} = ?
-                    ORDER BY wavelength_nm
-                """
-                return conn.execute(query, names).df()
-            else:
-                # For multiple names, create placeholders
-                placeholders = ",".join(["?" for _ in names])
-                query = f"""
-                    SELECT * FROM {table_map[data_type]} 
-                    WHERE {name_column_map[data_type]} IN ({placeholders})
-                    ORDER BY wavelength_nm
-                """
-                return conn.execute(query, names).df()
+            # For multiple names, create placeholders
+            placeholders = ",".join(["?" for _ in names])
+            query = f"""
+                SELECT * FROM {table_map[data_type]}
+                WHERE {name_column_map[data_type]} IN ({placeholders})
+                ORDER BY wavelength_nm
+            """
+            return conn.execute(query, names).df()
 
 
 class SpectrumProcessor(ABC):
