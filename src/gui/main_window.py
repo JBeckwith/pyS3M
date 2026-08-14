@@ -402,6 +402,26 @@ class MainWindow(QMainWindow):
         return fig
 
     def _make_scatter_figure(self, locs, title: str = "Localisations") -> Figure:
+        # Defensive: this is the last-resort fallback in _make_locs_render_figure,
+        # reached whenever the RGB/scalar render can't be built -- including when
+        # *locs* isn't actually localisation data at all (e.g. a differently-shaped
+        # companion .h5 glob-matched alongside real results; see claude/LOG.md
+        # "GUI bug reports from real Windows/Linux usage"). A missing xc/yc here
+        # must not crash the whole fitting/loading worker -- show a placeholder
+        # instead of raising, so the real results already recorded upstream of
+        # this figure aren't lost along with it.
+        if not all(c in locs.columns for c in ("xc", "yc")):
+            fig = Figure(figsize=(6, 6), dpi=100, layout="constrained")
+            ax = fig.add_subplot(111)
+            ax.text(
+                0.5, 0.5, "No xc/yc columns to render\n(not localisation data?)",
+                ha="center", va="center", transform=ax.transAxes, color="gray",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(title)
+            return fig
+
         pixel_size_nm = self.pipeline.pixel_size * 1000
         x = locs["xc"].values * pixel_size_nm
         y = locs["yc"].values * pixel_size_nm
@@ -987,6 +1007,22 @@ class MainWindow(QMainWindow):
             self.log_widget.append(f"Save failed:\n{_tb.format_exc()}")
             QMessageBox.critical(self, "Save failed", "Could not write HDF5 file — see log.")
 
+    def _fov_dimensions(self, locs) -> tuple[int, int]:
+        """(height, width) in camera pixels, for undrift/FRC binning.
+
+        Prefers the loaded calibration's gain_map shape (the true sensor
+        extent, guaranteed to cover every localisation). Falls back to the
+        localisations' own coordinate extent when no calibration is loaded --
+        gain_map is None after "Load Localisations" on an existing .h5
+        without recalibrating first (see _on_load_locs), which previously
+        crashed undrift/FRC/per-channel-FRC with an unhelpful AttributeError.
+        """
+        if self.pipeline.gain_map is not None:
+            return self.pipeline.gain_map.shape[:2]
+        height = int(np.ceil(locs["yc"].max())) + 1
+        width = int(np.ceil(locs["xc"].max())) + 1
+        return height, width
+
     # ------------------------------------------------------------------
     # Drift correction
     # ------------------------------------------------------------------
@@ -1003,7 +1039,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("No localisations to undrift.")
 
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(locs_df)
             n_frames = int(locs_df["frame"].max()) + 1
 
             info = [{
@@ -1122,7 +1158,7 @@ class MainWindow(QMainWindow):
             if locs.empty:
                 raise ValueError("No localisations available for FRC.")
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(locs)
             return self._make_frc_figure(locs, width, height, pixel_size_nm, zoom, n_blocks, reps)
 
         worker = self._start_worker(_do)
@@ -1317,7 +1353,7 @@ class MainWindow(QMainWindow):
 
         def _do():
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(self._sm_db)
             return self._make_frc_per_channel_figure(
                 self._sm_db, channels, width, height, pixel_size_nm, zoom, n_blocks, reps,
             )
