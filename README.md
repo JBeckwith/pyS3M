@@ -19,6 +19,16 @@ Documentation: https://pys3m.readthedocs.io/en/latest/index.html
 
 Requires Python >=3.11, <3.13 (tested on 3.12.3).
 
+Install into a virtual environment, not your system Python — pyS3M pulls in a large,
+version-pinned dependency tree (numpy, numba, scikit-learn, PyQt6, ...) that can otherwise
+clash with other projects. See the [venv docs](https://docs.python.org/3/library/venv.html)
+if you're not already using one:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # .venv\Scripts\activate on Windows
+```
+
 Clone the repository, then from its root:
 
 ```bash

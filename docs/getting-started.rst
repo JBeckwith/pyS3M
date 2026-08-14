@@ -20,6 +20,16 @@ dependency constraint (``colour-demosaicing`` caps at <3.13), not an arbitrary c
 Installation
 ============
 
+Install into a virtual environment, not your system Python — ``pyS3M`` pulls in a large,
+version-pinned dependency tree (numpy, numba, scikit-learn, PyQt6, ...) that can otherwise
+clash with other projects. See the `venv docs <https://docs.python.org/3/library/venv.html>`_
+if you're not already using one:
+
+.. code-block:: bash
+
+   python -m venv .venv
+   source .venv/bin/activate   # .venv\Scripts\activate on Windows
+
 Clone the repository, then from its root:
 
 .. code-block:: bash
