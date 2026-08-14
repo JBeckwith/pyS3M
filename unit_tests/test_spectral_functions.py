@@ -96,6 +96,48 @@ class TestDatabaseQueryHandler:
         assert set(df["dye_name"].unique()) <= {DYE_NAME, DYE_NAME_2}
 
 
+class TestSingleNameQueryCache:
+    """Single-name lookups (what `get_spectral_data` actually issues, one name
+    per call) are routed through a module-level `lru_cache` keyed on db_path --
+    see `_query_single_name_cached`. This exists because simulation code
+    routinely constructs a fresh `Spectral_Funcs()` per call, so an
+    instance-bound cache would miss every time; keying on db_path instead
+    lets repeated dye/filter lookups across those rebuilds hit the cache.
+    """
+
+    def test_repeat_query_is_a_cache_hit(self, sf):
+        SF._query_single_name_cached.cache_clear()
+        sf.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        misses_after_first = SF._query_single_name_cached.cache_info().misses
+
+        sf.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        info = SF._query_single_name_cached.cache_info()
+
+        assert misses_after_first == 1
+        assert info.hits == 1
+        assert info.misses == 1
+
+    def test_cache_hit_returns_equivalent_data_to_a_fresh_instance(self, sf):
+        # A brand-new Spectral_Funcs() (as simulation code repeatedly constructs)
+        # must see the same cached data as the original instance -- the cache is
+        # keyed on db_path, not on `self`.
+        sf2 = Spectral_Funcs()
+        df1 = sf.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        df2 = sf2.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        np.testing.assert_array_equal(
+            df1["wavelength_nm"].to_numpy(), df2["wavelength_nm"].to_numpy()
+        )
+
+    def test_returned_dataframe_is_a_copy_of_the_cached_object(self, sf):
+        # Mutating one caller's result must not corrupt what later callers see.
+        df1 = sf.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        original_value = df1["wavelength_nm"].to_numpy()[0]
+        df1.iloc[0, df1.columns.get_loc("wavelength_nm")] = -999999.0
+
+        df2 = sf.db_handler.query_spectral_data([DYE_NAME], SpectralDataType.DYE)
+        assert df2["wavelength_nm"].to_numpy()[0] == original_value
+
+
 # ======================================================================
 # SpectrumProcessor / DyeSpectrumProcessor / FilterSpectrumProcessor
 # ======================================================================
