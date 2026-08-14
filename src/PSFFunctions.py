@@ -6,9 +6,70 @@ jsb92, 2024/03/04
 from pathlib import Path
 import numpy as np
 import sys
-from numba import jit
+from numba import jit, prange
 
 sys.path.append(str(Path(__file__).parent))
+
+
+def _sanitize_QE(qe: np.ndarray) -> np.ndarray:
+    """Match gen_photoelectrons' QE handling: NaN -> 0, Inf -> 1, clip to [0, 1].
+
+    Small (n_frames,)/(n_frames, n_channels) arrays -- plain NumPy, not numba,
+    since there's nothing to parallelize at this size.
+    """
+    qe = np.asarray(qe, dtype=np.float64)
+    qe = np.where(np.isnan(qe), 0.0, qe)
+    qe = np.where(np.isinf(qe), 1.0, qe)
+    return np.ascontiguousarray(np.clip(qe, 0.0, 1.0))
+
+
+@jit(nopython=True, parallel=True, nogil=True, cache=True)
+def _binomial_batch_uniform_p(n_photons, p_per_frame):
+    """Per-pixel binomial sampling, one QE value per frame, parallel over frames.
+
+    Args:
+        n_photons: (n_frames, w, h) int32, non-negative photon counts.
+        p_per_frame: (n_frames,) float64, QE in [0, 1] for each frame.
+
+    Returns:
+        (n_frames, w, h) int32 photoelectron counts.
+    """
+    n_frames, w, h = n_photons.shape
+    out = np.empty((n_frames, w, h), dtype=np.int32)
+    for f in prange(n_frames):
+        p = p_per_frame[f]
+        for i in range(w):
+            for j in range(h):
+                out[f, i, j] = np.random.binomial(n_photons[f, i, j], p)
+    return out
+
+
+@jit(nopython=True, parallel=True, nogil=True, cache=True)
+def _binomial_batch_per_channel(n_photons, p_per_channel):
+    """Per-pixel-per-channel binomial sampling, parallel over frames.
+
+    Each photon can only generate a photoelectron on the one Bayer channel it
+    actually lands on, so channel contributions are summed directly into the
+    output here.
+
+    Args:
+        n_photons: (n_frames, w, h, n_channels) int32, non-negative photon
+            counts already split by Bayer channel.
+        p_per_channel: (n_frames, n_channels) float64, QE in [0, 1] per
+            channel/frame.
+
+    Returns:
+        (n_frames, w, h) int32 photoelectron counts, summed over channels.
+    """
+    n_frames, w, h, n_channels = n_photons.shape
+    out = np.zeros((n_frames, w, h), dtype=np.int32)
+    for f in prange(n_frames):
+        for c in range(n_channels):
+            p = p_per_channel[f, c]
+            for i in range(w):
+                for j in range(h):
+                    out[f, i, j] += np.random.binomial(n_photons[f, i, j, c], p)
+    return out
 
 
 class PSF_Functions:
@@ -224,8 +285,8 @@ class PSF_Functions:
         """
         Generate photoelectrons for all frames at once (vectorized across frames).
 
-        This is 2-5× faster than per-frame loop because binomial sampling can be
-        done in one large batch operation across all frames simultaneously.
+        Binomial sampling runs through a Numba ``prange``-parallelised kernel
+        (see ``_binomial_batch_uniform_p``/``_binomial_batch_per_channel``).
 
         Args:
             n_photons_all_frames: Photons hitting detector for all frames
@@ -266,22 +327,26 @@ class PSF_Functions:
             # This is faster because we don't need to split by Bayer pattern
             all_QE_equal = np.allclose(QE_dye, QE_dye[:, 0:1], rtol=1e-9)
 
+            # int32: see gen_photoelectrons' matching comment above -- numba's
+            # np.random.binomial needs an integer `n`, and this stays
+            # 'safe'-castable to the platform C `long` (32-bit on Windows).
+            n_photons_dye_clean = np.ascontiguousarray(
+                np.clip(n_photons_dye, 0, None).astype(np.int32, copy=False)
+            )
+
             if all_QE_equal:
                 # Fast path: Uniform QE across all channels
                 # Can apply QE directly without splitting by Bayer pattern
-                QE_uniform = QE_dye[:, 0]  # Shape: (n_frames,)
+                QE_uniform = _sanitize_QE(QE_dye[:, 0])  # Shape: (n_frames,)
 
-                # ⚡ VECTORIZED: Process all frames at once
-                # Broadcast QE to match photon array shape
-                n_photoelectrons_all[:, :, :, j] = self.gen_photoelectrons(
-                    n_photons_dye,
-                    QE_uniform[:, np.newaxis, np.newaxis]  # Broadcast to (n_frames, w, h)
+                # ⚡ PARALLEL: per-pixel binomial sampling across all frames at once
+                n_photoelectrons_all[:, :, :, j] = _binomial_batch_uniform_p(
+                    n_photons_dye_clean, QE_uniform
                 )
             else:
                 # Accurate path: Different QE per channel (Bayer camera)
                 # Must split photons by Bayer pattern FIRST, then apply channel-specific QE
 
-                # ⚡ VECTORIZED: Process all frames simultaneously
                 # Expand dimensions for broadcasting:
                 # n_photons_dye: (n_frames, w, h) → (n_frames, w, h, 1)
                 # mask_stack (static): (w, h, n_channels) → (1, w, h, n_channels), broadcast to all frames
@@ -292,25 +357,20 @@ class PSF_Functions:
                 else:
                     mask_stack_broadcast = mask_stack[np.newaxis, :, :, :]  # (1, w, h, n_channels)
 
-                # int32: see gen_photoelectrons' matching comment above --
-                # np.random.binomial's `n` must stay 'safe'-castable to the
-                # platform C `long` (32-bit on Windows).
-                n_photons_per_channel = (
-                    n_photons_dye[:, :, :, np.newaxis] *    # (n_frames, w, h, 1)
-                    mask_stack_broadcast
-                ).astype(np.int32)
-
-                # ⚡ VECTORIZED BINOMIAL: Process all frames+channels at once
-                # n_photons_per_channel: (n_frames, w, h, n_channels)
-                # QE_dye: (n_frames, n_channels) → reshape to (n_frames, 1, 1, n_channels)
-                # NumPy's binomial will broadcast correctly
-                photoelectrons_per_channel = self.gen_photoelectrons(
-                    n_photons_per_channel,
-                    QE_dye[:, np.newaxis, np.newaxis, :]  # Broadcast to (n_frames, w, h, n_channels)
+                n_photons_per_channel = np.ascontiguousarray(
+                    np.clip(
+                        n_photons_dye[:, :, :, np.newaxis] *    # (n_frames, w, h, 1)
+                        mask_stack_broadcast,
+                        0, None,
+                    ).astype(np.int32, copy=False)
                 )
+                QE_dye_clean = _sanitize_QE(QE_dye)  # Shape: (n_frames, n_channels)
 
-                # Sum photoelectrons across channels (each photon contributed to only one channel)
-                n_photoelectrons_all[:, :, :, j] = np.sum(photoelectrons_per_channel, axis=-1)
+                # ⚡ PARALLEL: per-pixel-per-channel binomial sampling, channels
+                # summed inline (each photon contributes to exactly one channel)
+                n_photoelectrons_all[:, :, :, j] = _binomial_batch_per_channel(
+                    n_photons_per_channel, QE_dye_clean
+                )
 
         return n_photoelectrons_all
 

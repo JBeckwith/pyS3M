@@ -13,7 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyS3M.PSFFunctions import PSF_Functions
+from pyS3M.PSFFunctions import (
+    PSF_Functions,
+    _sanitize_QE,
+    _binomial_batch_uniform_p,
+    _binomial_batch_per_channel,
+)
 
 
 @pytest.fixture
@@ -185,6 +190,69 @@ class TestGenPhotoelectrons:
         out = psf.gen_photoelectrons(n_photons, abs_QE=abs_QE)
         np.testing.assert_allclose(out[:, 0], 0)
         np.testing.assert_allclose(out[:, 1], 100)
+
+
+# ======================================================================
+# _sanitize_QE / _binomial_batch_uniform_p / _binomial_batch_per_channel
+# ======================================================================
+
+class TestSanitizeQE:
+    def test_nan_treated_as_zero(self):
+        out = _sanitize_QE(np.array([np.nan, 0.5]))
+        np.testing.assert_allclose(out, [0.0, 0.5])
+
+    def test_inf_treated_as_one(self):
+        out = _sanitize_QE(np.array([np.inf, 0.5]))
+        np.testing.assert_allclose(out, [1.0, 0.5])
+
+    def test_clipped_to_valid_range(self):
+        out = _sanitize_QE(np.array([-1.0, 2.0]))
+        np.testing.assert_allclose(out, [0.0, 1.0])
+
+
+class TestBinomialBatchUniformP:
+    def _inputs(self):
+        n_frames, w, h = 4, 5, 5
+        n_photons = np.full((n_frames, w, h), 50, dtype=np.int32)
+        p_per_frame = np.array([0.0, 0.3, 0.7, 1.0])
+        return n_photons, p_per_frame
+
+    def test_jit_runs(self):
+        n_photons, p_per_frame = self._inputs()
+        out = _binomial_batch_uniform_p(n_photons, p_per_frame)
+        assert out.shape == n_photons.shape
+        np.testing.assert_array_equal(out[0], 0)      # p=0 -> no photoelectrons
+        np.testing.assert_array_equal(out[3], 50)      # p=1 -> every photon counts
+        assert np.all(out <= 50)
+
+    def test_py_func_matches_shape_and_bounds(self):
+        n_photons, p_per_frame = self._inputs()
+        out = _binomial_batch_uniform_p.py_func(n_photons, p_per_frame)
+        assert out.shape == n_photons.shape
+        assert np.all(out <= 50)
+        assert np.all(out >= 0)
+
+
+class TestBinomialBatchPerChannel:
+    def _inputs(self):
+        n_frames, w, h, n_channels = 3, 4, 4, 3
+        n_photons = np.full((n_frames, w, h, n_channels), 20, dtype=np.int32)
+        p_per_channel = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.2, 0.3, 0.5]])
+        return n_photons, p_per_channel
+
+    def test_jit_runs_and_sums_channels(self):
+        n_photons, p_per_channel = self._inputs()
+        out = _binomial_batch_per_channel(n_photons, p_per_channel)
+        assert out.shape == n_photons.shape[:-1]
+        np.testing.assert_array_equal(out[0], 0)       # all-zero QE -> nothing detected
+        np.testing.assert_array_equal(out[1], 20)       # channel 0 QE=1, others 0 -> all 20 counted
+        assert np.all(out[2] <= 20 * n_photons.shape[-1])
+
+    def test_py_func_matches_shape_and_bounds(self):
+        n_photons, p_per_channel = self._inputs()
+        out = _binomial_batch_per_channel.py_func(n_photons, p_per_channel)
+        assert out.shape == n_photons.shape[:-1]
+        assert np.all(out >= 0)
 
 
 # ======================================================================

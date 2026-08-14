@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"No localisations found in {h5}")
             locs_fig = self._make_locs_render_figure(locs, data_dir=str(folder), title="Localisations (loaded)")
             stats = self._make_stats_figure(locs, photon_range=photon_range)
-            return str(folder), locs_fig, stats
+            return str(folder), locs, locs_fig, stats
 
         aux = AnalysisWorker(_do)
         self._aux_worker = aux
@@ -833,9 +833,15 @@ class MainWindow(QMainWindow):
         aux.start()
 
     def _on_h5_loaded(self, result):
-        folder, scatter_fig, stats_fig = result
+        folder, locs, scatter_fig, stats_fig = result
         self._fitted_data_dir = folder
-        self._fov_data = []
+        # Store the loaded table itself, not just its figures -- state advances
+        # to FITTED below, which enables Channel Unmixing/undrift/FRC, but
+        # _unmixing_source_locs() (and undrift/FRC's own fallback reloads) need
+        # actual data to act on. Leaving _fov_data empty here previously meant
+        # those buttons looked enabled but had nothing to run against, so
+        # clicking them silently no-op'd -- no error, no log, nothing.
+        self._fov_data = [(locs, None)]
         self._undrifted_locs = None
         self._sm_db = None
         self._sf_db = None
