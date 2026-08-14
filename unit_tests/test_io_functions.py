@@ -168,6 +168,43 @@ class TestReadWriteH5Database:
         io._write_h5_database(_loc_df(2), path)
         assert path.exists()
 
+    def test_custom_key_roundtrips_and_is_isolated_from_default_key(self, io, tmp_path):
+        # Regression test: gui/main_window.py writes simulation ground truth
+        # (columns xc_nm/yc_nm, not xc/yc) into the same folder as real fit
+        # results, and AnalysisPipeline.load_localisations[_per_fov] glob that
+        # folder for "*.h5" and read each under the default "data" key. Without
+        # a distinct key, a later fit run's file-glob can pick up the ground
+        # truth file instead of (or alongside) the real results and misread it
+        # as localisations (KeyError: 'xc' downstream in the GUI's renderer).
+        path = tmp_path / "ground_truth.h5"
+        gt = pd.DataFrame({"dye": ["a", "b"], "xc_nm": [1.0, 2.0], "yc_nm": [3.0, 4.0]})
+        io.write_h5_database(gt, path, verbose=False, key="ground_truth")
+
+        out = io.read_h5_database(path, key="ground_truth")
+        assert list(out["xc_nm"]) == [1.0, 2.0]
+
+        # The default key ("data") -- what load_localisations[_per_fov] actually
+        # read with -- must NOT find this file's contents, so the existing
+        # KeyError-skip logic in AnalysisPipeline correctly skips it.
+        with pytest.raises(KeyError):
+            io.read_h5_database(path)
+
+    def test_append_honours_custom_key(self, io, tmp_path):
+        path = tmp_path / "custom_key.h5"
+        df1 = _loc_df(3)
+        df1["frame"] = [5, 6, 7]
+        io.write_h5_database(df1, path, key="ground_truth")
+
+        df2 = _loc_df(3)
+        df2["frame"] = [1, 2, 3]
+        io.write_h5_database(df2, path, append=True, key="ground_truth")
+
+        out = io.read_h5_database(path, key="ground_truth")
+        assert len(out) == 6
+        assert list(out["frame"]) == sorted(out["frame"])
+        with pytest.raises(KeyError):
+            io.read_h5_database(path)
+
 
 class TestSortH5ByFrame:
     def test_sorts_out_of_order_file_with_backup(self, io, tmp_path):
@@ -221,6 +258,14 @@ class TestEnsureHdf5Compatibility:
         new_df = pd.DataFrame({"frame": [1], "xc": [1.0]})
         out = io._ensure_hdf5_compatibility(new_df, path)
         assert out is new_df
+
+    def test_honours_custom_key(self, io, tmp_path):
+        path = tmp_path / "existing.h5"
+        existing = pd.DataFrame({"frame": np.array([1, 2], dtype="int16")})
+        existing.to_hdf(path, key="ground_truth", format="table", index=False)
+        new_df = pd.DataFrame({"frame": np.array([3, 4], dtype="int64")})
+        out = io._ensure_hdf5_compatibility(new_df, path, key="ground_truth")
+        assert out["frame"].dtype == np.dtype("int32")
 
     def test_no_common_columns_returns_original(self, io, tmp_path):
         path = tmp_path / "existing.h5"

@@ -650,8 +650,6 @@ class MainWindow(QMainWindow):
         if self._worker_running() or self.pipeline is None:
             return
 
-        photon_range = self.fitting_panel.photon_range
-
         def _do():
             self.pipeline.config.progress_callback = lambda f, m: worker.progress.emit(f, m)
             self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
@@ -659,15 +657,7 @@ class MainWindow(QMainWindow):
             fov_data = self.pipeline.fit(
                 Path(data_dir), mode=mode, fitting_config=fitting_config, **extra_kwargs
             )
-            if not fov_data:
-                return data_dir, [], None, None
-            n = len(fov_data)
-            first_df, first_tif = fov_data[0]
-            title = f"FOV 1 / {n}" if n > 1 else "Localisations"
-            locs_fig = self._make_locs_render_figure(first_df, tif_path=first_tif, title=title)
-            all_locs = pd.concat([df for df, _ in fov_data], ignore_index=True)
-            stats_fig = self._make_stats_figure(all_locs, photon_range=photon_range)
-            return data_dir, fov_data, locs_fig, stats_fig
+            return data_dir, fov_data
 
         worker = self._start_worker(_do)
         worker.result.connect(self._on_fitting_done)
@@ -675,7 +665,16 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_fitting_done(self, result):
-        data_dir, fov_data, locs_fig, stats_fig = result
+        # Record real results (already written to disk by pipeline.fit()) and
+        # advance app state before touching the preview figures below -- a
+        # rendering failure (e.g. a malformed companion file glob-matched
+        # alongside the real results, as ground_truth.h5 briefly was) must
+        # never prevent _fov_data/_fitted_data_dir/state from being set, or
+        # every downstream action (channel unmixing, clustering, ...) that
+        # gates on them silently no-ops with no error and nothing in the log.
+        # Rendering itself is deferred to _refresh_render_figure's own aux
+        # worker, matching the pattern _on_clustering_done already uses.
+        data_dir, fov_data = result
         self._fitted_data_dir = data_dir
         self._fov_data = fov_data
         self._undrifted_locs = None
@@ -691,10 +690,13 @@ class MainWindow(QMainWindow):
         self.progress_widget.update(1.0, "Fitting complete")
         self._update_state(AppState.FITTED)
         self.results_panel.set_fov_count(len(fov_data))
-        if locs_fig is not None:
-            self.results_panel.set_localisations_figure(locs_fig)
-        if stats_fig is not None:
-            self.results_panel.set_stats_figure(stats_fig)
+        if not fov_data:
+            return
+        n = len(fov_data)
+        first_df, first_tif = fov_data[0]
+        title = f"FOV 1 / {n}" if n > 1 else "Localisations"
+        all_locs = pd.concat([df for df, _ in fov_data], ignore_index=True)
+        self._refresh_render_figure(first_df, title=title, stats_locs=all_locs, tif_path=first_tif)
 
     def _on_clear_fitting(self):
         """Discard fitting results (and everything downstream that depended
@@ -918,13 +920,24 @@ class MainWindow(QMainWindow):
         self._update_state(new_state)
         self.log_widget.append("Cleared clustering results — ready to cluster again.")
 
-    def _refresh_render_figure(self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None):
-        """Launch an aux worker to build and display the render (and optionally stats) figure."""
+    def _refresh_render_figure(
+        self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None,
+        tif_path: str | None = None,
+    ):
+        """Launch an aux worker to build and display the render (and optionally stats) figure.
+
+        *tif_path*, when given, is used for the MIP instead of globbing
+        ``self._fitted_data_dir`` — needed right after fitting, where *locs* is
+        one specific FOV's table and its matching TIFF may not be the first
+        one found by a folder glob.
+        """
         data_dir = self._fitted_data_dir
         photon_range = self.fitting_panel.photon_range
 
         def _do():
-            locs_fig = self._make_locs_render_figure(locs, data_dir=data_dir, title=title)
+            locs_fig = self._make_locs_render_figure(
+                locs, data_dir=data_dir, tif_path=tif_path, title=title
+            )
             stats_fig = (
                 self._make_stats_figure(stats_locs, photon_range=photon_range, sm_locs=stats_sm)
                 if stats_locs is not None and not stats_locs.empty
@@ -1853,7 +1866,11 @@ class MainWindow(QMainWindow):
         with open(out_dir / f"{run_name}_MMStack_Default_metadata.txt", "w") as f:
             json.dump(metadata, f)
 
-        io.write_h5_database(ground_truth, out_dir / "ground_truth.h5", verbose=False)
+        # key="ground_truth" (not the default "data") so a later fit run on this
+        # same folder doesn't glob this file in as if it were localisation
+        # results -- load_localisations[_per_fov] already skip files that lack
+        # a "data" key, which now includes this one.
+        io.write_h5_database(ground_truth, out_dir / "ground_truth.h5", verbose=False, key="ground_truth")
 
         fig = self._make_pattern_simulation_figure(
             bayer_stack, ground_truth, colour_to_dye, width, height,
