@@ -2,6 +2,10 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QProgressBar, QLabel
 
 
 class ProgressWidget(QWidget):
+    """A progress bar (0-100%) paired with a status-message label. `update`
+    sets both from a fraction-complete (0.0-1.0) + optional message; `reset`
+    clears the bar and message back to their initial state."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QHBoxLayout(self)

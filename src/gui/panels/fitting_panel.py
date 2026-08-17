@@ -17,6 +17,13 @@ _FRET_QD_MODES = ("fret", "qd")
 
 
 class FittingPanel(QWidget):
+    """Controls for running `AnalysisPipeline.fit` on a data folder: mode
+    selection (single/multi-FOV SMLM, multi-FOV FRET change-point detection,
+    multi-FOV quantum dot time series) plus the `FittingConfig` knobs.
+    "Preview Fit" only applies to single-frame SMLM modes — it fits one
+    frame without committing results, letting parameters be tuned before a
+    full "Run Fitting"."""
+
     fit_requested          = pyqtSignal(str, str, object, object)  # data_dir, mode, FittingConfig, extra_kwargs
     preview_requested      = pyqtSignal(str, object)               # data_dir, FittingConfig
     stats_refresh_requested = pyqtSignal(tuple)                    # (min_photons, max_photons)

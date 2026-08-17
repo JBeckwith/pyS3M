@@ -36,6 +36,14 @@ autodoc_mock_imports = [
     'numba',
     'datashader',   # imports numba at module level; numba is mocked so version check fails
     'fast_hdbscan', # runs HDBSCAN().fit() at import time, crashes on empty random_data
+    # matplotlib's Qt backend does a real Qt-version compatibility check at import
+    # time (QLibraryInfo.version().toString(), parsed and compared against its
+    # minimum-supported Qt version) -- against the mocked PyQt6 above, that check
+    # sees a fake string instead of a real version and raises ImportError, which
+    # breaks autodoc on every gui module that imports it (app.py, main_window.py,
+    # results_panel.py). Mocking the backend module itself skips that check
+    # entirely, same treatment as PyQt6 above.
+    'matplotlib.backends.backend_qtagg',
 ]
 
 templates_path = ['_templates']

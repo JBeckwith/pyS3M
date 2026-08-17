@@ -36,6 +36,12 @@ def _find_default_cal_dir(camera: str) -> Path | None:
 
 
 class SetupPanel(QWidget):
+    """Camera + calibration selection: picks the camera model (ximea/zwo,
+    each with a fixed pixel size), auto-fills a default calibration
+    directory when one with all required maps (`_REQUIRED_FILES`) is found
+    under `Camera_Calibrations/`, and emits `calibration_requested` to load
+    it via `AnalysisPipeline.load_calibration`."""
+
     calibration_requested = pyqtSignal(str, float, str)  # camera, pixel_size_um, cal_dir
 
     def __init__(self, parent=None):

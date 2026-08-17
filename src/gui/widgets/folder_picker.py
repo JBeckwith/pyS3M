@@ -3,6 +3,10 @@ from PyQt6.QtCore import pyqtSignal
 
 
 class FolderPicker(QWidget):
+    """A read-only path field plus a "Browse…" button for picking a folder.
+    Emits path_changed on a successful selection; `set_path` lets the owning
+    panel populate/restore a path programmatically without emitting."""
+
     path_changed = pyqtSignal(str)
 
     def __init__(self, placeholder="Select folder…", default_dir="", parent=None):
