@@ -10,8 +10,7 @@ import numpy as np
 from pathlib import Path
 import sys
 from concurrent import futures
-from scipy.ndimage import uniform_filter
-from skimage.filters import gaussian
+from scipy.ndimage import uniform_filter, gaussian_filter
 from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004, demosaicing_CFA_Bayer_bilinear, demosaicing_CFA_Bayer_DDFAPD, demosaicing_CFA_Bayer_Menon2007
 
 sys.path.append(str(Path(__file__).parent))
@@ -319,7 +318,7 @@ class sCMOS_Functions:
 
         image = image.astype(np.float32)
         if len(image.shape) > 2:
-            RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3])
+            RGB_image = np.zeros([image.shape[0], image.shape[1], image.shape[2], 3], dtype=np.float32)
             for i in np.arange(image.shape[0]):
                 RGB_image[i, :, :, :] = demosaic_func(image[i, :, :])
         else:
@@ -337,6 +336,14 @@ class sCMOS_Functions:
         """
         Apply gaussian filter to an image using a gaussian of width sigma.
 
+        For a 3D stack, all frames are filtered in a single call (sigma=0 on the
+        leading axis leaves it untouched), rather than one call per frame -- same
+        maths (scipy.ndimage.gaussian_filter is itself separable, i.e. a sequence
+        of 1D convolutions per axis, mode='nearest', truncate=4.0 -- matching
+        skimage.filters.gaussian's defaults, which this wraps directly), just
+        without the per-frame Python loop and per-call dtype/range-checking
+        overhead.
+
         Args:
             image (np.ndarray): Input image as a NumPy array of shape (H, W) or (C, H, W)
                                 where H is height, W is width, and C is the number of channels.
@@ -346,13 +353,9 @@ class sCMOS_Functions:
             filtered_image (np.ndarray): smoothed image
         """
         image = image.astype(np.float32)
-        filtered_image = np.zeros_like(image)
-        if len(image.shape) > 2:
-            for i in np.arange(image.shape[0]):
-                filtered_image[i, :, :] = gaussian(image[i, :, :], sigma=sigma)
-        else:
-            filtered_image = gaussian(image, sigma=sigma)
-        return filtered_image
+        if image.ndim > 2:
+            return gaussian_filter(image, sigma=(0, sigma, sigma), mode="nearest", truncate=4.0)
+        return gaussian_filter(image, sigma=sigma, mode="nearest", truncate=4.0)
 
     def var_weighted_uniform_filter(self, image, variance_map, kernel_size):
         """
