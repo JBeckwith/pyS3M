@@ -225,6 +225,51 @@ class TestGaussianFilterStack:
         out = scmos.gaussian_filter_stack(stack, sigma=1.0)
         assert out.shape == stack.shape
 
+    def test_2d_matches_scipy_reference(self):
+        # gaussian_filter_stack is documented to wrap scipy.ndimage.gaussian_filter
+        # directly (mode='nearest', truncate=4.0) -- pin the exact formula.
+        from scipy.ndimage import gaussian_filter as ndi_gaussian_filter
+
+        scmos = sCMOS_Functions()
+        image = _bayer_image()
+        out = scmos.gaussian_filter_stack(image, sigma=1.5)
+        expected = ndi_gaussian_filter(
+            image.astype(np.float32), sigma=1.5, mode="nearest", truncate=4.0
+        )
+        np.testing.assert_array_equal(out, expected)
+        assert out.dtype == np.float32
+
+    def test_3d_stack_matches_per_frame_scipy_reference(self):
+        # The vectorized 3D path must give bit-identical results to filtering
+        # each frame independently -- confirms the leading (frame) axis isn't
+        # blurred across, not just that per-frame maths matches in isolation.
+        from scipy.ndimage import gaussian_filter as ndi_gaussian_filter
+
+        scmos = sCMOS_Functions()
+        rng = np.random.default_rng(1)
+        stack = np.stack([_bayer_image(seed=i) for i in range(4)], axis=0)
+        out = scmos.gaussian_filter_stack(stack, sigma=1.5)
+        expected = np.stack(
+            [
+                ndi_gaussian_filter(f.astype(np.float32), sigma=1.5, mode="nearest", truncate=4.0)
+                for f in stack
+            ],
+            axis=0,
+        )
+        np.testing.assert_array_equal(out, expected)
+        assert out.dtype == np.float32
+
+    def test_3d_stack_frames_stay_independent(self):
+        # A bright point in one frame must not leak into its neighbours in the
+        # stack -- i.e. sigma=(0, sigma, sigma) really leaves axis 0 untouched.
+        scmos = sCMOS_Functions()
+        stack = np.zeros((3, 16, 16), dtype=np.float32)
+        stack[1, 8, 8] = 1000.0  # only the middle frame has signal
+        out = scmos.gaussian_filter_stack(stack, sigma=1.0)
+        assert np.all(out[0] == 0.0)
+        assert np.all(out[2] == 0.0)
+        assert out[1, 8, 8] > 0.0
+
 
 # ======================================================================
 # var_weighted_uniform_filter

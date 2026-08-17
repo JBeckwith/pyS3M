@@ -676,7 +676,8 @@ class MultiC_Sim_Funcs_Refactored:
                        each frame contains data from a single colour channel
         """
         destacked_image = np.zeros(
-            [RGB_image.shape[0] * 3, RGB_image.shape[1], RGB_image.shape[2]]
+            [RGB_image.shape[0] * 3, RGB_image.shape[1], RGB_image.shape[2]],
+            dtype=RGB_image.dtype,
         )
         index = 0
         for i in range(RGB_image.shape[0]):
