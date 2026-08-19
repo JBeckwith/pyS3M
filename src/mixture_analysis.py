@@ -37,10 +37,18 @@ class _SerialPool:
     Pool` for this serial stand-in (macOS only, see `_fit_gmm_pygmmis`) avoids
     spawning any subprocess at all, at the cost of pygmmis's internal
     parallelism on that platform.
+
+    pygmmis hands this pool to `parmap.starmap`/`parmap.map` as `pm_pool`,
+    which call `pool.map_async(func, iterable, chunksize)`, not
+    `apply_async` -- both are implemented here. `chunksize` is accepted for
+    signature compatibility and ignored.
     """
 
     def apply_async(self, func, args=()):
         return _SerialPoolResult(func(*args))
+
+    def map_async(self, func, iterable, chunksize=None):
+        return _SerialPoolResult([func(item) for item in iterable])
 
     def close(self):
         pass
