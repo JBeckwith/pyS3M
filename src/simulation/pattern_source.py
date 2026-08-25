@@ -837,7 +837,7 @@ def simulate_acquisition(
     na: float = 1.49,
     drift_nm: Optional[np.ndarray] = None,
     min_separation_nm: float = 0.0,
-    nile_red_filter_names: Optional[List[str]] = None,
+    filter_names: Optional[List[str]] = None,
     frame_chunk_size: Optional[int] = None,
     rng: Optional[np.random.Generator] = None,
 ):
@@ -903,14 +903,19 @@ def simulate_acquisition(
             :func:`sample_n_positions_in_mask` for the rejection-sampling
             mechanics; a warning is logged (not raised) if the mask can't fit
             the requested pool size at this separation.
-        nile_red_filter_names: Optical filter names to apply to every
-            :class:`NileRedEnvironment` dye's emission spectrum before
-            computing its camera colour ratios (via
-            ``NileRed_Functions.apply_optical_filters``) — should match the
-            filters the Nile Red panel's fit will assume, so the simulated
-            data and the fit's forward model see the same optical path.
-            Ignored if no ``colour_to_dye`` value is a
-            :class:`NileRedEnvironment`.
+        filter_names: Optical filter names (e.g. from
+            ``Spectral_Funcs.filter_names``) to apply to every dye's emission
+            spectrum — regular dye names, :class:`Scatterer`, and
+            :class:`NileRedEnvironment` alike — before computing camera
+            colour ratios, the same forward model
+            ``get_pixel_fractions_dye_and_filters``/
+            ``NileRed_Functions.apply_optical_filters`` use. This is the
+            "reasonable simulation" filter knob: pass the same filter set the
+            downstream fit's forward model assumes (e.g. the emission filter
+            in front of the Bayer sensor), so the simulated per-channel
+            colour ratios match what a real filtered acquisition would
+            produce. ``None`` (default) simulates an unfiltered emission
+            spectrum.
         frame_chunk_size: If set, ``gen_camera_image_stack`` is called once
             per chunk of this many frames instead of once for the whole
             movie, bounding peak memory to roughly ``O(frame_chunk_size)``
@@ -994,8 +999,16 @@ def simulate_acquisition(
     for colour, dye in colour_to_dye.items():
         dye_to_colours.setdefault(dye, []).append(colour)
 
+    # Computed once, upfront, so it applies uniformly to every dye branch
+    # below (regular dye name, Scatterer, NileRedEnvironment) rather than
+    # only to NileRedEnvironment as in earlier versions of this function.
+    filter_spectra = (
+        spectral.get_dye_or_filter_data(names=filter_names, wavelength=wl, dye_or_filter=False)
+        if filter_names else None
+    )
+    filter_transmission = np.prod(filter_spectra, axis=0) if filter_spectra is not None else None
+
     nile_red_functions = None  # lazily constructed only if a NileRedEnvironment is used
-    nile_red_filter_spectra = None  # lazily computed alongside nile_red_functions
 
     x0y0, n_photons = {}, {}
     dye_efficiency_rows, avg_wavelengths, gt_rows = [], [], []
@@ -1030,22 +1043,31 @@ def simulate_acquisition(
         n_photons[dye] = per_frame_photon_budget(n_frames, photon_range, rng)
         if isinstance(dye, Scatterer):
             spectrum = scatterer_spectrum(dye, wl, spectral)
-            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+            if filter_transmission is not None:
+                spectrum = spectrum * filter_transmission
+            # warn_if_unnormalised=False: scatterer_spectrum is already integral-1 by
+            # construction (gaussian_model's amplitude *is* the integral), but a
+            # filter (if applied above) legitimately shrinks it below 1 -- not a sign
+            # of a wrongly-scaled input spectrum.
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(
+                spectrum, wl, pixel_QYs, warn_if_unnormalised=False,
+            )
         elif isinstance(dye, NileRedEnvironment):
             if nile_red_functions is None:
                 import pyS3M.NileRedFunctions as NileRedFunctions
                 nile_red_functions = NileRedFunctions.NileRed_Functions()
-                if nile_red_filter_names:
-                    nile_red_filter_spectra = spectral.get_dye_or_filter_data(
-                        names=nile_red_filter_names, wavelength=wl, dye_or_filter=False,
-                    )
             spectrum = nile_red_environment_spectrum(
-                dye, wl, nile_red_functions, filter_spectra=nile_red_filter_spectra,
+                dye, wl, nile_red_functions, filter_spectra=filter_spectra,
             )
-            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+            # warn_if_unnormalised=False: nile_red_environment_spectrum starts from a
+            # unit-integral spectrum but a filter (if applied) legitimately shrinks it
+            # -- not a sign of wrongly-scaled input.
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(
+                spectrum, wl, pixel_QYs, warn_if_unnormalised=False,
+            )
         else:
             avg_wl, fracs = spectral.get_pixel_fractions_dye_and_filters(
-                dyes=[dye], filters=None, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
+                dyes=[dye], filters=filter_names, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
             )
         dye_efficiency_rows.append(fracs)
         avg_wavelengths.append(float(avg_wl))

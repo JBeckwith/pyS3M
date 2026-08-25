@@ -19,6 +19,7 @@ from abc import ABC, abstractmethod
 import functools
 import numpy as np
 import sys
+import warnings
 from pathlib import Path
 import duckdb
 import polars as pl
@@ -790,14 +791,35 @@ class Spectral_Funcs:
         return result, fitted_spectrum
 
     def get_pixel_fractions_rawspectra(
-        self, spectra: np.ndarray, wavelength: np.ndarray, pixel_QYs: np.ndarray
+        self,
+        spectra: np.ndarray,
+        wavelength: np.ndarray,
+        pixel_QYs: np.ndarray,
+        warn_if_unnormalised: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate pixel efficiencies for raw spectral data.
 
         Args:
-            spectra: Raw spectrum array (n_spectra x n_wavelengths).
+            spectra: Raw spectrum array (n_spectra x n_wavelengths). Does not need to
+                be pre-normalised -- always renormalised internally (below) so the
+                result is independent of the input's absolute scale. What matters for
+                *this* renormalisation is that ``spectra`` integrates (via
+                ``np.trapz``) to a sensible probability density; a spectrum that's
+                wildly off (e.g. accidentally left at a raw-intensity scale instead of
+                the unit-integral "photon probability density" a real emission
+                spectrum represents) still gets renormalised the same way, but see
+                *warn_if_unnormalised*.
             wavelength: Wavelength array.
             pixel_QYs: Pixel quantum yield array (n_wavelengths x n_pixels).
+            warn_if_unnormalised: If True (default), warn when a row of ``spectra``
+                doesn't already integrate to ~1 over ``wavelength`` before this
+                renormalises it -- since that's the normal signature of a spectrum
+                supplied directly by a caller with the wrong scaling, not an error in
+                itself (renormalisation still makes the result correct), just
+                something worth flagging so a genuine mistake doesn't go unnoticed.
+                Set False for call sites where a sub-unit integral is expected and
+                correct (e.g. a spectrum already attenuated by an optical filter
+                upstream of this call) rather than a sign of miscalibrated input.
 
         Returns:
             Tuple containing:
@@ -807,8 +829,18 @@ class Spectral_Funcs:
         # handle single spectrum case
         if spectra.ndim == 1:
             spectra = spectra[np.newaxis, :]
+        integrals = np.trapz(x=wavelength, y=spectra, axis=1)
+        if warn_if_unnormalised and not np.allclose(integrals, 1.0, rtol=1e-2, atol=1e-6):
+            warnings.warn(
+                "get_pixel_fractions_rawspectra: input spectrum/spectra do not "
+                f"integrate to 1 over `wavelength` (got {np.atleast_1d(integrals)}); "
+                "normalising automatically, but double-check the scaling of the "
+                "spectrum you supplied -- a spectrum representing an emission "
+                "probability density should integrate to 1.",
+                UserWarning, stacklevel=2,
+            )
         # Normalize spectra
-        spectra_normalised = spectra.T / np.trapz(x=wavelength, y=spectra, axis=1)
+        spectra_normalised = spectra.T / integrals
         spectra_normalised = spectra_normalised.T
 
         # Calculate average emission wavelengths
@@ -878,8 +910,23 @@ class Spectral_Funcs:
             )
             filter_transmission = np.prod(filter_spectra, axis=0)
 
-        # Get dye emission spectra
+        # Get dye emission spectra -- get_spectral_data/DyeSpectrumProcessor already
+        # normalises these to integrate to 1 over `wavelength`, so a deviation here
+        # (e.g. a malformed database entry) is worth surfacing rather than silently
+        # correcting: unlike the post-filter renormalisation below, a sub/over-unit
+        # integral at *this* point is never an expected/intentional effect of a
+        # normal call, only a sign the underlying spectral data is off.
         dye_spectra = self.get_spectral_data(dyes, wavelength, SpectralDataType.DYE)
+        dye_integrals = np.trapz(x=wavelength, y=dye_spectra, axis=1)
+        if not np.allclose(dye_integrals, 1.0, rtol=1e-2, atol=1e-6):
+            warnings.warn(
+                "get_pixel_fractions_dye_and_filters: emission spectrum for "
+                f"{list(dyes)} does not integrate to 1 over `wavelength` (got "
+                f"{dye_integrals}); normalising automatically, but this dye's entry "
+                "in the spectral database may be malformed -- double-check it.",
+                UserWarning, stacklevel=2,
+            )
+            dye_spectra = dye_spectra / np.where(dye_integrals > 0, dye_integrals, 1)[:, np.newaxis]
 
         # Apply filter transmission
         dye_filtered_spectra = dye_spectra * filter_transmission

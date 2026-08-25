@@ -619,10 +619,51 @@ class TestSimulateAcquisition:
             gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
             variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
             n_frames=2, density_per_um2=0.05, background_photons=10.0,
-            nile_red_filter_names=["chroma-d620-40m"],
+            filter_names=["chroma-d620-40m"],
             rng=np.random.default_rng(0),
         )
         assert bayer_stack.shape[0] == 2
+
+    def test_filter_names_applies_to_plain_dye(self, cam_maps):
+        # filter_names used to be Nile-Red-only (nile_red_filter_names,
+        # hardcoded filters=None for every other colour_to_dye value) --
+        # this checks a plain dye name's colour ratios (and so its rendered
+        # frames) actually respond to filter_names now too.
+        kwargs = dict(
+            image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): "ATTO 647N"},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+        )
+        _, _, _, _, avg_wl_unfiltered = ps.simulate_acquisition(
+            **kwargs, rng=np.random.default_rng(0),
+        )
+        bayer_filtered, _, _, _, avg_wl_filtered = ps.simulate_acquisition(
+            **kwargs, filter_names=["chroma-et670-50m"], rng=np.random.default_rng(0),
+        )
+        assert avg_wl_filtered != pytest.approx(avg_wl_unfiltered)
+        assert bayer_filtered.shape[0] == 2
+
+    def test_filter_names_applies_to_scatterer(self, cam_maps):
+        # Scatterer used to have no filter path at all -- an emission filter
+        # attenuating a fiducial's (narrow, near-illumination-wavelength)
+        # spectrum is physically real, so this should respond too.
+        kwargs = dict(
+            image=_one_colour_pattern(),
+            colour_to_dye={(0, 0, 0): ps.Scatterer(638.0, label="gold NP")},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+        )
+        bayer_unfiltered, _, _, _, _ = ps.simulate_acquisition(
+            **kwargs, rng=np.random.default_rng(0),
+        )
+        bayer_filtered, _, _, _, _ = ps.simulate_acquisition(
+            **kwargs, filter_names=["chroma-et670-50m"], rng=np.random.default_rng(0),
+        )
+        assert not np.array_equal(bayer_unfiltered, bayer_filtered)
 
     def test_drift_nm(self, cam_maps):
         drift = np.zeros((2, 2))
