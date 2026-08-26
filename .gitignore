@@ -42,6 +42,14 @@ unit_tests/test_output/
 # folder each run; ignored as a backstop in case cleanup is ever interrupted mid-test.
 test_tiffs/quality_metrics_sample/Localisations.h5
 
+# AnalysisPipeline.fit()/SR_Functions write localisation output as <tif_stem>.h5 next to
+# the input TIFF -- test_tiffs/*/ fixtures should hold only the raw acquisition + its
+# ground_truth/ (tracked), never that fit-output convention; ignored so pointing the
+# pipeline/GUI at a fixture folder directly (instead of a copy) can't accidentally
+# recommit stray output the way test_tiffs/drift_correction/ did. Only matches the
+# *_MMStack_Default.h5 output stem, never ground_truth/'s differently-named *.h5 files.
+test_tiffs/**/*_MMStack_Default.h5
+
 # unit_tests/claude/test_drift_correction.py output artifacts (written to repo root)
 /aim_test_drift.json
 /aim_test_drift.npz
