@@ -221,7 +221,7 @@ class FilteringCriteria:
         sm_db, sf_db = SM_E.extract_single_molecules_HDBSCAN(data, criteria=filt)
     """
 
-    chi_val: Optional[float] = None
+    chi_val: Optional[float] = None     # None → no chi-squared filter applied
     max_localisation_error: float = FilteringConstants.MAX_LOCALISATION_ERROR_PX
     max_colour_error: float = FilteringConstants.MAX_COLOUR_ERROR
     min_sigma: Optional[float] = None   # px; None → MIN_SIGMA_NM / pixel_size_nm

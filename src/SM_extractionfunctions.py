@@ -87,7 +87,8 @@ class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
 
         Args:
             loc_data (pd.DataFrame): Localization data to filter.
-            chi_val: Chi-squared threshold; ``None`` → median of data.
+            chi_val: Chi-squared threshold (localisations with ``chi_sqr`` at or
+                above this are dropped); ``None`` → no chi-squared filtering.
             max_localisation_error: Maximum localisation precision (pixels).
             max_colour_error: Maximum amplitude error fraction.
             min_sigma, max_sigma, max_sigma_error: PSF sigma bounds (pixels);
@@ -116,12 +117,15 @@ class extract_SMs(HDBSCANMixin, DBSCANMixin, LinkedMixin, BatchMixin,
         if max_sigma_error is None:
             max_sigma_error = FilteringConstants.MAX_SIGMA_ERROR_NM / pixel_size_nm
 
-        # Calculate chi-squared threshold if not provided
-        if chi_val is None:
-            chi_val = np.median(loc_data["chi_sqr"])
-
-        # Apply quality filters
-        filtered_data = loc_data[loc_data["chi_sqr"] < chi_val].copy()
+        # Apply quality filters. chi_val=None means "no chi-squared filter" -- unlike
+        # every other threshold here, there's no data-independent default worth
+        # picking (a per-fit chi-squared depends on PSF model, background, and photon
+        # count), so we skip the cut entirely rather than fabricate one from the
+        # data's own median (which would silently discard the worse-fitting half of
+        # *any* input, however good, and make results depend on batch composition).
+        filtered_data = loc_data.copy()
+        if chi_val is not None:
+            filtered_data = filtered_data[filtered_data["chi_sqr"] < chi_val]
         filtered_data = filtered_data[filtered_data["xc_err"] < max_localisation_error]
         filtered_data = filtered_data[filtered_data["yc_err"] < max_localisation_error]
         for key in ['A_R_err', 'A_G_err', 'A_B_err', 'bg_R_err', 'bg_G_err', 'bg_B_err']:
