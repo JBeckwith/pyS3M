@@ -469,7 +469,9 @@ class MultiC_Sim_Funcs_Refactored:
             wavelength (np.ndarray): Wavelength array for spectral calculations
             camera_parameters (Dict[str, Any]): Camera calibration parameters dictionary
             dye_pixel_efficiency (Optional[np.ndarray]): Pixel efficiency values for dye molecules (can be None during early validation)
-            x0y0 (Dict[str, np.ndarray]): Dictionary of molecule positions by dye type
+            x0y0 (Dict[str, np.ndarray]): Dictionary of molecule positions by dye type;
+                each array is (n_bootstrap, 2, n_molecules) with the size-2 axis in
+                (y, x) order (index 0 = row/y, index 1 = column/x)
 
         Raises:
             SimulationValidationError: If input parameters are inconsistent or invalid
@@ -1620,6 +1622,9 @@ class MultiC_Sim_Funcs_Refactored:
         """Generate camera image stack with optional vectorized photoelectron generation.
 
         Args:
+            x0y0: Dict mapping each dye key to an (n_bootstrap, 2, n_molecules) position
+                array in nm, ordered (y, x): index 0 is the row/y coordinate, index 1 is
+                the column/x coordinate.
             return_normal_image: If True, generate a normal (non-Bayer) image with flat QE
             return_photoelectrons: If True, return normal_image in photoelectrons instead of ADU
                                   (only applies when return_normal_image=True)
@@ -2224,7 +2229,8 @@ class MultiC_Sim_Funcs_Refactored:
             dye_pixel_efficiency: Per-channel QE fractions; shape (n_bootstrap, n_channels)
                 for stochastic mode or (n_channels,) for deterministic mode.
             n_photons: Dict mapping dye key to photon count array (n_bootstrap,).
-            x0y0: Position dict as used by gen_camera_image_stack.
+            x0y0: Position dict as used by gen_camera_image_stack — the size-2 axis is
+                ordered (y, x): index 0 is row/y, index 1 is column/x.
             config: SimulationConfig (NA, pixel_size, background parameters).
 
         Returns:
@@ -2387,7 +2393,10 @@ class MultiC_Sim_Funcs_Refactored:
             unit_cell_shape=unit_cell_shape,
         )
         x0y0 = {"dye": np.zeros([config.n_bootstrap, 2, 1])}
-        x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
+        # gen_camera_image_stack places the first coordinate along the image array's row
+        # axis and the second along its column axis; fitted xc/yc follow row=y/col=x, so
+        # the row slot takes y0 and the column slot takes x0.
+        x0y0["dye"][:, :, :] = np.array([[y0, x0]]).T
 
         analysis_save_params = (
             ["xc", "yc", "s_x", "s_y"]
@@ -2679,7 +2688,10 @@ class MultiC_Sim_Funcs_Refactored:
 
         # Create position dictionary
         x0y0 = {"dye": np.zeros([config.n_bootstrap, 2, 1])}
-        x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
+        # gen_camera_image_stack places the first coordinate along the image array's row
+        # axis and the second along its column axis; fitted xc/yc follow row=y/col=x, so
+        # the row slot takes y0 and the column slot takes x0.
+        x0y0["dye"][:, :, :] = np.array([[y0, x0]]).T
 
         # Define analysis parameters based on strategy.
         # For ELLIPTICAL the raw DataFrame also contains 'theta' and 'theta_err', but
@@ -2717,7 +2729,7 @@ class MultiC_Sim_Funcs_Refactored:
                 if len(gt_saved) == config.n_bootstrap:
                     x0 = gt_saved["x0"].to_numpy()
                     y0 = gt_saved["y0"].to_numpy()
-                    x0y0["dye"][:, :, :] = np.array([[x0, y0]]).T
+                    x0y0["dye"][:, :, :] = np.array([[y0, x0]]).T
                     setup_data["x0"] = x0
                     setup_data["y0"] = y0
                 else:
