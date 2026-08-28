@@ -619,10 +619,145 @@ class TestSimulateAcquisition:
             gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
             variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
             n_frames=2, density_per_um2=0.05, background_photons=10.0,
-            nile_red_filter_names=["chroma-d620-40m"],
+            filter_names=["chroma-d620-40m"],
             rng=np.random.default_rng(0),
         )
         assert bayer_stack.shape[0] == 2
+
+    def test_simulated_dye_basic(self, cam_maps, spectral_funcs):
+        _, _, _, wl = spectral_funcs.getpixelefficiency()
+        sigma_nm = spectral_funcs.fwhm_sigma_conversion(20.0, sigma_given=False)
+        spectrum = np.exp(-0.5 * ((wl - 550.0) / sigma_nm) ** 2)
+        spectrum /= np.trapz(spectrum, wl)  # pre-normalised
+        dye = ps.SimulatedDye(spectrum, wl, label="synthetic 550nm dye")
+
+        bayer_stack, gt, w, h, avg_wl = ps.simulate_acquisition(
+            image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): dye},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+            rng=np.random.default_rng(0),
+        )
+        assert bayer_stack.shape[0] == 2
+        assert set(gt["dye"]) == {"synthetic 550nm dye"}
+        assert avg_wl == pytest.approx(550.0, abs=1.0)
+
+    def test_simulated_dye_warns_if_unnormalised(self, cam_maps, spectral_funcs):
+        _, _, _, wl = spectral_funcs.getpixelefficiency()
+        sigma_nm = spectral_funcs.fwhm_sigma_conversion(20.0, sigma_given=False)
+        # Peak height 500, NOT normalised to unit integral.
+        spectrum = 500.0 * np.exp(-0.5 * ((wl - 550.0) / sigma_nm) ** 2)
+        dye = ps.SimulatedDye(spectrum, wl, label="unnormalised dye")
+
+        with pytest.warns(UserWarning, match="does not integrate to 1"):
+            ps.simulate_acquisition(
+                image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): dye},
+                camera="ximea", pixel_size_um=0.069,
+                gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+                variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+                n_frames=1, density_per_um2=0.05, background_photons=10.0,
+                rng=np.random.default_rng(0),
+            )
+
+    def test_simulated_dye_no_warning_if_normalised(self, cam_maps, spectral_funcs, recwarn):
+        _, _, _, wl = spectral_funcs.getpixelefficiency()
+        sigma_nm = spectral_funcs.fwhm_sigma_conversion(20.0, sigma_given=False)
+        spectrum = np.exp(-0.5 * ((wl - 550.0) / sigma_nm) ** 2)
+        spectrum /= np.trapz(spectrum, wl)
+        dye = ps.SimulatedDye(spectrum, wl, label="normalised dye")
+
+        ps.simulate_acquisition(
+            image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): dye},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=1, density_per_um2=0.05, background_photons=10.0,
+            rng=np.random.default_rng(0),
+        )
+        assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+
+    def test_simulated_dye_interpolates_from_a_different_grid(self, cam_maps, spectral_funcs):
+        # Deliberately a coarser grid, and one that doesn't share simulate_acquisition's own
+        # internal grid's exact points -- simulated_dye_spectrum must interpolate onto it,
+        # not assume they already match.
+        coarse_wl = np.arange(400.0, 1000.0, 5.0)
+        sigma_nm = spectral_funcs.fwhm_sigma_conversion(20.0, sigma_given=False)
+        spectrum = np.exp(-0.5 * ((coarse_wl - 550.0) / sigma_nm) ** 2)
+        spectrum /= np.trapz(spectrum, coarse_wl)
+        dye = ps.SimulatedDye(spectrum, coarse_wl, label="coarse-grid dye")
+
+        bayer_stack, gt, w, h, avg_wl = ps.simulate_acquisition(
+            image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): dye},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=1, density_per_um2=0.05, background_photons=10.0,
+            rng=np.random.default_rng(0),
+        )
+        assert avg_wl == pytest.approx(550.0, abs=1.0)
+
+    def test_filter_names_applies_to_simulated_dye(self, cam_maps, spectral_funcs):
+        _, _, _, wl = spectral_funcs.getpixelefficiency()
+        sigma_nm = spectral_funcs.fwhm_sigma_conversion(20.0, sigma_given=False)
+        spectrum = np.exp(-0.5 * ((wl - 650.0) / sigma_nm) ** 2)
+        spectrum /= np.trapz(spectrum, wl)
+        kwargs = dict(
+            image=_one_colour_pattern(),
+            colour_to_dye={(0, 0, 0): ps.SimulatedDye(spectrum, wl, label="650nm dye")},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+        )
+        _, _, _, _, avg_wl_unfiltered = ps.simulate_acquisition(
+            **kwargs, rng=np.random.default_rng(0),
+        )
+        _, _, _, _, avg_wl_filtered = ps.simulate_acquisition(
+            **kwargs, filter_names=["chroma-et670-50m"], rng=np.random.default_rng(0),
+        )
+        assert avg_wl_filtered != pytest.approx(avg_wl_unfiltered)
+
+    def test_filter_names_applies_to_plain_dye(self, cam_maps):
+        # filter_names used to be Nile-Red-only (nile_red_filter_names,
+        # hardcoded filters=None for every other colour_to_dye value) --
+        # this checks a plain dye name's colour ratios (and so its rendered
+        # frames) actually respond to filter_names now too.
+        kwargs = dict(
+            image=_one_colour_pattern(), colour_to_dye={(0, 0, 0): "ATTO 647N"},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+        )
+        _, _, _, _, avg_wl_unfiltered = ps.simulate_acquisition(
+            **kwargs, rng=np.random.default_rng(0),
+        )
+        bayer_filtered, _, _, _, avg_wl_filtered = ps.simulate_acquisition(
+            **kwargs, filter_names=["chroma-et670-50m"], rng=np.random.default_rng(0),
+        )
+        assert avg_wl_filtered != pytest.approx(avg_wl_unfiltered)
+        assert bayer_filtered.shape[0] == 2
+
+    def test_filter_names_applies_to_scatterer(self, cam_maps):
+        # Scatterer used to have no filter path at all -- an emission filter
+        # attenuating a fiducial's (narrow, near-illumination-wavelength)
+        # spectrum is physically real, so this should respond too.
+        kwargs = dict(
+            image=_one_colour_pattern(),
+            colour_to_dye={(0, 0, 0): ps.Scatterer(638.0, label="gold NP")},
+            camera="ximea", pixel_size_um=0.069,
+            gain_map=cam_maps["gain"], offset_map=cam_maps["offset"],
+            variance_map=cam_maps["variance"], rqe_map=cam_maps["rqe"],
+            n_frames=2, density_per_um2=0.05, background_photons=10.0,
+        )
+        bayer_unfiltered, _, _, _, _ = ps.simulate_acquisition(
+            **kwargs, rng=np.random.default_rng(0),
+        )
+        bayer_filtered, _, _, _, _ = ps.simulate_acquisition(
+            **kwargs, filter_names=["chroma-et670-50m"], rng=np.random.default_rng(0),
+        )
+        assert not np.array_equal(bayer_unfiltered, bayer_filtered)
 
     def test_drift_nm(self, cam_maps):
         drift = np.zeros((2, 2))

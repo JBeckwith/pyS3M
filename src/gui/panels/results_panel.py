@@ -124,6 +124,13 @@ class _FigureTab(QWidget):
 
 
 class ResultsPanel(QWidget):
+    """The right-hand results dock: one `_FigureTab` per pipeline stage
+    (CMOS Calibration, Preview, Localisations, Statistics, Drift, FRC,
+    Simulation, Unmixing, Nile Red), each showing a placeholder until its
+    figure-setter method is called (e.g. `set_frc_figure`). `fov_requested`
+    is emitted when the user navigates to a different FOV from the
+    Localisations tab's controls."""
+
     fov_requested = pyqtSignal(int)   # emitted when user navigates to a different FOV
 
     def __init__(self, parent=None):

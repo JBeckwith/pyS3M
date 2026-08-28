@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+import warnings
 
 import numpy as np
 from skimage.filters import threshold_otsu
@@ -817,9 +818,85 @@ def nile_red_environment_spectrum(
     return spectrum
 
 
+class SimulatedDye:
+    """A hypothetical dye defined by a caller-supplied emission spectrum, for use as a
+    :func:`simulate_acquisition` ``colour_to_dye`` value in place of a database dye name.
+
+    For a dye that either isn't in the spectral database, or whose spectrum you want full
+    control over (e.g. a purely synthetic shape for methodological illustration, or one you
+    haven't measured yet) — pass any array on any wavelength grid; it's interpolated onto
+    *simulate_acquisition*'s own internal wavelength grid before use (the same way a database
+    dye's stored spectrum already is, by
+    :class:`~pyS3M.SpectralFunctions.DyeSpectrumProcessor`), then fed through
+    :meth:`~pyS3M.SpectralFunctions.Spectral_Funcs.get_pixel_fractions_rawspectra` like
+    :class:`Scatterer`/:class:`NileRedEnvironment`.
+
+    Doesn't need to be pre-normalised — ``get_pixel_fractions_rawspectra`` always renormalises
+    internally regardless of input scale — but *does* warn if it isn't (unlike
+    :class:`Scatterer`/:class:`NileRedEnvironment`, whose internally-generated spectra are
+    already correctly scaled by construction and so disable that warning): this is genuinely
+    caller-supplied data, exactly the case the warning exists to catch.
+    """
+
+    __slots__ = ("spectrum", "wavelength_nm", "label")
+
+    def __init__(
+        self, spectrum: np.ndarray, wavelength_nm: np.ndarray, label: str = "simulated dye",
+    ):
+        self.spectrum = np.asarray(spectrum, dtype=float)
+        self.wavelength_nm = np.asarray(wavelength_nm, dtype=float)
+        if self.spectrum.shape != self.wavelength_nm.shape:
+            raise ValueError(
+                "spectrum and wavelength_nm must have the same shape, got "
+                f"{self.spectrum.shape} and {self.wavelength_nm.shape}"
+            )
+        self.label = label
+
+    def __repr__(self) -> str:
+        return (
+            f"SimulatedDye({self.label!r}, "
+            f"{self.wavelength_nm.min():.0f}-{self.wavelength_nm.max():.0f} nm)"
+        )
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, SimulatedDye)
+            and self.label == other.label
+            and np.array_equal(self.wavelength_nm, other.wavelength_nm)
+            and np.array_equal(self.spectrum, other.spectrum)
+        )
+
+    def __hash__(self) -> int:
+        # Arrays aren't hashable -- hash their bytes instead, so two SimulatedDye instances
+        # built from equal data still merge into one candidate pool in simulate_acquisition's
+        # dye_to_colours grouping, same as Scatterer/NileRedEnvironment's scalar-field hash.
+        return hash((SimulatedDye, self.label, self.spectrum.tobytes(), self.wavelength_nm.tobytes()))
+
+
+def simulated_dye_spectrum(
+    dye: "SimulatedDye", wavelength_grid_nm: np.ndarray,
+) -> np.ndarray:
+    """Interpolate *dye*'s caller-supplied spectrum onto *wavelength_grid_nm*.
+
+    *dye.wavelength_nm* is whatever grid the caller happened to build their spectrum on —
+    generally not identical to *wavelength_grid_nm* (``simulate_acquisition``'s own internal
+    grid, from ``Spectral_Funcs.getpixelefficiency()``) — so this always interpolates rather
+    than assuming they already match.
+
+    Args:
+        dye: The :class:`SimulatedDye` to resolve.
+        wavelength_grid_nm: Wavelength grid to evaluate the spectrum on, in nm.
+
+    Returns:
+        ``(n_wavelengths,)`` spectrum array on *wavelength_grid_nm* — zero outside
+        ``dye.wavelength_nm``'s own range, matching ``np.interp``'s extrapolation.
+    """
+    return np.interp(wavelength_grid_nm, dye.wavelength_nm, dye.spectrum, left=0.0, right=0.0)
+
+
 def simulate_acquisition(
     image: Union[str, Path, np.ndarray],
-    colour_to_dye: Dict[RGBTuple, Union[str, Scatterer, NileRedEnvironment]],
+    colour_to_dye: Dict[RGBTuple, Union[str, Scatterer, NileRedEnvironment, SimulatedDye]],
     camera: str,
     pixel_size_um: float,
     gain_map: np.ndarray,
@@ -837,7 +914,7 @@ def simulate_acquisition(
     na: float = 1.49,
     drift_nm: Optional[np.ndarray] = None,
     min_separation_nm: float = 0.0,
-    nile_red_filter_names: Optional[List[str]] = None,
+    filter_names: Optional[List[str]] = None,
     frame_chunk_size: Optional[int] = None,
     rng: Optional[np.random.Generator] = None,
 ):
@@ -862,10 +939,11 @@ def simulate_acquisition(
         colour_to_dye: ``{(r, g, b): dye_name_or_scatterer}`` — which dye (or
             :class:`Scatterer`, for a non-fluorescent point scatterer such as
             a gold-nanoparticle fiducial; or :class:`NileRedEnvironment`, for
-            a Nile Red population in a specific local-polarity environment)
-            each detected pattern colour represents. Two colours may map to
-            the same dye/scatterer/environment (their
-            candidate pools are merged).
+            a Nile Red population in a specific local-polarity environment;
+            or :class:`SimulatedDye`, for a hypothetical dye defined by your
+            own emission spectrum array) each detected pattern colour
+            represents. Two colours may map to the same dye/scatterer/
+            environment (their candidate pools are merged).
         camera: Camera name (``"ximea"`` or ``"zwo"``) — sets the Bayer
             mosaic layout.
         pixel_size_um: Camera pixel size, in µm.
@@ -903,14 +981,19 @@ def simulate_acquisition(
             :func:`sample_n_positions_in_mask` for the rejection-sampling
             mechanics; a warning is logged (not raised) if the mask can't fit
             the requested pool size at this separation.
-        nile_red_filter_names: Optical filter names to apply to every
-            :class:`NileRedEnvironment` dye's emission spectrum before
-            computing its camera colour ratios (via
-            ``NileRed_Functions.apply_optical_filters``) — should match the
-            filters the Nile Red panel's fit will assume, so the simulated
-            data and the fit's forward model see the same optical path.
-            Ignored if no ``colour_to_dye`` value is a
-            :class:`NileRedEnvironment`.
+        filter_names: Optical filter names (e.g. from
+            ``Spectral_Funcs.filter_names``) to apply to every dye's emission
+            spectrum — regular dye names, :class:`Scatterer`, and
+            :class:`NileRedEnvironment` alike — before computing camera
+            colour ratios, the same forward model
+            ``get_pixel_fractions_dye_and_filters``/
+            ``NileRed_Functions.apply_optical_filters`` use. This is the
+            "reasonable simulation" filter knob: pass the same filter set the
+            downstream fit's forward model assumes (e.g. the emission filter
+            in front of the Bayer sensor), so the simulated per-channel
+            colour ratios match what a real filtered acquisition would
+            produce. ``None`` (default) simulates an unfiltered emission
+            spectrum.
         frame_chunk_size: If set, ``gen_camera_image_stack`` is called once
             per chunk of this many frames instead of once for the whole
             movie, bounding peak memory to roughly ``O(frame_chunk_size)``
@@ -990,17 +1073,25 @@ def simulate_acquisition(
         "masks": masks_cam,
     }
 
-    dye_to_colours: Dict[Union[str, Scatterer, NileRedEnvironment], List[RGBTuple]] = {}
+    dye_to_colours: Dict[Union[str, Scatterer, NileRedEnvironment, SimulatedDye], List[RGBTuple]] = {}
     for colour, dye in colour_to_dye.items():
         dye_to_colours.setdefault(dye, []).append(colour)
 
+    # Computed once, upfront, so it applies uniformly to every dye branch
+    # below (regular dye name, Scatterer, NileRedEnvironment, SimulatedDye)
+    # rather than only to NileRedEnvironment as in earlier versions of this function.
+    filter_spectra = (
+        spectral.get_dye_or_filter_data(names=filter_names, wavelength=wl, dye_or_filter=False)
+        if filter_names else None
+    )
+    filter_transmission = np.prod(filter_spectra, axis=0) if filter_spectra is not None else None
+
     nile_red_functions = None  # lazily constructed only if a NileRedEnvironment is used
-    nile_red_filter_spectra = None  # lazily computed alongside nile_red_functions
 
     x0y0, n_photons = {}, {}
     dye_efficiency_rows, avg_wavelengths, gt_rows = [], [], []
     for dye, colours_for_dye in dye_to_colours.items():
-        dye_label = dye.label if isinstance(dye, (Scatterer, NileRedEnvironment)) else dye
+        dye_label = dye.label if isinstance(dye, (Scatterer, NileRedEnvironment, SimulatedDye)) else dye
         pos_chunks, on_chunks = [], []
         for colour in colours_for_dye:
             pos_px = positions_by_colour.get(colour, np.zeros((2, 0)))
@@ -1030,22 +1121,53 @@ def simulate_acquisition(
         n_photons[dye] = per_frame_photon_budget(n_frames, photon_range, rng)
         if isinstance(dye, Scatterer):
             spectrum = scatterer_spectrum(dye, wl, spectral)
-            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+            if filter_transmission is not None:
+                spectrum = spectrum * filter_transmission
+            # warn_if_unnormalised=False: scatterer_spectrum is already integral-1 by
+            # construction (gaussian_model's amplitude *is* the integral), but a
+            # filter (if applied above) legitimately shrinks it below 1 -- not a sign
+            # of a wrongly-scaled input spectrum.
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(
+                spectrum, wl, pixel_QYs, warn_if_unnormalised=False,
+            )
         elif isinstance(dye, NileRedEnvironment):
             if nile_red_functions is None:
                 import pyS3M.NileRedFunctions as NileRedFunctions
                 nile_red_functions = NileRedFunctions.NileRed_Functions()
-                if nile_red_filter_names:
-                    nile_red_filter_spectra = spectral.get_dye_or_filter_data(
-                        names=nile_red_filter_names, wavelength=wl, dye_or_filter=False,
-                    )
             spectrum = nile_red_environment_spectrum(
-                dye, wl, nile_red_functions, filter_spectra=nile_red_filter_spectra,
+                dye, wl, nile_red_functions, filter_spectra=filter_spectra,
             )
-            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(spectrum, wl, pixel_QYs)
+            # warn_if_unnormalised=False: nile_red_environment_spectrum starts from a
+            # unit-integral spectrum but a filter (if applied) legitimately shrinks it
+            # -- not a sign of wrongly-scaled input.
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(
+                spectrum, wl, pixel_QYs, warn_if_unnormalised=False,
+            )
+        elif isinstance(dye, SimulatedDye):
+            spectrum = simulated_dye_spectrum(dye, wl)
+            # Checked here, on the caller's own spectrum, before any filter is applied --
+            # unlike Scatterer/NileRedEnvironment (whose *generated* spectra are already
+            # correctly scaled), this one is genuinely caller-supplied, so a scaling
+            # mistake is worth flagging. Checking pre-filter (rather than leaving it to
+            # get_pixel_fractions_rawspectra below) is what isolates that from a filter's
+            # own legitimate, expected shrinkage of the integral -- the same reason
+            # Scatterer/NileRedEnvironment pass warn_if_unnormalised=False below.
+            if not np.isclose(np.trapz(spectrum, wl), 1.0, rtol=1e-2, atol=1e-6):
+                warnings.warn(
+                    f"simulate_acquisition: SimulatedDye {dye.label!r}'s spectrum does not "
+                    f"integrate to 1 over its wavelength grid (got "
+                    f"{np.trapz(spectrum, wl):.4g}); normalising automatically, but "
+                    "double-check its scaling -- see SimulatedDye's docstring.",
+                    UserWarning, stacklevel=2,
+                )
+            if filter_transmission is not None:
+                spectrum = spectrum * filter_transmission
+            avg_wl, fracs = spectral.get_pixel_fractions_rawspectra(
+                spectrum, wl, pixel_QYs, warn_if_unnormalised=False,
+            )
         else:
             avg_wl, fracs = spectral.get_pixel_fractions_dye_and_filters(
-                dyes=[dye], filters=None, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
+                dyes=[dye], filters=filter_names, wavelength=wl, pixel_QYs=pixel_QYs, normalized=True,
             )
         dye_efficiency_rows.append(fracs)
         avg_wavelengths.append(float(avg_wl))

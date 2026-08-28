@@ -7,6 +7,14 @@ from PyQt6.QtCore import pyqtSignal
 
 
 class PostProcPanel(QWidget):
+    """Post-fitting controls: load a saved localisation `.h5` (skipping fitting
+    entirely), filter + cluster it (HDBSCAN or DBSCAN, building `sm_db`/`sf_db`
+    via `FilteringCriteria`/`ClusteringConfig`), and save the clustered result
+    back out. The ε-multiplier row only applies to DBSCAN and is hidden
+    whenever HDBSCAN is selected. "Clear Results" discards the current
+    clustering (not the loaded localisations) so different filter/cluster
+    parameters can be tried without reloading."""
+
     cluster_requested  = pyqtSignal(object, object)  # FilteringCriteria, ClusteringConfig
     load_locs_requested = pyqtSignal(str)             # path to .h5 file
     save_requested     = pyqtSignal()                 # triggered by Save Results button

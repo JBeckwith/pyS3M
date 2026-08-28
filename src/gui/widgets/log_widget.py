@@ -4,6 +4,10 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit
 
 
 class _Signaller(QObject):
+    """Plain QObject to hold `message` -- logging.Handler isn't a QObject
+    itself, so it can't emit Qt signals directly; QtLogHandler owns one of
+    these and re-exposes its signal as its own `message` attribute."""
+
     message = pyqtSignal(str)
 
 
@@ -20,6 +24,10 @@ class QtLogHandler(logging.Handler):
 
 
 class LogWidget(QWidget):
+    """A read-only, capped-length (2000 blocks) scrolling log view.
+    `append` adds a line and auto-scrolls to the bottom — pair with
+    `QtLogHandler` to stream `logging` records into it."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self)

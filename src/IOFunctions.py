@@ -78,7 +78,7 @@ class IO_Functions:
         """
         return pd.read_hdf(filepath, key=key)
 
-    def write_h5_database(self, df: pd.DataFrame, filepath: Path | str, append: bool = False, normalise_photons: bool = True, verbose: bool = True) -> None:
+    def write_h5_database(self, df: pd.DataFrame, filepath: Path | str, append: bool = False, normalise_photons: bool = True, verbose: bool = True, key: str = "data") -> None:
         """Write localisation DataFrame to HDF5 with optional photon normalisation and frame sorting.
 
         Args:
@@ -87,6 +87,12 @@ class IO_Functions:
             append (bool): If True, append to existing file and re-sort by frame.
             normalise_photons (bool): If True, add/normalise photon columns.
             verbose (bool): Print progress messages.
+            key (str): HDF5 key to write under (default: "data", the convention
+                :meth:`read_h5_database` and callers that glob a folder for result
+                files expect). Non-localisation companion files written alongside
+                real results in the same folder -- e.g. simulation ground truth --
+                should use a different key so they're skipped (via the existing
+                ``KeyError`` handling) rather than misread as fit results.
         """
         if df.shape[0] > 0:
             # first, remove any rows that are all NaN
@@ -101,17 +107,17 @@ class IO_Functions:
 
             if append and Path(filepath).is_file():
                 # Check schema compatibility before appending
-                df = self._ensure_hdf5_compatibility(df, filepath)
-                df.to_hdf(filepath, key="data", append=True, mode="r+", format="table", index=False)
+                df = self._ensure_hdf5_compatibility(df, filepath, key=key)
+                df.to_hdf(filepath, key=key, append=True, mode="r+", format="table", index=False)
 
                 # Re-read entire file, sort by frame, and rewrite
                 # This ensures proper frame ordering for visualization
                 if verbose:
                     logger.info(f"Sorting appended HDF5 file by frame: {Path(filepath).name}")
                 with pd.HDFStore(filepath, mode="r+") as store:
-                    if "data" in store:
+                    if key in store:
                         # Read all data
-                        full_df = store["data"]
+                        full_df = store[key]
                         if verbose:
                             logger.info(f"  Read {len(full_df):,} total localizations")
 
@@ -123,12 +129,12 @@ class IO_Functions:
                             logger.info(f"  Sorted by frame (range: {sorted_df['frame'].min()}-{sorted_df['frame'].max()})")
 
                         # Remove old data and write sorted data back
-                        store.remove("data")
-                        store.put("data", sorted_df, format="table", index=False)
+                        store.remove(key)
+                        store.put(key, sorted_df, format="table", index=False)
                         if verbose:
                             logger.info(f"  Rewritten sorted data to {Path(filepath).name}")
             else:
-                df.to_hdf(filepath, key="data", format="table", index=False)
+                df.to_hdf(filepath, key=key, format="table", index=False)
 
     # Keep private alias for any external callers not yet migrated
     _write_h5_database = write_h5_database
@@ -214,7 +220,7 @@ class IO_Functions:
             if backup and backup_path:
                 logger.info(f"Restore from backup if needed: {backup_path}")
 
-    def _ensure_hdf5_compatibility(self, df, filepath):
+    def _ensure_hdf5_compatibility(self, df, filepath, key="data"):
         """
         Ensure new DataFrame is compatible with existing HDF5 table schema.
 
@@ -224,6 +230,7 @@ class IO_Functions:
         Args:
             df (pd.DataFrame): New DataFrame to append
             filepath (str): Path to existing HDF5 file
+            key (str): HDF5 key to check against (default: "data").
 
         Returns:
             pd.DataFrame: DataFrame with compatible dtypes
@@ -232,7 +239,7 @@ class IO_Functions:
 
         try:
             # Read just the first row to get schema information
-            existing_df = pd.read_hdf(filepath, key="data", stop=1)
+            existing_df = pd.read_hdf(filepath, key=key, stop=1)
 
             if len(existing_df) == 0:
                 # Empty table - return original df

@@ -124,12 +124,6 @@ multidict==6.7.0
 multipledispatch==1.0.0
 multiprocess==0.70.16
 mypy-extensions==1.0.0
-napari==0.6.6
-napari-animation==0.0.9
-napari-console==0.1.4
-napari-plugin-engine==0.2.0
-napari-plugin-manager==0.1.8
-napari-svg==0.2.1
 narwhals==1.32.0
 nbclient==0.9.0
 nbconvert==7.16.1

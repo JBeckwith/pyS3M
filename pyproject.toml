@@ -50,7 +50,6 @@ dependencies = [
 notebooks = [
     "jupyterlab>=4.1,<5",
     "ipywidgets>=8.1,<9",
-    "napari>=0.6,<0.7",
     "seaborn>=0.13,<0.14",
     "xarray>=2024.9",
     "plotly>=6.0,<7",
@@ -100,3 +99,22 @@ packages = [
 
 [tool.setuptools.dynamic]
 version = {attr = "pyS3M.__version__"}
+
+[tool.coverage.run]
+# "src", not "pyS3M": pyS3M.X is import-mapped to src/X.py (package-dir above), but an
+# editable install's import finder has no real on-disk pyS3M/ tree for coverage to walk
+# when looking for files that were never imported -- pointing coverage at the real "src"
+# directory instead gets both correct attribution (hits already land on real src/ paths,
+# confirmed via `pyS3M.AnalysisPipeline.__file__`) and complete discovery (files never
+# imported by any test still show up as real 0%, instead of silently vanishing from the
+# denominator). Requires an editable install (`pip install -e .`) to attribute correctly --
+# a non-editable `pip install .` runs a frozen site-packages copy, so hits land on that
+# copy's path instead and every src/ file reports a false 0%.
+source = ["src"]
+omit = ["src/gui/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+# Appends to (doesn't replace) coverage.py's built-in "pragma: no cover" default --
+# script-entry-point demo blocks never execute under pytest and aren't meant to.
+exclude_also = ["if __name__ == .__main__.:"]

@@ -402,6 +402,26 @@ class MainWindow(QMainWindow):
         return fig
 
     def _make_scatter_figure(self, locs, title: str = "Localisations") -> Figure:
+        # Defensive: this is the last-resort fallback in _make_locs_render_figure,
+        # reached whenever the RGB/scalar render can't be built -- including when
+        # *locs* isn't actually localisation data at all (e.g. a differently-shaped
+        # companion .h5 glob-matched alongside real results; see claude/LOG.md
+        # "GUI bug reports from real Windows/Linux usage"). A missing xc/yc here
+        # must not crash the whole fitting/loading worker -- show a placeholder
+        # instead of raising, so the real results already recorded upstream of
+        # this figure aren't lost along with it.
+        if not all(c in locs.columns for c in ("xc", "yc")):
+            fig = Figure(figsize=(6, 6), dpi=100, layout="constrained")
+            ax = fig.add_subplot(111)
+            ax.text(
+                0.5, 0.5, "No xc/yc columns to render\n(not localisation data?)",
+                ha="center", va="center", transform=ax.transAxes, color="gray",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(title)
+            return fig
+
         pixel_size_nm = self.pipeline.pixel_size * 1000
         x = locs["xc"].values * pixel_size_nm
         y = locs["yc"].values * pixel_size_nm
@@ -650,8 +670,6 @@ class MainWindow(QMainWindow):
         if self._worker_running() or self.pipeline is None:
             return
 
-        photon_range = self.fitting_panel.photon_range
-
         def _do():
             self.pipeline.config.progress_callback = lambda f, m: worker.progress.emit(f, m)
             self.pipeline.config.logging_callback = lambda m: worker.log.emit(m)
@@ -659,15 +677,7 @@ class MainWindow(QMainWindow):
             fov_data = self.pipeline.fit(
                 Path(data_dir), mode=mode, fitting_config=fitting_config, **extra_kwargs
             )
-            if not fov_data:
-                return data_dir, [], None, None
-            n = len(fov_data)
-            first_df, first_tif = fov_data[0]
-            title = f"FOV 1 / {n}" if n > 1 else "Localisations"
-            locs_fig = self._make_locs_render_figure(first_df, tif_path=first_tif, title=title)
-            all_locs = pd.concat([df for df, _ in fov_data], ignore_index=True)
-            stats_fig = self._make_stats_figure(all_locs, photon_range=photon_range)
-            return data_dir, fov_data, locs_fig, stats_fig
+            return data_dir, fov_data
 
         worker = self._start_worker(_do)
         worker.result.connect(self._on_fitting_done)
@@ -675,7 +685,16 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_fitting_done(self, result):
-        data_dir, fov_data, locs_fig, stats_fig = result
+        # Record real results (already written to disk by pipeline.fit()) and
+        # advance app state before touching the preview figures below -- a
+        # rendering failure (e.g. a malformed companion file glob-matched
+        # alongside the real results, as ground_truth.h5 briefly was) must
+        # never prevent _fov_data/_fitted_data_dir/state from being set, or
+        # every downstream action (channel unmixing, clustering, ...) that
+        # gates on them silently no-ops with no error and nothing in the log.
+        # Rendering itself is deferred to _refresh_render_figure's own aux
+        # worker, matching the pattern _on_clustering_done already uses.
+        data_dir, fov_data = result
         self._fitted_data_dir = data_dir
         self._fov_data = fov_data
         self._undrifted_locs = None
@@ -691,10 +710,38 @@ class MainWindow(QMainWindow):
         self.progress_widget.update(1.0, "Fitting complete")
         self._update_state(AppState.FITTED)
         self.results_panel.set_fov_count(len(fov_data))
-        if locs_fig is not None:
-            self.results_panel.set_localisations_figure(locs_fig)
-        if stats_fig is not None:
-            self.results_panel.set_stats_figure(stats_fig)
+        if not fov_data:
+            return
+        n = len(fov_data)
+        first_df, first_tif = fov_data[0]
+        title = f"FOV 1 / {n}" if n > 1 else "Localisations"
+        all_locs = pd.concat([df for df, _ in fov_data], ignore_index=True)
+        self._refresh_render_figure(first_df, title=title, stats_locs=all_locs, tif_path=first_tif)
+
+    def _on_clear_fitting(self):
+        """Discard fitting results (and everything downstream that depended
+        on them) so the user can re-fit with different parameters without
+        re-selecting the data folder."""
+        self._fitted_data_dir = None
+        self._fov_data = []
+        self._undrifted_locs = None
+        self._sm_db = None
+        self._sf_db = None
+        self.fitting_panel.set_clear_enabled(False)
+        self.drift_panel.set_clear_enabled(False)
+        self.postproc_panel.set_clear_enabled(False)
+        self.postproc_panel.clear_result()
+        self.channel_unmixing_panel.set_available_channels([])
+        self._invalidate_nile_red()
+        self.results_panel.set_fov_count(1)
+        self.results_panel.clear_localisations_figure()
+        self.results_panel.clear_stats_figure()
+        self.results_panel.clear_drift_figure()
+        self.results_panel.clear_unmixing_figure()
+        self.results_panel.clear_frc_figure()
+        self.progress_widget.reset()
+        self._update_state(AppState.CALIBRATED if self.pipeline is not None else AppState.IDLE)
+        self.log_widget.append("Cleared fitting results — ready to fit again.")
 
     def _on_clear_fitting(self):
         """Discard fitting results (and everything downstream that depended
@@ -924,13 +971,24 @@ class MainWindow(QMainWindow):
         self._update_state(new_state)
         self.log_widget.append("Cleared clustering results — ready to cluster again.")
 
-    def _refresh_render_figure(self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None):
-        """Launch an aux worker to build and display the render (and optionally stats) figure."""
+    def _refresh_render_figure(
+        self, locs, title: str = "Localisations", stats_locs=None, stats_sm=None,
+        tif_path: str | None = None,
+    ):
+        """Launch an aux worker to build and display the render (and optionally stats) figure.
+
+        *tif_path*, when given, is used for the MIP instead of globbing
+        ``self._fitted_data_dir`` — needed right after fitting, where *locs* is
+        one specific FOV's table and its matching TIFF may not be the first
+        one found by a folder glob.
+        """
         data_dir = self._fitted_data_dir
         photon_range = self.fitting_panel.photon_range
 
         def _do():
-            locs_fig = self._make_locs_render_figure(locs, data_dir=data_dir, title=title)
+            locs_fig = self._make_locs_render_figure(
+                locs, data_dir=data_dir, tif_path=tif_path, title=title
+            )
             stats_fig = (
                 self._make_stats_figure(stats_locs, photon_range=photon_range, sm_locs=stats_sm)
                 if stats_locs is not None and not stats_locs.empty
@@ -980,6 +1038,22 @@ class MainWindow(QMainWindow):
             self.log_widget.append(f"Save failed:\n{_tb.format_exc()}")
             QMessageBox.critical(self, "Save failed", "Could not write HDF5 file — see log.")
 
+    def _fov_dimensions(self, locs) -> tuple[int, int]:
+        """(height, width) in camera pixels, for undrift/FRC binning.
+
+        Prefers the loaded calibration's gain_map shape (the true sensor
+        extent, guaranteed to cover every localisation). Falls back to the
+        localisations' own coordinate extent when no calibration is loaded --
+        gain_map is None after "Load Localisations" on an existing .h5
+        without recalibrating first (see _on_load_locs), which previously
+        crashed undrift/FRC/per-channel-FRC with an unhelpful AttributeError.
+        """
+        if self.pipeline.gain_map is not None:
+            return self.pipeline.gain_map.shape[:2]
+        height = int(np.ceil(locs["yc"].max())) + 1
+        width = int(np.ceil(locs["xc"].max())) + 1
+        return height, width
+
     # ------------------------------------------------------------------
     # Drift correction
     # ------------------------------------------------------------------
@@ -996,7 +1070,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("No localisations to undrift.")
 
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(locs_df)
             n_frames = int(locs_df["frame"].max()) + 1
 
             info = [{
@@ -1115,7 +1189,7 @@ class MainWindow(QMainWindow):
             if locs.empty:
                 raise ValueError("No localisations available for FRC.")
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(locs)
             return self._make_frc_figure(locs, width, height, pixel_size_nm, zoom, n_blocks, reps)
 
         worker = self._start_worker(_do)
@@ -1310,7 +1384,7 @@ class MainWindow(QMainWindow):
 
         def _do():
             pixel_size_nm = self.pipeline.pixel_size * 1000.0
-            height, width = self.pipeline.gain_map.shape[:2]
+            height, width = self._fov_dimensions(self._sm_db)
             return self._make_frc_per_channel_figure(
                 self._sm_db, channels, width, height, pixel_size_nm, zoom, n_blocks, reps,
             )
@@ -1859,7 +1933,16 @@ class MainWindow(QMainWindow):
         with open(out_dir / f"{run_name}_MMStack_Default_metadata.txt", "w") as f:
             json.dump(metadata, f)
 
-        io.write_h5_database(ground_truth, out_dir / "ground_truth.h5", verbose=False)
+        # Written to a subfolder, under a non-default key, so a later fit run on
+        # out_dir doesn't glob this file in as if it were localisation results:
+        # load_localisations[_per_fov]'s glob is non-recursive (won't descend
+        # into ground_truth/), and even if it did, they already skip files that
+        # lack a "data" key, which now includes this one. Two independent
+        # layers deliberately -- see claude/LOG.md "GUI bug reports from real
+        # Windows/Linux usage".
+        gt_dir = out_dir / "ground_truth"
+        gt_dir.mkdir(parents=True, exist_ok=True)
+        io.write_h5_database(ground_truth, gt_dir / "ground_truth.h5", verbose=False, key="ground_truth")
 
         fig = self._make_pattern_simulation_figure(
             bayer_stack, ground_truth, colour_to_dye, width, height,

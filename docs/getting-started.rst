@@ -20,6 +20,16 @@ dependency constraint (``colour-demosaicing`` caps at <3.13), not an arbitrary c
 Installation
 ============
 
+Install into a virtual environment, not your system Python — ``pyS3M`` pulls in a large,
+version-pinned dependency tree (numpy, numba, scikit-learn, PyQt6, ...) that can otherwise
+clash with other projects. See the `venv docs <https://docs.python.org/3/library/venv.html>`_
+if you're not already using one:
+
+.. code-block:: bash
+
+   python -m venv .venv
+   source .venv/bin/activate   # .venv\Scripts\activate on Windows
+
 Clone the repository, then from its root:
 
 .. code-block:: bash
@@ -32,7 +42,7 @@ dependencies. Optional extras layer on top as needed:
 
 .. code-block:: bash
 
-   pip install .[notebooks]  # jupyterlab, napari, seaborn, xarray, plotly, ...
+   pip install .[notebooks]  # jupyterlab, seaborn, xarray, plotly, ...
    pip install .[docs]       # Sphinx + the Read the Docs theme, for building docs locally
    pip install .[dev]        # pytest, coverage, black, build
 
@@ -52,7 +62,11 @@ Running the GUI
 Getting Started
 ===============
 
-Example notebooks covering the main workflows are provided in ``notebooks/``.
+Example notebooks covering the main workflows are provided in ``notebooks/analyses/``
+(single- and multi-FOV fitting, drift correction, clustering, channel unmixing, Nile Red,
+FRC) and ``notebooks/simulations/`` (generating your own synthetic acquisitions) — this is the
+exact worked example from ``01_getting_started_smlm_fitting.ipynb``, runnable end-to-end
+against data already bundled with the repo.
 A minimal analysis looks like, using :class:`~pyS3M.AnalysisPipeline.AnalysisPipeline`
 configured via :class:`~pyS3M.AnalysisPipeline.FittingConfig` and
 :class:`~pyS3M.Constants.AnalysisConfig`, then
@@ -81,8 +95,9 @@ configured via :class:`~pyS3M.AnalysisPipeline.FittingConfig` and
    locs = pipe.load_localisations(data_dir)
    sm_db, sf_db = pipe.filter_and_cluster(locs)
 
-See ``notebooks/`` for fuller worked examples (per-camera calibration, drift
-correction, FRC, channel unmixing, simulation).
+See ``notebooks/analyses/`` for fuller worked examples (single- and multi-FOV fitting,
+drift correction, clustering, channel unmixing, Nile Red, FRC) and ``notebooks/simulations/``
+for how to generate your own synthetic acquisitions.
 
 Contributing
 ============

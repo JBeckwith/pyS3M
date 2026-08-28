@@ -277,6 +277,13 @@ class TestFitGmmPygmmis:
             X, X_err, initial_means, n_components=2, max_iter=20,
         )
         assert means.shape == (2, 2)
+        # Fit must actually converge through the patched pool/shared-array
+        # stand-ins, not just run without raising.
+        assert converged is True
+        np.testing.assert_allclose(
+            np.sort(means, axis=0), np.sort(np.array([MEAN0, MEAN1]), axis=0),
+            atol=0.05,
+        )
         # Both must be restored to the real pygmmis internals afterward, not
         # left patched to the serial/no-shared-memory stand-ins.
         assert pygmmis.multiprocessing.Pool is original_pool
@@ -323,6 +330,11 @@ class TestSerialPool:
         pool = mixture_analysis._SerialPool()
         result = pool.apply_async(lambda a, b: a + b, (2, 3))
         assert result.get() == 5
+
+    def test_map_async_runs_synchronously_and_returns_results(self):
+        pool = mixture_analysis._SerialPool()
+        result = pool.map_async(lambda x: x * 2, [1, 2, 3], chunksize=1)
+        assert result.get() == [2, 4, 6]
 
     def test_close_and_join_are_noops(self):
         pool = mixture_analysis._SerialPool()

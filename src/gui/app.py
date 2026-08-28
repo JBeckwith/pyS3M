@@ -1,3 +1,4 @@
+import multiprocessing
 import sys
 import threading
 from pathlib import Path
@@ -19,6 +20,14 @@ def _prewarm():
 
 
 def run():
+    # Must be the first call: on Windows, the fitting pipeline's ProcessPoolExecutor
+    # use (SpotDetectionFunctions.detect_puncta_in_stack_parallel etc.) spawns child
+    # interpreters that re-import this entry point. freeze_support() is a no-op on
+    # Linux/macOS but is required on Windows for any app launched from a console-script
+    # entry point (as opposed to a plain `if __name__ == "__main__":`-guarded script)
+    # that uses multiprocessing, or child processes can fail to bootstrap correctly.
+    multiprocessing.freeze_support()
+
     app = QApplication(sys.argv)
     app.setApplicationName("pyS3M")
     app.setOrganizationName("LeeGroup")

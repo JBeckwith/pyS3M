@@ -8,7 +8,7 @@ Recommended Peak λ for fitting (FittingPanel "Peak λ"): 0.644 µm
 Modality: PAINT
 Candidate density: 0.02 /µm² (pool size scales with density x area x n_frames — see pattern_source.pool_size_for_density)
 N frames: 400
-N candidates (ground-truth pool size): 40
+N candidates (ground-truth pool size): 29
+Minimum candidate separation: 1000 nm centre-to-centre, enforced across the whole candidate pool (not just per-frame ON subsets, which this conservatively subsumes) — see pattern_source.sample_n_positions_in_mask.
 
-Per-dye candidate split: {'Cy3B': 20, 'Alexa Fluor 647': 20}. Both dyes share one Peak λ during fitting (gen_camera_image_stack uses one shared PSF sigma for the whole simulated stack) — the two dyes differ in Bayer-channel colour split (A_R/A_G/A_B), not PSF size, which is what unmix_channels actually separates on.
-
+Per-dye candidate split: {'Alexa Fluor 647': 15, 'Cy3B': 14}. Both dyes share one Peak λ during fitting (gen_camera_image_stack uses one shared PSF sigma for the whole simulated stack) — the two dyes differ in Bayer-channel colour split (A_R/A_G/A_B), not PSF size, which is what unmix_channels actually separates on.
