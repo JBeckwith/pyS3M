@@ -3,10 +3,6 @@ claude/
 
 # EBI upload folder — contains FTP credentials and large manifest files
 notebooks/EBI_Upload/
-
-# notebooks/figures/ raw data downloaded from BioStudies (multi-GB TIFFs) + fit outputs
-# written alongside them (Localisations.h5 etc.) — never commit, always re-downloadable
-notebooks/figures/data/
 *Old*
 DriftCorrection_Example.py
 DriftCorrection_README.md
